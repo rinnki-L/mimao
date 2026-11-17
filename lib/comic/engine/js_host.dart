@@ -141,6 +141,9 @@ class SourceExecutionPool {
   /// 是否已注册。
   bool contains(String key) => _sources.containsKey(key);
 
+  /// 当前已注册的全部源 key（对账用，如执行池与 store 的同步）。
+  Iterable<String> get keys => _sources.keys;
+
   /// 在指定源的 runtime 里执行表达式。
   ///
   /// 源未注册、脚本抛错、Promise reject 都收敛为 [SourceExecutionResult]，

@@ -16,6 +16,7 @@ class ComicSourceScript {
     this.version = '',
     this.minAppVersion = '',
     this.url = '',
+    this.enabled = true,
   });
 
   /// 唯一标识（脚本里的 `key` 字段）。
@@ -31,7 +32,21 @@ class ComicSourceScript {
   /// 更新地址（源仓库 raw URL）。
   final String url;
 
+  /// 是否参与多源搜索（源管理页的开关；随 manifest 持久化）。
+  final bool enabled;
+
   bool get isValid => key.trim().isNotEmpty && script.trim().isNotEmpty;
+
+  /// URL 导入后把导入地址写进元数据、源管理切换启用状态时使用。
+  ComicSourceScript copyWith({String? url, bool? enabled}) => ComicSourceScript(
+    key: key,
+    script: script,
+    name: name,
+    version: version,
+    minAppVersion: minAppVersion,
+    url: url ?? this.url,
+    enabled: enabled ?? this.enabled,
+  );
 
   /// 版本号比较（简单 segment 数值比较，非语义化版本也兼容）。
   static int compareVersion(String a, String b) {

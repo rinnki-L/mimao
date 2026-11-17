@@ -21,6 +21,7 @@ class ComicSourceManifestEntry {
     required this.version,
     required this.minAppVersion,
     required this.url,
+    this.enabled = true,
   });
 
   final String key;
@@ -29,12 +30,16 @@ class ComicSourceManifestEntry {
   final String minAppVersion;
   final String url;
 
+  /// 是否参与多源搜索；旧 manifest 无该字段时读为 true（向后兼容）。
+  final bool enabled;
+
   Map<String, dynamic> toJson() => <String, dynamic>{
     'key': key,
     'name': name,
     'version': version,
     'minAppVersion': minAppVersion,
     'url': url,
+    'enabled': enabled,
   };
 
   factory ComicSourceManifestEntry.fromJson(Map<String, dynamic> json) =>
@@ -44,6 +49,7 @@ class ComicSourceManifestEntry {
         version: json['version']?.toString() ?? '',
         minAppVersion: json['minAppVersion']?.toString() ?? '',
         url: json['url']?.toString() ?? '',
+        enabled: json['enabled'] is bool ? json['enabled'] as bool : true,
       );
 }
 
@@ -110,6 +116,7 @@ class ComicSourceStore {
           version: entry.version,
           minAppVersion: entry.minAppVersion,
           url: entry.url,
+          enabled: entry.enabled,
         ),
       );
     }
@@ -155,6 +162,7 @@ class ComicSourceStore {
       version: source.version,
       minAppVersion: source.minAppVersion,
       url: source.url,
+      enabled: source.enabled,
     );
     final updated = manifest.where((e) => e.key != source.key).toList()
       ..add(entry)
