@@ -99,10 +99,15 @@ class QuickJsHost implements JsHost {
 /// 脚本（仅一次）并调用方法；[dispose] 关掉宿主。并发调用同一 key 时复用
 /// 宿主，但 QuickJS 单线程语义下由调用方串行化（上层按源串行搜索即可）。
 class SourceExecutionPool {
-  SourceExecutionPool({JsHost Function()? hostFactory})
-    : _hostFactory = hostFactory ?? (() => QuickJsHost());
+  SourceExecutionPool({
+    JsHost Function()? hostFactory,
+    this.timeout = const Duration(seconds: 30),
+  }) : _hostFactory = hostFactory ?? (() => QuickJsHost());
 
   final JsHost Function() _hostFactory;
+
+  /// 单次执行超时；超时收敛为 [SourceExecutionResult.error]，不抛给上层。
+  final Duration timeout;
   final Map<String, _PooledSource> _sources = <String, _PooledSource>{};
 
   /// 注册（或覆盖）一个源脚本。
@@ -146,9 +151,7 @@ class SourceExecutionPool {
       return SourceExecutionResult.error('源未注册：$key');
     }
     try {
-      final value = await pooled.host
-          .evaluate(expression)
-          .timeout(const Duration(seconds: 30));
+      final value = await pooled.host.evaluate(expression).timeout(timeout);
       return SourceExecutionResult(value: value);
     } catch (error) {
       return SourceExecutionResult.error(error.toString());

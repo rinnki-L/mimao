@@ -6,6 +6,7 @@
 /// 由 js_bridge_api_test.dart 的纯 Dart 测试兜底。
 library;
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -170,4 +171,46 @@ void main() {
     );
     expect(QuickJsHost.findSourceClassName(fixtureNotASource), isNull);
   });
+
+  test('⑦ 执行超时不崩溃：fake 慢宿主超时收敛为错误诊断', () async {
+    // 不需要 native：用故意挂起的 fake JsHost 验证 SourceExecutionPool 的超时保护。
+    final slowPool = SourceExecutionPool(
+      hostFactory: () => _HangingHost(),
+      timeout: const Duration(milliseconds: 50),
+    );
+    await slowPool.register('slow', fixtureSourceScript);
+    final result = await slowPool.execute(
+      'slow',
+      'source.search.load("x",[],1)',
+    );
+    expect(result.isOk, isFalse);
+    expect(result.error, isNotNull);
+    expect(
+      result.error!.toLowerCase(),
+      contains('timeout'),
+      reason: '超时错误应含 timeout：${result.error}',
+    );
+    slowPool.disposeAll();
+  });
+}
+
+/// 执行阶段永远不完成的宿主——专门用来触发 SourceExecutionPool 超时保护。
+class _HangingHost implements JsHost {
+  bool _registered = false;
+
+  @override
+  Future<void> loadScript(String script) async {}
+
+  @override
+  Future<Object?> evaluate(String expression) async {
+    // 注册时的 `source = new ...` 赋值立即返回；真正的方法调用才挂起。
+    if (!_registered) {
+      _registered = true;
+      return null;
+    }
+    return Completer<Object?>().future; // 永不 complete
+  }
+
+  @override
+  void close() {}
 }
