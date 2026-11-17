@@ -30,8 +30,6 @@
 - [ ] 统一书架 / 收藏 / 历史 / 下载
 - [ ] 我的（个人中心）
 
-详见 [架构设计](docs/architecture.md) 与 [目录布局](docs/directory-layout.md)。
-
 ## 设计
 
 四个模块各自的来源与接入方式：
@@ -45,8 +43,7 @@
 
 ## 开发
 
-欢迎提交 PR！本项目的四条边界铁律由 `test/architecture/boundary_test.dart` 哨兵测试把守,
-CI 分域门禁见 [架构设计](docs/architecture.md) §11；动手前请先读架构与目录布局文档。
+欢迎提交 PR！动手前请先了解项目的模块划分与边界约定。
 
 本地校验 CI 配置：`node tools/validate-ci-yaml.mjs .github/workflows/ci.yml`
 

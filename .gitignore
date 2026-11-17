@@ -1,7 +1,10 @@
 # mimao — Git ignore
-# 设计约定见 docs/architecture.md §11.2：
 #   - 这是应用（不是库），pubspec.lock 与 *.g.dart 等生成物必须入库
 #   - JS 源文件（规则引擎的 Node 验证脚本等）必须入库，只忽略 dart2js 产物
+
+# 私人的选型 / 规划材料——只留本地，不进公开仓库
+demos/
+docs/
 
 # pub / Dart 工具产物
 .dart_tool/
