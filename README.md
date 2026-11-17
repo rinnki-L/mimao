@@ -2,7 +2,7 @@
 
 <h1>mimao</h1>
 
-<img src="assets/mimao.png" width="200"></img>
+<img src="https://raw.githubusercontent.com/rinnki-L/mimao/main/assets/mimao.png" alt="mimao" width="200"></img>
 
 <img alt="license" src="https://img.shields.io/badge/license-GPL--3.0-blue.svg?style=for-the-badge"></img>
 <img alt="Flutter" src="https://img.shields.io/badge/Flutter-02569B?style=for-the-badge&logo=flutter&logoColor=white"></img>
