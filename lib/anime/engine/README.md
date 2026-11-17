@@ -104,6 +104,10 @@ print(hits.items.map((e) => '${e.title} ${e.absoluteUrl}'));
 
 若站点改版，先确认规则 JSON 是否更新；规则失效不是引擎 bug。
 
+页面侧不直接消费这些结构——`lib/anime/data/rule_anime_data_source.dart` 的
+`RuleAnimeDataSource` 把它们适配成 `AnimeSummary` / `AnimeDetail`，并说明
+`schedule()` 为空等能力边界，详见 [data/README.md](../data/README.md)。
+
 ## 5. 测试
 
 ```bash
