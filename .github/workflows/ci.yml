@@ -20,25 +20,20 @@
 # 门禁一览（每扇门都会真的红；红的原因写在各自注释里）：
 #   lockfile 门     pubspec 与 pubspec.lock 不同步 → 红（git fork 依赖全靠 lock 钉住）
 #   格式门          dart format 漂移 → 红
-#   分析门          dart analyze 的 info / warning（自写代码）→ 红；镜像目录只守 error
+#   分析门          dart analyze 的 info / warning（自写代码）→ 红（R1 起无镜像豁免）
 #   dart fix 门     有可自动修复项却没修 → 红
 #   生成代码漂移门  build_runner 重建后工作区有改动 → 红（生成文件是合并冲突重灾区）
 #   测试门          测试失败 → 红；已测文件集合上的行覆盖率低于 MIN_COVERAGE → 红
 #   构建门          Windows / Android release 构建失败 → 红
 #   合并预演门      与 origin/main 存在合并冲突 → 红（冲突文件写入 Step Summary）
-#   分域说明        格式/分析/dart fix 三扇门只覆盖自写代码；镜像目录（lib/anime、
-#                   lib/comic）只做 error 级分析；demos/ 不进任何门（docs/architecture.md §11）
+#   分域说明        格式/分析/dart fix 三扇门覆盖全部自写代码（含 lib/anime；
+#                   R1 已取消镜像豁免）；demos/ 不进任何门（docs/architecture.md R1）
 #
-# 【现状说明】仓库当前没有 pubspec.yaml（Flutter 工程尚未落地）：本流水线按
-# 工程落位后的形态编写。落地前各 job 会先红在依赖步骤：static-checks 与
-# tests 红在 flutter pub get（无 pubspec.yaml）、build-android 红在 setup-java
-# 的 gradle 缓存（仓库无 *.gradle* 文件可哈希）——真红但与上方门注释的红因
-# 对不上，属已知过渡态；工程落位后自愈。
-# 另有一条不会随落位自愈的策略约束：漂移门强制「生成物入库」——若项目
-# .gitignore 忽略 *.g.dart 等生成物，落位后该门会持续红，正确处置是删除
-# 对应规则（普通 git add 会被忽略规则拒绝，不要用 add -f 绕过）。
-# M3 起 rhttp 需要 Rust/NDK：build-windows/build-android 的前置步骤须在 M3 当天
-# 补齐（docs/architecture.md §11.4）；当前未接是已知缺口，不是遗漏。
+# 【现状说明】Flutter 工程已落位（2026-11-17）：pubspec.yaml / pubspec.lock /
+# 生成物均入库，static-checks 与 tests 按真实工程运行；lib/anime 为自写代码，
+# 已纳入全部严档（R1）。M3 起 rhttp 需要 Rust/NDK：build-windows/build-android
+# 已预置 Rust 工具链步骤；当前依赖未含 rhttp，该步骤幂等无害，接 rhttp 时按
+# docs/architecture.md §11.4 补齐即可。
 # ==============================================================
 name: CI
 
@@ -94,19 +89,18 @@ jobs:
           set -euo pipefail
           flutter pub get --enforce-lockfile
 
-      # 第二扇门：格式漂移即红。分域（docs/architecture.md §11.1）：
-      # 只格式化自写代码；lib/anime、lib/comic 等镜像目录豁免——改写上游文件内容
-      # 会让固定前缀 patch 重放退化成人工合并。demos/ 是选型材料，也不进此门。
-      # 生成物（*.g.dart 等）同样排除：它们由 build_runner 产出，格式化它们会让
-      # 第五扇门（重建后 diff 必须干净）自相矛盾。
-      - name: 格式门——自写代码格式漂移即红（镜像目录、demos/、生成物豁免）
+      # 第二扇门：格式漂移即红。R1（docs/architecture.md）已取消镜像豁免：
+      # 引擎移植 + 功能自写，lib/anime 也是自写代码，必须过 format。demos/ 是
+      # 选型材料，不进此门。生成物（*.g.dart 等）同样排除：它们由 build_runner
+      # 产出，格式化它们会让第五扇门（重建后 diff 必须干净）自相矛盾。
+      - name: 格式门——自写代码格式漂移即红（demos/、生成物豁免）
         run: |
           set -euo pipefail
           targets=""
           for p in lib/main.dart lib/*/*_entry.dart lib/*/*_module.dart; do
             if [ -f "$p" ]; then targets="$targets $p"; fi
           done
-          for d in lib/shell lib/core lib/music lib/novel test; do
+          for d in lib/shell lib/core lib/anime lib/comic lib/music lib/novel test; do
             if [ ! -d "$d" ]; then continue; fi
             for f in $(find "$d" -type f -name '*.dart' ! -name '*.g.dart' ! -name '*.drift.dart' ! -name '*.freezed.dart' ! -name '*.mock.dart' ! -name '*.mocks.dart'); do
               targets="$targets $f"
@@ -120,13 +114,13 @@ jobs:
           dart format --output=none --set-exit-if-changed $targets
 
       # 第三扇门：--fatal-infos 把 info 升级为失败，warning 默认即失败。
-      # 分域（§11.1）：自写代码用严格档；镜像目录只把守 error 级（--no-fatal-warnings），
-      # 不按我们的 lint 口味改写上游代码。
+      # R1（§11.1 的镜像豁免作废）：引擎移植 + 功能自写，lib/anime 也是自写代码，
+      # 与 shell/core/test 同档；未来若真有整树镜像目录，必须先在架构文档登记豁免。
       # 强度前提（如实注明）：实际覆盖面取决于 analysis_options.yaml 启用的 lint 集——
-      # docs/directory-layout.md 已拍板「lint 从宽」（不开 always_use_package_imports，
-      # 上游镜像含相对导入），边界由哨兵测试把守、不靠 lint。因此先校验该文件存在
+      # docs/directory-layout.md 已拍板「lint 从宽」（不开 always_use_package_imports），
+      # 边界由哨兵测试把守、不靠 lint。因此先校验该文件存在
       # 且非空：文件缺失/被清空时 analyze 会静默降级为默认 lint 集，分析门变弱。
-      - name: 分析门——自写代码 info/warning 也失败，镜像目录只守 error
+      - name: 分析门——全部自写代码 info/warning 也失败
         run: |
           set -euo pipefail
           if [ ! -s analysis_options.yaml ]; then
@@ -137,25 +131,20 @@ jobs:
             echo "::error::analysis_options.yaml 只有注释或空行——等效于空文件，分析门会静默降级"
             exit 1
           fi
-          for p in lib/main.dart lib/shell lib/core lib/music lib/novel test lib/*/*_entry.dart lib/*/*_module.dart; do
+          for p in lib/main.dart lib/shell lib/core lib/anime lib/comic lib/music lib/novel test lib/*/*_entry.dart lib/*/*_module.dart; do
             if [ -e "$p" ]; then
               dart analyze --fatal-infos "$p"
-            fi
-          done
-          for p in lib/anime lib/comic; do
-            if [ -d "$p" ]; then
-              dart analyze --no-fatal-warnings "$p"
             fi
           done
 
       # 第四扇门：dart fix --dry-run 的输出里必须是「Nothing to fix!」；
       # 出现任何可自动修复项（或命令本身异常退出）都红——防「能自动修却没人修」。
-      # 分域（§11.1）：只跑自写目录；dart fix 只接受目录参数，故 lib/main.dart 与
-      # 模块入口文件由上一扇门的 format/analyze 覆盖，不在此门。
+      # R1 起 lib/anime 同为自写代码，一并进本门；dart fix 只接受目录参数，故
+      # lib/main.dart 与模块入口文件由上一扇门的 format/analyze 覆盖，不在此门。
       - name: dart fix 门——自写目录存在可自动修复项即红（grep 判定）
         run: |
           set -euo pipefail
-          for p in lib/shell lib/core lib/music lib/novel test; do
+          for p in lib/shell lib/core lib/anime lib/comic lib/music lib/novel test; do
             if [ ! -d "$p" ]; then continue; fi
             log=$(dart fix --dry-run "$p" 2>&1) || { printf '%s\n' "$log"; echo "::error::dart fix --dry-run $p 本身非零退出"; exit 1; }
             printf '%s\n' "$log"
@@ -202,7 +191,7 @@ jobs:
       - name: 生成代码漂移门——build_runner 重建后 git diff --exit-code 必须干净
         run: |
           set -euo pipefail
-          dart run build_runner build --delete-conflicting-outputs
+          dart run build_runner build
           ignored=$(git ls-files --others --ignored --exclude-standard -- '*.g.dart' '*.drift.dart' '*.mock.dart' '*.mocks.dart' '*.freezed.dart')
           if [ -n "$ignored" ]; then
             printf '%s\n' "$ignored"

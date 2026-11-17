@@ -10,6 +10,8 @@ docs/
 .dart_tool/
 .packages
 build/
+# flutter test --coverage 产物；不是生成代码，不入库
+coverage/
 *.dart.js
 *.js_
 *.js.deps
@@ -21,6 +23,12 @@ doc/api/
 
 # 环境变量 / 密钥
 .env*
+
+# 本机环境搭建日志与私人环境笔记（只留本地，不进公开仓库）
+ENV-SETUP-LOCAL.md
+flutter-download.log
+sdk-licenses.log
+vsbuildtools-install.log
 
 # Flutter 插件注册文件（各自生成，不入库）
 .flutter-plugins

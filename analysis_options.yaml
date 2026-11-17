@@ -1,0 +1,17 @@
+# 边界铁律由 test/architecture/boundary_test.dart 机器把守，不靠 lint
+# （docs/architecture.md §2；lint 从宽，不开 always_use_package_imports——上游镜像含相对导入）。
+analyzer:
+  exclude:
+    - build/**
+    - android/**
+    - windows/**
+    # demos/ 是本地选型材料（已 gitignore、不进公开仓库），与 ci.yml 一致不进
+    # 任何门；排除后仓库根 `dart analyze --fatal-infos` 才等于产品代码门。
+    - demos/**
+include: package:flutter_lints/flutter.yaml
+
+linter:
+  rules:
+    # M1 骨架里没有 debug print；保留默认即可。此节存在的意义是让本文件非空——
+    # CI 分析门会拒绝"只有注释或空行"的 analysis_options.yaml（ci.yml:136-139）。
+    prefer_const_declarations: true

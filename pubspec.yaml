@@ -1,0 +1,59 @@
+name: mimao
+description: "mimao — 一个聚合番剧、漫画、小说与音乐的本地媒体应用（Flutter + Material 3）"
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  # Kazumi v2.4.4 基线：Flutter 3.50 / Dart >=3.10（docs/architecture.md §8）
+  sdk: ">=3.10.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # M1 · 桌面窗口 / 托盘（shell/window/window.dart 里运行时平台判断，Android 空操作）
+  window_manager: ^0.5.1
+  tray_manager: ^0.5.0
+  path_provider: ^2.1.5
+
+  # 壳级状态（demo 02 方向；拍板项 2 临时决定：接受 MobX）
+  mobx: ^2.3.0
+  flutter_mobx: ^2.3.0
+
+  # 统一书架（demo 04 方向；拍板项 1 临时决定：drift）
+  drift: ^2.22.0
+  drift_flutter: ^0.2.0
+
+  # A 线 · 番剧规则引擎：dio 抓网页（UA/Cookie），xpath_selector 解释
+  # KazumiRules（只支持 // 开头选择器；说明见 lib/anime/engine/README.md）
+  dio: ^5.11.1
+  xpath_selector: ^3.0.2
+  xpath_selector_html_parser: ^3.0.1
+
+  # B 线 · 播放器内核：media_kit（libmpv 后端）+ 视频输出 + 各平台预编译库
+  media_kit: ^1.2.6
+  media_kit_video: ^2.0.1
+  media_kit_libs_video: ^1.0.7
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  path: ^1.9.0
+  build_runner: ^2.4.0
+  mobx_codegen: ^2.1.0
+  drift_dev: ^2.22.0
+  flutter_launcher_icons: ^0.14.4
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/mimao.png
+
+# 一键从 assets/mimao.png 生成 Windows ICO + Android 各密度图标
+# （ENV-SETUP-LOCAL.md 的 M1 待办；单一 PNG 作 source-of-truth，不手维护 ICO）
+flutter_launcher_icons:
+  image_path: "assets/mimao.png"
+  android: true
+  windows:
+    generate: true
