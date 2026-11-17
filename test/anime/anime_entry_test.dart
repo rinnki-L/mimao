@@ -3,6 +3,7 @@
 
 // ignore_for_file: deprecated_member_use — 见 lib/main.dart 文件头同款说明。
 
+import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mimao/anime/anime_entry.dart';
@@ -13,9 +14,12 @@ import 'package:mimao/anime/data/fixture_anime_data_source.dart';
 import 'package:mimao/anime/engine/engine.dart';
 import 'package:mimao/anime/history_service.dart';
 import 'package:mimao/anime/player/anime_player_page.dart';
+import 'package:mimao/comic/comic_db.dart';
 import 'package:mimao/core/contract.dart';
 import 'package:mimao/shell/app_registry.dart';
 
+import '../comic/comic_integration_env.dart'
+    show FakeComicHttpClient, FakeSourceHost, MemoryComicSourceStore;
 import 'anime_integration_env.dart';
 
 Widget _app(Widget home) => MaterialApp(home: home);
@@ -57,15 +61,24 @@ void main() {
   late AnimeCollectService collect;
   late AnimeHistoryService history;
 
+  // closure-02：initAppModules 的漫画生产装配需要分件注入（内存 DB/源仓库/
+  // 假宿主），否则 ComicDb() 生产构造的 drift eager 连接在无插件测试环境
+  // 会以 unhandled async error 逃逸。
+  late ComicDb comicDb;
+  late MemoryComicSourceStore comicSourceStore;
+
   setUp(() async {
     env = await AnimeIntegrationEnv.create();
     collect = AnimeCollectService(env.animeDb, env.library);
     history = AnimeHistoryService(env.animeDb, env.library);
+    comicDb = ComicDb.forTesting(NativeDatabase.memory());
+    comicSourceStore = MemoryComicSourceStore();
     await resetAppModulesForTest();
   });
 
   tearDown(() async {
     await resetAppModulesForTest();
+    await comicDb.close();
     await env.close();
   });
 
@@ -85,14 +98,16 @@ void main() {
       ruleStore: env.ruleStore,
       animeDataSource: env.dataSource,
       playbackEngineFactory: env.engineFactory,
+      comicDb: comicDb,
+      comicSourceStore: comicSourceStore,
+      comicHttpClient: FakeComicHttpClient(),
+      comicHostFactory: () => FakeSourceHost(),
     );
 
     expect(moduleFor(MediaType.anime), isNotNull);
-    for (final type in <MediaType>[
-      MediaType.comic,
-      MediaType.novel,
-      MediaType.music,
-    ]) {
+    // closure-02：漫画分件注入后也注册；小说/音乐仍为占位。
+    expect(moduleFor(MediaType.comic), isNotNull);
+    for (final type in <MediaType>[MediaType.novel, MediaType.music]) {
       expect(moduleFor(type), isNull);
     }
     expect(appModulesError, isNull);
@@ -105,6 +120,10 @@ void main() {
       ruleStore: env.ruleStore,
       animeDataSource: env.dataSource,
       playbackEngineFactory: env.engineFactory,
+      comicDb: comicDb,
+      comicSourceStore: comicSourceStore,
+      comicHttpClient: FakeComicHttpClient(),
+      comicHostFactory: () => FakeSourceHost(),
     );
     await resetAppModulesForTest();
     await resetAppModulesForTest();
@@ -127,6 +146,10 @@ void main() {
       ruleStore: _ThrowingRuleStore(env.ruleDir),
       animeDataSource: env.dataSource,
       playbackEngineFactory: env.engineFactory,
+      comicDb: comicDb,
+      comicSourceStore: comicSourceStore,
+      comicHttpClient: FakeComicHttpClient(),
+      comicHostFactory: () => FakeSourceHost(),
     );
 
     expect(moduleFor(MediaType.anime), isNull);

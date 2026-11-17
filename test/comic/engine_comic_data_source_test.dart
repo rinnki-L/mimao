@@ -9,7 +9,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mimao/comic/data/comic_models.dart';
 import 'package:mimao/comic/data/engine_comic_data_source.dart';
 import 'package:mimao/comic/engine/engine.dart' as source_engine;
-import 'package:mimao/comic/request/web_client.dart';
 
 import 'comic_integration_env.dart';
 

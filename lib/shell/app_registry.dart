@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:mimao/anime/anime_db.dart';
 import 'package:mimao/anime/anime_entry.dart';
 import 'package:mimao/anime/anime_models.dart';
@@ -8,6 +9,15 @@ import 'package:mimao/anime/engine/engine.dart';
 import 'package:mimao/anime/history_service.dart';
 import 'package:mimao/anime/player/media_kit_playback_engine.dart';
 import 'package:mimao/anime/player/playback_engine.dart';
+import 'package:mimao/comic/collect_service.dart';
+import 'package:mimao/comic/comic_db.dart';
+import 'package:mimao/comic/comic_entry.dart';
+import 'package:mimao/comic/comic_models.dart';
+import 'package:mimao/comic/data/engine_comic_data_source.dart';
+import 'package:mimao/comic/engine/engine.dart';
+import 'package:mimao/comic/history_service.dart';
+import 'package:mimao/comic/reader/reader_cache.dart';
+import 'package:mimao/comic/search_history_service.dart';
 import 'package:mimao/core/contract.dart';
 import 'package:mimao/core/library.dart';
 
@@ -24,29 +34,61 @@ final Map<MediaType, AppModule> appModules = <MediaType, AppModule>{};
 AppModule? moduleFor(MediaType type) => appModules[type];
 
 /// 最近一次 [initAppModules] 的可读失败原因；null 表示没有失败。
+/// 多个模块同时失败时按模块逐行拼接。
 String? appModulesError;
 
-/// 由 registry 自己创建（而非测试注入）的 AnimeDb——只有它需要 reset 时关闭。
+/// 由 registry 自己创建（而非测试注入）的 DB——只有它们需要 reset 时关闭。
 AnimeDb? _ownedAnimeDb;
+ComicDb? _ownedComicDb;
+
+/// 测试可见：registry 自建、reset 时会关闭的 ComicDb（生产路径才有值）。
+/// CI 没有 path_provider 插件，用这条缝验证 owned-DB 的关闭语义（closure-02
+/// 验收 A：reset 后 registry 拥有的 ComicDb 已关闭）。
+@visibleForTesting
+ComicDb? get debugRegistryOwnedComicDb => _ownedComicDb;
 
 /// 装配模块目录表。生产路径全部参数为 null；测试可逐个注入内存库/临时仓库/
-/// fixture 数据源/fake 播放器工厂。
+/// fixture 数据源/fake 播放器工厂/假 JS 宿主/整模块。
 ///
-/// 初始化失败（如规则目录/AnimeDb 打不开）时不让异常冒到 main：番剧不注册、
+/// 初始化失败（如规则目录/DB 打不开）时不让异常冒到 main：对应模块不注册、
 /// [appModulesError] 记录原因，其它模块不受影响。
 Future<void> initAppModules({
   required LibraryRepository library,
+
+  // ── 番剧 ──
   AnimeDb? animeDb,
   RuleStore? ruleStore,
   AnimeDataSource? animeDataSource,
   PlaybackEngine Function()? playbackEngineFactory,
+
+  // ── 漫画（closure-02）──
+  ComicDb? comicDb,
+
+  /// 测试注入内存/临时源仓库；生产走 openDefault()（path_provider）。
+  ComicSourceStore? comicSourceStore,
+
+  /// 测试注入假抓取客户端；生产 ComicWebClient（dio + cookie_jar）。
+  ComicHttpClient? comicHttpClient,
+
+  /// 测试注入假 JS 宿主工厂（CI 无 flutter_qjs_plugin.dll）；生产 QuickJsHost。
+  JsHost Function()? comicHostFactory,
+
+  /// 测试注入内存图片缓存工厂；生产 defaultComicImageCache（磁盘 LRU）。
+  Future<ReaderImageCache> Function()? comicImageCacheFactory,
+
+  /// 测试注入整模块（依赖自含），跳过漫画生产装配直接注册。
+  ComicModule? comicModule,
 }) async {
   // 每次装配都是一次干净开始；避免旧的已关闭 DB 残留在表里。
   await _resetOwnedDb();
   appModules.clear();
   appModulesError = null;
   _ownedAnimeDb = null;
+  _ownedComicDb = null;
 
+  final errors = <String>[];
+
+  // ── 番剧装配 ──
   try {
     final db = animeDb ?? AnimeDb();
     if (animeDb == null) _ownedAnimeDb = db;
@@ -78,9 +120,59 @@ Future<void> initAppModules({
     );
     appModules[MediaType.anime] = module;
   } catch (error) {
-    appModulesError = '番剧模块初始化失败：$error';
+    errors.add('番剧模块初始化失败：$error');
     appModules.remove(MediaType.anime);
   }
+
+  // ── 漫画装配（closure-02 §6）──
+  try {
+    if (comicModule != null) {
+      // 测试整模块注入：依赖自含，直接注册。
+      appModules[MediaType.comic] = comicModule;
+    } else {
+      final db = comicDb ?? ComicDb();
+      if (comicDb == null) _ownedComicDb = db;
+      // 启动探针：内部库打不开就走失败分支，不注册"点进去才崩"的模块。
+      await db.collectRow(
+        const ComicRef(id: '__init_probe__', sourceName: '__init_probe__'),
+      );
+
+      final store = comicSourceStore ?? await ComicSourceStore.openDefault();
+      // 启动读一次源仓库：目录不可读/清单损坏在此暴露为可读失败原因。
+      await store.loadAllDetailed();
+
+      final client = comicHttpClient ?? ComicWebClient();
+      // 生产宿主与适配器共用同一 client（共享 cookie 语义）；
+      // CI/测试注入假宿主工厂，不依赖 flutter_qjs_plugin.dll。
+      final pool = SourceExecutionPool(
+        hostFactory:
+            comicHostFactory ??
+            () => QuickJsHost(bridge: ComicJsBridge(client: client)),
+      );
+      final searchHistory = ComicSearchHistoryService(db);
+      final adapter = await EngineComicDataSource.create(
+        store: store,
+        engine: ComicSourceEngine(pool: pool),
+        client: client,
+        searchHistory: searchHistory,
+      );
+
+      appModules[MediaType.comic] = ComicModule(
+        dataSource: adapter,
+        sourceRepository: adapter,
+        collect: ComicCollectService(db, library),
+        history: ComicHistoryService(db, library),
+        searchHistory: searchHistory,
+        loadChapterImages: adapter.loadImagesForChapter,
+        imageCacheFactory: comicImageCacheFactory ?? defaultComicImageCache,
+      );
+    }
+  } catch (error) {
+    errors.add('漫画模块初始化失败：$error');
+    appModules.remove(MediaType.comic);
+  }
+
+  appModulesError = errors.isEmpty ? null : errors.join('\n');
 }
 
 /// 测试隔离：清空目录表，只关闭 registry 自己创建的 DB；
@@ -92,13 +184,22 @@ Future<void> resetAppModulesForTest() async {
 }
 
 Future<void> _resetOwnedDb() async {
-  final db = _ownedAnimeDb;
+  final animeDb = _ownedAnimeDb;
   _ownedAnimeDb = null;
-  if (db != null) {
+  if (animeDb != null) {
     try {
-      await db.close();
+      await animeDb.close();
     } catch (_) {
       // 关闭失败不应阻止重置；DB 可能已被测试提前关闭。
+    }
+  }
+  final comicDb = _ownedComicDb;
+  _ownedComicDb = null;
+  if (comicDb != null) {
+    try {
+      await comicDb.close();
+    } catch (_) {
+      // 同上。
     }
   }
 }

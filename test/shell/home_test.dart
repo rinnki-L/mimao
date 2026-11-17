@@ -5,8 +5,10 @@
 
 // ignore_for_file: deprecated_member_use — 见 lib/main.dart 文件头同款说明。
 
+import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mimao/comic/comic_db.dart';
 import 'package:mimao/core/contract.dart';
 import 'package:mimao/shell/app.dart';
 import 'package:mimao/shell/app_registry.dart';
@@ -14,12 +16,22 @@ import 'package:mimao/shell/home.dart';
 import 'package:mimao/shell/shell_store.dart';
 
 import '../anime/anime_integration_env.dart';
+import '../comic/comic_integration_env.dart'
+    show FakeComicHttpClient, FakeSourceHost, MemoryComicSourceStore;
 
 void main() {
   late AnimeIntegrationEnv env;
 
+  // closure-02：漫画生产装配的分件注入（内存 DB/源仓库/假宿主）。不注入的话
+  // ComicDb() 生产构造的 drift eager 连接在无插件测试环境会以 unhandled
+  // async error 逃逸。
+  late ComicDb comicDb;
+  late MemoryComicSourceStore comicSourceStore;
+
   setUp(() async {
     env = await AnimeIntegrationEnv.create();
+    comicDb = ComicDb.forTesting(NativeDatabase.memory());
+    comicSourceStore = MemoryComicSourceStore();
     shellStore.goHome();
     shellStore.closeSettings();
     await resetAppModulesForTest();
@@ -27,6 +39,7 @@ void main() {
 
   tearDown(() async {
     await resetAppModulesForTest();
+    await comicDb.close();
     await env.close();
   });
 
@@ -82,15 +95,21 @@ void main() {
     }
   });
 
-  group('closure-01：模块注册后', () {
-    Future<void> initModules() => initAppModules(
-      library: env.library,
-      animeDb: env.animeDb,
-      ruleStore: env.memoryRuleStore,
-      animeDataSource: env.dataSource,
-      playbackEngineFactory: env.engineFactory,
-    );
+  // 番剧（closure-01）与漫画（closure-02）都分件注入：番剧用 fixture 数据源
+  // 与 fake 播放器；漫画用内存 DB/源仓库 + 假宿主（CI 无 DLL/插件）。
+  Future<void> initModules() => initAppModules(
+    library: env.library,
+    animeDb: env.animeDb,
+    ruleStore: env.memoryRuleStore,
+    animeDataSource: env.dataSource,
+    playbackEngineFactory: env.engineFactory,
+    comicDb: comicDb,
+    comicSourceStore: comicSourceStore,
+    comicHttpClient: FakeComicHttpClient(),
+    comicHostFactory: () => FakeSourceHost(),
+  );
 
+  group('closure-01：模块注册后', () {
     testWidgets('注册后点番剧进入搜索页，不再显示占位', (tester) async {
       await initModules();
       await tester.pumpWidget(pumpApp());
@@ -149,6 +168,59 @@ void main() {
       expect(find.byKey(const Key('anime-rule-import')), findsOneWidget);
       expect(find.text('还没有规则，先从 KazumiRules 导入'), findsOneWidget);
       expect(find.textContaining('该模块设置将在接入后开放'), findsNothing);
+    });
+  });
+
+  group('closure-02：漫画注册后', () {
+    testWidgets('注册后点漫画进入 ComicModulePage，不再显示占位；返回回入口页', (tester) async {
+      await initModules();
+      await tester.pumpWidget(pumpApp());
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text(MediaType.comic.label).first);
+      await tester.pumpAndSettle();
+
+      expect(find.text('${MediaType.comic.label}模块尚未接入'), findsNothing);
+      // 模块层内部导航（搜索/源管理）存在；内存源仓库为空 → 搜索空态兜底。
+      expect(find.text('源管理'), findsOneWidget);
+      expect(find.text('暂时没有可搜索的漫画'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('返回'));
+      await tester.pumpAndSettle();
+      expect(find.text('mimao'), findsOneWidget);
+    });
+
+    testWidgets('设置抽屉展开漫画分组显示模块设置面板', (tester) async {
+      await initModules();
+      await tester.pumpWidget(pumpApp());
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('设置'));
+      await tester.pumpAndSettle();
+      final comicTile = find.widgetWithText(ExpansionTile, '漫画');
+      await tester.tap(comicTile.first);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('comic-settings-open-sources')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('comic-settings-clear-history')),
+        findsOneWidget,
+      );
+      expect(find.textContaining('该模块设置将在接入后开放'), findsNothing);
+    });
+
+    testWidgets('resetAppModulesForTest 后漫画恢复占位', (tester) async {
+      await initModules();
+      await resetAppModulesForTest();
+
+      await tester.pumpWidget(pumpApp());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(MediaType.comic.label).first);
+      await tester.pumpAndSettle();
+      expect(find.text('${MediaType.comic.label}模块尚未接入'), findsOneWidget);
     });
   });
 }

@@ -12,7 +12,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mimao/comic/comic_models.dart';
 import 'package:mimao/comic/reader/reader_progress.dart';
 import 'package:mimao/core/contract.dart';
-import 'package:mimao/core/library.dart';
 
 import 'comic_test_env.dart';
 

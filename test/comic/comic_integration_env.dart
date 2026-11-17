@@ -14,7 +14,6 @@ import 'package:mimao/comic/comic_db.dart';
 import 'package:mimao/comic/data/engine_comic_data_source.dart';
 import 'package:mimao/comic/engine/engine.dart';
 import 'package:mimao/comic/history_service.dart';
-import 'package:mimao/comic/request/web_client.dart';
 import 'package:mimao/comic/search_history_service.dart';
 import 'package:mimao/core/db.dart';
 import 'package:mimao/core/library.dart';
@@ -90,15 +89,18 @@ class FakeComicHttpClient implements ComicHttpClient {
 
 /// 假 JS 宿主：从池的注册表达式里学自己的 key，然后按表达式前缀回放预置
 /// 结果。[failKeys] 里的源在方法调用时抛错（单源失败容错测试）；
-/// [failLoadMarkers] 命中的脚本在 loadScript 时抛错（注册失败测试）。
+/// [failLoadMarkers] 命中的脚本在 loadScript 时抛错（注册失败测试）；
+/// [emptyEpisodeIds] 里的章节回放空图片列表（空章跳过测试）。
 class FakeSourceHost implements JsHost {
   FakeSourceHost({
     this.failKeys = const <String>{},
     this.failLoadMarkers = const <String>{},
+    this.emptyEpisodeIds = const <String>{},
   });
 
   final Set<String> failKeys;
   final Set<String> failLoadMarkers;
+  final Set<String> emptyEpisodeIds;
   String? _key;
 
   @override
@@ -129,6 +131,12 @@ class FakeSourceHost implements JsHost {
       return integrationDetailResponse;
     }
     if (expression.startsWith('source.comic.loadEp')) {
+      final epId = RegExp(
+        r'source\.comic\.loadEp\("[^"]+",\s*"([^"]+)"\)',
+      ).firstMatch(expression)?.group(1);
+      if (epId != null && emptyEpisodeIds.contains(epId)) {
+        return <String, Object?>{'images': <String>[]};
+      }
       return integrationImagesResponse;
     }
     return null;
@@ -263,10 +271,14 @@ class ComicIntegrationEnv {
   Future<EngineComicDataSource> buildAdapter({
     Set<String> failKeys = const <String>{},
     Set<String> failLoadMarkers = const <String>{},
+    Set<String> emptyEpisodeIds = const <String>{},
   }) {
     final pool = SourceExecutionPool(
-      hostFactory: () =>
-          FakeSourceHost(failKeys: failKeys, failLoadMarkers: failLoadMarkers),
+      hostFactory: () => FakeSourceHost(
+        failKeys: failKeys,
+        failLoadMarkers: failLoadMarkers,
+        emptyEpisodeIds: emptyEpisodeIds,
+      ),
     );
     final engine = ComicSourceEngine(pool: pool);
     return EngineComicDataSource.create(
