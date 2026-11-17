@@ -258,5 +258,43 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('番剧详情'), findsOneWidget);
     });
+
+    testWidgets('onOpenDetail 收到列表项，正常返回时详情照常打开', (tester) async {
+      _usePhoneSize(tester);
+      final openedIds = <String>[];
+      await tester.pumpWidget(
+        _app(
+          AnimeModulePage(
+            dataSource: fixture,
+            onOpenDetail: (item) async => openedIds.add(item.id),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('search-result-xinghai')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(openedIds, <String>['xinghai']);
+      expect(find.text('番剧详情'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('缺省 onOpenDetail：行为与现状一致——详情照常打开、无异常', (tester) async {
+      _usePhoneSize(tester);
+      await tester.pumpWidget(_app(const AnimeModulePage(dataSource: fixture)));
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('search-result-xinghai')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('番剧详情'), findsOneWidget);
+      expect(find.text('共 5 集'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
   });
 }

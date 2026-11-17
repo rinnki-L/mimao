@@ -5,7 +5,9 @@
 //   ② 写入点 = [AnimeHistoryProgressRecorder.persist]——它把播放器的运行时值
 //      翻译成 `AnimeHistoryService.saveProgress` 调用，后者在同一个函数内先写
 //      内部权威行，紧接着经 `syncAnimeProjection` 写 core 投影；
-//   ③ 校正点 = 打开详情/播放器时 `AnimeHistoryService.open`（本文件不负责）；
+//   ③ 校正点 = 打开详情/播放器时 `AnimeHistoryService.open`——接线在
+//      `AnimeModule.buildHome`（onOpenDetail 回调）与 `AnimeModule._openPlayer`
+//      两处（本文件不负责）；
 //   ④ 展示 = 壳只读 `progressText`，由 `animeProgressText` 统一生成。
 //
 // 这里刻意不出现内存/JSON store、不直接调 `LibraryRepository.upsert`，

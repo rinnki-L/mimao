@@ -16,6 +16,7 @@ class AnimeModulePage extends StatefulWidget {
     super.key,
     required this.dataSource,
     this.embedded = false,
+    this.onOpenDetail,
     this.isFavorite,
     this.onFavoriteChanged,
     this.onEpisodeTap,
@@ -25,6 +26,10 @@ class AnimeModulePage extends StatefulWidget {
 
   /// true 时由壳提供顶部"返回 + 标题"，搜索/时间表页不再画自己的 AppBar。
   final bool embedded;
+
+  /// 即将打开详情（导航前的最后一个异步点）：模块层在此接
+  /// AnimeHistoryService.open 做打开点校正；抛错不挡导航。
+  final Future<void> Function(AnimeSummary item)? onOpenDetail;
 
   /// 打开详情前读取权威收藏态；由模块层接收藏服务注入。
   final Future<bool> Function(AnimeSummary)? isFavorite;
@@ -48,6 +53,12 @@ class _AnimeModulePageState extends State<AnimeModulePage> {
   int _index = 0;
 
   Future<void> _openDetail(AnimeSummary item) async {
+    // 打开点校正失败不应挡住导航：投影由下次打开再校正。
+    try {
+      await widget.onOpenDetail?.call(item);
+    } on Object {
+      // 校正是纯收益动作，失败静默。
+    }
     // 收藏态读取失败不应挡住导航：退回"未收藏"继续打开详情。
     final favorite =
         await (widget.isFavorite?.call(item) ?? Future<bool>.value(false))

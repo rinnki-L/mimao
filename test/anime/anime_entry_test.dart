@@ -56,6 +56,14 @@ class _ThrowingCollectService extends AnimeCollectService {
   }) async => throw StateError('内部库写入失败');
 }
 
+/// 打开点校正即抛的服务替身：验证校正失败不挡导航、无 unhandled async error。
+class _ThrowingHistoryService extends AnimeHistoryService {
+  _ThrowingHistoryService(super.db, super.library);
+
+  @override
+  Future<void> open(AnimeRef ref) async => throw StateError('打开点校正失败');
+}
+
 void main() {
   late AnimeIntegrationEnv env;
   late AnimeCollectService collect;
@@ -273,5 +281,141 @@ void main() {
       env.lastEngine.openedUrls,
       contains('https://example.com/play/xinghai/2'),
     );
+  });
+
+  group('打开点校正接线（onOpenDetail 详情入口 + _openPlayer 播放入口）', () {
+    /// 把 core 投影人工写旧，模拟"投影漏写/写旧"后的脏数据
+    /// （内部库 ep5 权威不变，投影停在 ep4）。
+    Future<void> writeDirtyProjection(AnimeRef ref, String title) {
+      return env.library.upsert(
+        id: ref.id,
+        type: MediaType.anime,
+        sourceName: ref.sourceName,
+        title: title,
+        payload: '{"episode":4,"positionSec":0,"durationSec":0}',
+        progressText: '看到第 4 话',
+      );
+    }
+
+    /// 看过第 5 话（内部库权威 = ep5 · 300s/1440s → 21%）。
+    Future<AnimeRef> seedWatchedXinghai() async {
+      const item = FixtureAnimeDataSource.xinghai;
+      final ref = AnimeModule.refOf(item);
+      await history.saveProgress(
+        ref,
+        title: item.title,
+        episode: 5,
+        positionSec: 300,
+        durationSec: 1440,
+      );
+      return ref;
+    }
+
+    /// 从搜索结果点进星海旅人详情（详情入口，回调已 await 完才导航）。
+    Future<void> openXinghaiDetail(
+      WidgetTester tester,
+      AnimeModule module,
+    ) async {
+      await tester.pumpWidget(_app(_HostModule(module: module)));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey<String>('search-result-xinghai')),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('详情入口：打开详情把脏投影（内部库 ep5、投影 ep4）校正为 ep5', (tester) async {
+      const item = FixtureAnimeDataSource.xinghai;
+      final ref = await seedWatchedXinghai();
+      await writeDirtyProjection(ref, item.title);
+      expect((await env.library.timeline()).single.progressText, '看到第 4 话');
+
+      await openXinghaiDetail(tester, buildModule());
+      expect(find.text('番剧详情'), findsOneWidget);
+
+      // 内部库权威值覆盖投影；内部行不被破坏。
+      expect((await env.library.timeline()).single.progressText, '第 5 话 · 21%');
+      expect((await history.latest(ref))?.episode, 5);
+    });
+
+    testWidgets('无观看记录时打开详情不新增书架条目', (tester) async {
+      const item = FixtureAnimeDataSource.saibo; // 从未看过、未收藏
+      final module = buildModule();
+      await tester.pumpWidget(_app(_HostModule(module: module)));
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('search-result-saibo')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('番剧详情'), findsOneWidget);
+      // open 在无内部库记录时短路：不凭空造书架条目。
+      expect(await env.library.timeline(), isEmpty);
+      expect(await history.latest(AnimeModule.refOf(item)), isNull);
+    });
+
+    testWidgets('双入口幂等：详情与播放入口各校正一次，时间线不重复', (tester) async {
+      const item = FixtureAnimeDataSource.xinghai;
+      final ref = await seedWatchedXinghai();
+      final module = buildModule();
+      await tester.pumpWidget(_app(_HostModule(module: module)));
+      await tester.pumpAndSettle();
+
+      // 详情入口校正一次。
+      await writeDirtyProjection(ref, item.title);
+      await tester.tap(
+        find.byKey(const ValueKey<String>('search-result-xinghai')),
+      );
+      await tester.pumpAndSettle();
+      expect((await env.library.timeline()).single.progressText, '第 5 话 · 21%');
+
+      // 再写脏 → 播放入口（push 播放器前）校正第二次：仍只有一条时间线。
+      await writeDirtyProjection(ref, item.title);
+      await tester.tap(find.byKey(const Key('episode-2')));
+      await tester.pumpAndSettle();
+      expect(find.byType(AnimePlayerPage), findsOneWidget);
+      final timeline = await env.library.timeline();
+      expect(timeline, hasLength(1));
+      expect(timeline.single.progressText, '第 5 话 · 21%');
+    });
+
+    testWidgets('open 抛异常时详情仍打开，无 unhandled async error', (tester) async {
+      final module = AnimeModule(
+        dataSource: env.dataSource,
+        collect: collect,
+        history: _ThrowingHistoryService(env.animeDb, env.library),
+        ruleStore: env.ruleStore,
+        ruleImporter: RuleImporter(),
+        playbackEngineFactory: env.engineFactory,
+      );
+
+      await openXinghaiDetail(tester, module);
+
+      expect(find.text('番剧详情'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('open 抛异常时播放器仍打开，无 unhandled async error', (tester) async {
+      final module = AnimeModule(
+        dataSource: env.dataSource,
+        collect: collect,
+        history: _ThrowingHistoryService(env.animeDb, env.library),
+        ruleStore: env.ruleStore,
+        ruleImporter: RuleImporter(),
+        playbackEngineFactory: env.engineFactory,
+      );
+      await tester.pumpWidget(_app(_HostModule(module: module)));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey<String>('search-result-xinghai')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('episode-2')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AnimePlayerPage), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
   });
 }

@@ -53,6 +53,7 @@ class AnimeModule implements AppModule {
     return AnimeModulePage(
       dataSource: dataSource,
       embedded: true,
+      onOpenDetail: (item) => history.open(refOf(item)),
       isFavorite: (item) => collect.isCollected(refOf(item)),
       onFavoriteChanged: (item, favorite) =>
           _setFavorite(item, favorite, context),
@@ -96,12 +97,15 @@ class AnimeModule implements AppModule {
     }
   }
 
-  void _openPlayer(
+  /// 播放器装配方：打开点校正 → push 播放器。详情入口可能已校正过一次，
+  /// [AnimeHistoryService.open] 幂等，播放入口再调无害；校正失败不挡播放
+  /// （播放器内的 recorder 随后仍会经 saveProgress 写权威行并同步投影）。
+  Future<void> _openPlayer(
     AnimeSummary item,
     AnimeDetail detail,
     AnimeEpisode episode,
     BuildContext context,
-  ) {
+  ) async {
     final factory = playbackEngineFactory;
     if (factory == null) {
       if (context.mounted) {
@@ -111,6 +115,15 @@ class AnimeModule implements AppModule {
       }
       return;
     }
+
+    // 播放入口的打开点校正：把漏写/写旧的投影在进播放器前校正回来。
+    try {
+      await history.open(refOf(item));
+    } on Object {
+      // 校正是纯收益动作，失败静默。
+    }
+    // 校正跨了异步间隙，页面可能已不在树上。
+    if (!context.mounted) return;
 
     final episodes = <Episode>[
       for (final e in detail.episodes)
