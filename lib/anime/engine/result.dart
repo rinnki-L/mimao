@@ -30,12 +30,6 @@ class RuleSearchResult {
   /// 基于规则 `baseURL` 归一化后的封面绝对地址；无封面时为空。
   final String absoluteCoverUrl;
 
-  /// 本地搜索命中过滤（真实搜索由站点完成；这里用于规则试跑/聚合过滤）。
-  bool matchesKeyword(String keyword) {
-    final query = keyword.trim().toLowerCase();
-    return query.isEmpty || title.toLowerCase().contains(query);
-  }
-
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -112,8 +106,6 @@ class RuleParseResult<T> {
   final List<String> diagnostics;
 
   bool get isEmpty => items.isEmpty;
-
-  bool get isNotEmpty => items.isNotEmpty;
 
   @override
   String toString() =>

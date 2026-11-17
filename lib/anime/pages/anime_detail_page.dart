@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:mimao/anime/data/anime_data_source.dart';
 import 'package:mimao/anime/data/anime_models.dart';
 import 'package:mimao/anime/pages/anime_cover.dart';
+import 'package:mimao/anime/pages/anime_error_state.dart';
 
 /// 番剧详情页：封面 / 标题 / 简介 + 剧集列表 + 追番按钮。
 ///
@@ -82,7 +83,7 @@ class _AnimeDetailPageState extends State<AnimeDetailPage> {
             return const Center(child: CircularProgressIndicator());
           }
           if (snapshot.hasError || snapshot.data == null) {
-            return _DetailErrorState(onRetry: _retry);
+            return AnimeRetryErrorState(message: '详情加载失败', onRetry: _retry);
           }
           return _DetailBody(
             detail: snapshot.data!,
@@ -310,29 +311,6 @@ class _EpisodeTile extends StatelessWidget {
               ? null
               : Icon(Icons.play_arrow_rounded, color: cs.onSurfaceVariant),
         ),
-      ),
-    );
-  }
-}
-
-class _DetailErrorState extends StatelessWidget {
-  const _DetailErrorState({required this.onRetry});
-
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          Icon(Icons.error_outline_rounded, size: 56, color: cs.error),
-          const SizedBox(height: 12),
-          const Text('详情加载失败'),
-          const SizedBox(height: 12),
-          FilledButton.tonal(onPressed: onRetry, child: const Text('重试')),
-        ],
       ),
     );
   }

@@ -35,7 +35,7 @@ final result = await importer.importFromUrl(
   ),
 );
 
-if (result.isNotEmpty) {
+if (result.rules.isNotEmpty) {
   final store = await RuleStore.openDefault();   // <应用支持目录>/anime_rules/
   await store.saveAll(result.rules);             // 一条规则一个 JSON 文件
 }

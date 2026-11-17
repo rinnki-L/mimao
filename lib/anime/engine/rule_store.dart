@@ -18,8 +18,6 @@ class RuleLoadResult {
 
   final List<AnimeRule> rules;
   final List<String> failures;
-
-  bool get isEmpty => rules.isEmpty;
 }
 
 /// 规则文件仓库。

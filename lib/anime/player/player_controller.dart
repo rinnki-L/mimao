@@ -103,9 +103,7 @@ class PlayerController extends ChangeNotifier {
     try {
       await engine.open(episode.url, startAt: _position);
     } catch (error) {
-      _status = PlayerStatus.error;
-      _errorMessage = '$error';
-      _notify();
+      _fail(error);
     }
   }
 
@@ -132,9 +130,7 @@ class PlayerController extends ChangeNotifier {
         startAt: startAt ?? Duration.zero,
       );
     } catch (error) {
-      _status = PlayerStatus.error;
-      _errorMessage = '$error';
-      _notify();
+      _fail(error);
     }
   }
 
@@ -250,6 +246,13 @@ class PlayerController extends ChangeNotifier {
       _errorMessage = '进度保存失败：$error';
       _notify();
     }
+  }
+
+  /// 打开流失败：切到错误态并提示（start / loadEpisode 共用）。
+  void _fail(Object error) {
+    _status = PlayerStatus.error;
+    _errorMessage = '$error';
+    _notify();
   }
 
   void _notify() {

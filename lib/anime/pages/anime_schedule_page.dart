@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:mimao/anime/data/anime_data_source.dart';
 import 'package:mimao/anime/data/anime_models.dart';
 import 'package:mimao/anime/pages/anime_cover.dart';
+import 'package:mimao/anime/pages/anime_error_state.dart';
 
 /// 番剧时间表：按星期分组列出当周更新。
 ///
@@ -71,7 +72,7 @@ class _AnimeSchedulePageState extends State<AnimeSchedulePage> {
             return const Center(child: CircularProgressIndicator());
           }
           if (snapshot.hasError) {
-            return _ScheduleErrorState(onRetry: _reload);
+            return AnimeRetryErrorState(message: '时间表加载失败', onRetry: _reload);
           }
           final sections = snapshot.data ?? const <AnimeScheduleSection>[];
           if (sections.isEmpty) return const _ScheduleEmptyState();
@@ -293,29 +294,6 @@ class _ScheduleEmptyState extends StatelessWidget {
             '稍后再来看看',
             style: textTheme.bodyMedium?.apply(color: cs.onSurfaceVariant),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ScheduleErrorState extends StatelessWidget {
-  const _ScheduleErrorState({required this.onRetry});
-
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          Icon(Icons.error_outline_rounded, size: 56, color: cs.error),
-          const SizedBox(height: 12),
-          const Text('时间表加载失败'),
-          const SizedBox(height: 12),
-          FilledButton.tonal(onPressed: onRetry, child: const Text('重试')),
         ],
       ),
     );

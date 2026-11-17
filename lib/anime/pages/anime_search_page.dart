@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:mimao/anime/data/anime_data_source.dart';
 import 'package:mimao/anime/data/anime_models.dart';
 import 'package:mimao/anime/pages/anime_cover.dart';
+import 'package:mimao/anime/pages/anime_error_state.dart';
 
 /// 番剧搜索页：搜索框 + 结果网格。
 ///
@@ -107,7 +108,10 @@ class _AnimeSearchPageState extends State<AnimeSearchPage> {
           return const Center(child: CircularProgressIndicator());
         }
         if (snapshot.hasError) {
-          return _SearchErrorState(onRetry: () => _runSearch(_query));
+          return AnimeRetryErrorState(
+            message: '搜索失败，请稍后重试',
+            onRetry: () => _runSearch(_query),
+          );
         }
         final results = snapshot.data ?? const <AnimeSummary>[];
         if (results.isEmpty) return _SearchEmptyState(query: _query);
@@ -135,7 +139,7 @@ class _AnimeSearchPageState extends State<AnimeSearchPage> {
                 itemCount: results.length,
                 itemBuilder: (context, index) {
                   final item = results[index];
-                  return AnimePosterCard(
+                  return _AnimePosterCard(
                     key: ValueKey<String>('search-result-${item.id}'),
                     item: item,
                     onTap: widget.onOpenDetail == null
@@ -153,8 +157,8 @@ class _AnimeSearchPageState extends State<AnimeSearchPage> {
 }
 
 /// 搜索结果卡片：封面 + 标题 + 状态行。
-class AnimePosterCard extends StatelessWidget {
-  const AnimePosterCard({super.key, required this.item, this.onTap});
+class _AnimePosterCard extends StatelessWidget {
+  const _AnimePosterCard({super.key, required this.item, this.onTap});
 
   final AnimeSummary item;
   final VoidCallback? onTap;
@@ -242,29 +246,6 @@ class _SearchEmptyState extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _SearchErrorState extends StatelessWidget {
-  const _SearchErrorState({required this.onRetry});
-
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          Icon(Icons.error_outline_rounded, size: 56, color: cs.error),
-          const SizedBox(height: 12),
-          const Text('搜索失败，请稍后重试'),
-          const SizedBox(height: 12),
-          FilledButton.tonal(onPressed: onRetry, child: const Text('重试')),
-        ],
       ),
     );
   }

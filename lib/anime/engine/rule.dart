@@ -151,8 +151,6 @@ class AnimeRule {
     return issues;
   }
 
-  bool get isValid => validate().isEmpty;
-
   Map<String, dynamic> toJson() {
     return <String, dynamic>{
       'api': api,

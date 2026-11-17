@@ -23,22 +23,6 @@ class PlaybackSnapshot {
     this.completed = false,
     this.error,
   });
-
-  PlaybackSnapshot copyWith({
-    Duration? position,
-    Duration? duration,
-    bool? playing,
-    bool? buffering,
-    bool? completed,
-    String? error,
-  }) => PlaybackSnapshot(
-    position: position ?? this.position,
-    duration: duration ?? this.duration,
-    playing: playing ?? this.playing,
-    buffering: buffering ?? this.buffering,
-    completed: completed ?? this.completed,
-    error: error ?? this.error,
-  );
 }
 
 /// 视频后端的最小能力面：打开 / 播放 / 暂停 / 跳转 / 倍速 / 释放。

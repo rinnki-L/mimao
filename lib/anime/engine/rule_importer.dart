@@ -28,8 +28,6 @@ class RuleImportResult {
 
   bool get isEmpty => rules.isEmpty;
 
-  bool get isNotEmpty => rules.isNotEmpty;
-
   @override
   String toString() =>
       'RuleImportResult(rules: ${rules.length}, failures: ${failures.length})';

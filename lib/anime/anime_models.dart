@@ -23,14 +23,6 @@ class AnimeRef {
   String toString() => '$sourceName:$id';
 }
 
-/// 收藏读写用的展示元数据（标题/封面由来源提供，模块不解析）。
-class AnimeMeta {
-  final String title;
-  final String? coverUrl;
-
-  const AnimeMeta({required this.title, this.coverUrl});
-}
-
 /// 收藏记录（内部权威库的一行）。
 class AnimeCollectEntry {
   final AnimeRef ref;

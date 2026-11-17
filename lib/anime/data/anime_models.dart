@@ -97,18 +97,6 @@ enum AnimeWeekday {
   const AnimeWeekday(this.label);
 
   final String label;
-
-  /// 由日期取星期，供真实数据源按当天归档。
-  static AnimeWeekday fromDate(DateTime date) => switch (date.weekday) {
-    DateTime.monday => monday,
-    DateTime.tuesday => tuesday,
-    DateTime.wednesday => wednesday,
-    DateTime.thursday => thursday,
-    DateTime.friday => friday,
-    DateTime.saturday => saturday,
-    DateTime.sunday => sunday,
-    _ => monday,
-  };
 }
 
 /// 时间表的一天：星期 + 当天更新的番剧。
