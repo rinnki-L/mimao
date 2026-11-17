@@ -62,6 +62,13 @@ env:
   MIN_COVERAGE: "60"
   # 全流水线统一钉住的 Flutter 版本（Kazumi v2.4.4 基线；Flutter 3.50 配 Dart 3.14）
   FLUTTER_VERSION: "3.50.0"
+  # pub 镜像源。必须与本机生成 pubspec.lock 时的 PUB_HOSTED_URL 一致：pub 把
+  # hosted URL 当作锁条目描述的一部分——lock 里 139 个 hosted 包记录的都是
+  # pub.flutter-io.cn，CI 若用默认 pub.dev 解析，--enforce-lockfile 会判定
+  # 全量重解析（"Would change 139 dependencies"）必红（2026-11-18 首次真实
+  # CI 验证，此前六轮 run 全红即此因）。更换镜像或改回官方源时，必须同步改
+  # 这里，并重新生成、提交 pubspec.lock（详见 docs/architecture.md §11.5）。
+  PUB_HOSTED_URL: https://pub.flutter-io.cn
 
 permissions:
   # 最小权限：只读仓库内容，够 checkout 与 flutter pub get 拉取
