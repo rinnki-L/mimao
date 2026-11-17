@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>聚合壳 Demo 预览 · 选型用</title>
+<style>
+* { box-sizing: border-box; }
+:root{
+  --primary:#6750A4; --primary-container:#EADDFF; --on-primary-container:#21005D;
+  --secondary-container:#E8DEF8; --on-secondary-container:#1D192B;
+  --surface:#FEF7FF; --surface-variant:#E7E0EC; --outline:#CAC4D0; --outline-variant:#E5DFEB;
+  --on-surface:#1D1B20; --on-surface-variant:#49454F;
+}
+body{margin:0;font-family:"Segoe UI","Microsoft YaHei UI","PingFang SC",system-ui,sans-serif;background:var(--surface);color:var(--on-surface);}
+header{position:sticky;top:0;background:#F3EDF7;border-bottom:1px solid var(--outline-variant);padding:12px 24px;display:flex;align-items:center;gap:14px;z-index:5;flex-wrap:wrap}
+header h1{font-size:17px;margin:0 12px 0 0;font-weight:700}
+.tabbtn{border:1px solid var(--outline);background:transparent;border-radius:999px;padding:8px 18px;cursor:pointer;font-size:14px;color:var(--on-surface)}
+.tabbtn.active{background:var(--secondary-container);border-color:transparent;font-weight:700;color:var(--on-secondary-container)}
+.srcbtn{border:1px solid var(--outline);background:transparent;border-radius:999px;padding:7px 16px;cursor:pointer;font-size:13px}
+.srcbtn.active{background:var(--primary-container);border-color:transparent;font-weight:700;color:var(--on-primary-container)}
+main{max-width:1180px;margin:0 auto;padding:20px 24px 30px}
+.note{background:var(--primary-container);color:var(--on-primary-container);border-radius:16px;padding:12px 18px;font-size:13.5px;margin-bottom:18px;line-height:1.8}
+.shell{display:flex;border:1px solid var(--outline-variant);border-radius:24px;overflow:hidden;background:#fff;min-height:560px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.rail{width:190px;background:var(--surface-variant);padding:14px 10px;display:flex;flex-direction:column;gap:6px;flex-shrink:0}
+.rail-item{display:flex;align-items:center;gap:14px;padding:12px 16px;border-radius:999px;cursor:pointer;font-size:15px;color:var(--on-surface-variant);user-select:none}
+.rail-item.active{background:var(--secondary-container);color:var(--on-secondary-container);font-weight:700}
+.rail-item .ico{font-size:20px}
+.content{flex:1;padding:18px 22px;overflow:auto}
+.searchbar{height:44px;border-radius:999px;background:var(--surface-variant);display:flex;align-items:center;padding:0 18px;color:var(--on-surface-variant);margin-bottom:18px;font-size:14px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px}
+.poster{border-radius:16px;overflow:hidden;background:#fff;border:1px solid var(--outline-variant);cursor:pointer;transition:transform .15s, box-shadow .15s}
+.poster:hover{transform:translateY(-3px);box-shadow:0 6px 16px rgba(0,0,0,.14)}
+.poster .cover{height:150px;display:flex;align-items:center;justify-content:center;font-size:44px}
+.poster .info{padding:10px 12px}
+.poster .t{font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.poster .s{font-size:12px;color:var(--on-surface-variant);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+h2{font-size:16px;margin:0 0 12px}
+.rowcard{display:flex;align-items:center;gap:14px;background:#fff;border:1px solid var(--outline-variant);border-radius:16px;padding:12px 16px;margin-bottom:10px}
+.rowcard .ico{font-size:22px}
+.rowcard .grow{flex:1;min-width:0}
+.rowcard .t{font-weight:700;font-size:14px}
+.rowcard .s{font-size:12px;color:var(--on-surface-variant);margin-top:2px}
+.chip{background:var(--secondary-container);color:var(--on-secondary-container);border-radius:999px;padding:4px 12px;font-size:12px;white-space:nowrap}
+.heart{cursor:pointer;font-size:18px;border:none;background:none;padding:4px}
+.progress{width:110px;height:6px;border-radius:999px;background:var(--surface-variant);overflow:hidden;flex-shrink:0}
+.progress>i{display:block;height:100%;background:var(--primary);border-radius:999px}
+.play{font-size:26px;color:var(--primary);cursor:pointer;border:none;background:none}
+.panel{background:#fff;border:1px solid var(--outline-variant);border-radius:16px;padding:16px;margin-bottom:16px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+textarea{width:100%;height:190px;font-family:Consolas,"Courier New",monospace;font-size:12.5px;border-radius:12px;border:1px solid var(--outline);padding:10px;resize:vertical;line-height:1.5}
+.code{font-family:Consolas,"Courier New",monospace;font-size:12px;background:#F7F2FA;border:1px solid var(--outline-variant);border-radius:12px;padding:12px;white-space:pre-wrap;word-break:break-all;line-height:1.6}
+.runbtn{background:var(--primary);color:#fff;border:none;border-radius:999px;padding:10px 22px;font-size:14px;cursor:pointer}
+.runbtn:hover{filter:brightness(1.08)}
+.results .card{border:1px solid var(--outline-variant);border-radius:14px;padding:12px 14px;margin-bottom:10px;display:flex;gap:12px;align-items:center}
+.results .card .cv{width:46px;height:60px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0}
+.results .card .grow{flex:1;min-width:0}
+.results .card .t{font-weight:700;font-size:14px}
+.results .card .s{font-size:12px;color:var(--on-surface-variant);margin-top:2px;font-family:Consolas,monospace}
+.minibtn{border:1px solid var(--outline);background:transparent;border-radius:999px;padding:6px 14px;font-size:12.5px;cursor:pointer}
+.epi{display:flex;justify-content:space-between;gap:12px;background:var(--surface-variant);border-radius:12px;padding:10px 14px;margin-bottom:8px;font-size:13.5px}
+.mono{font-family:Consolas,monospace;color:var(--on-surface-variant);font-size:12px}
+table.dbt{width:100%;border-collapse:collapse;font-size:12.5px}
+table.dbt th{background:var(--secondary-container);text-align:left;padding:9px 10px;font-size:12px}
+table.dbt td{border-top:1px solid var(--outline-variant);padding:9px 10px;vertical-align:top}
+.payload{font-family:Consolas,monospace;font-size:11.5px;color:#5B4A9E;background:#F7F2FA;border-radius:8px;padding:2px 6px;display:inline-block}
+details{margin-top:10px}
+summary{cursor:pointer;font-size:13px;color:var(--primary);font-weight:600}
+footer{color:var(--on-surface-variant);font-size:12px;padding:14px 24px 22px;text-align:center}
+@media (max-width:900px){ .two{grid-template-columns:1fr} }
+</style>
+</head>
+<body>
+<header>
+  <h1>🧩 聚合壳 Demo 预览</h1>
+  <button class="tabbtn active" data-page="shell">① 壳 UI（Demo 01/02）</button>
+  <button class="tabbtn" data-page="engine">② 规则引擎（Demo 03）</button>
+  <button class="tabbtn" data-page="db">③ 统一收藏库（Demo 04）</button>
+</header>
+<main>
+
+  <!-- ══════════════ ① 壳 UI ══════════════ -->
+  <section id="page-shell">
+    <div class="note">这一页 = <b>Demo 01 / Demo 02 的界面</b>。两份 Dart 代码的界面完全一样，区别只在状态管理（setState vs MobX），所以这里先选<b>信息架构</b>：桌面侧栏五项 + 统一「我的」页。<b>侧栏和心形按钮可以点</b>。</div>
+    <div class="shell">
+      <nav class="rail">
+        <div class="rail-item active" data-s="anime"><span class="ico">📺</span>番剧</div>
+        <div class="rail-item" data-s="comic"><span class="ico">🖼️</span>漫画</div>
+        <div class="rail-item" data-s="novel"><span class="ico">📚</span>小说</div>
+        <div class="rail-item" data-s="music"><span class="ico">🎵</span>音乐</div>
+        <div class="rail-item" data-s="library"><span class="ico">🔖</span>我的</div>
+      </nav>
+      <div class="content">
+        <div id="sec-anime" class="sec">
+          <div class="searchbar">🔍 搜索（占位）</div>
+          <div class="grid" id="grid-anime"></div>
+        </div>
+        <div id="sec-comic" class="sec" hidden>
+          <div class="searchbar">🔍 搜索（占位）</div>
+          <div class="grid" id="grid-comic"></div>
+        </div>
+        <div id="sec-novel" class="sec" hidden>
+          <h2>小说（大屏阅读 = 桌面端加分项，legado 没有桌面版）</h2>
+          <div id="list-novel"></div>
+        </div>
+        <div id="sec-music" class="sec" hidden>
+          <h2>音乐（酷狗概念版 API 客户端接这里）</h2>
+          <div id="list-music"></div>
+        </div>
+        <div id="sec-library" class="sec" hidden>
+          <h2>统一时间线（<span id="fav-count">6</span> 条收藏）—— "聚合"区别于"四个 app"的核心页</h2>
+          <div id="list-library"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════ ② 规则引擎 ══════════════ -->
+  <section id="page-engine" hidden>
+    <div class="note"><b>换源 = 换规则，引擎一行不改</b> —— 这就是 Kazumi / 阅读 / Venera 的共同本质（Demo 03）。左边的规则是<b>真的可编辑</b>：随便改几个字再点运行，看右边输出怎么变；或用按钮切换另一个假想源。</div>
+    <div style="margin-bottom:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button class="srcbtn active" data-src="anime">📺 番剧源</button>
+      <button class="srcbtn" data-src="comic">🖼️ 漫画源</button>
+      <span class="mono" id="engine-banner"></span>
+    </div>
+    <div class="two">
+      <div class="panel">
+        <h2>规则（纯数据 · JSON · 可编辑）</h2>
+        <textarea id="rules-input" spellcheck="false"></textarea>
+        <div style="margin-top:10px;display:flex;gap:12px;align-items:center">
+          <button class="runbtn" id="run">▶ 运行规则</button>
+          <span class="mono" id="run-status"></span>
+        </div>
+        <details><summary>看看"网站返回的 HTML"长什么样（假想数据）</summary><div class="code" id="html-view"></div></details>
+      </div>
+      <div class="panel">
+        <h2>引擎输出（点「详情」走第二级规则）</h2>
+        <div class="results" id="engine-results"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════ ③ 统一收藏库 ══════════════ -->
+  <section id="page-db" hidden>
+    <div class="note"><b>统一收藏/历史 = 四种媒体一张表</b>（SQLite / drift，Demo 04）。公共字段做成列，各类型自己的进度塞进 <b>payload JSON</b> —— 起步不过度设计，将来要"按漫画页码筛选"时再升格成真列。最下面一行展示了它和 ① 里「我的」页的关系：那页吃的就是这张表。</div>
+    <div class="panel">
+      <h2>表定义（drift 风格）</h2>
+      <div class="code">class MediaEntries extends Table {
+  TextColumn get id          =&gt; text()();                // 源内唯一键，如 "kazumi:1001"
+  TextColumn get mediaType   =&gt; textEnum&lt;MediaType&gt;();   // anime / comic / novel / music
+  TextColumn get sourceName  =&gt; text()();                // 来自哪个源/规则包
+  TextColumn get title       =&gt; text()();
+  TextColumn get coverUrl    =&gt; text().nullable()();
+  TextColumn get payload     =&gt; text()();                // JSON：该类型自己的进度结构
+  DateTimeColumn get lastOpenedAt =&gt; dateTime()();
+  DateTimeColumn get createdAt    =&gt; dateTime()();
+
+  // 复合主键：同一作品可以从多个源打开，靠它区分
+  primaryKey = { id, mediaType, sourceName }
+}</div>
+    </div>
+    <div class="panel">
+      <h2>表里实际的数据（示例 6 行）</h2>
+      <table class="dbt">
+        <thead><tr><th>id</th><th>mediaType</th><th>sourceName</th><th>title</th><th>payload（JSON）</th><th>lastOpenedAt</th></tr></thead>
+        <tbody>
+          <tr><td>kazumi:1001</td><td><span class="tag anime">anime</span></td><td>Demo番剧源</td><td>葬送的芙莉莲</td><td><span class="payload">{"episode":12,"positionSec":843}</span></td><td>今天 22:41</td></tr>
+          <tr><td>venera:a1:9001</td><td><span class="tag comic">comic</span></td><td>Demo漫画源</td><td>尖帽子的魔法工坊</td><td><span class="payload">{"chapter":45,"page":3}</span></td><td>今天 21:07</td></tr>
+          <tr><td>legado:s7:book2</td><td><span class="tag novel">novel</span></td><td>Demo书源</td><td>诡秘之主</td><td><span class="payload">{"chapter":102,"progressPct":32}</span></td><td>昨天 23:50</td></tr>
+          <tr><td>kugou:pl:88</td><td><span class="tag music">music</span></td><td>酷狗概念版</td><td>深夜驾驶歌单</td><td><span class="payload">{"playlist":"深夜驾驶","trackIndex":7,"positionSec":95}</span></td><td>昨天 20:12</td></tr>
+          <tr><td>venera:b2:4410</td><td><span class="tag comic">comic</span></td><td>Demo漫画源</td><td>小蜘蛛洛卡</td><td><span class="payload">{"chapter":183,"page":1}</span></td><td>3 天前</td></tr>
+          <tr><td>kazumi:1004</td><td><span class="tag anime">anime</span></td><td>Demo番剧源</td><td>孤独摇滚！</td><td><span class="payload">{"episode":1,"positionSec":0}</span></td><td>上周</td></tr>
+        </tbody>
+      </table>
+      <div class="mono" style="margin-top:10px">查询①「我的时间线」= 按 lastOpenedAt 倒序取 50 条 → 就是 ① 里「我的」页的数据源；查询③ 全局搜索 = 对 title 做 LIKE，一个框搜四种媒体。</div>
+    </div>
+  </section>
+</main>
+<footer>纯 HTML mock · 真实壳是 Flutter Material 3 · 对应 C:\da\demos\ 下四个 Dart demo 与 README.md</footer>
+
+<script>
+// ═══════════ 页签切换 ═══════════
+const pages = ['shell','engine','db'];
+document.querySelectorAll('.tabbtn').forEach(btn => btn.onclick = () => {
+  document.querySelectorAll('.tabbtn').forEach(b => b.classList.toggle('active', b === btn));
+  pages.forEach(p => document.getElementById('page-' + p).hidden = (p !== btn.dataset.page));
+});
+
+// ═══════════ ① 壳 UI ═══════════
+const ENTRIES = {
+  anime: [
+    {t:'葬送的芙莉莲', s:'28话 · 看到第12话', e:'📺', c1:'#B39DDB', c2:'#7E57C2'},
+    {t:'败犬女主太多了！', s:'12话 · 未开始', e:'📺', c1:'#F8BBD0', c2:'#EC407A'},
+    {t:'星海航路', s:'24话 · Demo占位', e:'📺', c1:'#90CAF9', c2:'#1E88E5'},
+    {t:'梦色剧场', s:'13话 · Demo占位', e:'📺', c1:'#A5D6A7', c2:'#43A047'},
+  ],
+  comic: [
+    {t:'尖帽子的魔法工坊', s:'58话 · 已收藏', e:'🖼️', c1:'#FFCC80', c2:'#FB8C00'},
+    {t:'小蜘蛛洛卡', s:'183话 · 看到第45话', e:'🖼️', c1:'#B2DFDB', c2:'#00897B'},
+    {t:'无声的旅人', s:'96话 · Demo占位', e:'🖼️', c1:'#C5CAE9', c2:'#3949AB'},
+    {t:'微光之匣', s:'42话 · Demo占位', e:'🖼️', c1:'#FFE082', c2:'#F9A825'},
+  ],
+  novel: [{t:'诡秘之主', s:'第1432章 · 32%', e:'📚', p:0.32}],
+  music: [{t:'深夜驾驶歌单', s:'24首 · 播放到第7首', e:'🎵'}],
+};
+const TYPE = {anime:'番剧', comic:'漫画', novel:'小说', music:'音乐'};
+const LIB = [
+  {type:'anime', t:'葬送的芙莉莲', s:'28话 · 看到第12话', src:'Demo番剧源', ico:'📺'},
+  {type:'anime', t:'败犬女主太多了！', s:'12话 · 未开始', src:'Demo番剧源', ico:'📺'},
+  {type:'comic', t:'尖帽子的魔法工坊', s:'58话 · 已收藏', src:'Demo漫画源', ico:'🖼️'},
+  {type:'comic', t:'小蜘蛛洛卡', s:'183话 · 看到第45话', src:'Demo漫画源', ico:'🖼️'},
+  {type:'novel', t:'诡秘之主', s:'第1432章 · 32%', src:'Demo书源', ico:'📚'},
+  {type:'music', t:'深夜驾驶歌单', s:'24首 · 播放到第7首', src:'酷狗概念版', ico:'🎵'},
+];
+
+function posterHTML(e){
+  return `<div class="poster"><div class="cover" style="background:linear-gradient(135deg,${e.c1},${e.c2})">${e.e}</div>
+  <div class="info"><div class="t">${e.t}</div><div class="s">${e.s}</div></div></div>`;
+}
+document.getElementById('grid-anime').innerHTML = ENTRIES.anime.map(posterHTML).join('');
+document.getElementById('grid-comic').innerHTML = ENTRIES.comic.map(posterHTML).join('');
+
+document.getElementById('list-novel').innerHTML = ENTRIES.novel.map(e => `
+  <div class="rowcard"><span class="ico">${e.e}</span><div class="grow"><div class="t">${e.t}</div>
+  <div class="s">${e.s} · Demo书源</div></div><div class="progress"><i style="width:${e.p*100}%"></i></div></div>`).join('');
+
+document.getElementById('list-music').innerHTML = ENTRIES.music.map(e => `
+  <div class="rowcard"><span class="ico">${e.e}</span><div class="grow"><div class="t">${e.t}</div>
+  <div class="s">${e.s} · 酷狗概念版</div></div><button class="play">▶</button></div>`).join('');
+
+const fav = new Set(LIB.map((_, i) => i));
+function renderLibrary(){
+  document.getElementById('fav-count').textContent = fav.size;
+  document.getElementById('list-library').innerHTML = LIB.map((e, i) => `
+    <div class="rowcard"><span class="ico">${e.ico}</span><div class="grow"><div class="t">${e.t}</div>
+    <div class="s">${TYPE[e.type]} · ${e.s}</div></div>
+    <span class="chip">${e.src}</span>
+    <button class="heart" data-i="${i}">${fav.has(i) ? '❤️' : '🤍'}</button></div>`).join('');
+  document.querySelectorAll('.heart').forEach(b => b.onclick = () => {
+    const i = +b.dataset.i;
+    fav.has(i) ? fav.delete(i) : fav.add(i);
+    renderLibrary();
+  });
+}
+renderLibrary();
+
+document.querySelectorAll('.rail-item').forEach(el => el.onclick = () => {
+  document.querySelectorAll('.rail-item').forEach(x => x.classList.toggle('active', x === el));
+  document.querySelectorAll('.sec').forEach(s => s.hidden = (s.id !== 'sec-' + el.dataset.s));
+});
+
+// ═══════════ ② 规则引擎（与 Demo 03 / verify_regex.js 同一套逻辑）═══════════
+const SOURCES = {
+  anime: {
+    label: '番剧源',
+    listPageHtml: `
+<!doctype html><html><head><title>某番剧站 · 搜索结果</title></head><body>
+<div class="result-list">
+  <div class="anime-item">
+    <a class="cover" href="/anime/1001"><img src="/img/1001.jpg"></a>
+    <h3 class="title">葬送的芙莉莲</h3>
+    <span class="meta">2024 · 28话</span>
+  </div>
+  <div class="anime-item">
+    <a class="cover" href="/anime/1002"><img src="/img/1002.jpg"></a>
+    <h3 class="title">药屋少女的呢喃</h3>
+    <span class="meta">2025 · 24话</span>
+  </div>
+  <div class="anime-item">
+    <a class="cover" href="/anime/1003"><img src="/img/1003.jpg"></a>
+    <h3 class="title">败犬女主太多了！</h3>
+    <span class="meta">2024 · 12话</span>
+  </div>
+  <div class="anime-item">
+    <a class="cover" href="/anime/1004"><img src="/img/1004.jpg"></a>
+    <h3 class="title">孤独摇滚！</h3>
+    <span class="meta">2022 · 12话</span>
+  </div>
+</div>
+</body></html>`,
+    detailPageHtml: `
+<!doctype html><html><head><title>葬送的芙莉莲 · 播放列表</title></head><body>
+<h1 class="anime-name">葬送的芙莉莲</h1>
+<div class="playlist">
+  <a class="episode" href="/play/1001-01">第01话 启程</a>
+  <a class="episode" href="/play/1001-02">第02话 相遇</a>
+  <a class="episode" href="/play/1001-03">第03话 诀别</a>
+  <a class="episode" href="/play/1001-04">第04话 决意</a>
+</div>
+</body></html>`,
+    listRules: {
+      '容器': '<div class="anime-item">([\\s\\S]*?)</div>',
+      '标题': '<h3 class="title">(.*?)</h3>',
+      '封面': '<img src="(.*?)"',
+      '链接': '<a class="cover" href="(.*?)"',
+    },
+    detailRules: {
+      '剧集标题': '<a class="episode" href="[^"]*">(.*?)</a>',
+      '播放地址': '<a class="episode" href="(.*?)"',
+    },
+    coverEmoji: '📺',
+  },
+  comic: {
+    label: '漫画源',
+    listPageHtml: `
+<!doctype html><html><head><title>某漫画站 · 章节</title></head><body>
+<div class="chapter-list">
+  <div class="chapter-item">
+    <a class="chapter-link" href="/comic/9001/ch-45"><img src="/img/9001-c45.jpg"><span class="name">第45话 星灯</span></a>
+  </div>
+  <div class="chapter-item">
+    <a class="chapter-link" href="/comic/9001/ch-46"><img src="/img/9001-c46.jpg"><span class="name">第46话 提灯</span></a>
+  </div>
+  <div class="chapter-item">
+    <a class="chapter-link" href="/comic/9001/ch-47"><img src="/img/9001-c47.jpg"><span class="name">第47话 灯火</span></a>
+  </div>
+</div>
+</body></html>`,
+    detailPageHtml: `
+<!doctype html><html><head><title>第45话 星灯 · 阅读页</title></head><body>
+<div class="reader">
+  <img class="page" src="/pages/9001/45-01.jpg">
+  <img class="page" src="/pages/9001/45-02.jpg">
+  <img class="page" src="/pages/9001/45-03.jpg">
+</div>
+</body></html>`,
+    listRules: {
+      '容器': '<div class="chapter-item">([\\s\\S]*?)</div>',
+      '标题': '<span class="name">(.*?)</span>',
+      '封面': '<img src="(.*?)"',
+      '链接': '<a class="chapter-link" href="(.*?)"',
+    },
+    detailRules: {
+      '页图': '<img class="page" src="(.*?)"',
+    },
+    coverEmoji: '🖼️',
+  },
+};
+
+const firstGroup = (text, p) => (new RegExp(p).exec(text) || [])[1] ?? null;
+const captureAll = (text, p) => [...text.matchAll(new RegExp(p, 'g'))].map(m => m[1] ?? '');
+function extractList(html, rules) {
+  const items = [];
+  for (const m of html.matchAll(new RegExp(rules['容器'], 'g'))) {
+    const block = m[1];
+    const item = {};
+    for (const [name, p] of Object.entries(rules)) {
+      if (name !== '容器') item[name] = firstGroup(block, p) ?? '';
+    }
+    items.push(item);
+  }
+  return items;
+}
+
+let curSrc = 'anime';
+const rulesInput = document.getElementById('rules-input');
+const statusEl = document.getElementById('run-status');
+const resultsEl = document.getElementById('engine-results');
+const htmlView = document.getElementById('html-view');
+const bannerEl = document.getElementById('engine-banner');
+
+function loadSource(key) {
+  curSrc = key;
+  document.querySelectorAll('.srcbtn').forEach(b => b.classList.toggle('active', b.dataset.src === key));
+  rulesInput.value = JSON.stringify(SOURCES[key].listRules, null, 2);
+  htmlView.textContent = SOURCES[key].listPageHtml.trim();
+  bannerEl.textContent = `当前源：${SOURCES[key].label} · 引擎代码不变，只有规则变了`;
+  runRules();
+}
+
+function runRules() {
+  let rules;
+  try {
+    rules = JSON.parse(rulesInput.value);
+  } catch (e) {
+    statusEl.textContent = '❌ 规则不是合法 JSON：' + e.message;
+    return;
+  }
+  if (!rules['容器']) { statusEl.textContent = '❌ 缺少「容器」规则'; return; }
+  const src = SOURCES[curSrc];
+  const items = extractList(src.listPageHtml, rules);
+  statusEl.textContent = `✅ 引擎解析出 ${items.length} 条`;
+  resultsEl.innerHTML = items.map((r, i) => `
+    <div class="card">
+      <div class="cv" style="background:linear-gradient(135deg,#EADDFF,#D0BCFF)">${src.coverEmoji}</div>
+      <div class="grow"><div class="t">${r['标题'] || '(无标题字段)'}</div>
+      <div class="s">${r['链接'] || ''}</div></div>
+      <button class="minibtn" data-i="${i}">详情 →</button>
+    </div>`).join('');
+  resultsEl.querySelectorAll('.minibtn').forEach(btn => btn.onclick = () => {
+    const item = items[+btn.dataset.i];
+    const dRules = src.detailRules;
+    const nameKey = Object.keys(dRules)[0]; // 第一条 = 标题类规则
+    const names = captureAll(src.detailPageHtml, dRules[nameKey]);
+    const linkKey = Object.keys(dRules)[1]; // 第二条 = 地址类规则（若有）
+    const links = linkKey ? captureAll(src.detailPageHtml, dRules[linkKey]) : [];
+    resultsEl.insertAdjacentHTML('beforeend', `
+      <div style="margin-top:14px"><b>${item['标题'] || '详情'} · 第二级规则的输出：</b>
+      ${names.map((n, j) => `<div class="epi"><span>${n}</span><span class="mono">${links[j] || ''}</span></div>`).join('') || '<div class="mono">(详情规则没有解析出内容)</div>'}
+      </div>`);
+    btn.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+  });
+}
+
+document.getElementById('run').onclick = runRules;
+document.querySelectorAll('.srcbtn').forEach(b => b.onclick = () => loadSource(b.dataset.src));
+loadSource('anime');
+</script>
+</body>
+</html>

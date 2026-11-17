@@ -1,0 +1,430 @@
+# ==============================================================
+# 严苛 CI 门禁 · Flutter 聚合应用（番剧 / 漫画 / 小说 / 音乐）
+# ==============================================================
+# 【重要】本文件只是流水线；要让 CI 真正守住 main，还必须在仓库
+# Settings 里手动启用以下设置（缺一不可）：
+#   1. Branches → Branch protection（对 main）：
+#      - Require a pull request before merging（禁止直推 main）
+#      - Require status checks to pass before merging，并把下面
+#        5 个 job id 一字不差地勾成 required checks（名字=job id）：
+#        static-checks / tests / build-windows / build-android / merge-check
+#   2. Rules → Require merge queue（合并队列）：
+#      本文件已监听 merge_group 事件，开启后队列逐个以
+#      「main + 前面所有待合并 PR」的合并结果跑 CI，消灭合入后的语义冲突。
+#      官方文档：队列提供与 Require branches to be up to date 同等的保障——
+#      二者择一：能开队列就不必再配 up to date（两者并存的行为未经核实，
+#      UI 若不允许同时保存属预期）；开不了队列（套餐限制）才退回
+#      Require branches to be up to date before merging（落后即禁合并）
+#   3. Actions → Workflow permissions 保持最小（本文件已显式 contents: read）
+#
+# 门禁一览（每扇门都会真的红；红的原因写在各自注释里）：
+#   lockfile 门     pubspec 与 pubspec.lock 不同步 → 红（git fork 依赖全靠 lock 钉住）
+#   格式门          dart format 漂移 → 红
+#   分析门          dart analyze 的 info / warning（自写代码）→ 红；镜像目录只守 error
+#   dart fix 门     有可自动修复项却没修 → 红
+#   生成代码漂移门  build_runner 重建后工作区有改动 → 红（生成文件是合并冲突重灾区）
+#   测试门          测试失败 → 红；已测文件集合上的行覆盖率低于 MIN_COVERAGE → 红
+#   构建门          Windows / Android release 构建失败 → 红
+#   合并预演门      与 origin/main 存在合并冲突 → 红（冲突文件写入 Step Summary）
+#   分域说明        格式/分析/dart fix 三扇门只覆盖自写代码；镜像目录（lib/anime、
+#                   lib/comic）只做 error 级分析；demos/ 不进任何门（docs/architecture.md §11）
+#
+# 【现状说明】仓库当前没有 pubspec.yaml（Flutter 工程尚未落地）：本流水线按
+# 工程落位后的形态编写。落地前各 job 会先红在依赖步骤：static-checks 与
+# tests 红在 flutter pub get（无 pubspec.yaml）、build-android 红在 setup-java
+# 的 gradle 缓存（仓库无 *.gradle* 文件可哈希）——真红但与上方门注释的红因
+# 对不上，属已知过渡态；工程落位后自愈。
+# 另有一条不会随落位自愈的策略约束：漂移门强制「生成物入库」——若项目
+# .gitignore 忽略 *.g.dart 等生成物，落位后该门会持续红，正确处置是删除
+# 对应规则（普通 git add 会被忽略规则拒绝，不要用 add -f 绕过）。
+# M3 起 rhttp 需要 Rust/NDK：build-windows/build-android 的前置步骤须在 M3 当天
+# 补齐（docs/architecture.md §11.4）；当前未接是已知缺口，不是遗漏。
+# ==============================================================
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  merge_group:
+
+concurrency:
+  # group 用 runner 表达式按 ref 区分：不同分支、不同 PR、不同合并队列批次互不抢占
+  group: ci-${{ github.ref }}
+  # 同 ref 后来者取消先到者：信号永远来自最新一次提交
+  cancel-in-progress: true
+
+defaults:
+  # 所有 run 统一钉死 bash——windows-latest 的默认 shell 是 pwsh，不显式钉死必踩语法坑
+  run:
+    shell: bash
+
+env:
+  # 行覆盖率阈值（整数百分比），tests job 的覆盖率门引用它
+  MIN_COVERAGE: "60"
+  # 全流水线统一钉住的 Flutter 版本（Kazumi v2.4.4 基线；Flutter 3.50 配 Dart 3.14）
+  FLUTTER_VERSION: "3.50.0"
+
+permissions:
+  # 最小权限：只读仓库内容，够 checkout 与 flutter pub get 拉取
+  contents: read
+
+jobs:
+  static-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v5
+
+      - name: 安装 Flutter SDK（版本钉在顶层 env FLUTTER_VERSION，所有 job 同版本）
+        uses: subosito/flutter-action@v2.23.0
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      # 第一扇门：--enforce-lockfile 下 pub get 严格按 pubspec.lock 解析，
+      # pubspec 与 lock 不同步（改了依赖没更新 lock / lock 被手改）直接红
+      - name: lockfile 门——pubspec 与 pubspec.lock 不同步直接红
+        run: |
+          set -euo pipefail
+          flutter pub get --enforce-lockfile
+
+      # 第二扇门：格式漂移即红。分域（docs/architecture.md §11.1）：
+      # 只格式化自写代码；lib/anime、lib/comic 等镜像目录豁免——改写上游文件内容
+      # 会让固定前缀 patch 重放退化成人工合并。demos/ 是选型材料，也不进此门。
+      # 生成物（*.g.dart 等）同样排除：它们由 build_runner 产出，格式化它们会让
+      # 第五扇门（重建后 diff 必须干净）自相矛盾。
+      - name: 格式门——自写代码格式漂移即红（镜像目录、demos/、生成物豁免）
+        run: |
+          set -euo pipefail
+          targets=""
+          for p in lib/main.dart lib/*/*_entry.dart lib/*/*_module.dart; do
+            if [ -f "$p" ]; then targets="$targets $p"; fi
+          done
+          for d in lib/shell lib/core lib/music lib/novel test; do
+            if [ ! -d "$d" ]; then continue; fi
+            for f in $(find "$d" -type f -name '*.dart' ! -name '*.g.dart' ! -name '*.drift.dart' ! -name '*.freezed.dart' ! -name '*.mock.dart' ! -name '*.mocks.dart'); do
+              targets="$targets $f"
+            done
+          done
+          if [ -z "$targets" ]; then
+            echo "::error::找不到自写代码路径——目录布局与 docs/directory-layout.md 不符"
+            exit 1
+          fi
+          # 路径列表按空格展开是刻意行为；本项目路径不含空格
+          dart format --output=none --set-exit-if-changed $targets
+
+      # 第三扇门：--fatal-infos 把 info 升级为失败，warning 默认即失败。
+      # 分域（§11.1）：自写代码用严格档；镜像目录只把守 error 级（--no-fatal-warnings），
+      # 不按我们的 lint 口味改写上游代码。
+      # 强度前提（如实注明）：实际覆盖面取决于 analysis_options.yaml 启用的 lint 集——
+      # docs/directory-layout.md 已拍板「lint 从宽」（不开 always_use_package_imports，
+      # 上游镜像含相对导入），边界由哨兵测试把守、不靠 lint。因此先校验该文件存在
+      # 且非空：文件缺失/被清空时 analyze 会静默降级为默认 lint 集，分析门变弱。
+      - name: 分析门——自写代码 info/warning 也失败，镜像目录只守 error
+        run: |
+          set -euo pipefail
+          if [ ! -s analysis_options.yaml ]; then
+            echo "::error::analysis_options.yaml 缺失或为空——分析门会静默降级为默认 lint 集，禁止删除该文件"
+            exit 1
+          fi
+          if ! grep -qE '^[[:space:]]*[^#[:space:]]' analysis_options.yaml; then
+            echo "::error::analysis_options.yaml 只有注释或空行——等效于空文件，分析门会静默降级"
+            exit 1
+          fi
+          for p in lib/main.dart lib/shell lib/core lib/music lib/novel test lib/*/*_entry.dart lib/*/*_module.dart; do
+            if [ -e "$p" ]; then
+              dart analyze --fatal-infos "$p"
+            fi
+          done
+          for p in lib/anime lib/comic; do
+            if [ -d "$p" ]; then
+              dart analyze --no-fatal-warnings "$p"
+            fi
+          done
+
+      # 第四扇门：dart fix --dry-run 的输出里必须是「Nothing to fix!」；
+      # 出现任何可自动修复项（或命令本身异常退出）都红——防「能自动修却没人修」。
+      # 分域（§11.1）：只跑自写目录；dart fix 只接受目录参数，故 lib/main.dart 与
+      # 模块入口文件由上一扇门的 format/analyze 覆盖，不在此门。
+      - name: dart fix 门——自写目录存在可自动修复项即红（grep 判定）
+        run: |
+          set -euo pipefail
+          for p in lib/shell lib/core lib/music lib/novel test; do
+            if [ ! -d "$p" ]; then continue; fi
+            log=$(dart fix --dry-run "$p" 2>&1) || { printf '%s\n' "$log"; echo "::error::dart fix --dry-run $p 本身非零退出"; exit 1; }
+            printf '%s\n' "$log"
+            if ! printf '%s\n' "$log" | grep -q "Nothing to fix!"; then
+              echo "::error::$p 存在可被 dart fix 自动修复的项——本地跑 dart fix --apply $p 后重新提交"
+              exit 1
+            fi
+          done
+          echo "dart fix 无可自动修复项——通过"
+
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v5
+
+      - name: 安装 Flutter SDK（版本与其它 job 一致）
+        uses: subosito/flutter-action@v2.23.0
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      # lockfile 门在测试语境下重复把守：这个 job 自己也要按 lock 装依赖
+      - name: lockfile 门（测试语境下重复把守）
+        run: |
+          set -euo pipefail
+          flutter pub get --enforce-lockfile
+
+      # 第五扇门：生成代码必须已提交且与源同步。
+      # build_runner 全量重建后依次查三件事，顺序刻意如此：
+      #   1) 被 .gitignore 忽略的生成物 → 红。git 对 ignored 彻底失明（diff 门与
+      #      未跟踪检查都看不见它），所以这道检查必须放在重建之后——若放在重建
+      #      之前，「删除已跟踪生成文件 + 把生成物加进 .gitignore」的 PR 会在此处
+      #      查到空而全绿放行；重建后再查，刚生成的被忽略产物必现形（已在本机
+      #      git 2.54 实验验证：--others --ignored 能列出，--others --exclude-standard
+      #      看不见）。
+      #   2) 跟踪文件 diff 非空（git diff --exit-code）→ 红。
+      #   3) 冒出未跟踪的新生成文件 → 红。
+      # 这扇门直接消灭「生成文件各改一份」的合并冲突重灾区；它同时把守
+      # .gitignore 与「生成物入库」策略的一致性——忽略生成物的规则会让本门
+      # 持续红，正确处置是删规则，而不是绕过本门。
+      - name: 生成代码漂移门——build_runner 重建后 git diff --exit-code 必须干净
+        run: |
+          set -euo pipefail
+          dart run build_runner build --delete-conflicting-outputs
+          ignored=$(git ls-files --others --ignored --exclude-standard -- '*.g.dart' '*.drift.dart' '*.mock.dart' '*.mocks.dart' '*.freezed.dart')
+          if [ -n "$ignored" ]; then
+            printf '%s\n' "$ignored"
+            echo "::error::生成物被 .gitignore 忽略——本仓库策略是生成物必须提交入库：请删除 .gitignore 中的对应规则（普通 git add 会被忽略规则拒绝，不要用 add -f 绕过），再正常提交生成物"
+            exit 1
+          fi
+          if ! git diff --exit-code --stat >/dev/null; then
+            echo "::error::生成代码与已提交版本不一致——本地跑 build_runner 后把产物一并提交"
+            git --no-pager diff --stat
+            exit 1
+          fi
+          untracked=$(git ls-files --others --exclude-standard)
+          if [ -n "$untracked" ]; then
+            printf '%s\n' "$untracked"
+            echo "::error::build_runner 生成了未跟踪的新文件——先提交再合并"
+            exit 1
+          fi
+          echo "生成代码与已提交版本一致——通过"
+
+      # 第六扇门（前半）：测试本体，--coverage 生成 coverage/lcov.info
+      - name: 测试门——flutter test --coverage
+        run: |
+          set -euo pipefail
+          flutter test --coverage
+
+      # 第六扇门（后半）：不引第三方 action，用 awk 自算行覆盖率并对比阈值。
+      # lcov 的 LF=每文件总行数、LH=命中行数；LF 总数为 0 视为不可信直接红。
+      # 口径：lcov.info 只含被测试 import 到的文件（flutter#27997），未被任何
+      # 测试 import 的文件不进分母——本门衡量的是「已测文件集合上的行覆盖率」，
+      # 数字系统性高于全库口径；MIN_COVERAGE 按此口径设定。
+      - name: 覆盖率门——awk 自算行覆盖率，低于 MIN_COVERAGE 即红
+        run: |
+          set -euo pipefail
+          # 阈值必须是纯数字：非数字会让 awk 的比较静默恒过，覆盖率门变假门
+          case "$MIN_COVERAGE" in
+            ''|*[!0-9]*)
+              echo "::error::顶层 env MIN_COVERAGE 必须是非负整数，当前值：${MIN_COVERAGE}"
+              exit 1
+              ;;
+          esac
+          lcov=coverage/lcov.info
+          if [ ! -f "$lcov" ]; then
+            echo "::error::flutter test 未生成 coverage/lcov.info"
+            exit 1
+          fi
+          total=$(awk -F: '/^LF:/ { s += $2 } END { printf "%d", s }' "$lcov")
+          hit=$(awk -F: '/^LH:/ { s += $2 } END { printf "%d", s }' "$lcov")
+          if [ "$total" -le 0 ]; then
+            echo "::error::lcov.info 中没有行数据（LF 总数为 0）——覆盖率不可信，直接红"
+            exit 1
+          fi
+          pct=$(awk -v h="$hit" -v t="$total" 'BEGIN { printf "%.1f", 100 * h / t }')
+          echo "行覆盖率 ${pct}%（命中 ${hit} / 总行 ${total}，阈值 ${MIN_COVERAGE}%）"
+          awk -v h="$hit" -v t="$total" -v min="$MIN_COVERAGE" 'BEGIN { if (100 * h / t < min + 0) exit 1 }' || {
+            echo "::error::行覆盖率 ${pct}% 低于阈值 ${MIN_COVERAGE}%"
+            exit 1
+          }
+          {
+            echo "## 测试行覆盖率"
+            echo ""
+            echo "- 覆盖率：${pct}%（命中 ${hit} / 总行 ${total}）"
+            echo "- 口径：lcov——未被任何测试 import 的文件不进分母"
+            echo "- 阈值：${MIN_COVERAGE}%（顶层 env MIN_COVERAGE）"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v5
+
+      - name: 安装 Flutter SDK（版本与其它 job 一致）
+        uses: subosito/flutter-action@v2.23.0
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      # 计划引入的 rhttp 是 Rust FFI：没有 cargo 时 CMake/Gradle 的 Rust 构建钩子必挂。
+      # 当前依赖还没引入 Rust 组件时，这一步只是幂等的多余一分钟，无害。
+      - name: 安装 Rust 工具链——rhttp 是 Rust FFI，没有 cargo 构建必红
+        run: |
+          set -euo pipefail
+          if command -v cargo >/dev/null 2>&1; then
+            echo "cargo 已预装，跳过 rustup 安装"
+          else
+            curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+            printf '%s\n' "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: lockfile 门
+        run: |
+          set -euo pipefail
+          flutter pub get --enforce-lockfile
+
+      # 第七扇门（Windows）：runner 预装 Visual Studio C++ 工作负载，release 构建失败即红
+      - name: 构建门——Windows release 产物
+        run: |
+          set -euo pipefail
+          flutter build windows --release
+
+  build-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v5
+
+      # Flutter 3.50 新模板 AGP 9.3.1 / Gradle 9.5，兼容 JDK 17–21；钉 temurin 21
+      - name: 安装 JDK 21——Flutter 3.50 模板为 AGP 9.3.1 / Gradle 9.5，兼容 JDK 17 到 21
+        uses: actions/setup-java@v5.5.0
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: 安装 Flutter SDK（版本与其它 job 一致）
+        uses: subosito/flutter-action@v2.23.0
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      # rhttp 的 Rust 侧要按 Android ABI 交叉编译：补齐三个目标的 std。
+      # 同步把 cargo 写进本步 PATH（GITHUB_PATH 只对后续步骤生效）。
+      - name: 安装 Rust 工具链并补齐 Android 目标（rhttp 按 ABI 交叉编译）
+        run: |
+          set -euo pipefail
+          if command -v cargo >/dev/null 2>&1; then
+            echo "cargo 已预装"
+          else
+            curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+          fi
+          export PATH="$HOME/.cargo/bin:$PATH"
+          rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
+          printf '%s\n' "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: lockfile 门
+        run: |
+          set -euo pipefail
+          flutter pub get --enforce-lockfile
+
+      # 第七扇门（Android）：runner 预装 Android SDK / NDK 且许可已接受，构建失败即红
+      - name: 构建门——Android release APK
+        run: |
+          set -euo pipefail
+          flutter build apk --release
+
+  merge-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # 关键：PR 事件下必须检出分支头而不是 GitHub 的 merge commit——
+      # 默认检出的是「已合并结果」，merge-tree 对它预演永远干净，等于假门。
+      # push 与 merge_group 事件回退到 github.sha（预演为平凡干净是设计使然，
+      # 真实的合并测试由 merge queue 完成，本 job 的拦截对象是 PR）。
+      - name: 检出仓库（PR 用分支头，完整历史供 merge-tree 取双方提交）
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      # 第八扇门（本文件的核心使命）：git merge-tree --write-tree --name-only
+      # 在不碰工作区的前提下预演 HEAD 与 origin/main 的合并。输出结构已在本机
+      # git 2.54 实验（runner 为 2.56；--write-tree 结构自 2.38 稳定）：
+      #   干净合并 = 退出码 0，stdout 只有新 tree 的 OID 一行；
+      #   有冲突   = 退出码 1，stdout = OID + 冲突文件名（每行一个），stderr 为空；
+      #   预演失败（如 ref 不存在）= 退出码也可能是 1（与冲突同码！），stdout 为
+      #   空、原因走 stderr（实验实测：merge-tree: no-such-ref - not something
+      #   we can merge）——故失败分支按「stdout 是否非空」区分冲突与故障。
+      # 必须加 --no-messages：不加时 stdout 在文件列表之后还会混入
+      # 「Auto-merging …」「CONFLICT (…) …」消息行（实验确认 stderr 为空），
+      # 会污染下方「冲突文件」列表。冲突列表写进 GITHUB_STEP_SUMMARY，
+      # 让人不用翻日志就知道改哪些文件。
+      # ubuntu-latest 镜像自带 git 2.43+（--write-tree 需 2.38+），已核实可用。
+      - name: 合并预演门——与 origin/main 预演合并，冲突即红并把冲突文件写入 Step Summary
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          msgs=$(mktemp)
+          if out=$(git merge-tree --write-tree --name-only --no-messages HEAD origin/main 2>"$msgs"); then
+            echo "合并预演通过：HEAD 与 origin/main 可自动合并"
+            {
+              echo "## 合并预演"
+              echo ""
+              echo "git merge-tree 预演通过，无冲突。"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            status=$?
+            files=$(printf '%s\n' "$out" | tail -n +2 | sed '/^$/d')
+            # 冲突与「预演自身失败」的退出码都可能是 1（本机实验：bad-ref 时
+            # stdout 为空、stderr 报 not something we can merge），两者都红，
+            # 但按「stdout 是否非空」区分文案——把预演故障误报成「分支冲突」
+            # 会让开发者白跑一轮 rebase。
+            if [ -n "$out" ]; then
+              headline="git merge-tree 退出码 ${status}：HEAD 与 origin/main 无法自动合并（存在冲突）。"
+              hint="与 origin/main 存在合并冲突——先合并 main（或 rebase）解决后再继续"
+            else
+              headline="git merge-tree 退出码 ${status}：预演自身失败（stdout 连 tree OID 都没有，非代码冲突）。"
+              hint="合并预演本身失败（非代码冲突）——按下方附加输出排查，多为环境或 ref 问题"
+            fi
+            {
+              echo "## 合并预演失败"
+              echo ""
+              echo "${headline}"
+              echo ""
+              if [ -n "$files" ]; then
+                echo "冲突文件："
+                echo ""
+                printf '%s\n' "$files" | sed 's/^/- /'
+              else
+                echo "（git 未给出冲突文件名，附加输出见下）"
+              fi
+              echo ""
+              echo "<details><summary>git merge-tree 附加输出（stderr：普通冲突为空，预演自身失败时是关键线索）</summary>"
+              echo ""
+              echo '```text'
+              cat "$msgs"
+              echo '```'
+              echo "</details>"
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::${hint}"
+            exit 1
+          fi
