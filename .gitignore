@@ -10,6 +10,8 @@ docs/
 .dart_tool/
 .packages
 build/
+# flutter test 自举的 native QuickJS 库（从 build/windows/... 拷到工作目录）
+flutter_qjs_plugin.dll
 # flutter test --coverage 产物；不是生成代码，不入库
 coverage/
 *.dart.js

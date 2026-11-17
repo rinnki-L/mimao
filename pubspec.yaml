@@ -15,6 +15,7 @@ dependencies:
   window_manager: ^0.5.1
   tray_manager: ^0.5.0
   path_provider: ^2.1.5
+  path: ^1.9.0
 
   # 壳级状态（demo 02 方向；拍板项 2 临时决定：接受 MobX）
   mobx: ^2.3.0
@@ -34,6 +35,17 @@ dependencies:
   media_kit: ^1.2.6
   media_kit_video: ^2.0.1
   media_kit_libs_video: ^1.0.7
+
+  # 漫画 A′ 线 · 源引擎：flutter_qjs(CyrilPeng fork) 跑社区 Venera JS 源；
+  # cookie_jar 管 Cookie；html 解析源脚本里的 HtmlDocument/DOM。
+  # flutter_qjs 走 git 固定到上游对齐的 commit；首次编译会拉 native QuickJS。
+  flutter_qjs:
+    git:
+      url: https://github.com/CyrilPeng/flutter_qjs
+      ref: f5a1f20d08c33b0a6b3e38eda2a7b27705420620
+  cookie_jar: ^4.0.9
+  html: ^0.15.7
+  crypto: ^3.0.8
 
 dev_dependencies:
   flutter_test:

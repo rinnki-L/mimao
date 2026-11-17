@@ -6,6 +6,7 @@
 
 #include "generated_plugin_registrant.h"
 
+#include <flutter_qjs/flutter_qjs_plugin.h>
 #include <media_kit_libs_windows_video/media_kit_libs_windows_video_plugin_c_api.h>
 #include <screen_retriever_windows/screen_retriever_windows_plugin_c_api.h>
 #include <sqlite3_flutter_libs/sqlite3_flutter_libs_plugin.h>
@@ -14,6 +15,8 @@
 #include <window_manager/window_manager_plugin.h>
 
 void RegisterPlugins(flutter::PluginRegistry* registry) {
+  FlutterQjsPluginRegisterWithRegistrar(
+      registry->GetRegistrarForPlugin("FlutterQjsPlugin"));
   MediaKitLibsWindowsVideoPluginCApiRegisterWithRegistrar(
       registry->GetRegistrarForPlugin("MediaKitLibsWindowsVideoPluginCApi"));
   ScreenRetrieverWindowsPluginCApiRegisterWithRegistrar(
