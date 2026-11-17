@@ -17,6 +17,7 @@ class ComicModulePage extends StatefulWidget {
     required this.dataSource,
     required this.sourceRepository,
     this.embedded = false,
+    this.onOpenDetail,
     this.isFavorite,
     this.onFavoriteChanged,
     this.onStartReading,
@@ -29,6 +30,10 @@ class ComicModulePage extends StatefulWidget {
 
   /// true 时由壳提供顶部"返回 + 标题"，搜索/源管理页不再画自己的 AppBar。
   final bool embedded;
+
+  /// 即将打开详情（导航前的最后一个异步点）：模块层在此接
+  /// ComicHistoryService.open 做打开点校正；抛错不挡导航。
+  final Future<void> Function(ComicSummary item)? onOpenDetail;
 
   /// 打开详情前读取权威收藏态；由模块层接收藏服务注入。
   final Future<bool> Function(ComicSummary)? isFavorite;
@@ -56,6 +61,12 @@ class _ComicModulePageState extends State<ComicModulePage> {
   int _index = 0;
 
   Future<void> _openDetail(ComicSummary item) async {
+    // 打开点校正失败不应挡住导航：投影由下次打开再校正。
+    try {
+      await widget.onOpenDetail?.call(item);
+    } on Object {
+      // 校正是纯收益动作，失败静默。
+    }
     // 收藏态读取失败不应挡住导航：退回"未收藏"继续打开详情。
     final favorite =
         await (widget.isFavorite?.call(item) ?? Future<bool>.value(false))
