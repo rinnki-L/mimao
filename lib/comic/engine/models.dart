@@ -165,11 +165,17 @@ class ComicImageRef {
 /// 源脚本报错、超时、语法错都不会抛异常给上层，而是返回空 [items] 并在
 /// [diagnostics] 说明原因——多个源聚合时可以逐源容错。
 class ComicSourceResult<T> {
-  const ComicSourceResult({List<T>? items, this.diagnostics = const <String>[]})
-    : items = items ?? const [];
+  const ComicSourceResult({
+    List<T>? items,
+    this.diagnostics = const <String>[],
+    this.maxPage,
+  }) : items = items ?? const [];
 
   final List<T> items;
   final List<String> diagnostics;
+
+  /// 源脚本返回的分页总页数（如 `{comics, maxPage}`），供上层翻页；可为 null。
+  final int? maxPage;
 
   bool get isEmpty => items.isEmpty;
   bool get isNotEmpty => items.isNotEmpty;

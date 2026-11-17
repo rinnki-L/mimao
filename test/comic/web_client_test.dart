@@ -109,6 +109,57 @@ void main() {
       expect(adapter.seenOptions?.headers['Cookie'], contains('sid=abc'));
     });
 
+    test('setCookies / fetch 后 getCookies 同步可见（真实 ComicWebClient）', () async {
+      final adapter = _RecordingAdapter(
+        headers: <String, List<String>>{
+          'set-cookie': <String>['token=xyz; Path=/'],
+        },
+      );
+      final client = ComicWebClient(dio: Dio()..httpClientAdapter = adapter);
+
+      await client.setCookies('https://site.test', <String, String>{
+        'sid': 'abc',
+      });
+      // setCookies 同步可见，且只对该主机可见。
+      expect(
+        client.getCookies('https://site.test'),
+        contains(
+          predicate(
+            (Map<String, String> c) =>
+                c['name'] == 'sid' && c['value'] == 'abc',
+          ),
+        ),
+      );
+      expect(client.getCookies('https://other.test'), isEmpty);
+
+      // fetch 响应里的 Set-Cookie 也要落入同步缓存。
+      await client.fetch('https://site.test/comic/3');
+      expect(
+        client.getCookies('https://site.test'),
+        contains(
+          predicate(
+            (Map<String, String> c) =>
+                c['name'] == 'token' && c['value'] == 'xyz',
+          ),
+        ),
+      );
+
+      // 同名同域覆盖，不产生重复项。
+      await client.setCookies('https://site.test', <String, String>{
+        'sid': 'def',
+      });
+      final sids = client
+          .getCookies('https://site.test')
+          .where((c) => c['name'] == 'sid')
+          .toList();
+      expect(sids, hasLength(1));
+      expect(sids.single['value'], 'def');
+
+      // deleteCookies 后同步缓存也清空。
+      await client.deleteCookies('https://site.test');
+      expect(client.getCookies('https://site.test'), isEmpty);
+    });
+
     test('POST data 以字节体发送；4xx 不抛异常', () async {
       final adapter = _RecordingAdapter(body: 'forbidden', statusCode: 403);
       final client = ComicWebClient(dio: Dio()..httpClientAdapter = adapter);

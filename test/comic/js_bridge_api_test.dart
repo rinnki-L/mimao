@@ -6,6 +6,7 @@ library;
 
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart' as crypto;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:mimao/comic/engine/engine.dart';
@@ -118,8 +119,9 @@ void main() {
                 'isEncode': true,
               })
               as List<int>;
-      expect(md5Bytes.length, 16);
+      expect(md5Bytes, crypto.md5.convert(utf8.encode('abc')).bytes);
 
+      // 对齐 Venera：encodeBase64 返回字符串，decodeBase64 返回字节。
       final b64 =
           bridge._sync(<dynamic, dynamic>{
                 'method': 'convert',
@@ -127,8 +129,8 @@ void main() {
                 'value': utf8Bytes,
                 'isEncode': true,
               })
-              as List<int>;
-      expect(utf8.decode(b64), base64.encode(utf8.encode('abc')));
+              as String;
+      expect(b64, base64.encode(utf8.encode('abc')));
     });
 
     test('Network.get → method:http 返回 status/body，带自定义头', () async {

@@ -201,6 +201,36 @@ void main() {
       expect(find.text('收藏'), findsOneWidget);
     });
 
+    testWidgets('复用详情页到另一部漫画时收藏态随新条目重置', (tester) async {
+      _usePhoneSize(tester);
+      await tester.pumpWidget(
+        _app(
+          ComicDetailPage(
+            dataSource: comicFixture,
+            summary: FixtureComicDataSource.xingzhou,
+            initiallyFavorite: true,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('已收藏'), findsOneWidget);
+
+      // 同一个 State 被复用：换 summary 且 initiallyFavorite=false，
+      // 收藏按钮必须回到「收藏」而不是沿用上一部的「已收藏」。
+      await tester.pumpWidget(
+        _app(
+          ComicDetailPage(
+            dataSource: comicFixture,
+            summary: FixtureComicDataSource.yeyu,
+            initiallyFavorite: false,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('收藏'), findsOneWidget);
+      expect(find.text('已收藏'), findsNothing);
+    });
+
     testWidgets('开始阅读按钮回传详情与章节', (tester) async {
       _usePhoneSize(tester);
       ComicDetail? receivedDetail;
@@ -315,6 +345,7 @@ void main() {
       final repo = FixtureComicSourceRepository();
       String? toggledId;
       bool? toggledEnabled;
+      ComicSourceInfo? toggledSource;
       await tester.pumpWidget(
         _app(
           ComicSourcePage(
@@ -322,6 +353,7 @@ void main() {
             onToggle: (source, enabled) {
               toggledId = source.id;
               toggledEnabled = enabled;
+              toggledSource = source;
             },
           ),
         ),
@@ -338,6 +370,9 @@ void main() {
 
       expect(toggledId, 'local');
       expect(toggledEnabled, isTrue);
+      // 回传的实体必须已经是新状态，而不是切换前的旧对象。
+      expect(toggledSource, isNotNull);
+      expect(toggledSource!.enabled, isTrue);
       final updated = tester.widget<Switch>(
         find.byKey(const Key('toggle-local')),
       );

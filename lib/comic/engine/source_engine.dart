@@ -102,7 +102,11 @@ class ComicSourceEngine {
         items.add(comic);
       }
     }
-    return ComicSourceResult(items: items, diagnostics: diagnostics);
+    return ComicSourceResult(
+      items: items,
+      diagnostics: diagnostics,
+      maxPage: maxPageField == null ? null : _int(map?[maxPageField]),
+    );
   }
 
   /// `Comic` → [ComicSummary]。

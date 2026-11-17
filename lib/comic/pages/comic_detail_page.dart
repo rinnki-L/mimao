@@ -57,6 +57,9 @@ class _ComicDetailPageState extends State<ComicDetailPage> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.dataSource != widget.dataSource ||
         oldWidget.summary.id != widget.summary.id) {
+      // 同一个 widget 被复用到另一部漫画时，收藏态必须跟着新条目重置，
+      // 否则会显示上一部漫画的收藏状态。
+      _isFavorite = widget.initiallyFavorite;
       _future = widget.dataSource.detail(widget.summary);
     }
   }

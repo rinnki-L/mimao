@@ -69,6 +69,17 @@ void main() {
       expect(result.diagnostics, isNotEmpty);
     });
 
+    test('parseComicList 保留源返回的 maxPage 供翻页', () {
+      final result = engine.parseComicList(<String, dynamic>{
+        'comics': <dynamic>[
+          <String, dynamic>{'id': 'c1', 'title': 'A'},
+        ],
+        'maxPage': 9,
+      }, 'maxPage');
+      expect(result.items, hasLength(1));
+      expect(result.maxPage, 9);
+    });
+
     test('parseImages 收拢图片地址并跳过空项', () {
       final result = engine.parseImages(<String, dynamic>{
         'images': <dynamic>['https://x/1.jpg', '', 'https://x/2.jpg'],

@@ -150,6 +150,9 @@ class ComicWebClient implements ComicHttpClient {
     } catch (_) {
       // Cookie 持久化失败不影响正文抓取。
     }
+    // 同步缓存：Venera 的 Network.getCookies 是同步 API，源脚本紧接着
+    // fetch/setCookies 读取时必须能看到刚从响应落下的 Cookie。
+    _rememberCookies(uri, cookies);
   }
 
   @override
@@ -238,6 +241,7 @@ class ComicWebClient implements ComicHttpClient {
     }
     if (parsed.isEmpty) return;
     await _cookieJar.saveFromResponse(uri, parsed);
+    _rememberCookies(uri, parsed);
   }
 
   @override
@@ -261,13 +265,32 @@ class ComicWebClient implements ComicHttpClient {
 
   final List<Cookie> _syncCookieCache = <Cookie>[];
 
+  /// 用落库的 Cookie 更新同步快照：同域同名覆盖，避免重复项无限增长。
+  void _rememberCookies(Uri uri, List<Cookie> cookies) {
+    for (final cookie in cookies) {
+      final host = uri.host;
+      final domain = cookie.domain;
+      // CookieJar 对显式 setCookies 的 Cookie 可能不带 domain；补上 host
+      // 让同步 getCookies 能按 URL 域名匹配到。
+      if (domain == null || domain.isEmpty) cookie.domain = host;
+      _syncCookieCache.removeWhere(
+        (c) =>
+            c.name == cookie.name && _cookieDomain(c) == _cookieDomain(cookie),
+      );
+      _syncCookieCache.add(cookie);
+    }
+  }
+
+  String _cookieDomain(Cookie cookie) => cookie.domain?.toLowerCase() ?? '';
+
   bool _matchesUrl(Cookie cookie, String url) {
     final uri = Uri.tryParse(url.trim());
     if (uri == null) return false;
-    final domain = cookie.domain;
-    return domain == null ||
-        domain.isEmpty ||
-        uri.host == domain ||
-        uri.host.endsWith('.$domain');
+    final domain = _cookieDomain(cookie);
+    final host = uri.host.toLowerCase();
+    // _rememberCookies 会给无 domain 的 Cookie 补上 host；这里仍对空串兜底，
+    // 不匹配任何 URL，避免把 cookie_jar 的边界语义放宽成「匹配所有域」。
+    if (domain.isEmpty) return false;
+    return host == domain || host.endsWith('.$domain');
   }
 }

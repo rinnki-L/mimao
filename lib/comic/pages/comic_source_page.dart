@@ -94,10 +94,16 @@ class _ComicSourcePageState extends State<ComicSourcePage> {
     try {
       final sources = await widget.repository.setEnabled(source.id, enabled);
       if (!mounted) return;
+      final updated = sources.firstWhere(
+        (s) => s.id == source.id,
+        orElse: () => source.copyWith(enabled: enabled),
+      );
       setState(() {
+        _error = null;
         _future = Future<List<ComicSourceInfo>>.value(sources);
       });
-      widget.onToggle?.call(source, enabled);
+      // 回调用更新后的实体（enabled 已是新值），避免消费方读到旧状态。
+      widget.onToggle?.call(updated, enabled);
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = '操作失败：$e');
@@ -109,6 +115,7 @@ class _ComicSourcePageState extends State<ComicSourcePage> {
       final sources = await widget.repository.deleteSource(source.id);
       if (!mounted) return;
       setState(() {
+        _error = null;
         _future = Future<List<ComicSourceInfo>>.value(sources);
       });
       widget.onDelete?.call(source);

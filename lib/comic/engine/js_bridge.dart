@@ -243,8 +243,9 @@ class ComicJsBridge {
           return utf8.decode(_toBytes(rawValue), allowMalformed: true);
         case 'base64':
           if (isEncode) {
-            final bytes = _toBytes(rawValue);
-            return utf8.encode(base64.encode(bytes));
+            // 对齐 Venera：encodeBase64 返回 base64 字符串（源脚本常与之拼接），
+            // 只有 decodeBase64 返回字节数组。
+            return base64.encode(_toBytes(rawValue));
           }
           return base64.decode(_asText(rawValue));
         case 'md5':
