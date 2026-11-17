@@ -15,11 +15,30 @@ class AnimeModulePage extends StatefulWidget {
   const AnimeModulePage({
     super.key,
     required this.dataSource,
+    this.embedded = false,
+    this.isFavorite,
     this.onFavoriteChanged,
+    this.onEpisodeTap,
   });
 
   final AnimeDataSource dataSource;
-  final ValueChanged<bool>? onFavoriteChanged;
+
+  /// true 时由壳提供顶部"返回 + 标题"，搜索/时间表页不再画自己的 AppBar。
+  final bool embedded;
+
+  /// 打开详情前读取权威收藏态；由模块层接收藏服务注入。
+  final Future<bool> Function(AnimeSummary)? isFavorite;
+
+  /// 追番切换；模块层把条目一起包进回调，详情页无需认识 AnimeSummary。
+  final void Function(AnimeSummary item, bool favorite)? onFavoriteChanged;
+
+  /// 点剧集；模块层把条目与完整详情一起交给播放器装配方。
+  final void Function(
+    AnimeSummary item,
+    AnimeDetail detail,
+    AnimeEpisode episode,
+  )?
+  onEpisodeTap;
 
   @override
   State<AnimeModulePage> createState() => _AnimeModulePageState();
@@ -28,13 +47,21 @@ class AnimeModulePage extends StatefulWidget {
 class _AnimeModulePageState extends State<AnimeModulePage> {
   int _index = 0;
 
-  void _openDetail(AnimeSummary item) {
-    Navigator.of(context).push(
+  Future<void> _openDetail(AnimeSummary item) async {
+    // 收藏态读取失败不应挡住导航：退回"未收藏"继续打开详情。
+    final favorite =
+        await (widget.isFavorite?.call(item) ?? Future<bool>.value(false))
+            .catchError((Object _) => false);
+    if (!mounted) return;
+    await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
         builder: (_) => AnimeDetailPage(
           dataSource: widget.dataSource,
           summary: item,
-          onFavoriteChanged: widget.onFavoriteChanged,
+          initiallyFavorite: favorite,
+          onFavoriteChanged: (v) => widget.onFavoriteChanged?.call(item, v),
+          onEpisodeTap: (detail, ep) =>
+              widget.onEpisodeTap?.call(item, detail, ep),
         ),
       ),
     );
@@ -48,10 +75,12 @@ class _AnimeModulePageState extends State<AnimeModulePage> {
         children: <Widget>[
           AnimeSearchPage(
             dataSource: widget.dataSource,
+            showAppBar: !widget.embedded,
             onOpenDetail: _openDetail,
           ),
           AnimeSchedulePage(
             dataSource: widget.dataSource,
+            showAppBar: !widget.embedded,
             onOpenDetail: _openDetail,
           ),
         ],

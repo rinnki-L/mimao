@@ -23,6 +23,7 @@ import 'package:flutter/material.dart';
 import 'package:mimao/core/db.dart';
 import 'package:mimao/core/library.dart';
 import 'package:mimao/shell/app.dart';
+import 'package:mimao/shell/app_registry.dart';
 import 'package:mimao/shell/home.dart';
 import 'package:mimao/shell/window/window.dart';
 
@@ -47,7 +48,9 @@ Future<void> main() async {
 
   final library = LibraryRepository(db);
 
-  // 5. 装配目录表（app_registry 是唯一 import 模块处；M1 为空表）→ runApp
+  // 5. 装配目录表（app_registry 是唯一 import 模块处；失败只会让番剧占位，
+  //    不影响其它模块/书架）→ runApp
+  await initAppModules(library: library);
   runApp(LibraryScope(repository: library, child: const MimaoApp()));
 }
 

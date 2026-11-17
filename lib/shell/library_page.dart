@@ -47,7 +47,11 @@ class LibraryPage extends StatelessWidget {
         const SizedBox(height: 12),
         Text('统一时间线', style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 6),
-        Text('番剧模块接入后这里开始有内容', style: Theme.of(context).textTheme.bodyMedium),
+        Text(
+          '还没有观看记录\n追番或播放后会出现在这里',
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
       ],
     ),
   );

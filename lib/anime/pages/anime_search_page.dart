@@ -13,10 +13,14 @@ class AnimeSearchPage extends StatefulWidget {
   const AnimeSearchPage({
     super.key,
     required this.dataSource,
+    this.showAppBar = true,
     this.onOpenDetail,
   });
 
   final AnimeDataSource dataSource;
+
+  /// 壳已提供顶部导航时设为 false，本页不再画自己的 AppBar。
+  final bool showAppBar;
 
   /// 点结果卡片时回调；由模块层决定如何钻进详情页。
   final ValueChanged<AnimeSummary>? onOpenDetail;
@@ -64,7 +68,7 @@ class _AnimeSearchPageState extends State<AnimeSearchPage> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(title: const Text('搜索')),
+      appBar: widget.showAppBar ? AppBar(title: const Text('搜索')) : null,
       body: SafeArea(
         top: false,
         child: Padding(

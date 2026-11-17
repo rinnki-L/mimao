@@ -13,10 +13,15 @@ class AnimeSchedulePage extends StatefulWidget {
   const AnimeSchedulePage({
     super.key,
     required this.dataSource,
+    this.showAppBar = true,
     this.onOpenDetail,
   });
 
   final AnimeDataSource dataSource;
+
+  /// 壳已提供顶部导航时设为 false，本页不再画自己的 AppBar。
+  final bool showAppBar;
+
   final ValueChanged<AnimeSummary>? onOpenDetail;
 
   @override
@@ -47,16 +52,18 @@ class _AnimeSchedulePageState extends State<AnimeSchedulePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('时间表'),
-        actions: <Widget>[
-          IconButton(
-            tooltip: '刷新',
-            icon: const Icon(Icons.refresh),
-            onPressed: _reload,
-          ),
-        ],
-      ),
+      appBar: widget.showAppBar
+          ? AppBar(
+              title: const Text('时间表'),
+              actions: <Widget>[
+                IconButton(
+                  tooltip: '刷新',
+                  icon: const Icon(Icons.refresh),
+                  onPressed: _reload,
+                ),
+              ],
+            )
+          : null,
       body: FutureBuilder<List<AnimeScheduleSection>>(
         future: _future,
         builder: (context, snapshot) {

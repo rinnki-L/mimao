@@ -28,7 +28,8 @@ class AnimeDetailPage extends StatefulWidget {
   final ValueChanged<bool>? onFavoriteChanged;
 
   /// 播放器接线前留空；提供时剧集行才显示播放图标并可点击。
-  final ValueChanged<AnimeEpisode>? onEpisodeTap;
+  /// 连同当前 [AnimeDetail] 一起回调，模块层据此映射剧集列表与 initialIndex。
+  final void Function(AnimeDetail detail, AnimeEpisode episode)? onEpisodeTap;
 
   @override
   State<AnimeDetailPage> createState() => _AnimeDetailPageState();
@@ -106,7 +107,7 @@ class _DetailBody extends StatelessWidget {
   final AnimeDetail detail;
   final bool isFavorite;
   final VoidCallback onFavoriteToggle;
-  final ValueChanged<AnimeEpisode>? onEpisodeTap;
+  final void Function(AnimeDetail detail, AnimeEpisode episode)? onEpisodeTap;
 
   @override
   Widget build(BuildContext context) {
@@ -231,7 +232,7 @@ class _DetailBody extends StatelessWidget {
                 episode: episode,
                 onTap: onEpisodeTap == null
                     ? null
-                    : () => onEpisodeTap!(episode),
+                    : () => onEpisodeTap!(detail, episode),
               ),
         ],
       ),

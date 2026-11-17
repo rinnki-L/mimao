@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:mimao/core/contract.dart';
+import 'package:mimao/shell/app_registry.dart';
 import 'package:mimao/shell/shell_store.dart';
 
 /// 全局设置抽屉——选择 C 拼贴 + **全局一个设置**（用户拍板）。
@@ -120,18 +121,24 @@ class _ModuleGroup extends StatelessWidget {
   const _ModuleGroup({required this.type});
 
   @override
-  Widget build(BuildContext context) => ExpansionTile(
-    leading: Icon(type.outlinedIcon),
-    title: Text(type.label),
-    children: [
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
-        child: Text(
-          '${type.tagline} · 该模块设置将在接入后开放',
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
-      ),
-      const SizedBox(height: 8),
-    ],
-  );
+  Widget build(BuildContext context) {
+    final module = moduleFor(type);
+    return ExpansionTile(
+      leading: Icon(type.outlinedIcon),
+      title: Text(type.label),
+      children: <Widget>[
+        if (module != null)
+          module.buildSettings(context)
+        else
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
+            child: Text(
+              '${type.tagline} · 该模块设置将在接入后开放',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
+        const SizedBox(height: 8),
+      ],
+    );
+  }
 }
