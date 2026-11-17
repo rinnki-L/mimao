@@ -82,8 +82,8 @@
 每版展示 128 / 64 / 48 / 32 / 16px + 16px 放大 4×；下方有桌面标题栏、深色任务栏、
 手机桌面的实际观感；可切浅色/深色底、圆角/圆形。
 
-源文件：`icons/anima/icon_a.png` … `icon_d.png`（1024×1024）；原始未裁图
-`chibi_01.png` … `chibi_05.png`；生成脚本 `tools/anima-icon-gen.mjs`
+源文件：`icons/anima/icon_a.png` … `icon_d.png`（1024×1024）；溯源底图
+`chibi_01.png`（其余生成中间图已清理）；生成脚本 `tools/anima-icon-gen.mjs`
 （调用 `~/.dsh/plugins-data/aurabot/local/image.mjs`，ComfyUI `127.0.0.1:8188`，
 Anima Turbo v1.1 Q5_K_M，euler / sgm_uniform，6 步，CFG 1.3）。提示词为英文标签：
 `chibi / super deformed / big head / long straight black hair / hime cut / blue eyes /

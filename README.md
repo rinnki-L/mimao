@@ -1,57 +1,76 @@
-<p align="center">
-  <img src="assets/mimao.png" alt="mimao 图标" width="220" />
-</p>
+<div align="center">
 
-<h1 align="center">mimao</h1>
+<h1>mimao</h1>
 
-<p align="center">
-  一个把 <strong>番剧 · 漫画 · 小说 · 音乐</strong> 聚到一起的本地媒体应用。<br/>
-  Flutter + Material 3 · 桌面优先（Windows）· 纯本地、无自建服务器
-</p>
+<img src="assets/mimao.png" width="200"></img>
 
-<p align="center">
-  <img alt="license" src="https://img.shields.io/badge/license-GPL--3.0-blue.svg" />
-  <img alt="status" src="https://img.shields.io/badge/status-planning-orange.svg" />
-  <img alt="platform" src="https://img.shields.io/badge/platform-Windows%20%7C%20Android-lightgrey.svg" />
-</p>
+<img alt="license" src="https://img.shields.io/badge/license-GPL--3.0-blue.svg?style=for-the-badge"></img>
+<img alt="Flutter" src="https://img.shields.io/badge/Flutter-02569B?style=for-the-badge&logo=flutter&logoColor=white"></img>
+<img alt="Dart" src="https://img.shields.io/badge/Dart-0175C2?style=for-the-badge&logo=dart&logoColor=white"></img>
+<img alt="status" src="https://img.shields.io/badge/status-%E8%A7%84%E5%88%92%E6%9C%9F-orange.svg?style=for-the-badge"></img>
 
----
+<p>一个把 <strong>番剧 · 漫画 · 小说 · 音乐</strong> 聚到一处的本地媒体应用。使用 Flutter + Material 3 开发, 桌面优先 (Windows), 纯本地运行、无需自建服务器。四大模块分别移植自成熟的开源客户端, 目录按上游形状生长, 便于跟随上游修复。绝赞规划中 (～￣▽￣)～</p>
 
-## 这是什么
+</div>
 
-`mimao` 的目标是把四个各自好用的开源媒体客户端整合进一个统一的 Material 3 壳里：
+## 支持平台
+
+- Windows 10 及以上（首发目标）
+- Android（同一套代码, 次要优先级）
+
+> 目前工程本体尚未开工, 以上为目标平台；后续会随实现更新。
+
+## 功能 / 开发计划
+
+- [ ] 统一的 Material 3 壳（拼贴式四入口 + 全局设置）
+- [ ] 番剧模块（移植 Kazumi 规则引擎）
+- [ ] 漫画模块（复用 Venera 的 `flutter_qjs` 漫画源）
+- [ ] 音乐模块（重写酷狗概念版 API 网络层 + 播放器）
+- [ ] 小说模块（legado 书源引擎 Dart 化, 最难、最后做）
+- [ ] 统一书架 / 收藏 / 历史 / 下载
+- [ ] 我的（个人中心）
+
+详见 [架构设计](docs/architecture.md) 与 [目录布局](docs/directory-layout.md)。
+
+## 设计
+
+四个模块各自的来源与接入方式：
 
 | 内容 | 参考上游 | 接入方式 |
 | --- | --- | --- |
 | 番剧 | [Kazumi](https://github.com/Predidit/Kazumi) | 移植其规则引擎与 UI 模块 |
-| 漫画 | [Venera-Next](https://github.com/venera-app/venera-next) | 复用 `flutter_qjs` 漫画源与模块 |
-| 小说 | [legado 阅读](https://github.com/gedoor/legado) | 书源引擎在 Dart 中重写（最难、最后做） |
+| 漫画 | [Venera](https://github.com/venera-app/venera) | 复用 `flutter_qjs` 漫画源与模块（Venera-Next 可借鉴） |
+| 小说 | [legado 阅读](https://github.com/gedoor/legado) | 书源引擎在 Dart 中重写 |
 | 音乐 | [EchoMusicNext](https://github.com/hoowhoami/EchoMusic) | 重写酷狗概念版 API 网络层 + 播放器 |
 
-设计哲学是 **「少一层是一层」**：目录是长出来的器官，不是画出来的对称图。
-壳和核心从本项目自带的 demo 长出来，四个模块的内部形状各自镜像上游，方便上游修复 patch 机械对照。
+## 开发
 
-现状：**规划期**。架构、目录布局、CI 与多个可交互 demo 已经就位，Flutter 工程本体尚未开工。
-详见 [架构设计](docs/architecture.md) 与 [目录布局](docs/directory-layout.md)。
+欢迎提交 PR！本项目的四条边界铁律由 `test/architecture/boundary_test.dart` 哨兵测试把守,
+CI 分域门禁见 [架构设计](docs/architecture.md) §11；动手前请先读架构与目录布局文档。
 
-## 仓库里有什么
+本地校验 CI 配置：`node tools/validate-ci-yaml.mjs .github/workflows/ci.yml`
 
-- `docs/` — 架构设计、目录布局、对抗式规划复盘
-- `demos/` — 若干单文件、可直接阅读的选型 demo 与交互 HTML 预览（含图标方案）
-- `assets/` — 应用图标
-- `tools/` — CI 校验脚本等辅助工具
-- `.github/workflows/ci.yml` — 严格的 CI 流水线（Flutter 工程落地前部分任务为红，属预期）
+## 美术资源
 
-## 技术选型（已定）
+应用图标 `assets/mimao.png` 由本项目所有, 依据现有角色形象、融入自己的想法设计, 随本项目以 GPL-3.0 开源。
 
-- Flutter + Material 3，Dart 为唯一需要新学的语言
-- 桌面优先：Windows 首发，Android 随后，同一套代码
-- 状态管理采用 MobX（与 Kazumi 一致）；统一核心数据层建议 drift/SQLite（待最终拍板）
-- GPL-3.0：与四个上游保持一致，上游署名与改动清单将写入 `NOTICE`
+## 免责声明
 
-## 许可
+本项目基于 GNU 通用公共许可证第 3 版（GPL-3.0）授权。我们不对其适用性、可靠性或准确性作出任何明示或暗示的保证。在法律允许的最大范围内, 作者和贡献者不承担任何因使用本软件而产生的直接、间接、偶然、特殊或后果性的损害赔偿责任。
 
-本项目以 **GPL-3.0** 发布，详见 [LICENSE](LICENSE)。
-上游项目的署名与改动说明会在工程落地时写入 `NOTICE`。
+使用本项目需遵守所在地法律法规, 不得进行任何侵犯第三方知识产权的行为。
 
-应用图标为原创角色设计（AI 辅助生成），随项目以 GPL-3.0 开源；若未来用于商业用途，建议先行做商标/标识检索。
+## 隐私政策
+
+本项目纯本地运行, 引擎直连内容站点；不收集任何用户数据, 不使用任何遥测组件, 无自建服务器。
+
+## 致谢
+
+特别感谢以下上游项目, 本项目站在它们的肩膀上：
+
+- [Kazumi](https://github.com/Predidit/Kazumi) — 番剧模块的规则引擎与 UI 来源
+- [Venera](https://github.com/venera-app/venera) — 漫画模块与 `flutter_qjs` 漫画源；[Venera-Next](https://github.com/venera-app/venera-next) 作为活跃后续版本供借鉴
+- [legado 阅读](https://github.com/gedoor/legado) — 小说书源引擎的参考实现
+- [EchoMusicNext](https://github.com/hoowhoami/EchoMusic) — 音乐模块网络层的参考实现
+
+上游署名与改动清单将在工程落地时写入 `NOTICE`。
