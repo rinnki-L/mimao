@@ -1,16 +1,17 @@
-// 进度持久化：模块内部库（权威）+ core 统一书架投影（索引）。
+// 播放器进度写入口：B 线只保留窄接口 + 适配器，不再自带权威存储。
 //
-// 双记账规则（docs/architecture.md §3.1）在本文件里落地：
-//   ① 权威 = 模块内部存储（[AnimeProgressStore]，这里给出内存与 JSON 文件两种实现）；
-//   ② 写入点 = [LibraryProgressRecorder.persist] 这一个函数——先写权威，
-//      紧接着 upsert core 投影，绝不挂"内存状态变化"回调；
-//   ③ 校正点 = 打开详情时用内部库值回写投影（M2 联调详情页时接，本线不做）；
-//   ④ 展示 = 壳只读 progressText，payload 只有本模块自己解释。
-import 'dart:convert';
-import 'dart:io';
-
-import 'package:mimao/core/contract.dart';
-import 'package:mimao/core/library.dart';
+// 收敛说明（docs/anime-dual-ledger.md §5 已更新）：
+//   ① 权威 = 番剧模块内部库 `anime_history`（`AnimeHistoryService.saveProgress`）；
+//   ② 写入点 = [AnimeHistoryProgressRecorder.persist]——它把播放器的运行时值
+//      翻译成 `AnimeHistoryService.saveProgress` 调用，后者在同一个函数内先写
+//      内部权威行，紧接着经 `syncAnimeProjection` 写 core 投影；
+//   ③ 校正点 = 打开详情/播放器时 `AnimeHistoryService.open`（本文件不负责）；
+//   ④ 展示 = 壳只读 `progressText`，由 `animeProgressText` 统一生成。
+//
+// 这里刻意不出现内存/JSON store、不直接调 `LibraryRepository.upsert`，
+// 以保证同一 `{id, sourceName}` 只有一条权威路径可写。
+import 'package:mimao/anime/anime_models.dart';
+import 'package:mimao/anime/history_service.dart';
 
 /// 一次进度持久化事件的运行时值（controller → recorder）。
 class EpisodeProgress {
@@ -33,156 +34,37 @@ abstract interface class ProgressRecorder {
   Future<void> persist(EpisodeProgress progress);
 }
 
-/// 模块内部权威记录。payload 的字段名与 `lib/anime/anime_projection.dart`
-/// （A 线投影）保持一致：`episode` / `positionSec` / `durationSec`——验收点名
-/// 前两个；A 线联调时两边写出的 payload 可互相解码。
-class AnimeEpisodeProgress {
-  final int episode;
-  final int positionSec;
-  final int durationSec;
-  final String? episodeTitle;
-
-  const AnimeEpisodeProgress({
-    required this.episode,
-    required this.positionSec,
-    this.durationSec = 0,
-    this.episodeTitle,
-  });
-
-  /// 交给 core 的 payload（原样 JSON 往返，core/壳都不解释）。
-  Map<String, Object?> toPayload() => <String, Object?>{
-    'episode': episode,
-    'positionSec': positionSec,
-    'durationSec': durationSec,
-    if (episodeTitle != null) 'episodeTitle': episodeTitle,
-  };
-
-  factory AnimeEpisodeProgress.fromPayload(Map<String, Object?> json) =>
-      AnimeEpisodeProgress(
-        episode: (json['episode'] as num).toInt(),
-        positionSec: (json['positionSec'] as num).toInt(),
-        durationSec:
-            (json['durationSec'] as num?)?.toInt() ??
-            (json['totalSec'] as num?)?.toInt() ??
-            0,
-        episodeTitle: json['episodeTitle'] as String?,
-      );
-
-  factory AnimeEpisodeProgress.decode(String raw) =>
-      AnimeEpisodeProgress.fromPayload(
-        Map<String, Object?>.from(jsonDecode(raw) as Map),
-      );
-
-  /// 壳直接展示的文案（模块解释好的字符串，壳不解析）。
-  ///
-  /// 与 A 线 `animeProgressText` 同款：有时长且已看进画面时报百分比，
-  /// 否则只报话数——保证两条线写进书架的文案风格一致。
-  String get progressText {
-    if (durationSec <= 0 || positionSec <= 0) return '看到第 $episode 话';
-    final percent = (positionSec * 100 / durationSec).clamp(0, 100).round();
-    return '第 $episode 话 · $percent%';
-  }
-}
-
-/// 模块内部存储的读写面。真实产品里可换成本模块自己的 sqlite/hive；
-/// 本线只给内存（单测）与 JSON 文件（演示/本地持久化）两种最小实现。
-abstract interface class AnimeProgressStore {
-  Future<AnimeEpisodeProgress?> read(String key);
-
-  Future<void> write(String key, AnimeEpisodeProgress progress);
-}
-
-/// 单测用：不落盘，保留最近一次写入。
-class InMemoryAnimeProgressStore implements AnimeProgressStore {
-  final Map<String, AnimeEpisodeProgress> _records =
-      <String, AnimeEpisodeProgress>{};
-
-  @override
-  Future<AnimeEpisodeProgress?> read(String key) async => _records[key];
-
-  @override
-  Future<void> write(String key, AnimeEpisodeProgress progress) async {
-    _records[key] = progress;
-  }
-}
-
-/// 演示/本地持久化用：一个 JSON 文件按 entryId 存多条。
+/// 播放器进度的唯一写入实现：把 [EpisodeProgress] 适配到 C 线权威写入口
+/// [AnimeHistoryService.saveProgress]。
 ///
-/// 刻意不引入新依赖（path_provider 已在 pubspec）；写操作串行 await，
-/// 演示场景无需并发控制。
-class JsonFileAnimeProgressStore implements AnimeProgressStore {
-  final File file;
-
-  JsonFileAnimeProgressStore(this.file);
-
-  @override
-  Future<AnimeEpisodeProgress?> read(String key) async {
-    final all = await _readAll();
-    final raw = all[key];
-    if (raw is! Map) return null;
-    return AnimeEpisodeProgress.fromPayload(Map<String, Object?>.from(raw));
-  }
-
-  @override
-  Future<void> write(String key, AnimeEpisodeProgress progress) async {
-    final all = await _readAll();
-    all[key] = progress.toPayload();
-    await file.parent.create(recursive: true);
-    await file.writeAsString(jsonEncode(all));
-  }
-
-  Future<Map<String, Object?>> _readAll() async {
-    if (!await file.exists()) return <String, Object?>{};
-    final text = await file.readAsString();
-    if (text.trim().isEmpty) return <String, Object?>{};
-    return Map<String, Object?>.from(jsonDecode(text) as Map);
-  }
-}
-
-/// 把进度写进 core 统一书架投影的实现（验收点③）。
-///
-/// 每次 [persist] 都在同一个函数里完成"内部库 → 投影"两笔账；
-/// 两次写之间进程被杀，最多丢最后一次持久化，不会出现两库分叉。
-class LibraryProgressRecorder implements ProgressRecorder {
-  final LibraryRepository library;
-  final AnimeProgressStore store;
-
-  /// 源内唯一键，如 `anime:demo:hardcoded`；M2 联调时换成规则源作品 id。
-  final String entryId;
-  final String sourceName;
-  final String title;
-  final String? coverUrl;
-
-  const LibraryProgressRecorder({
-    required this.library,
-    required this.store,
+/// 自身不持有任何存储，也不写 core 投影——两笔账都由 `saveProgress` 在同一次
+/// 调用里完成。payload 因此固定为 `{episode, positionSec, durationSec}`，
+/// 文案固定由 `animeProgressText` 生成，与收藏/历史写入口完全一致。
+class AnimeHistoryProgressRecorder implements ProgressRecorder {
+  AnimeHistoryProgressRecorder({
+    required this.history,
     required this.entryId,
     required this.sourceName,
     required this.title,
     this.coverUrl,
-  });
+    DateTime Function()? now,
+  }) : now = now ?? DateTime.now;
+
+  final AnimeHistoryService history;
+  final String entryId;
+  final String sourceName;
+  final String title;
+  final String? coverUrl;
+  final DateTime Function() now;
 
   @override
-  Future<void> persist(EpisodeProgress progress) async {
-    final record = AnimeEpisodeProgress(
-      episode: progress.episode,
-      positionSec: progress.position.inSeconds,
-      durationSec: progress.total.inSeconds,
-      episodeTitle: progress.episodeTitle,
-    );
-
-    // ① 模块内部库（权威）。
-    await store.write(entryId, record);
-
-    // ② core 投影（索引）：payload 原样透传，progressText 是模块写好的文案。
-    await library.upsert(
-      id: entryId,
-      type: MediaType.anime,
-      sourceName: sourceName,
-      title: title,
-      coverUrl: coverUrl,
-      payload: jsonEncode(record.toPayload()),
-      progressText: record.progressText,
-    );
-  }
+  Future<void> persist(EpisodeProgress progress) => history.saveProgress(
+    AnimeRef(id: entryId, sourceName: sourceName),
+    title: title,
+    coverUrl: coverUrl,
+    episode: progress.episode,
+    positionSec: progress.position.inSeconds,
+    durationSec: progress.total.inSeconds,
+    openedAt: now(),
+  );
 }
