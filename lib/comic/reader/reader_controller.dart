@@ -81,6 +81,7 @@ class ReaderController extends ChangeNotifier {
   /// 当前持久化事件的运行时值（UI 顶部信息条/调试也用得上）。
   ReadingProgress get progress => ReadingProgress(
     chapter: chapterNumber,
+    chapterId: currentChapter.chapterId,
     chapterTitle: chapterTitle,
     page: pageNumber,
     pageCount: pageCount,

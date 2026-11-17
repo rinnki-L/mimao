@@ -1,29 +1,31 @@
-// 阅读进度的**持久化点**：调 core 的 LibraryRepository.upsert 写统一书架投影。
+// 阅读进度的**持久化点**：B′ 只保留 ProgressRecorder 窄接口，唯一生产实现
+// [ComicLibraryProgressRecorder] 委托 C′ 权威写入口 ComicHistoryService.saveProgress
+// ——它先写内部 `comic_history`，同函数内经 syncComicProjection 投影（双记账）。
 //
-// 与番剧线的对应：番剧经 AnimeHistoryService.saveProgress → syncAnimeProjection；
-// 阅读器内核（B′）走的是"阅读器自己的持久化点"：recorder 直接调本文件的
-// syncComicProgress 写 core 投影，payload 固定为 {chapter, page}（模块私有 JSON，
-// core/壳都不解释），progressText 也由本模块写好。
-//
-// 与 A′/存储线的 ComicHistoryService.saveProgress（payload 为 {chapterId,page,pageCount}）
-// 并存：两者都是合法投影写入口，写入同一 {id, type=comic, sourceName} 复合主键，
-// InsertMode.insertOrReplace 保证同一作品只有最新一笔投影。联调时集成方择一驱动。
+// 收敛说明（closure-02 §2，docs/comic-integration-decisions.md 决策①②③）：
+//   ① payload 统一为 `{chapterId, page, pageCount}`（chapterId = 源稳定 epId）；
+//   ② progressText 统一由 `comicProgressText` 生成（B′ 旧的
+//      syncComicProgress / readerProgressPayload / readerProgressText 已删除）；
+//   ③ 翻页/切章每次都写（本地库亚毫秒级，不节流）；
+//   ④ 校正点在打开动作：ComicHistoryService.open(ref)（由集成层接线）。
 
 import 'package:mimao/comic/comic_models.dart';
-import 'package:mimao/core/contract.dart';
-import 'package:mimao/core/library.dart';
-
-import 'reader_models.dart';
+import 'package:mimao/comic/history_service.dart';
 
 /// 一次进度持久化事件的运行时值（controller → recorder）。
 class ReadingProgress {
+  /// 章节在阅读器里的位置（1 起展示号，非稳定 id）。
   final int chapter;
+
+  /// 当前章的稳定 epId；本地/测试章节可为空串。
+  final String chapterId;
   final String chapterTitle;
   final int page;
   final int pageCount;
 
   const ReadingProgress({
     required this.chapter,
+    this.chapterId = '',
     required this.chapterTitle,
     required this.page,
     required this.pageCount,
@@ -35,70 +37,33 @@ abstract interface class ProgressRecorder {
   Future<void> persist(ReadingProgress progress);
 }
 
-/// 把一次阅读进度写进 core 统一书架投影（persist 的唯一落点）。
-///
-/// 元数据由调用方提供；`ref.id`/`ref.sourceName` + `MediaType.comic` 组成复合主键，
-/// 因此同一作品重复 upsert 是幂等的（InsertMode.insertOrReplace）。
-Future<void> syncComicProgress({
-  required LibraryRepository library,
-  required ComicRef ref,
-  required String title,
-  String? coverUrl,
-  required int chapter,
-  required int page,
-  required int pageCount,
-  bool starred = false,
-  DateTime? openedAt,
-}) async {
-  if (chapter < 0 || page < 0) {
-    throw ArgumentError('章节与页码不能为负数');
-  }
-  await library.upsert(
-    id: ref.id,
-    type: MediaType.comic,
-    sourceName: ref.sourceName,
-    title: title,
-    coverUrl: coverUrl,
-    payload: readerProgressPayload(chapter: chapter, page: page),
-    progressText: readerProgressText(
-      chapter: chapter,
-      page: page,
-      pageCount: pageCount,
-    ),
-    starred: starred,
-    lastOpenedAt: openedAt ?? DateTime.now(),
-  );
-}
-
-/// [ProgressRecorder] 的唯一写入实现：把 [ReadingProgress] 适配到
-/// [syncComicProgress]。自身不持有存储，也不解释 payload。
+/// [ProgressRecorder] 的唯一生产实现：把 [ReadingProgress] 适配到 C′ 权威
+/// 写入口 [ComicHistoryService.saveProgress]。自身不持有存储、不写 core 投影
+/// ——两笔账（内部库 + 投影）都在 saveProgress 的同一次调用里完成，收藏的
+/// starred/coverUrl/createdAt 由投影函数从内部权威行自动保留。
 class ComicLibraryProgressRecorder implements ProgressRecorder {
   ComicLibraryProgressRecorder({
-    required this.library,
+    required this.history,
     required this.ref,
     required this.title,
     this.coverUrl,
-    this.starred = false,
     DateTime Function()? now,
   }) : now = now ?? DateTime.now;
 
-  final LibraryRepository library;
+  final ComicHistoryService history;
   final ComicRef ref;
   final String title;
   final String? coverUrl;
-  final bool starred;
   final DateTime Function() now;
 
   @override
-  Future<void> persist(ReadingProgress progress) => syncComicProgress(
-    library: library,
-    ref: ref,
+  Future<void> persist(ReadingProgress progress) => history.saveProgress(
+    ref,
     title: title,
     coverUrl: coverUrl,
-    chapter: progress.chapter,
+    chapterId: progress.chapterId,
     page: progress.page,
     pageCount: progress.pageCount,
-    starred: starred,
     openedAt: now(),
   );
 }

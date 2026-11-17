@@ -12,6 +12,8 @@ const String comicUnreadText = '尚未阅读';
 /// 把内部权威进度翻译成壳可展示的 `progressText`。
 ///
 /// 漫画以"页"为单位（番剧用秒）：有总页数时带百分比，否则只报页码。
+/// chapterId 是源的稳定 epId：纯数值的展示为「第 N 章」，其它原样
+/// （closure-02 决策②——Venera 社区源章节键多为数字串）。
 String comicProgressText({
   required String chapterId,
   required int page,
@@ -19,13 +21,16 @@ String comicProgressText({
 }) {
   if (page <= 0) return comicUnreadText;
   final displayPage = page < 1 ? 1 : page;
-  final chapterPart = chapterId.isEmpty ? '' : '$chapterId · ';
+  final chapterPart = chapterId.isEmpty ? '' : '${_chapterLabel(chapterId)} · ';
   if (pageCount > 0) {
     final percent = (page * 100 / pageCount).clamp(0, 100).round();
     return '$chapterPart第 $displayPage 页 · $percent%';
   }
   return '$chapterPart看到第 $displayPage 页';
 }
+
+String _chapterLabel(String chapterId) =>
+    int.tryParse(chapterId) == null ? chapterId : '第 $chapterId 章';
 
 /// 双记账的唯一投影写入口：读内部库的权威行，写一行 `media_entries`。
 ///
