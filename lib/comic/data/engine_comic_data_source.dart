@@ -55,15 +55,30 @@ String comicChapterUrl({
 
 /// 解码 [comicChapterUrl] 生成的章节 URL；不是 mimao-ep 串（如本地章节路径）
 /// 返回 null。
+///
+/// [Uri.pathSegments] 已按组件做一次百分号解码，与 [comicChapterUrl] 的
+/// `Uri.encodeComponent` 精确互逆——**不再二次 decodeComponent**（epId 含
+/// 字面 `%` 会被错误解码甚至抛异常，对抗性审查 P1）。畸形串一律收敛为 null。
 ComicEpisodeRef? tryDecodeComicEpisodeUrl(String url) {
-  final uri = Uri.tryParse(url.trim());
-  if (uri == null || uri.scheme != 'mimao-ep') return null;
-  final segments = uri.pathSegments;
+  final Uri uri;
+  try {
+    final parsed = Uri.tryParse(url.trim());
+    if (parsed == null || parsed.scheme != 'mimao-ep') return null;
+    uri = parsed;
+  } on Object {
+    return null;
+  }
+  final List<String> segments;
+  try {
+    segments = uri.pathSegments;
+  } on Object {
+    return null;
+  }
   if (segments.length != 3) return null;
   return ComicEpisodeRef(
-    sourceKey: Uri.decodeComponent(segments[0]),
-    comicId: Uri.decodeComponent(segments[1]),
-    episodeId: Uri.decodeComponent(segments[2]),
+    sourceKey: segments[0],
+    comicId: segments[1],
+    episodeId: segments[2],
   );
 }
 
@@ -111,6 +126,17 @@ class EngineComicDataSource
       const <source_engine.ComicSourceScript>[];
   final List<String> _diagnostics = <String>[];
 
+  /// 诊断信息的环形上限：生产路径没有消费者（源管理页尚无诊断出口），
+  /// 坏源 + 长会话下不做封顶会无界增长（对抗性审查 P2）。
+  static const int _maxDiagnostics = 200;
+
+  void _addDiagnostics(Iterable<String> messages) {
+    _diagnostics.addAll(messages);
+    if (_diagnostics.length > _maxDiagnostics) {
+      _diagnostics.removeRange(0, _diagnostics.length - _maxDiagnostics);
+    }
+  }
+
   /// 取走并清空累积的诊断信息（单源失败原因等）。
   List<String> takeDiagnostics() {
     final result = List<String>.from(_diagnostics);
@@ -122,7 +148,7 @@ class EngineComicDataSource
   Future<source_engine.ComicSourceLoadResult> reload() async {
     final loaded = await store.loadAllDetailed();
     _sources = List<source_engine.ComicSourceScript>.from(loaded.sources);
-    _diagnostics.addAll(loaded.failures);
+    _addDiagnostics(loaded.failures);
     await _registerAll(_sources);
     return loaded;
   }
@@ -160,7 +186,7 @@ class EngineComicDataSource
       await engine.pool.register(source.key, source.script);
       _registeredScripts[source.key] = source.script;
     } on Object catch (error) {
-      _diagnostics.add('${source.key}：脚本注册失败（$error）');
+      _addDiagnostics(<String>['${source.key}：脚本注册失败（$error）']);
     }
   }
 
@@ -204,7 +230,7 @@ class EngineComicDataSource
     final merged = <ComicSummary>[];
     for (final source in enabled) {
       final result = await engine.search(source.key, query);
-      _diagnostics.addAll(result.diagnostics.map((d) => '${source.key}：$d'));
+      _addDiagnostics(result.diagnostics.map((d) => '${source.key}：$d'));
       for (final item in result.items) {
         merged.add(_mapSummary(item, source.key));
       }
@@ -234,7 +260,7 @@ class EngineComicDataSource
     required String episodeId,
   }) async {
     final result = await engine.images(key, comicId, episodeId: episodeId);
-    _diagnostics.addAll(result.diagnostics.map((d) => '$key：$d'));
+    _addDiagnostics(result.diagnostics.map((d) => '$key：$d'));
     return List<String>.unmodifiable(result.items.map((image) => image.url));
   }
 
@@ -246,12 +272,12 @@ class EngineComicDataSource
   ) async {
     final ep = tryDecodeComicEpisodeUrl(chapter.url);
     if (ep == null) {
-      _diagnostics.add('章节地址无法反查：${chapter.url}');
+      _addDiagnostics(<String>['章节地址无法反查：${chapter.url}']);
       return const <String>[];
     }
     final key = (item.sourceName ?? '').trim();
     if (key.isEmpty || key != ep.sourceKey) {
-      _diagnostics.add('章节来源不匹配：${ep.sourceKey} vs $key');
+      _addDiagnostics(<String>['章节来源不匹配：${ep.sourceKey} vs $key']);
       return const <String>[];
     }
     return loadEpImages(key: key, comicId: ep.comicId, episodeId: ep.episodeId);
@@ -319,14 +345,27 @@ class EngineComicDataSource
   @override
   Future<List<ComicSourceInfo>> importSource(String url) async {
     final script = await _fetchAndParse(url);
+    // 同 key 重导（更新）：保留用户已有的启用状态——name/version 随新脚本
+    // 刷新是预期更新行为，但禁用选择不该被静默重置（对抗性审查 P2）。
+    final existingIndex = _sources.indexWhere((s) => s.key == script.key);
+    final merged = existingIndex >= 0
+        ? script.copyWith(enabled: _sources[existingIndex].enabled)
+        : script;
     // 先注册后落盘（决策⑦）：注册失败的畸形脚本不留下半成品。
     try {
-      await engine.pool.register(script.key, script.script);
-      _registeredScripts[script.key] = script.script;
+      await engine.pool.register(merged.key, merged.script);
     } on Object catch (error) {
-      throw StateError('${script.key}：脚本无法注册（$error）');
+      throw StateError('${merged.key}：脚本无法注册（$error）');
     }
-    await store.save(script);
+    try {
+      await store.save(merged);
+    } on Object {
+      // 落盘失败：回滚执行池条目，避免池内驻留一个未落盘的源（审查 P2）。
+      engine.pool.dispose(merged.key);
+      _registeredScripts.remove(merged.key);
+      rethrow;
+    }
+    _registeredScripts[merged.key] = merged.script;
     await reload();
     return _mapSourceInfos();
   }

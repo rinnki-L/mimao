@@ -122,6 +122,16 @@ Future<void> initAppModules({
   } catch (error) {
     errors.add('番剧模块初始化失败：$error');
     appModules.remove(MediaType.anime);
+    // 失败分支不留下已打开的自建连接（审查 P2；漫画块同款对称处理）。
+    final owned = _ownedAnimeDb;
+    _ownedAnimeDb = null;
+    if (owned != null) {
+      try {
+        await owned.close();
+      } catch (_) {
+        // 关闭失败不影响失败分支的收尾。
+      }
+    }
   }
 
   // ── 漫画装配（closure-02 §6）──
@@ -170,6 +180,15 @@ Future<void> initAppModules({
   } catch (error) {
     errors.add('漫画模块初始化失败：$error');
     appModules.remove(MediaType.comic);
+    final owned = _ownedComicDb;
+    _ownedComicDb = null;
+    if (owned != null) {
+      try {
+        await owned.close();
+      } catch (_) {
+        // 同上。
+      }
+    }
   }
 
   appModulesError = errors.isEmpty ? null : errors.join('\n');

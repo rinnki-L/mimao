@@ -384,6 +384,41 @@ void main() {
     });
   });
 
+  group('导入副作用（对抗性审查 P2 回归）', () {
+    setUp(() => env.seedSource());
+
+    test('重导同 key 源保留用户已有的启用状态', () async {
+      final adapter = await env.buildAdapter();
+      await adapter.importSource('https://example.com/bilimanga.js');
+      await adapter.setEnabled('bilimanga', false);
+      await adapter.importSource('https://example.com/bilimanga.js');
+      expect(
+        (await adapter.listSources()).single.enabled,
+        isFalse,
+        reason: 'name/version 随新脚本刷新，但禁用选择不该被重置',
+      );
+    });
+
+    test('store.save 失败：异常上抛且回滚执行池条目', () async {
+      final store = _SaveThrowingStore();
+      final pool = source_engine.SourceExecutionPool(
+        hostFactory: () => FakeSourceHost(),
+      );
+      final adapter = await EngineComicDataSource.create(
+        store: store,
+        engine: source_engine.ComicSourceEngine(pool: pool),
+        client: env.client,
+        searchHistory: env.searchHistory,
+      );
+      await expectLater(
+        adapter.importSource('https://example.com/bilimanga.js'),
+        throwsStateError,
+      );
+      expect(store.sources, isEmpty, reason: '未落盘');
+      expect(pool.contains('bilimanga'), isFalse, reason: '池条目已回滚');
+    });
+  });
+
   group('章节 URL 编解码', () {
     test('round-trip：含特殊字符的 key/comicId/epId', () {
       final url = comicChapterUrl(
@@ -395,6 +430,29 @@ void main() {
       expect(decoded.sourceKey, 'a b/c');
       expect(decoded.comicId, 'https://site.test/comic/1');
       expect(decoded.episodeId, "ep'1\"2");
+    });
+
+    test('round-trip：epId 含字面 % 与百分号序列（审查 P1 回归）', () {
+      for (final epId in <String>['a%2Fb', '50%off', 'p%20q']) {
+        final url = comicChapterUrl(
+          sourceKey: 'k',
+          comicId: 'c',
+          episodeId: epId,
+        );
+        expect(
+          tryDecodeComicEpisodeUrl(url)!.episodeId,
+          epId,
+          reason: 'pathSegments 单次解码与 encodeComponent 精确互逆',
+        );
+      }
+    });
+
+    test('裸 % 畸形串不抛异常，按字面还原', () {
+      expect(
+        tryDecodeComicEpisodeUrl('mimao-ep:///k/c/50%off')!.episodeId,
+        '50%off',
+      );
+      expect(tryDecodeComicEpisodeUrl('mimao-ep:///k'), isNull);
     });
 
     test('非 mimao-ep 串返回 null', () {
@@ -419,4 +477,11 @@ void main() {
       expect(deriveSourceKeyFromUrl('https://x.test/a/no-ext'), 'no-ext');
     });
   });
+}
+
+/// save 抛错的内存仓库（落盘失败回滚测试用）。
+class _SaveThrowingStore extends MemoryComicSourceStore {
+  @override
+  Future<void> save(source_engine.ComicSourceScript source) async =>
+      throw StateError('磁盘写入失败');
 }

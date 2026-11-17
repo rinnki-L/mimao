@@ -169,7 +169,7 @@ void main() {
               const Duration(seconds: 5),
               onTimeout: () => throw TimeoutError('查询应在关闭后立即失败'),
             ),
-        throwsA(anything),
+        throwsA(isA<StateError>()),
       );
     } finally {
       PathProviderPlatform.instance = originalProvider;
