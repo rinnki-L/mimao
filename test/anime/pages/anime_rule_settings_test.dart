@@ -14,10 +14,19 @@ import 'package:mimao/anime/pages/anime_rule_settings.dart';
 import '../fixtures.dart';
 
 /// 可控 fake：按 URL 返回 JSON 或注入失败，并记录抓取过的 URL。
+///
+/// 给了 [indexBody] 时，`index.json` 请求返回清单、其余 URL 返回 [body]；
+/// 未给时沿用最初行为（所有请求都返回 [body]），保证旧测试不受影响。
 class _FakeClient implements AnimeHttpClient {
-  _FakeClient({this.body = '', this.statusCode = 200, this.fail = false});
+  _FakeClient({
+    this.body = '',
+    this.indexBody,
+    this.statusCode = 200,
+    this.fail = false,
+  });
 
   final String body;
+  final String? indexBody;
   final int statusCode;
   final bool fail;
   final List<String> fetched = <String>[];
@@ -29,6 +38,10 @@ class _FakeClient implements AnimeHttpClient {
   }) async {
     fetched.add(url);
     if (fail) throw StateError('网络不可用');
+    final isIndex = url.endsWith('index.json');
+    if (isIndex && indexBody != null) {
+      return AnimeHttpResponse(statusCode: 200, body: indexBody!);
+    }
     return AnimeHttpResponse(statusCode: statusCode, body: body);
   }
 }
@@ -81,6 +94,12 @@ Map<String, dynamic> _ruleMap(String name) => <String, dynamic>{
   'chapterRoads': '//ul',
   'chapterResult': '//li',
 };
+
+const String _indexJson =
+    '[{"name":"repo-one","version":"1.2","lastUpdate":1790853597000},'
+    '{"name":"repo-two","version":"2.0","lastUpdate":0}]';
+
+const String _repoUrl = 'https://rules.test/repo/';
 
 void main() {
   late _MemoryRuleStore store;
@@ -244,5 +263,97 @@ void main() {
     expect(find.textContaining('读取规则失败'), findsOneWidget);
     expect(find.byKey(const Key('anime-rule-retry')), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  // ── 仓库浏览 + 勾选导入 ──
+
+  Future<void> browseRepo(WidgetTester tester) async {
+    await tester.enterText(find.byKey(const Key('anime-repo-url')), _repoUrl);
+    await tester.tap(find.byKey(const Key('anime-repo-browse')));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('浏览仓库：列出清单规则，标明已安装', (tester) async {
+    await store.saveAll(<AnimeRule>[AnimeRule.fromJson(_ruleMap('repo-one'))]);
+    final client = _FakeClient(indexBody: _indexJson);
+    await tester.pumpWidget(_app(_panel(store, RuleImporter(client: client))));
+    await tester.pumpAndSettle();
+
+    await browseRepo(tester);
+
+    expect(client.fetched, contains('${_repoUrl}index.json'));
+    expect(find.byKey(const Key('anime-repo-check-repo-one')), findsOneWidget);
+    expect(find.byKey(const Key('anime-repo-check-repo-two')), findsOneWidget);
+    expect(find.textContaining('v1.2 · 2026-10-01 · 已安装'), findsOneWidget);
+    expect(find.textContaining('发现 2 条规则'), findsOneWidget);
+  });
+
+  testWidgets('全选并导入选中：逐条下载写入 store，刷新列表并回调', (tester) async {
+    final client = _FakeClient(indexBody: _indexJson, body: demoRuleJson);
+    var changed = 0;
+    await tester.pumpWidget(
+      _app(
+        _panel(store, RuleImporter(client: client), onChanged: () => changed++),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await browseRepo(tester);
+    await tester.tap(find.byKey(const Key('anime-repo-select-all')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('anime-repo-import-selected')));
+    await tester.pumpAndSettle();
+
+    expect(
+      client.fetched,
+      containsAll(<String>[
+        '${_repoUrl}index.json',
+        '${_repoUrl}repo-one.json',
+        '${_repoUrl}repo-two.json',
+      ]),
+    );
+    // demoRuleJson 解析为 demo03，两条下载都是同名 → store 里一条。
+    expect((await store.loadAllDetailed()).rules, hasLength(1));
+    expect(find.byKey(const Key('anime-rule-item-demo03')), findsOneWidget);
+    expect(changed, 1);
+  });
+
+  testWidgets('非法仓库地址：不发请求，显示校验提示', (tester) async {
+    final client = _FakeClient(indexBody: _indexJson);
+    await tester.pumpWidget(_app(_panel(store, RuleImporter(client: client))));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('anime-repo-url')),
+      'https://user:pw@rules.test/',
+    );
+    await tester.tap(find.byKey(const Key('anime-repo-browse')));
+    await tester.pumpAndSettle();
+
+    expect(client.fetched, isEmpty);
+    expect(find.textContaining('仓库地址不合法'), findsOneWidget);
+  });
+
+  testWidgets('清单读取失败：显示失败原因，不发规则下载请求', (tester) async {
+    final client = _FakeClient(indexBody: 'not json', body: demoRuleJson);
+    await tester.pumpWidget(_app(_panel(store, RuleImporter(client: client))));
+    await tester.pumpAndSettle();
+
+    await browseRepo(tester);
+
+    expect(find.textContaining('不是合法 JSON'), findsOneWidget);
+    expect(client.fetched, <String>['${_repoUrl}index.json']);
+    expect(find.byKey(const Key('anime-repo-check-repo-one')), findsNothing);
+  });
+
+  testWidgets('空清单：显示无规则提示，不显示导入按钮', (tester) async {
+    final client = _FakeClient(indexBody: '[]');
+    await tester.pumpWidget(_app(_panel(store, RuleImporter(client: client))));
+    await tester.pumpAndSettle();
+
+    await browseRepo(tester);
+
+    expect(find.byKey(const Key('anime-repo-empty')), findsOneWidget);
+    expect(find.byKey(const Key('anime-repo-import-selected')), findsNothing);
   });
 }

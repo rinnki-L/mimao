@@ -45,6 +45,30 @@ if (result.rules.isNotEmpty) {
 本地 JSON 文本（单个 object 或数组）可直接 `importer.parseJson(text)`；
 `RuleStore.loadAll()` 读回全部规则，`delete(name)` 按名删除。
 
+### 从 Kazumi 规则仓库浏览导入
+
+KazumiRules 仓库根有 `index.json` 清单（每条 `{name, version, ..., lastUpdate}`），
+规则文件按 `{name}.json` 平铺。设置页「番剧 → Kazumi 规则仓库」走的就是这套，
+默认源是 jsdelivr 镜像（本机直连 github.com 会被 RST）：
+
+```dart
+final importer = RuleImporter();
+final base = defaultKazumiRulesBaseUrl; // https://cdn.jsdelivr.net/gh/Predidit/KazumiRules@main/
+final index = await importer.fetchIndex(base);
+for (final entry in index.entries) {
+  // 由用户勾选后再下载；不自动安装、不为第三方内容背书。
+  final result = await importer.importFromUrl(importer.ruleUrl(base, entry.name));
+  await store.saveAll(result.rules);
+}
+```
+
+- `fetchIndex` / `importFromUrl` 对非 2xx、坏 JSON、网络异常都返回 `failures`
+  而不抛异常；`index.failures` / `result.failures` 逐条说明原因。
+- 仓库地址经白名单校验：只接受无 user-info / query / fragment 的 http(s) 地址
+  （与 Kazumi 上游一致）；规则名拼接前经 `isSafeRuleName` 挡住路径穿越。
+- 通用性：填任意符合 `index.json` + `{name}.json` 布局的仓库地址即可接新源，
+  无需改代码。
+
 ## 3. 如何解析网页
 
 ```dart

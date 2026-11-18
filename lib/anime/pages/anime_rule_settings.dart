@@ -7,6 +7,10 @@ import 'package:mimao/anime/engine/engine.dart';
 ///
 /// 只依赖规则引擎的存储/导入器与 Flutter：不认识壳、播放器、收藏或 core 服务，
 /// 由 [AnimeModule.buildSettings] 注入依赖（docs/prompts/closure-01 §5）。
+///
+/// 两种导入方式并存：
+/// - 仓库浏览：拉取 Kazumi 格式仓库的 `index.json`，用户勾选后按需下载导入；
+/// - 自定义 URL：沿用最初的"粘贴规则 JSON 地址"入口，保留给非标准来源。
 class AnimeRuleSettings extends StatefulWidget {
   const AnimeRuleSettings({
     super.key,
@@ -27,12 +31,19 @@ class AnimeRuleSettings extends StatefulWidget {
 
 class _AnimeRuleSettingsState extends State<AnimeRuleSettings> {
   final TextEditingController _urlController = TextEditingController();
+  final TextEditingController _repoUrlController = TextEditingController(
+    text: defaultKazumiRulesBaseUrl,
+  );
 
   bool _loading = true;
   bool _importing = false;
+  bool _browsing = false;
+  bool _browsed = false;
   String? _loadError;
   List<AnimeRule> _rules = const <AnimeRule>[];
   List<String> _loadFailures = const <String>[];
+  List<RuleIndexEntry> _indexEntries = const <RuleIndexEntry>[];
+  final Set<String> _selected = <String>{};
   String? _message;
 
   @override
@@ -44,6 +55,7 @@ class _AnimeRuleSettingsState extends State<AnimeRuleSettings> {
   @override
   void dispose() {
     _urlController.dispose();
+    _repoUrlController.dispose();
     super.dispose();
   }
 
@@ -140,6 +152,113 @@ class _AnimeRuleSettingsState extends State<AnimeRuleSettings> {
     return '导入 ${result.rules.length} 条';
   }
 
+  /// 当前仓库地址输入框里的合法根地址；非法返回 null（调用方负责提示）。
+  Uri? _repoBase() => normalizeRepositoryBaseUrl(_repoUrlController.text);
+
+  /// 拉取仓库清单，列出可导入的规则供用户勾选。
+  Future<void> _browse() async {
+    if (_browsing || _importing) return;
+    final base = _repoBase();
+    if (base == null) {
+      setState(() => _message = '仓库地址不合法：只支持不含凭据的 http(s) 地址');
+      return;
+    }
+
+    setState(() {
+      _browsing = true;
+      _browsed = true;
+      _message = null;
+      _indexEntries = const <RuleIndexEntry>[];
+      _selected.clear();
+    });
+
+    final result = await widget.importer.fetchIndex(base.toString());
+    if (!mounted) return;
+    setState(() {
+      _browsing = false;
+      _indexEntries = result.entries;
+      _message = _indexMessage(result);
+    });
+  }
+
+  String _indexMessage(RuleIndexResult result) {
+    if (result.failures.isNotEmpty) {
+      return '读取清单 ${result.entries.length} 条，失败 ${result.failures.length} 条：'
+          '${result.failures.first}';
+    }
+    if (result.entries.isEmpty) return '仓库里没有可导入的规则';
+    return '发现 ${result.entries.length} 条规则，勾选后导入';
+  }
+
+  void _toggleSelectAll() {
+    setState(() {
+      if (_selected.length == _indexEntries.length) {
+        _selected.clear();
+      } else {
+        _selected.addAll(_indexEntries.map((entry) => entry.name));
+      }
+    });
+  }
+
+  /// 逐个下载用户勾选的规则并一次性落盘；单条失败不影响其他规则。
+  Future<void> _importSelected() async {
+    if (_importing || _browsing || _selected.isEmpty) return;
+    final base = _repoBase();
+    if (base == null) {
+      setState(() => _message = '仓库地址不合法：只支持不含凭据的 http(s) 地址');
+      return;
+    }
+
+    setState(() {
+      _importing = true;
+      _message = null;
+    });
+
+    final rules = <AnimeRule>[];
+    final failures = <String>[];
+    final names = _selected.toList()..sort();
+    for (final name in names) {
+      try {
+        final result = await widget.importer.importFromUrl(
+          widget.importer.ruleUrl(base.toString(), name),
+        );
+        rules.addAll(result.rules);
+        for (final failure in result.failures) {
+          failures.add('$name：$failure');
+        }
+      } catch (error) {
+        failures.add('$name：$error');
+      }
+    }
+
+    if (rules.isNotEmpty) {
+      try {
+        await widget.store.saveAll(rules);
+      } catch (error) {
+        if (mounted) {
+          setState(() {
+            _importing = false;
+            _message = '保存规则失败：$error';
+          });
+        }
+        return;
+      }
+    }
+
+    await _refreshKeepingMessage(
+      _repoImportMessage(rules.length, failures),
+      changed: rules.isNotEmpty,
+    );
+  }
+
+  String _repoImportMessage(int count, List<String> failures) {
+    if (failures.isNotEmpty) {
+      return '导入 $count 条，失败 ${failures.length} 条：${failures.first}';
+    }
+    if (count == 0) return '没有可导入的规则';
+    return '导入 $count 条';
+  }
+
   Future<void> _refreshKeepingMessage(
     String message, {
     required bool changed,
@@ -203,12 +322,14 @@ class _AnimeRuleSettingsState extends State<AnimeRuleSettings> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
+          _buildRepositorySection(theme),
+          const Divider(height: 24),
           TextField(
             key: const Key('anime-rule-url'),
             controller: _urlController,
             enabled: !_importing,
             decoration: const InputDecoration(
-              labelText: 'KazumiRules URL',
+              labelText: '自定义规则 URL',
               hintText: 'https://…/rules.json',
               border: OutlineInputBorder(),
               isDense: true,
@@ -244,6 +365,117 @@ class _AnimeRuleSettingsState extends State<AnimeRuleSettings> {
           _buildRuleList(theme),
         ],
       ),
+    );
+  }
+
+  /// Kazumi 格式仓库区块：改地址 → 浏览清单 → 勾选 → 导入选中。
+  Widget _buildRepositorySection(ThemeData theme) {
+    final installed = _rules.map((rule) => rule.name).toSet();
+    final allSelected =
+        _indexEntries.isNotEmpty && _selected.length == _indexEntries.length;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        Text('Kazumi 规则仓库', style: theme.textTheme.titleSmall),
+        const SizedBox(height: 6),
+        TextField(
+          key: const Key('anime-repo-url'),
+          controller: _repoUrlController,
+          enabled: !_browsing && !_importing,
+          decoration: const InputDecoration(
+            labelText: '仓库地址',
+            hintText: defaultKazumiRulesBaseUrl,
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+          keyboardType: TextInputType.url,
+          onSubmitted: (_) => _browse(),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: <Widget>[
+            OutlinedButton.icon(
+              key: const Key('anime-repo-browse'),
+              onPressed: _browsing || _importing ? null : _browse,
+              icon: _browsing
+                  ? const SizedBox.square(
+                      dimension: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.search),
+              label: Text(_browsing ? '读取中…' : '浏览'),
+            ),
+            const SizedBox(width: 8),
+            if (_indexEntries.isNotEmpty)
+              TextButton(
+                key: const Key('anime-repo-select-all'),
+                onPressed: _importing ? null : _toggleSelectAll,
+                child: Text(allSelected ? '清空选择' : '全选'),
+              ),
+          ],
+        ),
+        if (_indexEntries.isNotEmpty) ...<Widget>[
+          const SizedBox(height: 6),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 240),
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: _indexEntries.length,
+              itemBuilder: (context, index) {
+                final entry = _indexEntries[index];
+                final isInstalled = installed.contains(entry.name);
+                return CheckboxListTile(
+                  key: Key('anime-repo-check-${entry.name}'),
+                  dense: true,
+                  value: _selected.contains(entry.name),
+                  onChanged: _importing
+                      ? null
+                      : (checked) => setState(() {
+                          if (checked == true) {
+                            _selected.add(entry.name);
+                          } else {
+                            _selected.remove(entry.name);
+                          }
+                        }),
+                  title: Text(
+                    entry.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text(
+                    'v${entry.version.isEmpty ? '—' : entry.version} · '
+                    '${entry.lastUpdateLabel}${isInstalled ? ' · 已安装' : ''}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.apply(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 8),
+          FilledButton.icon(
+            key: const Key('anime-repo-import-selected'),
+            onPressed: _importing || _selected.isEmpty ? null : _importSelected,
+            icon: const Icon(Icons.download_outlined),
+            label: Text('导入选中（${_selected.length}）'),
+          ),
+        ] else if (_browsed && !_browsing)
+          Padding(
+            key: const Key('anime-repo-empty'),
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Text(
+              '仓库里没有可导入的规则',
+              style: theme.textTheme.bodySmall?.apply(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+      ],
     );
   }
 
