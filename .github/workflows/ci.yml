@@ -27,7 +27,8 @@
 #   构建门          Windows / Android release 构建失败 → 红
 #   合并预演门      与 origin/main 存在合并冲突 → 红（冲突文件写入 Step Summary）
 #   分域说明        格式/分析/dart fix 三扇门覆盖全部自写代码（含 lib/anime；
-#                   R1 已取消镜像豁免）；demos/ 不进任何门（docs/architecture.md R1）
+#                   R1 已取消镜像豁免）与 tool/ 下已入库脚本；demos/ 不进任何
+#                   门（docs/architecture.md R1）
 #
 # 【现状说明】Flutter 工程已落位（2026-11-17）：pubspec.yaml / pubspec.lock /
 # 生成物均入库，static-checks 与 tests 按真实工程运行；lib/anime 为自写代码，
@@ -107,7 +108,7 @@ jobs:
           for p in lib/main.dart lib/*/*_entry.dart lib/*/*_module.dart; do
             if [ -f "$p" ]; then targets="$targets $p"; fi
           done
-          for d in lib/shell lib/core lib/anime lib/comic lib/music lib/novel test; do
+          for d in lib/shell lib/core lib/anime lib/comic lib/music lib/novel test tool; do
             if [ ! -d "$d" ]; then continue; fi
             for f in $(find "$d" -type f -name '*.dart' ! -name '*.g.dart' ! -name '*.drift.dart' ! -name '*.freezed.dart' ! -name '*.mock.dart' ! -name '*.mocks.dart'); do
               targets="$targets $f"
@@ -138,7 +139,7 @@ jobs:
             echo "::error::analysis_options.yaml 只有注释或空行——等效于空文件，分析门会静默降级"
             exit 1
           fi
-          for p in lib/main.dart lib/shell lib/core lib/anime lib/comic lib/music lib/novel test lib/*/*_entry.dart lib/*/*_module.dart; do
+          for p in lib/main.dart lib/shell lib/core lib/anime lib/comic lib/music lib/novel test tool lib/*/*_entry.dart lib/*/*_module.dart; do
             if [ -e "$p" ]; then
               dart analyze --fatal-infos "$p"
             fi
@@ -151,7 +152,7 @@ jobs:
       - name: dart fix 门——自写目录存在可自动修复项即红（grep 判定）
         run: |
           set -euo pipefail
-          for p in lib/shell lib/core lib/anime lib/comic lib/music lib/novel test; do
+          for p in lib/shell lib/core lib/anime lib/comic lib/music lib/novel test tool; do
             if [ ! -d "$p" ]; then continue; fi
             log=$(dart fix --dry-run "$p" 2>&1) || { printf '%s\n' "$log"; echo "::error::dart fix --dry-run $p 本身非零退出"; exit 1; }
             printf '%s\n' "$log"

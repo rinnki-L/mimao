@@ -1,0 +1,72 @@
+# ==============================================================
+# 上游契约冒烟 · 非门禁监控岗
+# ==============================================================
+# 与 ci.yml（合并门禁）刻意分成两个 workflow：本 pipeline 依赖外网与第三方
+# CDN（jsdelivr / 上游仓库），不具备合并门禁要求的确定性——上游改格式或
+# CDN 抖动都会红，且红的原因不在被合并的代码。因此：
+#   - 每日定时跑一次（cron 只在默认分支生效）+ 可手动触发 + 冒烟脚本本身
+#     变更时触发（push 后立刻自证）；
+#   - continue-on-error：红了不影响 ci.yml 五门的绿，只作为「上游契约漂移 /
+#     CDN 异常」的报警信号。脚本用退出码区分两类失败：
+#       exit 1 = 契约不成立（清单为空/条目被校验器拒绝/样例无法解析）→ 需要适配
+#       exit 2 = 网络失败（重试耗尽）→ 多半是 CDN/网络问题，重跑即可
+# 覆盖的上游对接（之后小说/音乐做同类仓库对接时各加一个 tool/smoke_*.dart）：
+#   - 漫画：Venera 官方源仓库 venera-configs（index.json → {fileName}.js）
+#   - 番剧：KazumiRules（index.json → {name}.json XPath 规则）
+# 脚本直接 import 纯 Dart 引擎文件（不进 engine barrel，避开 path_provider
+# → dart:ui），所以本 job 无需跑任何 Flutter 测试，只需 pub get + dart run。
+# ==============================================================
+name: Upstream contract smoke
+
+on:
+  schedule:
+    # 每天 UTC 21:30（北京 05:30）。GitHub 定时可能有分钟级延迟，属正常。
+    - cron: "30 21 * * *"
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "tool/smoke_*.dart"
+      - ".github/workflows/upstream-contract.yml"
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  # 与 ci.yml 同版本、同 pub 镜像：pubspec.lock 按 PUB_HOSTED_URL 生成，
+  # enforce-lockfile 换源会全量重解析必红（详见 ci.yml 顶层 env 注释）。
+  FLUTTER_VERSION: "3.50.0"
+  PUB_HOSTED_URL: https://pub.flutter-io.cn
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # 监控岗：红了不挡合并、不影响主 CI 的绿；红 X 本身就是报警信号。
+    continue-on-error: true
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v5
+
+      - name: 安装 Flutter SDK（与 ci.yml 同版本）
+        uses: subosito/flutter-action@v2.23.0
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: 拉依赖（enforce-lockfile，与 ci.yml 同口径）
+        run: |
+          set -euo pipefail
+          flutter pub get --enforce-lockfile
+
+      - name: 漫画源仓库冒烟（Venera venera-configs）
+        run: dart run tool/smoke_source_catalog.dart
+
+      - name: 番剧规则仓库冒烟（KazumiRules）
+        run: dart run tool/smoke_anime_rules.dart
