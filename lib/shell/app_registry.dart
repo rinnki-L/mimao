@@ -20,6 +20,10 @@ import 'package:mimao/comic/reader/reader_cache.dart';
 import 'package:mimao/comic/search_history_service.dart';
 import 'package:mimao/core/contract.dart';
 import 'package:mimao/core/library.dart';
+import 'package:mimao/music/api/music_api.dart';
+import 'package:mimao/music/client/kugou_client.dart';
+import 'package:mimao/music/client/kugou_identity.dart';
+import 'package:mimao/music/music_entry.dart';
 
 /// 全库**唯一**允许 import 四个模块目录（`anime/`、`comic/`、`music/`、
 /// `novel/`）的文件——第四条铁律的载体（docs/architecture.md §2）。
@@ -78,6 +82,13 @@ Future<void> initAppModules({
 
   /// 测试注入整模块（依赖自含），跳过漫画生产装配直接注册。
   ComicModule? comicModule,
+
+  // ── 音乐（M4 骨架）──
+  /// 测试注入整模块（依赖自含），跳过音乐生产装配直接注册。
+  MusicModule? musicModule,
+
+  /// 测试注入内存/临时身份仓库；生产走 openDefault()（path_provider）。
+  KugouIdentityStore? musicIdentityStore,
 }) async {
   // 每次装配都是一次干净开始；避免旧的已关闭 DB 残留在表里。
   await _resetOwnedDb();
@@ -193,6 +204,29 @@ Future<void> initAppModules({
         // 同上。
       }
     }
+  }
+
+  // ── 音乐装配（M4 骨架）──
+  try {
+    if (musicModule != null) {
+      // 测试整模块注入：依赖自含，直接注册。
+      appModules[MediaType.music] = musicModule;
+    } else {
+      // 身份仓库走工厂惰性解析（首次 API 调用才碰 path_provider）；设备
+      // 注册与搜索都是联网动作，留给首次搜索时经 MusicApi.ensureDevice
+      // 惰性执行——启动期不发网络请求、不碰插件。
+      // 与番剧/漫画的「启动探针」刻意不同：音乐没有本地库可探，联网动作
+      // 的失败延迟到首搜，由 MusicStore.error 呈现（lib/music/README.md）。
+      final api = KugouMusicApi(
+        client: KugouClient(),
+        identityStoreFactory: () async =>
+            musicIdentityStore ?? KugouIdentityStore.openDefault(),
+      );
+      appModules[MediaType.music] = MusicModule(api: api);
+    }
+  } catch (error) {
+    errors.add('音乐模块初始化失败：$error');
+    appModules.remove(MediaType.music);
   }
 
   appModulesError = errors.isEmpty ? null : errors.join('\n');

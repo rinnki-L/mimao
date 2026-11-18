@@ -5,11 +5,14 @@
 
 // ignore_for_file: deprecated_member_use — 见 lib/main.dart 文件头同款说明。
 
+import 'dart:io';
+
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mimao/comic/comic_db.dart';
 import 'package:mimao/core/contract.dart';
+import 'package:mimao/music/client/kugou_identity.dart';
 import 'package:mimao/shell/app.dart';
 import 'package:mimao/shell/app_registry.dart';
 import 'package:mimao/shell/home.dart';
@@ -110,6 +113,9 @@ void main() {
 
   // 番剧（closure-01）与漫画（closure-02）都分件注入：番剧用 fixture 数据源
   // 与 fake 播放器；漫画用内存 DB/源仓库 + 假宿主（CI 无 DLL/插件）。
+  // 音乐（M4 骨架）走生产装配——身份仓库惰性解析、注册留到首搜，正常用例
+  // 不会触达；这里仍注入临时目录仓库，把「点开音乐设置分组也不会碰
+  // path_provider 插件」的陷阱钉死。
   Future<void> initModules() => initAppModules(
     library: env.library,
     animeDb: env.animeDb,
@@ -120,6 +126,7 @@ void main() {
     comicSourceStore: comicSourceStore,
     comicHttpClient: FakeComicHttpClient(),
     comicHostFactory: () => FakeSourceHost(),
+    musicIdentityStore: KugouIdentityStore(Directory.systemTemp),
   );
 
   group('closure-01：模块注册后', () {

@@ -61,7 +61,7 @@ void main() {
     );
   }
 
-  test('分件注入后番剧与漫画同时注册（type/label/icon 正确），小说/音乐仍占位', () async {
+  test('分件注入后番剧与漫画同时注册（type/label/icon 正确），小说仍占位', () async {
     module = await buildModule();
     await initAppModules(
       library: env.library,
@@ -80,9 +80,9 @@ void main() {
     expect(registered.label, '漫画');
     expect(registered.icon, MediaType.comic.icon);
     expect(moduleFor(MediaType.anime), isNotNull, reason: '番剧不受漫画装配影响');
-    for (final type in <MediaType>[MediaType.novel, MediaType.music]) {
-      expect(moduleFor(type), isNull);
-    }
+    // M4 骨架：音乐生产装配不碰插件（身份仓库惰性解析），无注入也注册。
+    expect(moduleFor(MediaType.music), isNotNull);
+    expect(moduleFor(MediaType.novel), isNull);
     expect(appModulesError, isNull);
   });
 
