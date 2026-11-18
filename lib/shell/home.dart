@@ -26,7 +26,7 @@ class HomeShell extends StatelessWidget {
             shellStore.showLibrary,
           )) {
             (final MediaType type, false) => _ModuleLayer(type: type),
-            (null, true) => LibraryPage(repository: library),
+            (null, true) => _LibraryLayer(repository: library),
             _ => const _EntryPage(),
           };
           return AnimatedSwitcher(
@@ -243,6 +243,41 @@ class _BentoCard extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+// ────────────────────────────────────────────────────────────────
+// 统一书架层：与模块层同一套顶部导航（返回 + 标题）——此前书架页
+// 没有任何退出入口，真机验收（2026-11-18）发现，用 goHome() 修。
+// ────────────────────────────────────────────────────────────────
+class _LibraryLayer extends StatelessWidget {
+  final LibraryRepository repository;
+
+  const _LibraryLayer({required this.repository});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        SafeArea(
+          bottom: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+            child: Row(
+              children: [
+                IconButton(
+                  tooltip: '返回',
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: shellStore.goHome,
+                ),
+                Text('统一书架', style: Theme.of(context).textTheme.titleLarge),
+              ],
+            ),
+          ),
+        ),
+        Expanded(child: LibraryPage(repository: repository)),
+      ],
     );
   }
 }

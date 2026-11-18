@@ -80,6 +80,19 @@ void main() {
     expect(find.textContaining('追番或播放后会出现在这里'), findsOneWidget);
   });
 
+  testWidgets('统一书架页有返回入口，返回后回到入口页', (tester) async {
+    await tester.pumpWidget(pumpApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('统一书架'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('还没有观看记录'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('返回'));
+    await tester.pumpAndSettle();
+    expect(find.text('mimao'), findsOneWidget);
+  });
+
   testWidgets('设置抽屉可打开，四个模块分组齐全', (tester) async {
     await tester.pumpWidget(pumpApp());
     await tester.pumpAndSettle();
