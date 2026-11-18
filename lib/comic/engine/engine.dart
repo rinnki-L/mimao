@@ -8,5 +8,6 @@ export 'js_bridge.dart';
 export 'js_host.dart';
 export 'models.dart';
 export 'source.dart';
+export 'source_catalog.dart';
 export 'source_engine.dart';
 export 'source_store.dart';

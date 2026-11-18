@@ -78,6 +78,31 @@ pool.disposeAll();
 注入自定义网络客户端（离线测试）：`ComicJsBridge(client: fakeClient)` →
 `QuickJsHost(bridge: bridge)` → `SourceExecutionPool(hostFactory: () => host)`。
 
+### 3.1 从 Venera 源仓库浏览导入
+
+源管理页「源仓库」区块走的就是这套：读仓库根的 `index.json` 清单
+（每条 `{name, fileName, key, version, description?}`），用户勾选后把
+`{清单目录}/{fileName}` 拼成 `.js` 地址，交给既有 `importSource(url)` 链路
+（下载 → 解析 → 注册执行池 → 落盘），不在此重复写入逻辑。默认源是 Venera
+官方仓库的 jsdelivr 镜像（本机直连 github.com 会被 RST）：
+
+```dart
+final catalog = ComicSourceCatalog(); // 可注入 ComicHttpClient 脱网测试
+final index = await catalog.fetchIndex(defaultComicSourceIndexUrl);
+for (final entry in index.entries) {
+  // 由用户勾选后再下载；不自动安装、不为第三方内容背书。
+  final url = catalog.sourceUrl(defaultComicSourceIndexUrl, entry);
+  await repository.importSource(url); // 既有导入链路
+}
+```
+
+- `fetchIndex` / `importSource` 对非 2xx、坏 JSON、网络异常都收敛为
+  `failures` / 异常消息，不崩页面；坏条目（缺 fileName/url、key 非法或重复、
+  路径穿越）逐条跳过并说明原因。
+- 校验口径：清单地址与条目自带 `url` 只接受不含 user-info/query/fragment 的
+  http(s)；`fileName` 必须是相对清单目录的安全路径（禁绝对路径、`..`、
+  `%` 编码穿越、`?`/`#`/反斜杠），拼好后仍校验同 origin 且未逃出仓库目录。
+
 ## 4. 测试与原生编译
 
 ```bash

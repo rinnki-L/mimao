@@ -167,9 +167,13 @@ Future<void> initAppModules({
         searchHistory: searchHistory,
       );
 
+      // 源仓库目录与适配器共用同一 client（共享 UA/Cookie 语义）；
+      // 浏览清单只读 index.json，导入仍走 adapter.importSource 的既有链路。
+      final sourceCatalog = ComicSourceCatalog(client: client);
       appModules[MediaType.comic] = ComicModule(
         dataSource: adapter,
         sourceRepository: adapter,
+        sourceCatalog: sourceCatalog,
         collect: ComicCollectService(db, library),
         history: ComicHistoryService(db, library),
         searchHistory: searchHistory,

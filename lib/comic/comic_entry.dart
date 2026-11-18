@@ -23,6 +23,7 @@ import 'package:mimao/comic/comic_models.dart';
 import 'package:mimao/comic/data/comic_data_source.dart';
 import 'package:mimao/comic/data/comic_models.dart';
 import 'package:mimao/comic/data/engine_comic_data_source.dart';
+import 'package:mimao/comic/engine/engine.dart' show ComicSourceCatalog;
 import 'package:mimao/comic/history_service.dart';
 import 'package:mimao/comic/pages/comic_module_page.dart';
 import 'package:mimao/comic/pages/comic_module_settings.dart';
@@ -54,11 +55,16 @@ class ComicModule implements AppModule {
     required this.history,
     required this.searchHistory,
     required this.loadChapterImages,
+    this.sourceCatalog,
     this.imageCacheFactory,
   });
 
   final ComicDataSource dataSource;
   final ComicSourceRepository sourceRepository;
+
+  /// 源仓库目录（浏览 `index.json` 按需导入）。null 时源管理页不显示仓库区块。
+  final ComicSourceCatalog? sourceCatalog;
+
   final ComicCollectService collect;
   final ComicHistoryService history;
   final ComicSearchHistoryService searchHistory;
@@ -88,6 +94,7 @@ class ComicModule implements AppModule {
     return ComicModulePage(
       dataSource: dataSource,
       sourceRepository: sourceRepository,
+      sourceCatalog: sourceCatalog,
       embedded: true,
       onOpenDetail: (item) => history.open(refOf(item)),
       isFavorite: (item) => collect.isCollected(refOf(item)),
@@ -104,7 +111,12 @@ class ComicModule implements AppModule {
   Widget buildSettings(BuildContext context) {
     return ComicModuleSettings(
       sourceRepository: sourceRepository,
+      sourceCatalog: sourceCatalog,
       searchHistory: searchHistory,
+      // 与 buildHome 的模块页路径对齐：写操作后触发执行池对账（导入失败
+      // 回滚池条目时，下次写操作能把仍存在的源补注册回来）。
+      onImportSource: (url) => _syncSources(),
+      onDeleteSource: (source) => _syncSources(),
     );
   }
 

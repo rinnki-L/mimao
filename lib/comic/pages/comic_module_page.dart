@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:mimao/comic/data/comic_data_source.dart';
 import 'package:mimao/comic/data/comic_models.dart';
+import 'package:mimao/comic/engine/engine.dart' show ComicSourceCatalog;
 import 'package:mimao/comic/pages/comic_detail_page.dart';
 import 'package:mimao/comic/pages/comic_search_page.dart';
 import 'package:mimao/comic/pages/comic_source_page.dart';
@@ -16,6 +17,7 @@ class ComicModulePage extends StatefulWidget {
     super.key,
     required this.dataSource,
     required this.sourceRepository,
+    this.sourceCatalog,
     this.embedded = false,
     this.onOpenDetail,
     this.isFavorite,
@@ -27,6 +29,9 @@ class ComicModulePage extends StatefulWidget {
 
   final ComicDataSource dataSource;
   final ComicSourceRepository sourceRepository;
+
+  /// 源仓库目录，透传给源管理页；null 时不显示仓库区块。
+  final ComicSourceCatalog? sourceCatalog;
 
   /// true 时由壳提供顶部"返回 + 标题"，搜索/源管理页不再画自己的 AppBar。
   final bool embedded;
@@ -99,6 +104,7 @@ class _ComicModulePageState extends State<ComicModulePage> {
           ),
           ComicSourcePage(
             repository: widget.sourceRepository,
+            catalog: widget.sourceCatalog,
             showAppBar: !widget.embedded,
             onImport: widget.onImportSource,
             onDelete: widget.onDeleteSource,

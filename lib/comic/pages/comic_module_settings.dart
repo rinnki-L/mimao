@@ -1,6 +1,8 @@
 // ignore_for_file: deprecated_member_use — 见 lib/comic/pages/comic_cover.dart 同款说明。
 import 'package:flutter/material.dart';
 import 'package:mimao/comic/data/comic_data_source.dart';
+import 'package:mimao/comic/data/comic_models.dart';
+import 'package:mimao/comic/engine/engine.dart' show ComicSourceCatalog;
 import 'package:mimao/comic/pages/comic_source_page.dart';
 import 'package:mimao/comic/search_history_service.dart';
 
@@ -11,10 +13,21 @@ class ComicModuleSettings extends StatefulWidget {
     super.key,
     required this.sourceRepository,
     required this.searchHistory,
+    this.sourceCatalog,
+    this.onImportSource,
+    this.onDeleteSource,
   });
 
   final ComicSourceRepository sourceRepository;
   final ComicSearchHistoryService searchHistory;
+
+  /// 源仓库目录，打开源管理时透传；null 时源管理页不显示仓库区块。
+  final ComicSourceCatalog? sourceCatalog;
+
+  /// 源管理页的写操作回调，透传给源管理页；模块层用它触发执行池对账
+  /// （与 ComicModulePage 的同名回调语义一致，两条入口路径行为对齐）。
+  final ValueChanged<String>? onImportSource;
+  final ValueChanged<ComicSourceInfo>? onDeleteSource;
 
   @override
   State<ComicModuleSettings> createState() => _ComicModuleSettingsState();
@@ -45,7 +58,12 @@ class _ComicModuleSettingsState extends State<ComicModuleSettings> {
   void _openSources() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => ComicSourcePage(repository: widget.sourceRepository),
+        builder: (_) => ComicSourcePage(
+          repository: widget.sourceRepository,
+          catalog: widget.sourceCatalog,
+          onImport: widget.onImportSource,
+          onDelete: widget.onDeleteSource,
+        ),
       ),
     );
   }
