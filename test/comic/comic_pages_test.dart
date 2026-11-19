@@ -43,6 +43,14 @@ class _FlakyComicDataSource implements ComicDataSource {
 
   @override
   Future<ComicDetail> detail(ComicSummary item) => _delegate.detail(item);
+
+  // ComicDataSource 是 interface：默认方法体不被 implements 继承，补转发。
+  @override
+  Future<List<ComicSummary>> searchSource(String key, String keyword) =>
+      search(keyword);
+
+  @override
+  List<String> availableSourceKeys() => const <String>[];
 }
 
 Widget _app(Widget home) => MaterialApp(
