@@ -25,11 +25,31 @@ import 'package:mimao/core/library.dart';
 import 'package:mimao/shell/app.dart';
 import 'package:mimao/shell/app_registry.dart';
 import 'package:mimao/shell/home.dart';
+import 'package:mimao/shell/shell_store.dart';
 import 'package:mimao/shell/window/window.dart';
+import 'package:system_theme/system_theme.dart';
 
 Future<void> main() async {
   // 1. 绑定引擎
   WidgetsFlutterBinding.ensureInitialized();
+
+  // 1.5 D 线 · 系统强调色（production-only，测试不跑 main，不会触发插件）。
+  // 取色失败一律兜底：不阻塞启动，也不让 MimaoApp.seed('system') 拿到异常。
+  try {
+    await SystemTheme.accentColor.load();
+  } catch (_) {
+    // 平台不支持 / 插件缺失时静默降级：seed('system') 会回退 violet。
+  }
+  // provider 直接返回 Color：seed() 调用时读 accent 的"当下"值。
+  MimaoApp.systemAccentProvider = () => SystemTheme.accentColor.accent;
+  // system_theme 2.3.1 的 SystemAccentColor 不是 ChangeNotifier，无 addListener；
+  // 官方变更通知走 SystemTheme.onChange 流。订阅它，在系统色变化时 bump epoch
+  // 驱动主题重建（详见 docs/probes-d-delivery.md 与 app.dart 注释）。
+  try {
+    SystemTheme.onChange.listen((_) => shellStore.bumpSystemAccent());
+  } catch (_) {
+    // 监听建立失败同样不影响启动。
+  }
 
   // 2. 桌面窗口 / 托盘（运行时平台判断，Android 走空操作）
   await initWindow();

@@ -25,6 +25,14 @@ abstract class _ShellStore with Store {
   @observable
   String themeSeed = 'violet';
 
+  /// 系统强调色发生变化的"纪元"计数。
+  ///
+  /// system_theme 的色值是可变对象（SystemTheme.accentColor.accent 就地更新），
+  /// MobX 观察不到它。每次系统色变化由 main.dart 调 [bumpSystemAccent] 递增本值，
+  /// MimaoApp 的 Observer 读一次即建立依赖，从而重建主题取到新色。
+  @observable
+  int systemAccentEpoch = 0;
+
   @computed
   bool get onEntryPage => activeModule == null && !showLibrary;
 
@@ -56,6 +64,11 @@ abstract class _ShellStore with Store {
 
   @action
   void setThemeSeed(String seed) => themeSeed = seed;
+
+  /// 系统强调色变化时调用（main.dart 订阅 SystemTheme.onChange）。
+  /// 仅递增纪元以驱动 MimaoApp 的 Observer 重建主题，不承载色值本身。
+  @action
+  void bumpSystemAccent() => systemAccentEpoch++;
 }
 
 /// 最简做法：全局单例。Kazumi 用 flutter_modular 做 DI，M1 不需要（拍板项 3）。

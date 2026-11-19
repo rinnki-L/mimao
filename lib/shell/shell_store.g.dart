@@ -89,6 +89,24 @@ mixin _$ShellStore on _ShellStore, Store {
     });
   }
 
+  late final _$systemAccentEpochAtom = Atom(
+    name: '_ShellStore.systemAccentEpoch',
+    context: context,
+  );
+
+  @override
+  int get systemAccentEpoch {
+    _$systemAccentEpochAtom.reportRead();
+    return super.systemAccentEpoch;
+  }
+
+  @override
+  set systemAccentEpoch(int value) {
+    _$systemAccentEpochAtom.reportWrite(value, super.systemAccentEpoch, () {
+      super.systemAccentEpoch = value;
+    });
+  }
+
   late final _$_ShellStoreActionController = ActionController(
     name: '_ShellStore',
     context: context,
@@ -167,12 +185,25 @@ mixin _$ShellStore on _ShellStore, Store {
   }
 
   @override
+  void bumpSystemAccent() {
+    final _$actionInfo = _$_ShellStoreActionController.startAction(
+      name: '_ShellStore.bumpSystemAccent',
+    );
+    try {
+      return super.bumpSystemAccent();
+    } finally {
+      _$_ShellStoreActionController.endAction(_$actionInfo);
+    }
+  }
+
+  @override
   String toString() {
     return '''
 activeModule: ${activeModule},
 showLibrary: ${showLibrary},
 settingsOpen: ${settingsOpen},
 themeSeed: ${themeSeed},
+systemAccentEpoch: ${systemAccentEpoch},
 onEntryPage: ${onEntryPage}
     ''';
   }

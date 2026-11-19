@@ -66,6 +66,9 @@ class _AppearanceGroup extends StatelessWidget {
               label: entry.value.$1,
               color: entry.value.$2,
             ),
+          // D 线 · "跟随系统"：不在 8 色 seedColors 里，单独一枚 chip，
+          // themeSeed 值为 'system'，seed() 从注入的 provider 取系统强调色。
+          const _SystemChip(),
         ],
       ),
     ],
@@ -105,6 +108,39 @@ class _SeedChip extends StatelessWidget {
           selectedColor: color.withValues(alpha: 0.22),
           side: selected
               ? BorderSide(color: color, width: 2)
+              : BorderSide(color: cs.outlineVariant),
+        );
+      },
+    );
+  }
+}
+
+/// "跟随系统强调色"选项：与 8 色 chip 并列，点击后 themeSeed 置为 'system'。
+/// 选中态同样用 Observer 读 themeSeed，色值经 MimaoApp.seed('system') 取 provider。
+class _SystemChip extends StatelessWidget {
+  const _SystemChip();
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Observer(
+      builder: (_) {
+        final selected = shellStore.themeSeed == 'system';
+        return ChoiceChip(
+          key: const Key('theme-seed-system'),
+          label: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.desktop_windows_outlined, size: 16),
+              SizedBox(width: 6),
+              Text('跟随系统'),
+            ],
+          ),
+          selected: selected,
+          onSelected: (_) => shellStore.setThemeSeed('system'),
+          showCheckmark: false,
+          side: selected
+              ? BorderSide(color: cs.primary, width: 2)
               : BorderSide(color: cs.outlineVariant),
         );
       },
