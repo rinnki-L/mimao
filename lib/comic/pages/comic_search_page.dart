@@ -33,6 +33,20 @@ class _ComicSearchPageState extends State<ComicSearchPage> {
   late Future<List<ComicSummary>> _future;
   String _query = '';
 
+  /// 诊断是"取走即清"，builder 内不能 setState。按 [_future] 身份缓存一次读取
+  /// 结果：同一 future 的多次 build 复用缓存，换 future（新一轮搜索）才重新取。
+  /// 这样既满足 builder 无副作用，也避免 rebuild 时诊断被清空后错误态闪烁回空态。
+  Future<List<ComicSummary>>? _diagnosticsForFuture;
+  List<String> _searchDiagnostics = const <String>[];
+
+  List<String> _diagnosticsFor(Future<List<ComicSummary>> future) {
+    if (!identical(_diagnosticsForFuture, future)) {
+      _diagnosticsForFuture = future;
+      _searchDiagnostics = widget.dataSource.takeSearchDiagnostics();
+    }
+    return _searchDiagnostics;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -109,7 +123,17 @@ class _ComicSearchPageState extends State<ComicSearchPage> {
           return _SearchErrorState(onRetry: () => _runSearch(_query));
         }
         final results = snapshot.data ?? const <ComicSummary>[];
-        if (results.isEmpty) return _SearchEmptyState(query: _query);
+        if (results.isEmpty) {
+          // 失败被吞成空结果时，用搜索期诊断还原真实原因（最多 10 条）。
+          final diagnostics = _diagnosticsFor(_future);
+          if (diagnostics.isNotEmpty) {
+            return _SearchDiagnosticsState(
+              diagnostics: diagnostics,
+              onRetry: () => _runSearch(_query),
+            );
+          }
+          return _SearchEmptyState(query: _query);
+        }
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
@@ -264,6 +288,85 @@ class _SearchErrorState extends StatelessWidget {
           const SizedBox(height: 12),
           FilledButton.tonal(onPressed: onRetry, child: const Text('重试')),
         ],
+      ),
+    );
+  }
+}
+
+/// 搜索无结果但有诊断时的错误态：逐条列出各源失败原因，而不是笼统的"没找到"。
+/// 最多展示 10 条，超出用"还有 N 条"收口；提供重试。
+class _SearchDiagnosticsState extends StatelessWidget {
+  const _SearchDiagnosticsState({
+    required this.diagnostics,
+    required this.onRetry,
+  });
+
+  /// 单页最多列出的原因条数（超出显示"还有 N 条"）。
+  static const int _maxVisible = 10;
+
+  final List<String> diagnostics;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final visible = diagnostics.take(_maxVisible).toList(growable: false);
+    final remaining = diagnostics.length - visible.length;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: <Widget>[
+            Icon(Icons.error_outline_rounded, size: 48, color: cs.error),
+            const SizedBox(height: 12),
+            Text('搜索未成功', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 6),
+            Text(
+              '以下来源未能返回结果：',
+              style: theme.textTheme.bodyMedium?.apply(
+                color: cs.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 8),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 240),
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    for (final reason in visible)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 3),
+                        child: Text(
+                          '• $reason',
+                          key: Key('search-diagnostic-$reason'),
+                          style: theme.textTheme.bodySmall?.apply(
+                            color: cs.error,
+                          ),
+                        ),
+                      ),
+                    if (remaining > 0)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          '还有 $remaining 条',
+                          key: const Key('search-diagnostics-remaining'),
+                          style: theme.textTheme.bodySmall?.apply(
+                            color: cs.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            FilledButton.tonal(onPressed: onRetry, child: const Text('重试')),
+          ],
+        ),
       ),
     );
   }
