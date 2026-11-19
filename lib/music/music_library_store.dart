@@ -55,7 +55,9 @@ abstract class _MusicLibraryStore with Store {
 
   @action
   Future<void> refresh() async {
-    isLoading = true;
+    // 已有数据时静默刷新（播放中每 10 秒进度通知会触发），不闪 loading 占位。
+    final hadData = collected.isNotEmpty || history.isNotEmpty;
+    if (!hadData) isLoading = true;
     error = null;
     try {
       final collectItems = await _collect.list();

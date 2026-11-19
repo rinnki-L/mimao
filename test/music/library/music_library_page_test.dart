@@ -125,6 +125,33 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('集成收口：播完的歌从历史续播时从 0 重播（不 seek 到结尾）', (tester) async {
+    await env.history.saveProgressRef(
+      const MusicRef(id: 'end'),
+      positionMs: 300000,
+      durationMs: 300000,
+      title: '播完的歌',
+      song: testSong(id: 'end', title: '播完的歌', durationMs: 300000),
+    );
+    Duration? startAt;
+    await tester.pumpWidget(
+      _app(
+        MusicLibraryPage(
+          collect: env.collect,
+          history: env.history,
+          onPlaySong: (song, at) => startAt = at,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('历史'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('library-history-end')));
+    await tester.pump();
+
+    expect(startAt, Duration.zero, reason: '历史位置≈总时长时从头重播');
+  });
+
   testWidgets('C14 未接播放时点历史条目：提示未接线且不崩溃', (tester) async {
     await seed();
     await tester.pumpWidget(

@@ -64,9 +64,16 @@ class _MusicLibraryPageState extends State<MusicLibraryPage> {
   }
 
   void _play(MusicSong song, Duration startAt) {
+    // 播完的歌历史位置≈总时长，直接续播会立刻结束；这种起点从 0 重播。
+    final total = song.durationMs ?? 0;
+    final at = (total > 0 && startAt.inMilliseconds >= total - 2000)
+        ? Duration.zero
+        : startAt;
+    // 打开点校正：以内部权威值刷新投影（失败不影响播放）。
+    widget.history.open(song).catchError((Object _) {});
     final handler = widget.onPlaySong;
     if (handler != null) {
-      handler(song, startAt);
+      handler(song, at);
       return;
     }
     ScaffoldMessenger.maybeOf(
@@ -114,7 +121,7 @@ class _MusicLibraryPageState extends State<MusicLibraryPage> {
         Expanded(
           child: Observer(
             builder: (_) {
-              if (_store.isLoading) {
+              if (_store.isLoading && _store.isEmpty) {
                 return const Center(child: CircularProgressIndicator());
               }
               final error = _store.error;

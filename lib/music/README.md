@@ -68,11 +68,16 @@
 code）；已登录账号的 business 原样透出错误码。详见
 `docs/music-playback-probe.md`（本地）。
 
+### 进度写入口（已在集成收口接线）
+
+`app_registry.dart` 在未显式注入 `musicProgressSink` 时，把 `ProgressSink`
+接到 C 线 `history.saveProgress`（内部事务写权威表 + 投影 core）；登录/播放/
+收藏历史三条线合并时已生效。播放线在暂停/拖动/切歌/播完/每 10 秒调用；
+解析新地址期间（`isResolving`）不写，避免把旧曲快照记到新歌头上。
+
 ### 本线未做（下一片）
 
-后台播放 / SMTC / 歌词 / 下载 / 歌单榜单 / 倍速 UI；`music_entry.dart` 的
-进度写入口（`ProgressSink` 适配 `history.saveProgress`）由集成方在 C 线
-合入后接线。
+后台播放 / SMTC / 歌词 / 下载 / 歌单榜单 / 倍速 UI。
 
 
 ## 设备引导（ensureDevice）
@@ -154,14 +159,17 @@ error_code=20018 在 decode 层统一映射 `authentication`、信封 status/err
 必填标量、bool 不当文本（不产生 `"true"` 假 dfid 这类持久化污染）、非数组
 不吞成空表、AlbumPrivilege → Privilege 回退链。
 
+已落（三线合并后）：搜索/设备引导之外，播放链路（user_verify → song_auth
+→ tracker，匿名不可播映射登录提示）、扫码登录（二维码会话 + 身份注入）、
+收藏/历史/搜索历史（MusicDb 双记账 + 统一书架投影 + 「我的」页）。
+
 待落（按依赖序）：
 1. **登录续期**：`login_token`（`/v5/login_by_token` 需要 `t1`，扫码不回传
-   `t1`，故本片不做自动续期）；`AuthenticationMode` 与切换逻辑届时一并翻译；
-2. **播放**：song_auth（/v1/authorization）→ song_url_auth（/tracker/v5/url
-   + tracker_key）→ player/ 目录（media_kit 复用番剧内核 + audio_service
-   SMTC，经 core/media_session.dart 唯一 handler，architecture §6.2）；
-3. **数据层**：MusicDb（收藏/历史双记账 + core 投影，对齐 anime/comic）；
-4. **歌单/榜单**：playlist_* / rank_* / user_* 端点 + 页面。
+   `t1`，故不做自动续期）；`AuthenticationMode` 与切换逻辑届时一并翻译；
+2. **后台播放 / 媒体会话**：audio_service + `core/media_session.dart` 唯一
+   handler（architecture §6.2），SMTC/媒体键；
+3. **歌单/榜单/每日推荐**：playlist_* / rank_* / everyday_* 端点 + 页面；
+4. **歌词 / 下载**：TTML 夹具 + 离线缓存。
 
 已知骨架期裁剪（对照 Rust 的差异，均有意为之）：
 - search 的 `trans_param`（版权映射 WireTrans）不解析——播放/下载切片再补；

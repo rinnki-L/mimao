@@ -82,6 +82,13 @@ class MusicHistoryService extends ChangeNotifier implements MusicHistoryApi {
               ),
             );
       } else {
+        // 播放次数只在「新一次播放」递增：首次建行，或从开头重新起播
+        // （历史位置已明显靠后时位置回到 ≤1s）。播放中的 10 秒节流写、
+        // 暂停/拖动/播完的持久化写都只推进度，不重复计数。
+        final restarted = positionMs <= 1000 && existing.positionMs > 1000;
+        // 时长未知的早期快照（duration=0）不覆盖已记录的时长，避免投影
+        // 从「已听 N%」退化成「听过」。
+        final keptDuration = durationMs > 0 ? durationMs : existing.durationMs;
         await (db.update(
           db.musicHistoryEntries,
         )..where((t) => t.id.equals(ref.id))).write(
@@ -89,9 +96,9 @@ class MusicHistoryService extends ChangeNotifier implements MusicHistoryApi {
             title: Value(title),
             coverUrl: Value(coverUrl),
             positionMs: Value(positionMs),
-            durationMs: Value(durationMs),
+            durationMs: Value(keptDuration),
             openedAt: Value(openedAt),
-            playCount: Value(existing.playCount + 1),
+            playCount: Value(existing.playCount + (restarted ? 1 : 0)),
             // 没有曲目快照时保留旧 payload，别把可重建的数据擦成 '{}'。
             payload: encoded == null ? const Value.absent() : Value(encoded),
           ),

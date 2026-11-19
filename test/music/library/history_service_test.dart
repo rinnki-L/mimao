@@ -14,7 +14,7 @@ void main() {
 
   tearDown(() => env.close());
 
-  test('A4 saveProgress 写位置/时长；同曲重复写只有一行且 playCount 递增', () async {
+  test('A4 saveProgress 写位置/时长；连续推进只算一次播放，重新起播再 +1', () async {
     final song = testSong();
     await env.history.saveProgress(
       song,
@@ -33,13 +33,25 @@ void main() {
     expect(rows, hasLength(1));
     expect(rows.single.positionMs, 90000);
     expect(rows.single.durationMs, 223000);
-    expect(rows.single.playCount, 2);
+    // 播放中的节流写/暂停写只是推进度，不重复计数（集成收口修正）。
+    expect(rows.single.playCount, 1);
 
     final latest = await env.history.latest(song.id);
     expect(latest, isNotNull);
     expect(latest!.position, const Duration(milliseconds: 90000));
     expect(latest.song.id, song.id);
     expect(latest.song.artists.single.name, '周杰伦');
+
+    // 从头重新播放（位置回到 ≤1s 且历史位置已靠后）→ 计为第二次播放。
+    await env.history.saveProgress(
+      song,
+      Duration.zero,
+      const Duration(milliseconds: 223000),
+    );
+    final restarted = await env.musicDb
+        .select(env.musicDb.musicHistoryEntries)
+        .get();
+    expect(restarted.single.playCount, 2);
   });
 
   test('A4 latest 返回最新一条；recent 按 openedAt 倒序并遵守 limit', () async {

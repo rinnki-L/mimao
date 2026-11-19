@@ -211,6 +211,8 @@ abstract class _MusicPlayerStore with Store {
       await engine.open(url, startAt: startAt);
       if (_disposed) return;
       await engine.play();
+      // 新歌从此开始计 10 秒节流（换歌后应尽快落一笔历史）。
+      _lastProgressAt = null;
     } on KugouApiException catch (failure) {
       if (_disposed) return;
       error = playbackErrorMessage(failure);
@@ -241,7 +243,8 @@ abstract class _MusicPlayerStore with Store {
   }
 
   void _onSnapshot(MusicPlaybackSnapshot next) {
-    if (_disposed) return;
+    // 解析中旧曲仍在同一引擎播放：此时快照属于旧曲，不能记到新歌头上。
+    if (_disposed || isResolving) return;
     snapshot = next;
     if (next.error != null && next.error!.isNotEmpty) {
       error = '播放失败：${next.error}';
