@@ -143,10 +143,27 @@ class _AnimeRuleSettingsState extends State<AnimeRuleSettings> {
     );
   }
 
+  /// 失败原因格式化：最多展示前 [_maxFailuresShown] 条、每条一行，
+  /// 超出用"还有 N 条失败未列出"收口；空列表返回空串（调用方据此不显示失败区）。
+  /// 四处失败展示复用本 helper，避免只显示 `failures.first`。
+  static const int _maxFailuresShown = 5;
+
+  String _formatFailures(List<String> failures) {
+    if (failures.isEmpty) return '';
+    final shown = failures.take(_maxFailuresShown).toList(growable: false);
+    final buffer = StringBuffer(shown.join('\n'));
+    final remaining = failures.length - shown.length;
+    if (remaining > 0) {
+      buffer.writeln();
+      buffer.write('还有 $remaining 条失败未列出');
+    }
+    return buffer.toString();
+  }
+
   String _importMessage(RuleImportResult result) {
     if (result.failures.isNotEmpty) {
-      return '导入 ${result.rules.length} 条，失败 ${result.failures.length} 条：'
-          '${result.failures.first}';
+      return '导入 ${result.rules.length} 条，失败 ${result.failures.length} 条：\n'
+          '${_formatFailures(result.failures)}';
     }
     if (result.rules.isEmpty) return '没有可导入的规则';
     return '导入 ${result.rules.length} 条';
@@ -183,8 +200,8 @@ class _AnimeRuleSettingsState extends State<AnimeRuleSettings> {
 
   String _indexMessage(RuleIndexResult result) {
     if (result.failures.isNotEmpty) {
-      return '读取清单 ${result.entries.length} 条，失败 ${result.failures.length} 条：'
-          '${result.failures.first}';
+      return '读取清单 ${result.entries.length} 条，失败 ${result.failures.length} 条：\n'
+          '${_formatFailures(result.failures)}';
     }
     if (result.entries.isEmpty) return '仓库里没有可导入的规则';
     return '发现 ${result.entries.length} 条规则，勾选后导入';
@@ -253,7 +270,8 @@ class _AnimeRuleSettingsState extends State<AnimeRuleSettings> {
 
   String _repoImportMessage(int count, List<String> failures) {
     if (failures.isNotEmpty) {
-      return '导入 $count 条，失败 ${failures.length} 条：${failures.first}';
+      return '导入 $count 条，失败 ${failures.length} 条：\n'
+          '${_formatFailures(failures)}';
     }
     if (count == 0) return '没有可导入的规则';
     return '导入 $count 条';
@@ -530,7 +548,8 @@ class _AnimeRuleSettingsState extends State<AnimeRuleSettings> {
           Padding(
             padding: const EdgeInsets.only(top: 8),
             child: Text(
-              '读取时跳过 ${_loadFailures.length} 个坏文件：${_loadFailures.first}',
+              '读取时跳过 ${_loadFailures.length} 个坏文件：\n'
+              '${_formatFailures(_loadFailures)}',
               key: const Key('anime-rule-load-failures'),
               style: theme.textTheme.bodySmall?.apply(
                 color: theme.colorScheme.error,
