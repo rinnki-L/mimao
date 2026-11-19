@@ -5,6 +5,8 @@
 # 私人的选型 / 规划材料——只留本地，不进公开仓库
 demos/
 docs/
+# ZCode 工作区配置与本地 skill（mimao-dev dev harness 用法），同样只留本地
+.zcode/
 
 # pub / Dart 工具产物
 .dart_tool/
