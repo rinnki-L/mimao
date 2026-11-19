@@ -79,6 +79,7 @@ class _ComicModulePageState extends State<ComicModulePage> {
     if (!mounted) return;
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'comic/detail'),
         builder: (_) => ComicDetailPage(
           dataSource: widget.dataSource,
           summary: item,

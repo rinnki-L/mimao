@@ -58,6 +58,7 @@ class _ComicModuleSettingsState extends State<ComicModuleSettings> {
   void _openSources() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'comic/sources'),
         builder: (_) => ComicSourcePage(
           repository: widget.sourceRepository,
           catalog: widget.sourceCatalog,

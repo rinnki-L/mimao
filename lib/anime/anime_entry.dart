@@ -163,6 +163,7 @@ class AnimeModule implements AppModule {
 
     Navigator.of(context).push(
       MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'anime/player'),
         builder: (_) => AnimePlayerPage(
           title: item.title,
           episodes: episodes,

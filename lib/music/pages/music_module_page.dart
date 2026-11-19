@@ -143,6 +143,7 @@ class _MusicModulePageState extends State<MusicModulePage> {
     player.playSong(song);
     Navigator.of(context).push(
       MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'music/player'),
         builder: (context) => player.buildPlayerPage(context),
       ),
     );

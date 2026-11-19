@@ -7,6 +7,7 @@ import 'dart:math';
 import 'package:drift/drift.dart';
 import 'package:mimao/shell/dev/dev_databases.dart';
 import 'package:mimao/shell/dev/dev_log.dart';
+import 'package:mimao/shell/dev/dev_navigate.dart';
 import 'package:mimao/shell/dev/dev_route.dart';
 import 'package:mimao/shell/dev/dev_state.dart';
 
@@ -154,6 +155,13 @@ final class DevServer {
             return;
           }
           _json(request, HttpStatus.ok, devStateSnapshot());
+        case '/navigate':
+          if (request.method != 'POST') {
+            _methodNotAllowed(request, path);
+            return;
+          }
+          final (navStatus, navPayload) = await _runNavigate(body);
+          _json(request, navStatus, navPayload);
         case '/db':
           if (request.method == 'GET') {
             _json(request, HttpStatus.ok, <String, Object?>{
@@ -167,7 +175,9 @@ final class DevServer {
           }
         default:
           _json(request, HttpStatus.notFound, <String, Object?>{
-            'error': '未知路径 $path（可用：/health /logs /route /state /db）',
+            'error':
+                '未知路径 $path'
+                '（可用：/health /logs /route /state /navigate /db）',
           });
       }
     } catch (error, stack) {
@@ -201,7 +211,7 @@ final class DevServer {
     'vmServiceUri': _vmServiceUri,
     'endpoints': <String, Object?>{
       'GET': '/health /logs?level=&limit= /route /state /db（列库名）',
-      'POST': '/db（{db, sql, params?}）',
+      'POST': '/db（{db, sql, params?}） /navigate（{action, name?}）',
     },
   };
 
@@ -214,6 +224,26 @@ final class DevServer {
         level: level,
       ),
     };
+  }
+
+  /// /navigate 的 body 解析壳（JSON 层错误在这里收敛，语义层在 devNavigate）。
+  Future<(int, Map<String, Object?>)> _runNavigate(String body) async {
+    final Object? decoded;
+    try {
+      decoded = body.isEmpty ? null : jsonDecode(body);
+    } on FormatException catch (error) {
+      return (
+        HttpStatus.badRequest,
+        <String, Object?>{'ok': false, 'error': 'body 不是合法 JSON：$error'},
+      );
+    }
+    if (decoded is! Map<String, Object?>) {
+      return (
+        HttpStatus.badRequest,
+        <String, Object?>{'ok': false, 'error': 'body 应为 {action, name?}'},
+      );
+    }
+    return devNavigate(decoded);
   }
 
   // ── /db SQL 执行 ─────────────────────────────────────────────────────

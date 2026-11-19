@@ -67,4 +67,24 @@ void main() {
     expect(devRouteTracker.depth, 0);
     expect(devRouteTracker.snapshot(), isEmpty);
   });
+
+  testWidgets('DevReassembleProbe：reassemble 时重置追踪器（热重载幻影帧对策）', (tester) async {
+    devRouteTracker.didPush(namedRoute('a'), null);
+    expect(devRouteTracker.depth, 1);
+
+    await tester.pumpWidget(DevReassembleProbe(child: const SizedBox.shrink()));
+    // reassemble 是 protected；reassembleApplication 在 fake-async 测试区会
+    // 真挂死（等价 Flutter test FakeAsync I/O 坑），所以测试里直接用 ignore
+    // 注释点调 State.reassemble——只验证「重置」这个行为本身。
+    // ignore: invalid_use_of_protected_member
+    tester
+        .state<State<DevReassembleProbe>>(find.byType(DevReassembleProbe))
+        .reassemble();
+
+    expect(
+      devRouteTracker.depth,
+      0,
+      reason: '热重载后 Navigator 会重放初始路由，先重置才不会累积幻影帧',
+    );
+  });
 }

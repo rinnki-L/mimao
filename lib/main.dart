@@ -71,7 +71,15 @@ Future<void> main() async {
   // 6. 装配目录表（app_registry 是唯一 import 模块处；失败只会让番剧占位，
   //    不影响其它模块/书架）→ runApp
   await initAppModules(library: library);
-  runApp(LibraryScope(repository: library, child: const MimaoApp()));
+  runApp(
+    // debug-only 装配件：热重载时重置 /route 追踪（Navigator 重放初始路由
+    // 会造成幻影帧，见 dev_route.dart）。kDebugMode 常量分支，release 整体剔除。
+    kDebugMode
+        ? DevReassembleProbe(
+            child: LibraryScope(repository: library, child: const MimaoApp()),
+          )
+        : LibraryScope(repository: library, child: const MimaoApp()),
+  );
 }
 
 /// 装配“跟随系统强调色”：加载系统色 → 注入 provider → 监听变化。

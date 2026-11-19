@@ -27,6 +27,7 @@ class MusicMiniPlayer extends StatelessWidget {
           child: InkWell(
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
+                settings: const RouteSettings(name: 'music/player'),
                 builder: (context) => MusicPlayerPage(player: player),
               ),
             ),

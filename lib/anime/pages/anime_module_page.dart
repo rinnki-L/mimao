@@ -66,6 +66,7 @@ class _AnimeModulePageState extends State<AnimeModulePage> {
     if (!mounted) return;
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'anime/detail'),
         builder: (_) => AnimeDetailPage(
           dataSource: widget.dataSource,
           summary: item,

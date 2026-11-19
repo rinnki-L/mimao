@@ -216,6 +216,7 @@ class ComicModule implements AppModule {
       if (!context.mounted) return;
       await Navigator.of(context).push<void>(
         MaterialPageRoute<void>(
+          settings: const RouteSettings(name: 'comic/reader'),
           builder: (_) => reader.ComicReaderPage(
             title: item.title,
             chapters: readerChapters,

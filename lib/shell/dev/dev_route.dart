@@ -1,4 +1,5 @@
 import 'package:flutter/widgets.dart';
+import 'package:mimao/shell/dev/dev_log.dart';
 
 /// dev `/route` 端点的导航栈追踪器（NavigatorObserver 子类，尽力而为）。
 ///
@@ -64,4 +65,31 @@ final class DevRouteTracker extends NavigatorObserver {
 
   RouteFrame _frameOf(Route<Object?> route) =>
       RouteFrame(name: route.settings.name, type: route.runtimeType.toString());
+}
+
+/// debug-only 装配件：热重载（reassemble）时重置导航栈追踪。
+///
+/// 实测：热重载会让 Navigator 重放一次初始路由的 didPush，若不重置，
+/// /route 会随每次热重载多出一帧幻影「/」。State.reassemble() 是热重载的
+/// 可靠钩子——在 main() 里把整个 app 包在本组件下（kDebugMode 分支），
+/// 重载时先清空栈，重放的那次推入正好成为唯一一帧。
+class DevReassembleProbe extends StatefulWidget {
+  const DevReassembleProbe({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  State<DevReassembleProbe> createState() => _DevReassembleProbeState();
+}
+
+class _DevReassembleProbeState extends State<DevReassembleProbe> {
+  @override
+  void reassemble() {
+    super.reassemble();
+    devRouteTracker.reset();
+    DevLog.info('dev', '热重载：导航栈追踪已重置');
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }

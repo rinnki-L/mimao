@@ -185,6 +185,24 @@ void main() {
       expect((body['databases']! as List<Object?>), contains(dbName));
     });
 
+    test('/navigate 落位壳态；坏 body → 400', () async {
+      final (status, payload) = await call(
+        'POST',
+        '/navigate',
+        body: <String, Object?>{'action': 'module', 'name': 'music'},
+      );
+      expect(status, HttpStatus.ok);
+      final state =
+          (payload! as Map<String, Object?>)['state']! as Map<String, Object?>;
+      expect(
+        (state['shell']! as Map<String, Object?>)['activeModule'],
+        'music',
+      );
+
+      final (badStatus, _) = await call('POST', '/navigate', body: 'not-json{');
+      expect(badStatus, HttpStatus.badRequest);
+    });
+
     test('未知路径 → 404；错误方法 → 405', () async {
       final (notFound, notFoundBody) = await call('GET', '/nope');
       expect(notFound, HttpStatus.notFound);

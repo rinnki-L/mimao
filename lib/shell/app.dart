@@ -32,6 +32,10 @@ class MimaoApp extends StatelessWidget {
   /// import dev/，保持壳对 dev 设施零感知；null = 不注入（测试/生产）。
   static List<NavigatorObserver> Function()? navigatorObserversProvider;
 
+  /// 根 Navigator 的 key：dev /navigate 的 back 通道由此驱动 app 实际出栈。
+  /// 放本文件保证 key 与 MaterialApp 同源（挂壳里不挂 dev/，同上零感知纪律）。
+  static final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
   /// MD3 种子色：基础色板 + 用户动态取色（`dyn:` 前缀）+ `'system'` 跟随系统。
   /// 未知名称回落到最初的 violet（entry_variants.html 三色之一）。
   static Color seed(String name) {
@@ -68,6 +72,7 @@ class MimaoApp extends StatelessWidget {
         assert(accentEpoch >= 0); // 仅用于消费局部变量，表明“读一次即订阅”的意图。
         return MaterialApp(
           title: 'mimao',
+          navigatorKey: navigatorKey,
           debugShowCheckedModeBanner: false,
           theme: ThemeData(useMaterial3: true, colorSchemeSeed: seedColor),
           darkTheme: ThemeData(
