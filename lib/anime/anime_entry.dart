@@ -27,6 +27,7 @@ class AnimeModule implements AppModule {
     required this.ruleStore,
     required this.ruleImporter,
     this.playbackEngineFactory,
+    this.headersFor,
   });
 
   final AnimeDataSource dataSource;
@@ -38,6 +39,12 @@ class AnimeModule implements AppModule {
   /// 播放器后端工厂；app_registry 生产路径注入 MediaKitPlaybackEngine，
   /// 测试注入 FakePlaybackEngine。为 null 时点剧集显示提示而不崩溃。
   final PlaybackEngine Function()? playbackEngineFactory;
+
+  /// 规则级请求头提供者：由 registry 装配时按规则注入（UA/Referer）。
+  /// 拿到当前条目 + 剧集以定位规则；默认 null → 空 map，保证既有 fake 测试与
+  /// Kazumi 原生规则行为不变。
+  final Map<String, String> Function(AnimeSummary item, AnimeEpisode episode)?
+  headersFor;
 
   @override
   MediaType get type => MediaType.anime;
@@ -125,9 +132,19 @@ class AnimeModule implements AppModule {
     // 校正跨了异步间隙，页面可能已不在树上。
     if (!context.mounted) return;
 
+    final headerProvider = headersFor;
     final episodes = <Episode>[
       for (final e in detail.episodes)
-        Episode(number: e.number, title: e.title, url: e.url),
+        Episode(
+          number: e.number,
+          title: e.title,
+          url: e.url,
+          headers: headerProvider == null
+              ? const <String, String>{}
+              : headerProvider(item, e),
+          roadIndex: e.roadIndex,
+          roadName: e.roadName,
+        ),
     ];
     final found = detail.episodes.indexWhere(
       (e) => e.number == episode.number && e.url == episode.url,

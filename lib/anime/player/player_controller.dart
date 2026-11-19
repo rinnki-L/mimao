@@ -6,13 +6,29 @@ import 'package:mimao/anime/player/playback_engine.dart';
 
 /// 一集：展示号 + 标题 + 可播放地址（m3u8 或直链）。
 ///
-/// A 线（规则引擎）联调时由剧集列表映射成它；本线先用硬编码列表验证。
+/// A 线（规则引擎）联调时由剧集列表映射成它。[headers] 是该集播放时要带的
+/// 规则级请求头（UA/Referer），默认空 map 保持既有调用点行为不变。
+/// [roadIndex]/[roadName] 标记该集所属线路，播放页据此渲染线路选择器。
 class Episode {
   final int number;
   final String title;
   final String url;
 
-  const Episode({required this.number, required this.title, required this.url});
+  /// 规则级请求头；空 map 表示不带自定义头。
+  final Map<String, String> headers;
+
+  /// 线路序号（从 1 开始）与线路名；默认对应单线路。
+  final int roadIndex;
+  final String roadName;
+
+  const Episode({
+    required this.number,
+    required this.title,
+    required this.url,
+    this.headers = const <String, String>{},
+    this.roadIndex = 1,
+    this.roadName = '',
+  });
 }
 
 /// 播放页/控制器的粗粒度状态，UI 只按它切换加载态与错误态。
@@ -101,10 +117,49 @@ class PlayerController extends ChangeNotifier {
     _completionPersisted = false;
     _notify();
     try {
-      await engine.open(episode.url, startAt: _position);
+      await engine.open(
+        episode.url,
+        startAt: _position,
+        headers: episode.headers.isEmpty ? null : episode.headers,
+      );
     } catch (error) {
       _fail(error);
     }
+  }
+
+  /// 当前剧集所有可用线路（按剧集列表里首次出现的顺序去重）。
+  /// 单线路时只有一个元素，播放页据此隐藏线路选择器。
+  List<({int roadIndex, String roadName})> get availableRoads {
+    final seen = <int>{};
+    final roads = <({int roadIndex, String roadName})>[];
+    for (final episode in _episodes) {
+      if (seen.add(episode.roadIndex)) {
+        roads.add((roadIndex: episode.roadIndex, roadName: episode.roadName));
+      }
+    }
+    return roads;
+  }
+
+  /// 当前播放集所属线路序号。
+  int get currentRoadIndex => currentEpisode.roadIndex;
+
+  /// 切线路：用新线路里「与当前同集数」的剧集重建播放地址（找不到时回退到
+  /// 该线路第 1 集）。复用 [loadEpisode] 的进度落盘 + open + [_fail] 路径，
+  /// 不引入新的错误态/重试语义。
+  Future<void> switchRoad(int roadIndex) async {
+    if (_disposed) return;
+    final currentNumber = currentEpisode.number;
+    var target = _episodes.indexWhere(
+      (episode) =>
+          episode.roadIndex == roadIndex && episode.number == currentNumber,
+    );
+    if (target < 0) {
+      target = _episodes.indexWhere(
+        (episode) => episode.roadIndex == roadIndex,
+      );
+    }
+    if (target < 0) return; // 未知线路：UI 只会列出存在的线路，静默忽略。
+    await _loadIndex(target);
   }
 
   /// 切集。越界直接 [RangeError]，状态保持不变（验收点：切集索引边界）。
@@ -112,6 +167,11 @@ class PlayerController extends ChangeNotifier {
   /// 切集是**持久化点**：先落旧集进度，再换源起播。
   Future<void> loadEpisode(int index, {Duration? startAt}) async {
     RangeError.checkValidIndex(index, _episodes, 'index');
+    await _loadIndex(index, startAt: startAt);
+  }
+
+  /// loadEpisode / switchRoad 共用的切集实现：落进度 → 换源起播 → 错误态。
+  Future<void> _loadIndex(int index, {Duration? startAt}) async {
     if (_disposed) return;
 
     await _persistProgress();
@@ -124,10 +184,12 @@ class PlayerController extends ChangeNotifier {
     _errorMessage = null;
     _notify();
 
+    final episode = _episodes[index];
     try {
       await engine.open(
-        _episodes[index].url,
+        episode.url,
         startAt: startAt ?? Duration.zero,
+        headers: episode.headers.isEmpty ? null : episode.headers,
       );
     } catch (error) {
       _fail(error);

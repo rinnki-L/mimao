@@ -86,14 +86,30 @@ class MediaKitPlaybackEngine implements PlaybackEngine {
   }
 
   @override
-  Future<void> open(String url, {Duration startAt = Duration.zero}) async {
+  Future<void> open(
+    String url, {
+    Duration startAt = Duration.zero,
+    Map<String, String>? headers,
+  }) async {
     _position = startAt;
     _duration = Duration.zero;
     _completed = false;
     _error = null;
     _emit();
+    // API 依据（media_kit 1.2.6 包内源码，非猜测的 mpv 属性名）：
+    //  - Media 构造器公开具名参数 `httpHeaders`（media_native.dart:104-113，
+    //    media_web.dart:87-99），存到 `Media.httpHeaders`；
+    //  - 原生后端在 loadfile 前读取它，并写入 libmpv 属性
+    //    `http-header-fields`（player/native/player/real.dart:2145-2170）；
+    //  - Web 后端把它接到 hls.js 的 xhrSetup（player/web/player/real.dart:1494）。
+    // 因此 UA/Referer 作为普通 HTTP 头放进 httpHeaders 即可，无需碰
+    // MpvPlayer.configuration 或手工 setProperty('http-header'/...)。
     await _player.open(
-      Media(url, start: startAt > Duration.zero ? startAt : null),
+      Media(
+        url,
+        start: startAt > Duration.zero ? startAt : null,
+        httpHeaders: headers == null || headers.isEmpty ? null : headers,
+      ),
       play: true,
     );
   }

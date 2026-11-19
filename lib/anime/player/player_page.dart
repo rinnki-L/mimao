@@ -61,6 +61,7 @@ class _PlayerPageState extends State<PlayerPage> {
         _buildProgressBar(context, controller),
         _buildControls(context, controller),
         const Divider(height: 1),
+        _buildRoadSelector(context, controller),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
           child: Align(
@@ -73,6 +74,62 @@ class _PlayerPageState extends State<PlayerPage> {
         ),
         SizedBox(height: 64, child: _buildEpisodeList(controller)),
       ],
+    );
+  }
+
+  /// 线路选择器：只有多线路时显示。切换沿用当前集数（找不到则回退该线路第 1 集），
+  /// 走 controller.switchRoad 复用进度落盘/open/错误重试路径。
+  Widget _buildRoadSelector(BuildContext context, PlayerController controller) {
+    final roads = controller.availableRoads;
+    if (roads.length < 2) return const SizedBox.shrink();
+    final current = controller.currentRoadIndex;
+    String currentName = '线路$current';
+    for (final road in roads) {
+      if (road.roadIndex == current && road.roadName.isNotEmpty) {
+        currentName = road.roadName;
+        break;
+      }
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      child: Row(
+        children: [
+          Text('线路', style: Theme.of(context).textTheme.bodySmall),
+          const SizedBox(width: 8),
+          PopupMenuButton<int>(
+            key: const Key('player-road-selector'),
+            tooltip: '切换线路',
+            initialValue: current,
+            onSelected: (roadIndex) =>
+                unawaited(controller.switchRoad(roadIndex)),
+            itemBuilder: (context) => <PopupMenuEntry<int>>[
+              for (final road in roads)
+                PopupMenuItem<int>(
+                  key: Key('player-road-${road.roadIndex}'),
+                  value: road.roadIndex,
+                  child: Text(
+                    road.roadName.isEmpty
+                        ? '线路${road.roadIndex}'
+                        : road.roadName,
+                  ),
+                ),
+            ],
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    currentName,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const Icon(Icons.arrow_drop_down, size: 18),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 

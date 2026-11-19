@@ -160,7 +160,7 @@ Future<void> initAppModules({
     final store = ruleStore ?? await RuleStore.openDefault();
     // 启动时读一次规则仓库：目录不可读就走失败分支并给出原因，
     // 不让用户点进番剧才发现规则全坏。
-    await store.loadAll();
+    final rules = await store.loadAll();
     final dataSource = animeDataSource ?? RuleAnimeDataSource.fromStore(store);
     final importer = RuleImporter();
     final collect = AnimeCollectService(db, library);
@@ -176,6 +176,38 @@ Future<void> initAppModules({
       // widget 测试不会走到这里。
       playbackEngineFactory:
           playbackEngineFactory ?? MediaKitPlaybackEngine.new,
+      // 生产路径：按条目的 sourceName 找到规则，把规则级 UA/Referer 透传给
+      // 播放器（对齐 AnimeRuleEngine.playTarget 的构造：
+      // User-Agent 缺省用 defaultAnimeUserAgent，Referer 缺省用 baseURL）。
+      // 测试不注入 store 时 rules 为空 → 空 map，行为不变。
+      headersFor: (item, episode) {
+        final name = item.sourceName?.trim() ?? '';
+        AnimeRule? matched;
+        for (final rule in rules) {
+          if (rule.name == name) {
+            matched = rule;
+            break;
+          }
+        }
+        if (matched == null) {
+          final lowered = name.toLowerCase();
+          for (final rule in rules) {
+            if (rule.name.toLowerCase() == lowered) {
+              matched = rule;
+              break;
+            }
+          }
+        }
+        if (matched == null) return const <String, String>{};
+        final userAgent = matched.userAgent.trim();
+        final referer = matched.referer.trim().isEmpty
+            ? matched.baseUrl.trim()
+            : matched.referer.trim();
+        return <String, String>{
+          'User-Agent': userAgent.isEmpty ? defaultAnimeUserAgent : userAgent,
+          if (referer.isNotEmpty) 'Referer': referer,
+        };
+      },
     );
     appModules[MediaType.anime] = module;
   } catch (error) {

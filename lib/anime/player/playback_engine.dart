@@ -33,7 +33,15 @@ abstract interface class PlaybackEngine {
   Stream<PlaybackSnapshot> get snapshots;
 
   /// 打开一个 m3u8 / 直链地址并从 [startAt] 起播。
-  Future<void> open(String url, {Duration startAt = Duration.zero});
+  ///
+  /// [headers] 是规则级请求头（UA / Referer 等），由上层按规则注入；null 或空
+  /// 表示不带自定义请求头——既有实现与测试零行为变化。后端实现负责把它翻译成
+  /// 自身 API（media_kit 用 `Media.httpHeaders`）。
+  Future<void> open(
+    String url, {
+    Duration startAt = Duration.zero,
+    Map<String, String>? headers,
+  });
 
   Future<void> play();
 
