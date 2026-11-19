@@ -137,7 +137,15 @@ class _MusicModulePageState extends State<MusicModulePage> {
       )?.showSnackBar(const SnackBar(content: Text('播放功能随播放器切片接入')));
       return;
     }
+    // ── M4-P 播放 ──
+    // 先起播（地址异步解析）再打开播放页：页面立刻呈现 loading/错误态，
+    // 失败也有「重试」入口，不必回列表再点一次。
     player.playSong(song);
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => player.buildPlayerPage(context),
+      ),
+    );
   }
 
   @override
@@ -164,8 +172,11 @@ class _MusicModulePageState extends State<MusicModulePage> {
           ),
         ),
         Expanded(child: Observer(builder: (_) => _buildBody(context))),
+        // ── M4-P 播放 ──
+        // Observer 包住调用：buildMiniPlayer 返回 null 时不渲染，队列变化
+        // （点歌入队）由 MobX 驱动重建，不需要页面自己 setState。
         if (widget.playerUi != null)
-          Builder(
+          Observer(
             builder: (context) =>
                 widget.playerUi!.buildMiniPlayer(context) ??
                 const SizedBox.shrink(),

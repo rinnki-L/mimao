@@ -20,6 +20,7 @@ import 'package:mimao/comic/reader/reader_cache.dart';
 import 'package:mimao/comic/search_history_service.dart';
 import 'package:mimao/core/contract.dart';
 import 'package:mimao/core/library.dart';
+import 'package:mimao/music/api/kugou_playback_api.dart';
 import 'package:mimao/music/api/music_account_api.dart';
 import 'package:mimao/music/api/music_api.dart';
 import 'package:mimao/music/api/music_playback_api.dart';
@@ -27,9 +28,11 @@ import 'package:mimao/music/client/kugou_client.dart';
 import 'package:mimao/music/client/kugou_identity.dart';
 import 'package:mimao/music/library_api.dart';
 import 'package:mimao/music/music_entry.dart';
+import 'package:mimao/music/player/media_kit_music_engine.dart';
 import 'package:mimao/music/player/playback_engine.dart';
 import 'package:mimao/music/player/player_progress.dart';
 import 'package:mimao/music/player/player_ui.dart';
+import 'package:mimao/music/player/player_ui_impl.dart';
 
 /// 全库**唯一**允许 import 四个模块目录（`anime/`、`comic/`、`music/`、
 /// `novel/`）的文件——第四条铁律的载体（docs/architecture.md §2）。
@@ -247,8 +250,9 @@ Future<void> initAppModules({
       // 惰性执行——启动期不发网络请求、不碰插件。
       // 与番剧/漫画的「启动探针」刻意不同：音乐没有本地库可探，联网动作
       // 的失败延迟到首搜，由 MusicStore.error 呈现（lib/music/README.md）。
+      final client = KugouClient();
       final api = KugouMusicApi(
-        client: KugouClient(),
+        client: client,
         identityStoreFactory: () async =>
             musicIdentityStore ?? KugouIdentityStore.openDefault(),
       );
@@ -257,10 +261,12 @@ Future<void> initAppModules({
       appModules[MediaType.music] = MusicModule(
         api: api,
         // ── M4-P 播放 ──
-        playbackApi: musicPlaybackApi,
-        engineFactory: musicPlaybackEngineFactory,
+        // 默认实现（端点门面 + media_kit 引擎 + UI 工厂）；测试注入优先。
+        // 引擎工厂只是 tear-off，首次 playSong 才构造，启动期不碰 libmpv。
+        playbackApi: musicPlaybackApi ?? KugouPlaybackApi(client, api),
+        engineFactory: musicPlaybackEngineFactory ?? MediaKitMusicEngine.new,
         progressSink: musicProgressSink,
-        playerUiFactory: musicPlayerUiFactory,
+        playerUiFactory: musicPlayerUiFactory ?? createMusicPlayerUi,
         // ── M4-L 登录 ──
         account: musicAccount,
         // ── M4-C 收藏历史 ──
