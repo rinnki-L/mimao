@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:mimao/core/contract.dart';
+import 'package:mimao/shell/app.dart';
 import 'package:mimao/shell/app_registry.dart';
 import 'package:mimao/shell/shell_store.dart';
 
@@ -53,29 +54,62 @@ class _AppearanceGroup extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
         child: Text('主题种子色', style: Theme.of(context).textTheme.labelLarge),
       ),
-      Observer(
-        builder: (_) => RadioGroup<String>(
-          groupValue: shellStore.themeSeed,
-          onChanged: (v) {
-            if (v != null) shellStore.setThemeSeed(v);
-          },
-          child: Column(
-            children: [
-              for (final seed in <String, String>{
-                'violet': '紫罗兰',
-                'green': '青绿',
-                'ochre': '赭黄',
-              }.entries)
-                ListTile(
-                  title: Text(seed.value),
-                  leading: Radio<String>(value: seed.key),
-                ),
-            ],
-          ),
-        ),
+      // 紧凑色块（而非纵向 ListTile + RadioGroup）：8 色两行排完，
+      // 抽屉不至于过长。每个 chip 自己 Observer 选中态。
+      Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          for (final entry in MimaoApp.seedColors.entries)
+            _SeedChip(
+              keyName: entry.key,
+              label: entry.value.$1,
+              color: entry.value.$2,
+            ),
+        ],
       ),
     ],
   );
+}
+
+/// 单个种子色选项：色点 + 名称，选中态用色块描边 + 对勾。
+class _SeedChip extends StatelessWidget {
+  final String keyName;
+  final String label;
+  final Color color;
+
+  const _SeedChip({
+    required this.keyName,
+    required this.label,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Observer(
+      builder: (_) {
+        final selected = shellStore.themeSeed == keyName;
+        return ChoiceChip(
+          label: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircleAvatar(radius: 7, backgroundColor: color),
+              const SizedBox(width: 6),
+              Text(label),
+            ],
+          ),
+          selected: selected,
+          onSelected: (_) => shellStore.setThemeSeed(keyName),
+          showCheckmark: false,
+          selectedColor: color.withValues(alpha: 0.22),
+          side: selected
+              ? BorderSide(color: color, width: 2)
+              : BorderSide(color: cs.outlineVariant),
+        );
+      },
+    );
+  }
 }
 
 /// 存储分组：展示统一库/壳数据实际落盘目录（docs/architecture.md §3.3：

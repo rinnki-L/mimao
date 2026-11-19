@@ -9,12 +9,34 @@ import 'package:mimao/shell/shell_store.dart';
 class MimaoApp extends StatelessWidget {
   const MimaoApp({super.key});
 
-  /// entry_variants.html 的三颗种子色：violet / green / ochre。
-  static Color seed(String name) => switch (name) {
-    'green' => const Color(0xFF3E8E6E),
-    'ochre' => const Color(0xFFB4782E),
-    _ => const Color(0xFF7C6BFF),
+  /// 可选基础色板（有序）：键为 shellStore.themeSeed 值，值为 (中文名, 色值)。
+  /// 设置页与 [seed] 共用这一份，避免两处漂移。
+  static const Map<String, (String, Color)> seedColors = {
+    'violet': ('紫罗兰', Color(0xFF7C6BFF)),
+    'green': ('青绿', Color(0xFF3E8E6E)),
+    'ochre': ('赭黄', Color(0xFFB4782E)),
+    'blue': ('天蓝', Color(0xFF3D6FE0)),
+    'rose': ('玫红', Color(0xFFD05474)),
+    'teal': ('青碧', Color(0xFF00897B)),
+    'orange': ('橘橙', Color(0xFFE06C00)),
+    'slate': ('石板灰', Color(0xFF546E7A)),
   };
+
+  /// MD3 种子色：基础色板 + 用户动态取色（`dyn:` 前缀）。
+  /// 未知名称回落到最初的 violet（entry_variants.html 三色之一）。
+  static Color seed(String name) {
+    final base = seedColors[name];
+    if (base != null) return base.$2;
+    if (name.startsWith('dyn:')) return _parseDynamic(name);
+    return const Color(0xFF7C6BFF);
+  }
+
+  static Color _parseDynamic(String value) {
+    final hex = value.substring(4);
+    final argb = int.tryParse(hex, radix: 16);
+    if (argb == null || hex.length != 8) return const Color(0xFF7C6BFF);
+    return Color(argb);
+  }
 
   @override
   Widget build(BuildContext context) {

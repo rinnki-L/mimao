@@ -35,8 +35,8 @@ class HomeShell extends StatelessWidget {
           );
         },
       ),
-      drawer: const SettingsPage(),
-      onDrawerChanged: (opened) {
+      endDrawer: const SettingsPage(),
+      onEndDrawerChanged: (opened) {
         if (!opened && shellStore.settingsOpen) shellStore.closeSettings();
       },
     );
@@ -119,7 +119,7 @@ class _EntryPage extends StatelessWidget {
                   builder: (iconContext) => IconButton(
                     tooltip: '设置',
                     icon: const Icon(Icons.settings_outlined),
-                    onPressed: () => Scaffold.of(iconContext).openDrawer(),
+                    onPressed: () => Scaffold.of(iconContext).openEndDrawer(),
                   ),
                 ),
               ],

@@ -20,7 +20,8 @@ abstract class _ShellStore with Store {
   @observable
   bool settingsOpen = false;
 
-  /// MD3 种子色（entry_variants.html 的 violet / green / ochre 三选一）。
+  /// MD3 种子色：基础色板名（violet/green/ochre/blue/rose/teal/orange/slate），
+  /// 或动态取色写入的 "dyn:<8 位 ARGB hex>"。解析见 MimaoApp.seed。
   @observable
   String themeSeed = 'violet';
 
