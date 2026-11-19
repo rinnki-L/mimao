@@ -29,7 +29,51 @@
 | `api/wire.dart` | `src/util/response.rs`（子集） | 信封与宽容解码 |
 | `api/music_api.dart` | `src/lib.rs execute` 的门面等价物 | MusicApi 接口 + ensureDevice 引导 |
 | `pages/` | —（自写 UI） | 搜索主页 + 设置分组 |
-| `player/` | — | **暂不建目录**；播放器切片时随 media_kit/audio_service 落位 |
+| `player/` | — | M4-P 落地：media_kit 纯音频内核 + MobX store + 播放页/迷你条 |
+
+## M4-P 播放线（点歌链路）
+
+### 端点（一端点一文件，逐函数对照 Rust）
+
+| 本仓库 | 上游 | 说明 |
+|---|---|---|
+| `api/user_verify.dart` | `module/user_verify.rs` | `/v1/user_verify`（网关 + `trackercdngz` 路由，`module_id=51`）→ 播放授权串 |
+| `api/song_auth.dart` | `module/song_auth.rs` | `/v1/authorization`（五参数，hash 小写）→ 歌曲授权 + `open_time` |
+| `api/song_url_auth.dart` | `module/song_url_auth.rs` | `/tracker/v5/url` **走网关**；24 个协议参数 + `tracker_key` |
+| `api/kugou_playback_api.dart` | `module/song_url_auth_merge.rs` | 三段链路门面；默认 higher(320)，business 回退 standard(128) 一次 |
+
+- `album_audio_id` 只取 `MusicSong.id`（MixSongID），**不回退 `audioId`**。
+- 质量映射：`standard→128 / higher→320 / flac→flac / hiRes→high /
+  viperTape→viper_tape / viperClear→viper_clear / viperAtmos→viper_atmos /
+  automatic→128`。
+- `timeLength` 秒→毫秒；`std_hash_time` 已是毫秒，原样透传。
+- tracker `status!=1` → business 带 `error_code`；`status==1` 但 `url` 空 →
+  business（产品约束，提前失败，不把空地址交给播放器）。
+
+### 播放器内核 / UI
+
+- `player/media_kit_music_engine.dart`：media_kit `Player`（纯音频，不建
+  `VideoController`）；`open(play:false)` 后由 store 显式 `play()`。
+- `player/player_store.dart`：队列/索引/快照/解析中/错误；引擎工厂惰性求值；
+  进度写入按注入时钟 10 秒节流（换歌/暂停/拖动/播完强制写）。
+- `player/player_ui_impl.dart`：实现契约 `MusicPlayerUi`，registry 注入
+  `createMusicPlayerUi`。
+- `player/pages/`：播放页（封面/进度/上下首/错误重试/队列抽屉）+ 迷你条。
+
+### 匿名播放结论（2026-11-19 实测）
+
+匿名设备可以搜索，但 `/v1/user_verify` 返回 `business/35002`，拿不到播放
+授权 —— 即**未登录不可播**。`KugouPlaybackApi` 对匿名身份的这一业务失败
+映射为 `authentication`（UI 文案「请先登录酷狗账号后播放」，保留原始
+code）；已登录账号的 business 原样透出错误码。详见
+`docs/music-playback-probe.md`（本地）。
+
+### 本线未做（下一片）
+
+后台播放 / SMTC / 歌词 / 下载 / 歌单榜单 / 倍速 UI；`music_entry.dart` 的
+进度写入口（`ProgressSink` 适配 `history.saveProgress`）由集成方在 C 线
+合入后接线。
+
 
 ## 设备引导（ensureDevice）
 
