@@ -6,6 +6,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mimao/core/theme.dart';
 import 'package:mimao/shell/app.dart';
 import 'package:mimao/shell/settings_page.dart';
 import 'package:mimao/shell/shell_store.dart';
@@ -14,15 +15,17 @@ void main() {
   const violet = Color(0xFF7C6BFF);
 
   setUp(() {
-    // 每例都从干净状态起：清 provider、复位 seed 与 epoch。
+    // 每例都从干净状态起：清 provider、复位 seed/主题模式与 epoch。
     MimaoApp.systemAccentProvider = null;
     shellStore.setThemeSeed('violet');
+    shellStore.setThemeMode(ThemeMode.system);
     shellStore.systemAccentEpoch = 0;
   });
 
   tearDown(() {
     MimaoApp.systemAccentProvider = null;
     shellStore.setThemeSeed('violet');
+    shellStore.setThemeMode(ThemeMode.system);
   });
 
   group('MimaoApp.seed', () {
@@ -89,6 +92,50 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(shellStore.themeSeed, 'system');
+    });
+
+    testWidgets('主题模式 SegmentedButton：点“深色”切到 dark', (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(home: Scaffold(body: SettingsPage())),
+      );
+      await tester.pumpAndSettle();
+
+      expect(shellStore.themeMode, ThemeMode.system);
+      await tester.tap(find.text('深色'));
+      await tester.pumpAndSettle();
+
+      expect(shellStore.themeMode, ThemeMode.dark);
+    });
+  });
+
+  group('buildMimaoTheme', () {
+    test('MD3 组件主题：useMaterial3 + 卡片 r20 无阴影 + 填充式输入框', () {
+      final theme = buildMimaoTheme(
+        seedColor: violet,
+        brightness: Brightness.light,
+      );
+      expect(theme.useMaterial3, isTrue);
+      expect(theme.cardTheme.elevation, 0);
+      expect(
+        (theme.cardTheme.shape as RoundedRectangleBorder).borderRadius,
+        MimaoShapes.lg,
+      );
+      expect(theme.inputDecorationTheme.filled, isTrue);
+      expect(theme.snackBarTheme.behavior, SnackBarBehavior.floating);
+      expect(theme.bottomSheetTheme.showDragHandle, isTrue);
+    });
+
+    test('浅色/深色两套 scheme 都能构建且亮度正确', () {
+      final light = buildMimaoTheme(
+        seedColor: violet,
+        brightness: Brightness.light,
+      );
+      final dark = buildMimaoTheme(
+        seedColor: violet,
+        brightness: Brightness.dark,
+      );
+      expect(light.colorScheme.brightness, Brightness.light);
+      expect(dark.colorScheme.brightness, Brightness.dark);
     });
   });
 }

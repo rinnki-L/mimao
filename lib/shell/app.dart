@@ -2,6 +2,7 @@
 // 但 Kazumi/Venera 上游镜像全部用它；为保持类型一致与 patch 可重放，M1 继续用。
 import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
+import 'package:mimao/core/theme.dart';
 import 'package:mimao/shell/home.dart';
 import 'package:mimao/shell/shell_store.dart';
 
@@ -34,7 +35,8 @@ class MimaoApp extends StatelessWidget {
 
   /// 根 Navigator 的 key：dev /navigate 的 back 通道由此驱动 app 实际出栈。
   /// 放本文件保证 key 与 MaterialApp 同源（挂壳里不挂 dev/，同上零感知纪律）。
-  static final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+  static final GlobalKey<NavigatorState> navigatorKey =
+      GlobalKey<NavigatorState>();
 
   /// MD3 种子色：基础色板 + 用户动态取色（`dyn:` 前缀）+ `'system'` 跟随系统。
   /// 未知名称回落到最初的 violet（entry_variants.html 三色之一）。
@@ -74,13 +76,15 @@ class MimaoApp extends StatelessWidget {
           title: 'mimao',
           navigatorKey: navigatorKey,
           debugShowCheckedModeBanner: false,
-          theme: ThemeData(useMaterial3: true, colorSchemeSeed: seedColor),
-          darkTheme: ThemeData(
-            useMaterial3: true,
-            colorSchemeSeed: seedColor,
+          theme: buildMimaoTheme(
+            seedColor: seedColor,
+            brightness: Brightness.light,
+          ),
+          darkTheme: buildMimaoTheme(
+            seedColor: seedColor,
             brightness: Brightness.dark,
           ),
-          themeMode: ThemeMode.system,
+          themeMode: shellStore.themeMode,
           navigatorObservers:
               navigatorObserversProvider?.call() ?? const <NavigatorObserver>[],
           home: const HomeShell(),

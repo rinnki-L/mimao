@@ -89,6 +89,24 @@ mixin _$ShellStore on _ShellStore, Store {
     });
   }
 
+  late final _$themeModeAtom = Atom(
+    name: '_ShellStore.themeMode',
+    context: context,
+  );
+
+  @override
+  ThemeMode get themeMode {
+    _$themeModeAtom.reportRead();
+    return super.themeMode;
+  }
+
+  @override
+  set themeMode(ThemeMode value) {
+    _$themeModeAtom.reportWrite(value, super.themeMode, () {
+      super.themeMode = value;
+    });
+  }
+
   late final _$systemAccentEpochAtom = Atom(
     name: '_ShellStore.systemAccentEpoch',
     context: context,
@@ -185,6 +203,18 @@ mixin _$ShellStore on _ShellStore, Store {
   }
 
   @override
+  void setThemeMode(ThemeMode mode) {
+    final _$actionInfo = _$_ShellStoreActionController.startAction(
+      name: '_ShellStore.setThemeMode',
+    );
+    try {
+      return super.setThemeMode(mode);
+    } finally {
+      _$_ShellStoreActionController.endAction(_$actionInfo);
+    }
+  }
+
+  @override
   void bumpSystemAccent() {
     final _$actionInfo = _$_ShellStoreActionController.startAction(
       name: '_ShellStore.bumpSystemAccent',
@@ -203,6 +233,7 @@ activeModule: ${activeModule},
 showLibrary: ${showLibrary},
 settingsOpen: ${settingsOpen},
 themeSeed: ${themeSeed},
+themeMode: ${themeMode},
 systemAccentEpoch: ${systemAccentEpoch},
 onEntryPage: ${onEntryPage}
     ''';

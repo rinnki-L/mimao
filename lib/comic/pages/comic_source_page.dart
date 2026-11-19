@@ -1,6 +1,7 @@
 // ignore_for_file: deprecated_member_use — 见 lib/comic/pages/comic_cover.dart 同款说明。
 import 'package:flutter/material.dart';
 import 'package:mimao/comic/data/comic_data_source.dart';
+import 'package:mimao/core/theme.dart';
 import 'package:mimao/comic/data/comic_models.dart';
 import 'package:mimao/comic/engine/engine.dart'
     show
@@ -326,7 +327,7 @@ class _ComicSourcePageState extends State<ComicSourcePage> {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: theme.colorScheme.tertiaryContainer,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: MimaoShapes.lg,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -358,7 +359,6 @@ class _ComicSourcePageState extends State<ComicSourcePage> {
               labelText: '清单地址（index.json）',
               hintText: defaultComicSourceIndexUrl,
               isDense: true,
-              border: OutlineInputBorder(),
             ),
             keyboardType: TextInputType.url,
             onSubmitted: (_) => _browseRepo(),
@@ -551,7 +551,7 @@ class _ImportEntry extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: cs.secondaryContainer,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: MimaoShapes.lg,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -583,7 +583,6 @@ class _ImportEntry extends StatelessWidget {
                   decoration: const InputDecoration(
                     hintText: 'https://example.com/source.json',
                     isDense: true,
-                    border: OutlineInputBorder(),
                   ),
                   textInputAction: TextInputAction.done,
                   onSubmitted: (_) => onImport(),
@@ -620,12 +619,10 @@ class ComicSourceTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
+    // 形态走 cardTheme（无阴影 / surfaceContainerLow / r20）。
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
-      elevation: 0,
-      color: cs.surfaceContainerLow,
       clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
         child: Row(

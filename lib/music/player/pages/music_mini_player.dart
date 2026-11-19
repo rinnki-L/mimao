@@ -7,6 +7,7 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
+import 'package:mimao/core/theme.dart';
 import 'package:mimao/music/player/pages/music_player_page.dart';
 import 'package:mimao/music/player/player_store.dart';
 
@@ -22,60 +23,69 @@ class MusicMiniPlayer extends StatelessWidget {
       builder: (context) {
         final song = player.currentSong;
         if (song == null) return const SizedBox.shrink();
-        return Material(
-          color: theme.colorScheme.surfaceContainerHighest,
-          child: InkWell(
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                settings: const RouteSettings(name: 'music/player'),
-                builder: (context) => MusicPlayerPage(player: player),
-              ),
+        // 圆角悬浮卡（r14 + 细描边），不再通栏贴底——MD3 的浮动播放条形态。
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+          child: Material(
+            color: theme.colorScheme.surfaceContainerHigh,
+            shape: RoundedRectangleBorder(
+              borderRadius: MimaoShapes.md,
+              side: BorderSide(color: theme.colorScheme.outlineVariant),
             ),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
-              child: Row(
-                children: <Widget>[
-                  _MiniCover(url: song.coverUrl),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        Text(
-                          _displayTitle(song.title),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodyMedium,
-                        ),
-                        Text(
-                          song.artistText,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  settings: const RouteSettings(name: 'music/player'),
+                  builder: (context) => MusicPlayerPage(player: player),
+                ),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+                child: Row(
+                  children: <Widget>[
+                    _MiniCover(url: song.coverUrl),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          Text(
+                            _displayTitle(song.title),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodyMedium,
                           ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (player.isResolving)
-                    const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  else
-                    IconButton(
-                      tooltip: player.snapshot.playing ? '暂停' : '播放',
-                      icon: Icon(
-                        player.snapshot.playing
-                            ? Icons.pause
-                            : Icons.play_arrow,
+                          Text(
+                            song.artistText,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
                       ),
-                      onPressed: player.toggle,
                     ),
-                ],
+                    if (player.isResolving)
+                      const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    else
+                      IconButton.filled(
+                        tooltip: player.snapshot.playing ? '暂停' : '播放',
+                        icon: Icon(
+                          player.snapshot.playing
+                              ? Icons.pause
+                              : Icons.play_arrow,
+                        ),
+                        onPressed: player.toggle,
+                      ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -100,7 +110,7 @@ class _MiniCover extends StatelessWidget {
       return SizedBox(width: 40, height: 40, child: Center(child: fallback));
     }
     return ClipRRect(
-      borderRadius: BorderRadius.circular(6),
+      borderRadius: MimaoShapes.sm,
       child: Image.network(
         url,
         width: 40,

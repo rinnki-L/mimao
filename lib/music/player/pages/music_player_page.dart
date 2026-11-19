@@ -5,6 +5,7 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
+import 'package:mimao/core/theme.dart';
 import 'package:mimao/music/player/player_store.dart';
 
 class MusicPlayerPage extends StatelessWidget {
@@ -149,13 +150,13 @@ class MusicPlayerPage extends StatelessWidget {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: <Widget>[
-                      IconButton(
+                      IconButton.filledTonal(
                         tooltip: '上一首',
-                        iconSize: 36,
+                        iconSize: 32,
                         icon: const Icon(Icons.skip_previous),
                         onPressed: player.previous,
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 16),
                       IconButton.filled(
                         tooltip: snapshot.playing ? '暂停' : '播放',
                         iconSize: 40,
@@ -164,10 +165,10 @@ class MusicPlayerPage extends StatelessWidget {
                         ),
                         onPressed: player.toggle,
                       ),
-                      const SizedBox(width: 12),
-                      IconButton(
+                      const SizedBox(width: 16),
+                      IconButton.filledTonal(
                         tooltip: '下一首',
-                        iconSize: 36,
+                        iconSize: 32,
                         icon: const Icon(Icons.skip_next),
                         onPressed: player.next,
                       ),
@@ -189,20 +190,21 @@ class _Cover extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     final fallback = Container(
       width: 240,
       height: 240,
-      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      child: Icon(
-        Icons.music_note,
-        size: 96,
-        color: Theme.of(context).colorScheme.primary,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerHighest,
+        borderRadius: MimaoShapes.xl,
       ),
+      child: Icon(Icons.music_note, size: 96, color: cs.primary),
     );
     if (url.isEmpty) return fallback;
     // widget 测试无网络：errorBuilder/loadingBuilder 缺一个都会抛异常。
     return ClipRRect(
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: MimaoShapes.xl,
       child: Image.network(
         url,
         width: 240,

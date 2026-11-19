@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:mimao/core/contract.dart';
 import 'package:mimao/core/library.dart';
+import 'package:mimao/core/theme.dart';
 import 'package:mimao/shell/app_registry.dart';
 import 'package:mimao/shell/library_page.dart';
 import 'package:mimao/shell/settings_page.dart';
@@ -110,13 +111,14 @@ class _EntryPage extends StatelessWidget {
                   ],
                 ),
                 const Spacer(),
-                IconButton(
+                IconButton.filledTonal(
                   tooltip: '统一书架',
                   icon: const Icon(Icons.collections_bookmark_outlined),
                   onPressed: shellStore.openLibrary,
                 ),
+                const SizedBox(width: 8),
                 Builder(
-                  builder: (iconContext) => IconButton(
+                  builder: (iconContext) => IconButton.filledTonal(
                     tooltip: '设置',
                     icon: const Icon(Icons.settings_outlined),
                     onPressed: () => Scaffold.of(iconContext).openEndDrawer(),
@@ -202,7 +204,7 @@ class _BentoCard extends StatelessWidget {
     };
     return Material(
       color: container,
-      borderRadius: BorderRadius.circular(28),
+      borderRadius: MimaoShapes.xl,
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: () => shellStore.openModule(type),

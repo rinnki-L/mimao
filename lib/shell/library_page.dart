@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:mimao/core/contract.dart';
 import 'package:mimao/core/library.dart';
+import 'package:mimao/shell/shell_store.dart';
 
 /// 「我的」统一时间线——只读 core 投影表，永不 import 任何模块。
 /// 数据来自 demo 01 main.dart:293 LibrarySection 的真身化。
@@ -29,7 +30,10 @@ class LibraryPage extends StatelessWidget {
         return ListView.builder(
           padding: const EdgeInsets.all(16),
           itemCount: entries.length,
-          itemBuilder: (context, i) => _timelineTile(context, entries[i]),
+          itemBuilder: (context, i) => Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: _timelineTile(context, entries[i]),
+          ),
         );
       },
     );
@@ -52,29 +56,39 @@ class LibraryPage extends StatelessWidget {
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.bodyMedium,
         ),
+        const SizedBox(height: 16),
+        FilledButton.tonalIcon(
+          onPressed: shellStore.goHome,
+          icon: const Icon(Icons.explore_outlined),
+          label: const Text('去探索'),
+        ),
       ],
     ),
   );
 
   Widget _timelineTile(BuildContext context, MediaEntryView entry) {
     final cs = Theme.of(context).colorScheme;
-    return ListTile(
-      leading: CircleAvatar(
-        backgroundColor: cs.secondaryContainer,
-        child: Icon(entry.type.icon, color: cs.onSecondaryContainer),
+    // MD3 填充卡（形态走 cardTheme：无阴影 / surfaceContainerLow / r20），
+    // ListTile 圆角水波纹由 listTileTheme 统一。
+    return Card.filled(
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: cs.secondaryContainer,
+          child: Icon(entry.type.icon, color: cs.onSecondaryContainer),
+        ),
+        title: Text(entry.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+        subtitle: Text(
+          '${entry.type.label} · ${entry.progressText}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: entry.starred
+            ? Icon(Icons.star, color: cs.primary)
+            : Text(
+                entry.sourceName,
+                style: Theme.of(context).textTheme.labelSmall,
+              ),
       ),
-      title: Text(entry.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-      subtitle: Text(
-        '${entry.type.label} · ${entry.progressText}',
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      trailing: entry.starred
-          ? Icon(Icons.star, color: cs.primary)
-          : Text(
-              entry.sourceName,
-              style: Theme.of(context).textTheme.labelSmall,
-            ),
     );
   }
 }

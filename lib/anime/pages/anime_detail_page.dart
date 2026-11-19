@@ -5,6 +5,7 @@ import 'package:mimao/anime/data/anime_data_source.dart';
 import 'package:mimao/anime/data/anime_models.dart';
 import 'package:mimao/anime/pages/anime_cover.dart';
 import 'package:mimao/anime/pages/anime_error_state.dart';
+import 'package:mimao/core/theme.dart';
 
 /// 番剧详情页：封面 / 标题 / 简介 + 剧集列表 + 追番按钮。
 ///
@@ -186,9 +187,6 @@ class _DetailBody extends StatelessWidget {
             onPressed: onFavoriteToggle,
             style: FilledButton.styleFrom(
               minimumSize: const Size.fromHeight(48),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
             ),
             icon: Icon(
               isFavorite
@@ -249,18 +247,16 @@ class _TagChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: cs.secondaryContainer,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        label,
-        style: Theme.of(
-          context,
-        ).textTheme.labelSmall?.apply(color: cs.onSecondaryContainer),
-      ),
+    // 真 MD3 Chip（此前是手搓 Container 药丸）；色调维持 secondaryContainer。
+    return Chip(
+      label: Text(label),
+      visualDensity: VisualDensity.compact,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      backgroundColor: cs.secondaryContainer,
+      side: BorderSide.none,
+      labelStyle: Theme.of(
+        context,
+      ).textTheme.labelSmall?.apply(color: cs.onSecondaryContainer),
     );
   }
 }
@@ -279,7 +275,7 @@ class _EpisodeTile extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 6),
       child: Material(
         color: cs.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: MimaoShapes.md,
         clipBehavior: Clip.antiAlias,
         child: ListTile(
           key: Key('episode-${episode.number}'),

@@ -5,6 +5,7 @@ import 'package:mimao/anime/data/anime_data_source.dart';
 import 'package:mimao/anime/data/anime_models.dart';
 import 'package:mimao/anime/pages/anime_cover.dart';
 import 'package:mimao/anime/pages/anime_error_state.dart';
+import 'package:mimao/core/theme.dart';
 
 /// 番剧时间表：按星期分组列出当周更新。
 ///
@@ -150,7 +151,7 @@ class _ScheduleSectionView extends StatelessWidget {
                 ),
                 decoration: BoxDecoration(
                   color: cs.primaryContainer,
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: MimaoShapes.sm,
                 ),
                 child: Text(
                   section.weekday.label,
@@ -169,7 +170,7 @@ class _ScheduleSectionView extends StatelessWidget {
           const SizedBox(height: 8),
           Material(
             color: cs.surfaceContainerLow,
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: MimaoShapes.lg,
             clipBehavior: Clip.antiAlias,
             child: Column(
               children: <Widget>[

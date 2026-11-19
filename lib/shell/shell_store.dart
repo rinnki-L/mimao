@@ -1,3 +1,6 @@
+// ignore_for_file: deprecated_member_use — 与 shell 各页同款说明（Flutter 3.50
+// 弃用整个 material.dart；这里只为 ThemeMode，仍走 material.dart 保持一致）。
+import 'package:flutter/material.dart' show ThemeMode;
 import 'package:mimao/core/contract.dart';
 import 'package:mobx/mobx.dart';
 
@@ -24,6 +27,11 @@ abstract class _ShellStore with Store {
   /// 或动态取色写入的 "dyn:<8 位 ARGB hex>"。解析见 MimaoApp.seed。
   @observable
   String themeSeed = 'violet';
+
+  /// 界面主题模式：跟随系统 / 强制浅色 / 强制深色。设置-外观的
+  /// SegmentedButton 切换；MimaoApp 据此选 theme / darkTheme。
+  @observable
+  ThemeMode themeMode = ThemeMode.system;
 
   /// 系统强调色变化计数：每次系统色变就 ++，供 MimaoApp 的 Observer 建立
   /// 重建依赖（读一次即订阅），从而在 'system' 模式下重新取色。
@@ -61,6 +69,9 @@ abstract class _ShellStore with Store {
 
   @action
   void setThemeSeed(String seed) => themeSeed = seed;
+
+  @action
+  void setThemeMode(ThemeMode mode) => themeMode = mode;
 
   /// 系统强调色变化：递增 epoch 触发主题重建（MimaoApp 的 Observer 订阅它）。
   @action

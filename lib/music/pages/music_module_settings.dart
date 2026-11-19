@@ -12,6 +12,7 @@ library;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:mimao/core/theme.dart';
 import 'package:mimao/music/api/music_account_api.dart';
 import 'package:mimao/music/api/music_api.dart';
 import 'package:mimao/music/client/kugou_identity.dart';
@@ -338,7 +339,7 @@ class _QrImage extends StatelessWidget {
         alignment: Alignment.center,
         decoration: BoxDecoration(
           color: theme.colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: MimaoShapes.sm,
         ),
         child: Text(
           '二维码图片解析失败，请刷新',

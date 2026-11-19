@@ -275,12 +275,10 @@ class ComicPosterCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
+    // 形态（无阴影 / surfaceContainerLow / r20）走 cardTheme，页面不再覆写。
     return Card(
       margin: EdgeInsets.zero,
-      elevation: 0,
-      color: cs.surfaceContainerLow,
       clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: InkWell(
         onTap: onTap,
         child: Column(

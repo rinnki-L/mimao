@@ -9,6 +9,7 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
+import 'package:mimao/core/theme.dart';
 import 'package:mimao/music/library_api.dart';
 import 'package:mimao/music/models/music_models.dart';
 import 'package:mimao/music/music_store.dart';
@@ -152,24 +153,27 @@ class _MusicModulePageState extends State<MusicModulePage> {
   @override
   Widget build(BuildContext context) {
     final searchBody = Column(
+      // stretch 与番剧/漫画搜索页同构；SearchBar 默认 maxWidth 800 会被
+      // 卡在居中位置，桌面宽窗下不补 stretch 会左右留白。
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-          child: TextField(
+          // 与番剧/漫画搜索页同款 MD3 SearchBar（形态走 searchBarTheme），
+          // 音乐此前是 MD2 风格直角 TextField，这里统一三模块观感。
+          child: SearchBar(
             controller: _controller,
-            textInputAction: TextInputAction.search,
-            onSubmitted: (_) => _submit(),
-            decoration: InputDecoration(
-              hintText: '搜索歌曲 / 歌手 / 专辑',
-              prefixIcon: const Icon(Icons.search),
-              suffixIcon: IconButton(
-                icon: const Icon(Icons.arrow_forward),
+            hintText: '搜索歌曲 / 歌手 / 专辑',
+            leading: const Icon(Icons.search),
+            trailing: <Widget>[
+              IconButton(
+                icon: const Icon(Icons.arrow_forward_rounded),
                 tooltip: '搜索',
                 onPressed: _submit,
               ),
-              border: const OutlineInputBorder(),
-              isDense: true,
-            ),
+            ],
+            textInputAction: TextInputAction.search,
+            onSubmitted: (_) => _submit(),
           ),
         ),
         Expanded(child: Observer(builder: (_) => _buildBody(context))),
@@ -271,8 +275,9 @@ class _SongTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final cs = theme.colorScheme;
     return ListTile(
-      leading: Icon(Icons.music_note, color: theme.colorScheme.primary),
+      leading: _SongCover(url: song.coverUrl),
       title: Text(
         _displayTitle(song.title),
         maxLines: 1,
@@ -283,19 +288,59 @@ class _SongTile extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
+      // 收藏按钮用 filledTonal 的选中态：未收藏描边心形，已收藏
+      // tonal 实底红心——MD3 的 IconButton 选中形态，一眼可辨。
       trailing: onToggleCollect != null
-          ? IconButton(
+          ? IconButton.filledTonal(
               tooltip: isCollected ? '取消收藏' : '收藏',
-              icon: Icon(isCollected ? Icons.favorite : Icons.favorite_border),
+              isSelected: isCollected,
+              selectedIcon: const Icon(Icons.favorite),
+              icon: const Icon(Icons.favorite_border),
               onPressed: onToggleCollect,
             )
           : Text(
               _formatDuration(song.durationMs),
               style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
+                color: cs.onSurfaceVariant,
               ),
             ),
       onTap: onTap,
+    );
+  }
+}
+
+/// 歌曲封面缩略图（44×44，r10）；无 URL / 加载失败回退音符占位。
+class _SongCover extends StatelessWidget {
+  const _SongCover({required this.url});
+
+  final String url;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final fallback = Container(
+      width: 44,
+      height: 44,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerHighest,
+        borderRadius: MimaoShapes.sm,
+      ),
+      child: Icon(Icons.music_note, color: cs.primary),
+    );
+    if (url.isEmpty) return fallback;
+    return ClipRRect(
+      borderRadius: MimaoShapes.sm,
+      child: Image.network(
+        url,
+        width: 44,
+        height: 44,
+        fit: BoxFit.cover,
+        errorBuilder: (_, _, _) => fallback,
+        // 加载中维持占位（与迷你条/播放页的 loading 模式对齐，不闪空块）。
+        loadingBuilder: (context, child, progress) =>
+            progress == null ? child : fallback,
+      ),
     );
   }
 }

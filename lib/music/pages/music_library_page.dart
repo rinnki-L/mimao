@@ -9,6 +9,7 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
+import 'package:mimao/core/theme.dart';
 import 'package:mimao/music/collect_service.dart';
 import 'package:mimao/music/history_service.dart';
 import 'package:mimao/music/models/music_models.dart';
@@ -110,7 +111,7 @@ class _MusicLibraryPageState extends State<MusicLibraryPage> {
                   ),
                 ),
               ),
-              IconButton(
+              IconButton.filledTonal(
                 tooltip: '刷新',
                 icon: const Icon(Icons.refresh),
                 onPressed: _store.refresh,
@@ -226,14 +227,14 @@ class _CoverThumb extends StatelessWidget {
       alignment: Alignment.center,
       decoration: BoxDecoration(
         color: theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: MimaoShapes.sm,
       ),
       child: Icon(Icons.music_note, color: theme.colorScheme.primary),
     );
     final coverUrl = url;
     if (coverUrl == null || coverUrl.isEmpty) return fallback;
     return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: MimaoShapes.sm,
       child: Image.network(
         coverUrl,
         width: 44,

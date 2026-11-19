@@ -51,26 +51,78 @@ class _AppearanceGroup extends StatelessWidget {
     initiallyExpanded: true,
     children: [
       Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+        padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+        child: Text('主题模式', style: Theme.of(context).textTheme.labelLarge),
+      ),
+      // MD3 SegmentedButton：跟随系统 / 浅色 / 深色，一段即一个选项。
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: _ThemeModeSegmented(),
+      ),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(8, 10, 8, 0),
         child: Text('主题种子色', style: Theme.of(context).textTheme.labelLarge),
       ),
       // 紧凑色块（而非纵向 ListTile + RadioGroup）：8 色两行排完，
       // 抽屉不至于过长。每个 chip 自己 Observer 选中态。
-      Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        children: [
-          for (final entry in MimaoApp.seedColors.entries)
-            _SeedChip(
-              keyName: entry.key,
-              label: entry.value.$1,
-              color: entry.value.$2,
-            ),
-          const _SystemSeedChip(),
-        ],
+      // （childrenPadding 由 expansionTileTheme 统一给 16，这里再补 8 = 原 24。）
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final entry in MimaoApp.seedColors.entries)
+              _SeedChip(
+                keyName: entry.key,
+                label: entry.value.$1,
+                color: entry.value.$2,
+              ),
+            const _SystemSeedChip(),
+          ],
+        ),
       ),
+      const SizedBox(height: 8),
     ],
   );
+}
+
+/// 主题模式三段选择：读 shellStore.themeMode 渲染选中态，
+/// 点按 setThemeMode —— app.dart 的 Observer 消费 themeMode 即时换肤。
+class _ThemeModeSegmented extends StatelessWidget {
+  const _ThemeModeSegmented();
+
+  @override
+  Widget build(BuildContext context) {
+    return Observer(
+      builder: (context) {
+        final mode = shellStore.themeMode;
+        return SegmentedButton<ThemeMode>(
+          key: const Key('theme-mode-segmented'),
+          segments: const <ButtonSegment<ThemeMode>>[
+            ButtonSegment<ThemeMode>(
+              value: ThemeMode.system,
+              icon: Icon(Icons.brightness_auto_outlined),
+              label: Text('系统'),
+            ),
+            ButtonSegment<ThemeMode>(
+              value: ThemeMode.light,
+              icon: Icon(Icons.light_mode_outlined),
+              label: Text('浅色'),
+            ),
+            ButtonSegment<ThemeMode>(
+              value: ThemeMode.dark,
+              icon: Icon(Icons.dark_mode_outlined),
+              label: Text('深色'),
+            ),
+          ],
+          selected: <ThemeMode>{mode},
+          onSelectionChanged: (selection) =>
+              shellStore.setThemeMode(selection.first),
+        );
+      },
+    );
+  }
 }
 
 /// 单个种子色选项：色点 + 名称，选中态用色块描边 + 对勾。

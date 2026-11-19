@@ -346,10 +346,10 @@ class _AnimeRuleSettingsState extends State<AnimeRuleSettings> {
             key: const Key('anime-rule-url'),
             controller: _urlController,
             enabled: !_importing,
+            // 边框/填充形态由 inputDecorationTheme 统一（MD3 填充式 r12）。
             decoration: const InputDecoration(
               labelText: '自定义规则 URL',
               hintText: 'https://…/rules.json',
-              border: OutlineInputBorder(),
               isDense: true,
             ),
             keyboardType: TextInputType.url,
@@ -405,7 +405,6 @@ class _AnimeRuleSettingsState extends State<AnimeRuleSettings> {
           decoration: const InputDecoration(
             labelText: '仓库地址',
             hintText: defaultKazumiRulesBaseUrl,
-            border: OutlineInputBorder(),
             isDense: true,
           ),
           keyboardType: TextInputType.url,
