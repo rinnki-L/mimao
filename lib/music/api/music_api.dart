@@ -5,6 +5,7 @@
 /// 测试提供 fake 实现即可跑通页面/MobX 流程。
 library;
 
+import 'package:mimao/music/api/music_identity_api.dart';
 import 'package:mimao/music/api/register_dev.dart';
 // 别名导入：本类的实例方法 searchSongs 会遮蔽同名顶层端点函数。
 import 'package:mimao/music/api/search.dart' as search;
@@ -33,7 +34,7 @@ abstract interface class MusicApi {
 ///
 /// 身份仓库走工厂**惰性解析**——app_registry 装配音乐模块时不碰
 /// path_provider（CI/测试无插件环境也能完成注册），首次调用 API 才解析。
-class KugouMusicApi implements MusicApi {
+class KugouMusicApi implements MusicApi, MusicIdentityApi {
   KugouMusicApi({
     required this.client,
     required Future<KugouIdentityStore> Function() identityStoreFactory,
@@ -88,6 +89,11 @@ class KugouMusicApi implements MusicApi {
   Future<KugouIdentity?> currentIdentity() => _loadIdentity().then(
     (identity) => identity.guid.isEmpty ? null : identity,
   );
+
+  /// [MusicIdentityApi]：登录/登出后的统一写入口——复用同一份缓存与写盘
+  /// 逻辑，绝不另起一份状态（否则登录后搜索仍会拿旧 token）。
+  @override
+  Future<void> saveIdentity(KugouIdentity identity) => _saveIdentity(identity);
 
   @override
   Future<MusicPage<MusicSong>> searchSongs({

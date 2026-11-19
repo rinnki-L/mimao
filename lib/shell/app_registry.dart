@@ -247,11 +247,16 @@ Future<void> initAppModules({
       // 惰性执行——启动期不发网络请求、不碰插件。
       // 与番剧/漫画的「启动探针」刻意不同：音乐没有本地库可探，联网动作
       // 的失败延迟到首搜，由 MusicStore.error 呈现（lib/music/README.md）。
+      final client = KugouClient();
       final api = KugouMusicApi(
-        client: KugouClient(),
+        client: client,
         identityStoreFactory: () async =>
             musicIdentityStore ?? KugouIdentityStore.openDefault(),
       );
+      // ── M4-L 登录 ──
+      // 与 API 共用同一 client/身份仓库；测试注入的假实现优先。
+      final account =
+          musicAccount ?? KugouAccountApi(client: client, identityApi: api);
       // 三个切片的依赖全部来自注入缝（契约提交）；各线在自己的标记块里
       // 补生产构造，本文件不需要再改签名。
       appModules[MediaType.music] = MusicModule(
@@ -262,7 +267,7 @@ Future<void> initAppModules({
         progressSink: musicProgressSink,
         playerUiFactory: musicPlayerUiFactory,
         // ── M4-L 登录 ──
-        account: musicAccount,
+        account: account,
         // ── M4-C 收藏历史 ──
         collect: musicCollect,
         history: musicHistory,
