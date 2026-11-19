@@ -1,3 +1,5 @@
+// ignore_for_file: invalid_use_of_protected_member — 探针测试直接点调
+// State.reassemble（reassembleApplication 在 fake-async 下会真挂死，见文内注）。
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mimao/shell/dev/dev_route.dart';
@@ -73,10 +75,6 @@ void main() {
     expect(devRouteTracker.depth, 1);
 
     await tester.pumpWidget(DevReassembleProbe(child: const SizedBox.shrink()));
-    // reassemble 是 protected；reassembleApplication 在 fake-async 测试区会
-    // 真挂死（等价 Flutter test FakeAsync I/O 坑），所以测试里直接用 ignore
-    // 注释点调 State.reassemble——只验证「重置」这个行为本身。
-    // ignore: invalid_use_of_protected_member
     tester
         .state<State<DevReassembleProbe>>(find.byType(DevReassembleProbe))
         .reassemble();

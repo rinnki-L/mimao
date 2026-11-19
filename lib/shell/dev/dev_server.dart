@@ -5,11 +5,13 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:drift/drift.dart';
+import 'package:flutter/widgets.dart' show Element, WidgetsBinding;
 import 'package:mimao/shell/dev/dev_databases.dart';
 import 'package:mimao/shell/dev/dev_log.dart';
 import 'package:mimao/shell/dev/dev_navigate.dart';
 import 'package:mimao/shell/dev/dev_route.dart';
 import 'package:mimao/shell/dev/dev_state.dart';
+import 'package:mimao/shell/dev/dev_tap.dart';
 
 /// dev harness 的本地 HTTP 服务。
 ///
@@ -155,6 +157,13 @@ final class DevServer {
             return;
           }
           _json(request, HttpStatus.ok, devStateSnapshot());
+        case '/tap':
+          if (request.method != 'POST') {
+            _methodNotAllowed(request, path);
+            return;
+          }
+          final (tapStatus, tapPayload) = await _runTap(body);
+          _json(request, tapStatus, tapPayload);
         case '/navigate':
           if (request.method != 'POST') {
             _methodNotAllowed(request, path);
@@ -177,7 +186,7 @@ final class DevServer {
           _json(request, HttpStatus.notFound, <String, Object?>{
             'error':
                 '未知路径 $path'
-                '（可用：/health /logs /route /state /navigate /db）',
+                '（可用：/health /logs /route /state /navigate /tap /db）',
           });
       }
     } catch (error, stack) {
@@ -211,7 +220,9 @@ final class DevServer {
     'vmServiceUri': _vmServiceUri,
     'endpoints': <String, Object?>{
       'GET': '/health /logs?level=&limit= /route /state /db（列库名）',
-      'POST': '/db（{db, sql, params?}） /navigate（{action, name?}）',
+      'POST':
+          '/db（{db, sql, params?}） /navigate（{action, name?}） '
+          '/tap（{key?, text?, index?, dryRun?}）',
     },
   };
 
@@ -224,6 +235,46 @@ final class DevServer {
         level: level,
       ),
     };
+  }
+
+  /// /tap 的 body 解析壳：解析失败/根未就绪在这里收敛，语义在 performTap。
+  Future<(int, Map<String, Object?>)> _runTap(String body) async {
+    final Object? decoded;
+    try {
+      decoded = body.isEmpty ? null : jsonDecode(body);
+    } on FormatException catch (error) {
+      return (
+        HttpStatus.badRequest,
+        <String, Object?>{'ok': false, 'error': 'body 不是合法 JSON：$error'},
+      );
+    }
+    if (decoded is! Map<String, Object?>) {
+      return (
+        HttpStatus.badRequest,
+        <String, Object?>{
+          'ok': false,
+          'error': 'body 应为 {key?, text?, index?, dryRun?}',
+        },
+      );
+    }
+    final Element? root = WidgetsBinding.instance.rootElement;
+    if (root == null) {
+      return (
+        HttpStatus.conflict,
+        <String, Object?>{'ok': false, 'error': 'widget 树尚未构建'},
+      );
+    }
+    try {
+      return (
+        HttpStatus.ok,
+        await performTap(TapSelector.fromJson(decoded), root: root),
+      );
+    } catch (error) {
+      return (
+        HttpStatus.internalServerError,
+        <String, Object?>{'ok': false, 'error': '$error'},
+      );
+    }
   }
 
   /// /navigate 的 body 解析壳（JSON 层错误在这里收敛，语义层在 devNavigate）。
