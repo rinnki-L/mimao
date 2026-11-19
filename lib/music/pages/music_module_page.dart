@@ -172,9 +172,22 @@ class _MusicModulePageState extends State<MusicModulePage> {
           ),
         ),
         Expanded(child: Observer(builder: (_) => _buildBody(context))),
-        // ── M4-P 播放 ──
-        // Observer 包住调用：buildMiniPlayer 返回 null 时不渲染，队列变化
-        // （点歌入队）由 MobX 驱动重建，不需要页面自己 setState。
+      ],
+    );
+
+    final libraryTab = widget.libraryTab;
+    final content = libraryTab == null
+        ? searchBody
+        : IndexedStack(
+            index: _index,
+            children: <Widget>[searchBody, libraryTab],
+          );
+    // 迷你播放条住两页共用区：切「我的」时播放控制不消失（集成收口修正）。
+    // Observer 包住调用：buildMiniPlayer 返回 null 时不渲染，队列变化
+    // （点歌入队）由 MobX 驱动重建，不需要页面自己 setState。
+    final body = Column(
+      children: <Widget>[
+        Expanded(child: content),
         if (widget.playerUi != null)
           Observer(
             builder: (context) =>
@@ -183,14 +196,6 @@ class _MusicModulePageState extends State<MusicModulePage> {
           ),
       ],
     );
-
-    final libraryTab = widget.libraryTab;
-    final body = libraryTab == null
-        ? searchBody
-        : IndexedStack(
-            index: _index,
-            children: <Widget>[searchBody, libraryTab],
-          );
 
     final scaffold = Scaffold(
       appBar: widget.embedded ? null : AppBar(title: const Text('音乐')),

@@ -120,6 +120,32 @@ code）；已登录账号的 business 原样透出错误码。详见
   `tests/fixtures/protocol/register-dev-request-20261017.json`（明文 JSON、
   seed、AES 密文 base64 逐字节对拍）。
 
+## M4-C 数据层（收藏 / 历史 / 搜索历史）
+
+> 双记账对齐 anime/comic：模块私有 drift 库是权威，`core/media_entries` 只收
+> 投影。设计清单见 `docs/music-dual-ledger.md`（本地文档，不入公开仓库）。
+
+- **表**（`music_db.dart`，生成物 `music_db.g.dart` 入库）：
+  `music_collect`（`id` 主键，保存 `MusicSong` 完整 JSON）、
+  `music_history`（`positionMs/durationMs/openedAt/playCount/payload`）、
+  `music_search_term`（`keyword` 主键 + `hits`）。音乐没有源维度，投影
+  `sourceName` 恒为 `kugou`。
+  `MusicDb()` 用 `LazyDatabase`（构造零 I/O，首查才开库）；测试用
+  `MusicDb.forTesting(NativeDatabase.memory())`。
+- **服务**（实现契约 `library_api.dart` 的三接口；额外提供列表方法）：
+  `MusicCollectService.list()`、`MusicHistoryService.recent()`、
+  `MusicSearchHistoryService.record/recent/clear`。构造 `(MusicDb, LibraryRepository)`。
+- **投影**（`music_projection.dart`）：唯一写入口 `syncMusicProjection`
+  - payload 恒为 `{"positionMs": int, "durationMs": int}`（毫秒），歌曲 JSON 不泄漏；
+  - `progressText`：无历史 → `尚未播放`；有历史 → `已听 N%`（夹 0–100）或 `听过`；
+  - `createdAt` 优先收藏时间、`lastOpenedAt` 优先历史打开时间（与 anime 投影同序）。
+- **页面**：`pages/music_library_page.dart`（收藏 / 历史两段）+ `music_library_store.dart`
+  （MobX，仅本页状态）。历史条目点击经 `onPlaySong(song, startAt)` 续播，
+  未接线时提示「播放功能未接线」。
+- **装配变化**：`initAppModules` 新增 `musicDb`；C 段在未注入服务时用
+  `MusicDb` 构造三个服务与默认 `libraryBuilder`（registry 自建库记入
+  `_ownedMusicDb`，reset 时关闭）。`MusicApi` 零改动。
+
 ## 骨架范围 / 后续切片
 
 已落：设备身份引导 + 签名/加密地基 + 搜索端到端 + 模块注册/主页/设置。
