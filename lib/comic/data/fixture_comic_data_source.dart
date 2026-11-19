@@ -43,6 +43,11 @@ class FixtureComicDataSource implements ComicDataSource {
     );
   }
 
+  // Dart 的 interface 契约：implements 方必须显式实现每个成员，接口默认体
+  // 不会被 inherits。fixture 无搜索失败诊断，直接返回空（等价于默认语义）。
+  @override
+  List<String> takeSearchDiagnostics() => const <String>[];
+
   // ── 固定 fixture ────────────────────────────────────────────────
 
   static const ComicSummary xingzhou = ComicSummary(
