@@ -17,6 +17,10 @@ dependencies:
   path_provider: ^2.1.5
   path: ^1.9.0
 
+  # D 线 · 主题跟随系统强调色：Windows 10+ 读系统强调色 + 变化监听。
+  # 只在 main.dart 生产路径 load；测试走 fake provider 不触发插件。
+  system_theme: ^2.0.0
+
   # 壳级状态（demo 02 方向；拍板项 2 临时决定：接受 MobX）
   mobx: ^2.3.0
   flutter_mobx: ^2.3.0
