@@ -1,4 +1,4 @@
-import 'dart:io' show Platform;
+import 'dart:io' show File, Platform;
 
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:mimao/core/db.dart';
@@ -30,7 +30,9 @@ Future<void> startDevHarness({AppDb? appDb}) async {
       devRegisterDatabase('app', appDb);
     }
     final driverFile = await _defaultDriverFilePath();
-    await devServer.start(driverFilePath: driverFile);
+    // /shot 落盘目录与 driver.json 同根（MIMAO_DRIVER_FILE 覆盖时跟过去）。
+    final shotsDir = p.join(File(driverFile).parent.path, 'dev-shots');
+    await devServer.start(driverFilePath: driverFile, shotsDir: shotsDir);
   } catch (error, stack) {
     DevLog.error('dev', 'dev harness 启动失败：$error', details: stack);
   }

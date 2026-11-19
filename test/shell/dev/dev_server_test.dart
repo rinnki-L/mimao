@@ -7,6 +7,7 @@ import 'package:flutter/widgets.dart'
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mimao/core/db.dart';
 import 'package:mimao/core/contract.dart';
+import 'package:mimao/shell/dev/dev_capability.dart';
 import 'package:mimao/shell/dev/dev_databases.dart';
 import 'package:mimao/shell/dev/dev_log.dart';
 import 'package:mimao/shell/dev/dev_route.dart';
@@ -61,7 +62,7 @@ void main() {
     server = DevServer();
     appDb = AppDb.forTesting(NativeDatabase.memory());
     devRegisterDatabase(dbName, appDb);
-    await server.start(driverFilePath: driverFile);
+    await server.start(driverFilePath: driverFile, shotsDir: tempDir.path);
   });
 
   tearDown(() async {
@@ -92,7 +93,7 @@ void main() {
       final before =
           jsonDecode(await File(driverFile).readAsString())
               as Map<String, Object?>;
-      await server.start(driverFilePath: driverFile);
+      await server.start(driverFilePath: driverFile, shotsDir: tempDir.path);
       final after =
           jsonDecode(await File(driverFile).readAsString())
               as Map<String, Object?>;
@@ -224,6 +225,39 @@ void main() {
       final (status, payload) = await call('GET', '/db');
       expect(status, HttpStatus.ok);
       expect((payload! as Map<String, Object?>)['databases'], contains(dbName));
+    });
+
+    test('/eval：能力执行、未注册 404、GET 列能力', () async {
+      devRegisterCapability('__test_cap__', (args) async => <String, Object?>{
+        'echo': args['x'],
+      });
+      addTearDown(() => devUnregisterCapability('__test_cap__'));
+
+      final (okStatus, okPayload) = await call('POST', '/eval', body: {
+        'capability': '__test_cap__',
+        'args': {'x': 42},
+      });
+      expect(okStatus, HttpStatus.ok);
+      final body = okPayload! as Map<String, Object?>;
+      expect(body['ok'], true);
+      // result 经 jsonEncode 成字符串回传（能力返回值统一走编码兜底）。
+      expect(body['result'], contains('"echo"'));
+
+      final (listStatus, listPayload) = await call('GET', '/eval');
+      expect(listStatus, HttpStatus.ok);
+      expect(
+        (listPayload! as Map<String, Object?>)['capabilities'],
+        contains('__test_cap__'),
+      );
+
+      final (missingStatus, missingPayload) = await call('POST', '/eval', body: {
+        'capability': 'nope',
+      });
+      expect(missingStatus, HttpStatus.notFound);
+      expect(
+        (missingPayload! as Map<String, Object?>)['error'],
+        contains('nope'),
+      );
     });
 
     test('SELECT 返回命名列行；参数绑定 ? 正常', () async {

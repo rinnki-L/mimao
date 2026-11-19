@@ -67,7 +67,12 @@ final class DevRouteTracker extends NavigatorObserver {
       RouteFrame(name: route.settings.name, type: route.runtimeType.toString());
 }
 
-/// debug-only 装配件：热重载（reassemble）时重置导航栈追踪。
+/// /shot 抓图用的根 RepaintBoundary key——挂在 DevReassembleProbe 的 build
+/// 上（main() 的 kDebugMode 分支里），release 无此 boundary。
+final GlobalKey devRootShotKey = GlobalKey(debugLabel: 'mimao-dev-shot-root');
+
+/// debug-only 装配件：热重载（reassemble）时重置导航栈追踪 + 托管 /shot
+/// 的根 RepaintBoundary。
 ///
 /// 实测：热重载会让 Navigator 重放一次初始路由的 didPush，若不重置，
 /// /route 会随每次热重载多出一帧幻影「/」。State.reassemble() 是热重载的
@@ -91,5 +96,6 @@ class _DevReassembleProbeState extends State<DevReassembleProbe> {
   }
 
   @override
-  Widget build(BuildContext context) => widget.child;
+  Widget build(BuildContext context) =>
+      RepaintBoundary(key: devRootShotKey, child: widget.child);
 }

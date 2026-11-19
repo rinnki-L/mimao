@@ -9,7 +9,9 @@ import 'package:flutter/widgets.dart' show Element, WidgetsBinding;
 import 'package:mimao/shell/dev/dev_databases.dart';
 import 'package:mimao/shell/dev/dev_log.dart';
 import 'package:mimao/shell/dev/dev_navigate.dart';
+import 'package:mimao/shell/dev/dev_capability.dart';
 import 'package:mimao/shell/dev/dev_route.dart';
+import 'package:mimao/shell/dev/dev_shot.dart';
 import 'package:mimao/shell/dev/dev_state.dart';
 import 'package:mimao/shell/dev/dev_tap.dart';
 
@@ -29,6 +31,9 @@ final class DevServer {
   DateTime? _startedAt;
   String? _vmServiceUri;
 
+  /// /shot 截图落盘目录（harness 计算后传入）。
+  String? _shotsDir;
+
   bool get isRunning => _server != null;
 
   /// 监听端口；未启动为 0。
@@ -41,8 +46,12 @@ final class DevServer {
   ///
   /// [driverFilePath] 由调用方给出（生产走 path_provider，测试给临时路径）；
   /// 写文件失败只记 [DevLog]，不让 dev 设施拖垮 app。
-  Future<void> start({required String driverFilePath}) async {
+  Future<void> start({
+    required String driverFilePath,
+    required String shotsDir,
+  }) async {
     if (_server != null) {
+      _shotsDir = shotsDir;
       await _writeDriverFile(driverFilePath);
       return;
     }
@@ -50,6 +59,7 @@ final class DevServer {
     _server = server;
     _token = _randomToken();
     _startedAt = DateTime.now();
+    _shotsDir = shotsDir;
     server.listen(
       (HttpRequest request) => unawaited(_handle(request)),
       onError: (Object error) {
@@ -68,6 +78,7 @@ final class DevServer {
     _token = null;
     _startedAt = null;
     _vmServiceUri = null;
+    _shotsDir = null;
     await server?.close(force: true);
   }
 
@@ -164,6 +175,24 @@ final class DevServer {
           }
           final (tapStatus, tapPayload) = await _runTap(body);
           _json(request, tapStatus, tapPayload);
+        case '/shot':
+          if (request.method != 'GET') {
+            _methodNotAllowed(request, path);
+            return;
+          }
+          final shotsDir = _shotsDir;
+          if (shotsDir == null) {
+            _json(request, HttpStatus.conflict, <String, Object?>{
+              'ok': false,
+              'error': 'shots 目录未配置（start 未传 shotsDir？）',
+            });
+            return;
+          }
+          _json(
+            request,
+            HttpStatus.ok,
+            await captureScreenshot(shotsDir: shotsDir),
+          );
         case '/navigate':
           if (request.method != 'POST') {
             _methodNotAllowed(request, path);
@@ -171,6 +200,17 @@ final class DevServer {
           }
           final (navStatus, navPayload) = await _runNavigate(body);
           _json(request, navStatus, navPayload);
+        case '/eval':
+          if (request.method == 'GET') {
+            _json(request, HttpStatus.ok, <String, Object?>{
+              'capabilities': devCapabilityNames(),
+            });
+          } else if (request.method == 'POST') {
+            final (evalStatus, evalPayload) = await _runEval(body);
+            _json(request, evalStatus, evalPayload);
+          } else {
+            _methodNotAllowed(request, path);
+          }
         case '/db':
           if (request.method == 'GET') {
             _json(request, HttpStatus.ok, <String, Object?>{
@@ -186,7 +226,7 @@ final class DevServer {
           _json(request, HttpStatus.notFound, <String, Object?>{
             'error':
                 '未知路径 $path'
-                '（可用：/health /logs /route /state /navigate /tap /db）',
+                '（可用：/health /logs /route /state /navigate /tap /shot /db）',
           });
       }
     } catch (error, stack) {
@@ -219,10 +259,11 @@ final class DevServer {
         : DateTime.now().difference(_startedAt!).inSeconds,
     'vmServiceUri': _vmServiceUri,
     'endpoints': <String, Object?>{
-      'GET': '/health /logs?level=&limit= /route /state /db（列库名）',
+      'GET': '/health /logs?level=&limit= /route /state /shot /db（列库名） '
+          '/eval（列能力）',
       'POST':
           '/db（{db, sql, params?}） /navigate（{action, name?}） '
-          '/tap（{key?, text?, index?, dryRun?}）',
+          '/tap（{key?, text?, index?, dryRun?}） /eval（{capability, args?}）',
     },
   };
 
@@ -268,6 +309,54 @@ final class DevServer {
       return (
         HttpStatus.ok,
         await performTap(TapSelector.fromJson(decoded), root: root),
+      );
+    } catch (error) {
+      return (
+        HttpStatus.internalServerError,
+        <String, Object?>{'ok': false, 'error': '$error'},
+      );
+    }
+  }
+
+  /// /eval 的 body 解析与执行：能力未注册 → 404；能力内部异常 → 500。
+  Future<(int, Map<String, Object?>)> _runEval(String body) async {
+    final Object? decoded;
+    try {
+      decoded = body.isEmpty ? null : jsonDecode(body);
+    } on FormatException catch (error) {
+      return (
+        HttpStatus.badRequest,
+        <String, Object?>{'ok': false, 'error': 'body 不是合法 JSON：$error'},
+      );
+    }
+    if (decoded is! Map<String, Object?>) {
+      return (
+        HttpStatus.badRequest,
+        <String, Object?>{'ok': false, 'error': 'body 应为 {capability, args?}'},
+      );
+    }
+    final name = decoded['capability']?.toString() ?? '';
+    final capability = devCapabilities[name];
+    if (capability == null) {
+      return (
+        HttpStatus.notFound,
+        <String, Object?>{
+          'ok': false,
+          'error': '未注册能力 "$name"；可用：${devCapabilityNames().join(', ')}',
+        },
+      );
+    }
+    final args =
+        (decoded['args'] as Map<String, Object?>?) ??
+        const <String, Object?>{};
+    try {
+      final value = await capability(args);
+      return (
+        HttpStatus.ok,
+        <String, Object?>{
+          'ok': true,
+          'result': jsonEncode(value, toEncodable: (Object? o) => o.toString()),
+        },
       );
     } catch (error) {
       return (
