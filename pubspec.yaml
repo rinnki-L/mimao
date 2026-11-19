@@ -54,7 +54,9 @@ dependencies:
 
   # D 线 · 主题跟随系统强调色：system_theme 读 Windows/Android 系统 accent
   # 并监听变化（main.dart 里 load + onChange）；CI/Linux 测试不触发插件。
-  system_theme: ^2.3.1
+  # 用 3.3.0：2.3.1 的 android/build.gradle 仍在用已移除的 jcenter()，
+  # 会让 build-android（AGP 9 / Gradle 9）构建失败；3.x API 与 2.3.1 兼容。
+  system_theme: ^3.3.0
 
 dev_dependencies:
   flutter_test:
