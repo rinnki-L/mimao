@@ -29,6 +29,14 @@ class FixtureComicDataSource implements ComicDataSource {
         .toList(growable: false);
   }
 
+  // ComicDataSource 是 interface：默认方法体不被 implements 继承，补一行转发。
+  @override
+  Future<List<ComicSummary>> searchSource(String key, String keyword) =>
+      search(keyword);
+
+  @override
+  List<String> availableSourceKeys() => const <String>[];
+
   @override
   Future<ComicDetail> detail(ComicSummary item) async {
     final found = details[item.id];
