@@ -27,6 +27,8 @@ class KugouIdentity {
     required this.mac,
     required this.deviceName,
     required this.renderFingerprint,
+    this.nickname = '',
+    this.avatarUrl = '',
   });
 
   /// 新匿名设备：guid=UUID v4，mid=calculateMid(guid)，dfid='-'（由
@@ -58,7 +60,9 @@ class KugouIdentity {
       guid = '',
       mac = '',
       deviceName = '',
-      renderFingerprint = '';
+      renderFingerprint = '',
+      nickname = '',
+      avatarUrl = '';
 
   final int userId;
   final String token;
@@ -71,7 +75,16 @@ class KugouIdentity {
   final String deviceName;
   final String renderFingerprint;
 
+  /// 账号展示名（扫码授权返回；旧身份文件缺键时为空串）。
+  final String nickname;
+
+  /// 账号头像 URL（扫码授权返回；可能为空）。
+  final String avatarUrl;
+
   bool get hasAccount => userId != 0 && token.isNotEmpty;
+
+  /// 设置页账号标题：有昵称用昵称，否则用「用户 id」。
+  String get accountLabel => nickname.isEmpty ? '用户 $userId' : nickname;
 
   /// 设备上下文是否满足网关校验（request.rs send_endpoint 开头的断言，
   /// 含「userid=0 时不许残留 t1」）。
@@ -95,9 +108,34 @@ class KugouIdentity {
     mac: mac,
     deviceName: deviceName,
     renderFingerprint: renderFingerprint,
+    nickname: nickname,
+    avatarUrl: avatarUrl,
   );
 
-  /// 剥掉账号信息（register_dev 必须匿名注册——上游 request_wire 语义）。
+  /// 只改账号字段（扫码授权成功后合并）；设备字段原样保留。
+  KugouIdentity withAccount({
+    required int userId,
+    required String token,
+    String t1 = '',
+    String nickname = '',
+    String avatarUrl = '',
+  }) => KugouIdentity(
+    userId: userId,
+    token: token,
+    t1: t1,
+    mid: mid,
+    dfid: dfid,
+    uuid: uuid,
+    guid: guid,
+    mac: mac,
+    deviceName: deviceName,
+    renderFingerprint: renderFingerprint,
+    nickname: nickname,
+    avatarUrl: avatarUrl,
+  );
+
+  /// 剥掉账号信息（register_dev 必须匿名注册——上游 request_wire 语义；
+  /// 扫码登录也要求匿名身份请求）。
   KugouIdentity withoutAccount() => KugouIdentity(
     userId: 0,
     token: '',
@@ -122,6 +160,8 @@ class KugouIdentity {
     'mac': mac,
     'deviceName': deviceName,
     'renderFingerprint': renderFingerprint,
+    'nickname': nickname,
+    'avatarUrl': avatarUrl,
   };
 
   factory KugouIdentity.fromJson(Map<String, Object?> json) {
@@ -139,6 +179,9 @@ class KugouIdentity {
       mac: textOf(json['mac']),
       deviceName: textOf(json['deviceName']),
       renderFingerprint: textOf(json['renderFingerprint']),
+      // 旧身份文件没有这两个键——缺省空串，保持可读。
+      nickname: textOf(json['nickname']),
+      avatarUrl: textOf(json['avatarUrl']),
     );
   }
 }

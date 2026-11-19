@@ -15,6 +15,7 @@ import 'package:mimao/comic/comic_db.dart';
 import 'package:mimao/core/db.dart';
 import 'package:mimao/core/library.dart';
 import 'package:mimao/core/contract.dart';
+import 'package:mimao/music/api/music_account_api.dart';
 import 'package:mimao/music/api/music_api.dart';
 import 'package:mimao/music/client/kugou_identity.dart';
 import 'package:mimao/music/models/music_models.dart';
@@ -216,12 +217,14 @@ void main() {
     expect(find.text('音乐'), findsOneWidget);
   });
 
-  testWidgets('设置分组：身份卡与登录占位渲染（无网络调用）', (tester) async {
+  testWidgets('设置分组：身份卡与扫码登录入口渲染（无网络调用）', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: ListView(
-            children: <Widget>[MusicModuleSettings(api: _FakeApi())],
+            children: <Widget>[
+              MusicModuleSettings(api: _FakeApi(), account: _FakeAccount()),
+            ],
           ),
         ),
       ),
@@ -230,11 +233,33 @@ void main() {
 
     expect(find.text('设备身份'), findsOneWidget);
     expect(find.text('匿名设备'), findsOneWidget);
-    expect(find.text('酷狗账号登录（二维码）'), findsOneWidget);
+    expect(find.text('当前：匿名设备 · 未登录'), findsOneWidget);
+    expect(find.text('扫码登录'), findsOneWidget);
     expect(
       find.textContaining('dfid1234'),
       findsOneWidget,
       reason: 'DFID 脱敏展示前 8 位',
     );
   });
+}
+
+/// 设置页登录入口的假门面（不联网；打开对话框前不会调用任何方法）。
+class _FakeAccount implements MusicAccountApi {
+  @override
+  Future<QrLoginSession> startQrLogin() async =>
+      const QrLoginSession(key: 'k', imageDataUrl: '');
+
+  @override
+  Future<QrLoginStatus> pollQrLogin(String key) async =>
+      const QrLoginStatus(state: QrLoginState.waiting);
+
+  @override
+  Future<KugouIdentity> loginWith(QrAuthorization authorization) async =>
+      KugouIdentity.anonymous().withAccount(
+        userId: authorization.userId,
+        token: authorization.token,
+      );
+
+  @override
+  Future<KugouIdentity> logout() async => KugouIdentity.anonymous();
 }

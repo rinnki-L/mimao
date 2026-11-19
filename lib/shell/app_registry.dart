@@ -256,6 +256,10 @@ Future<void> initAppModules({
         identityStoreFactory: () async =>
             musicIdentityStore ?? KugouIdentityStore.openDefault(),
       );
+      // ── M4-L 登录 ──
+      // 与 API 共用同一 client/身份仓库；测试注入的假实现优先。
+      final account =
+          musicAccount ?? KugouAccountApi(client: client, identityApi: api);
       // 三个切片的依赖全部来自注入缝（契约提交）；各线在自己的标记块里
       // 补生产构造，本文件不需要再改签名。
       appModules[MediaType.music] = MusicModule(
@@ -268,7 +272,7 @@ Future<void> initAppModules({
         progressSink: musicProgressSink,
         playerUiFactory: musicPlayerUiFactory ?? createMusicPlayerUi,
         // ── M4-L 登录 ──
-        account: musicAccount,
+        account: account,
         // ── M4-C 收藏历史 ──
         collect: musicCollect,
         history: musicHistory,

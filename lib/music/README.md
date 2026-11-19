@@ -85,6 +85,34 @@ code）；已登录账号的 business 原样透出错误码。详见
 3. 每一步落盘 `<appSupport>/music_device/music_identity.json`。
    启动期不发网络请求——注册在首次搜索时惰性触发，失败下次重试。
 
+## 扫码登录（M4-L）
+
+- **端点**（`api/login_qr.dart` ← `login_qr_key.rs` / `login_qr_check.rs`）：
+  - `GET /v2/qrcode`（login-user.kugou.com，**web 签名**）：`appid=1001`、
+    `type=1`、`plat=4`、`srcappid=2919`、`qrcode_txt` 末尾带 `&`；响应
+    `data.qrcode`（会话 key）与 `data.qrcode_img`（PNG data URL，`scalar`
+    宽容：数字/字符串都收）。
+  - `GET /v2/get_userinfo_qrcode`：`appid=3116`、`srcappid=2919`、`plat=4`、
+    `qrcode=<key>`、`dev=<deviceName>`；`data.status` → `0 expired / 1 waiting /
+    2 scanned / 4 authorized`（4 缺 userid/空 token → `authentication`，
+    其它值 → `business(code=status)`）。
+  - 两端点都用 `identity.withoutAccount()` 请求（token/userid/t1 不带）；
+    key 为空或超 4096 → `input`，不发请求。
+- **身份**（`client/kugou_identity.dart`）：新增可选 `nickname` / `avatarUrl`
+  与 `withAccount(...)` / `accountLabel`；`withoutAccount()` 一并清空账号
+  展示字段。旧身份 JSON 缺这两个键仍可读；`KugouMusicApi` 同时实现
+  `MusicIdentityApi`（`saveIdentity` 复用同一份缓存/写盘路径）。
+- **门面**（`api/music_account_api.dart` 的 `KugouAccountApi`）：`start/poll`
+  先 `ensureDevice()`；`loginWith` 合并账号字段并落盘（userId=0/空 token
+  直接 `input`，不写盘）；`logout` 清账号保留设备、幂等。
+- **控制器/UI**：`pages/qr_login_controller.dart` 状态机
+  `idle → loading → waiting ⇄ scanned → authorized | expired | failed`；只在
+  用户打开对话框后 `start()`，`cancel/dispose` 后无定时器。设置页用
+  `Image.memory` 渲染 data URL（兼容 `data:image/png;base64,` 前缀与纯
+  base64），登录态显示头像/昵称/ID 与退出入口。
+- **已知约束**：扫码只返回 `userid + token`，**不含 `t1`**；
+  `/v5/login_by_token` 自动续期本片不做——登录态过期时提示重新扫码。
+
 ## 黄金向量
 
 - `test/music/client/signature_test.dart`：独立 Python 实现交叉生成的向量；
@@ -101,9 +129,8 @@ error_code=20018 在 decode 层统一映射 `authentication`、信封 status/err
 不吞成空表、AlbumPrivilege → Privilege 回退链。
 
 待落（按依赖序）：
-1. **登录**：login_qr_key/login_qr_check/login_token（crypto.rs 其余信封；
-   web 签名路径已就位）→ token/userid 注入 Identity（settings 页占位已挂；
-   `AuthenticationMode` 与切换逻辑届时一并翻译）；
+1. **登录续期**：`login_token`（`/v5/login_by_token` 需要 `t1`，扫码不回传
+   `t1`，故本片不做自动续期）；`AuthenticationMode` 与切换逻辑届时一并翻译；
 2. **播放**：song_auth（/v1/authorization）→ song_url_auth（/tracker/v5/url
    + tracker_key）→ player/ 目录（media_kit 复用番剧内核 + audio_service
    SMTC，经 core/media_session.dart 唯一 handler，architecture §6.2）；
