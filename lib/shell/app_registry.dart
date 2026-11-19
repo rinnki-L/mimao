@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:flutter/widgets.dart' show Center, Text;
 import 'package:mimao/anime/anime_db.dart';
 import 'package:mimao/anime/anime_entry.dart';
 import 'package:mimao/anime/anime_models.dart';
@@ -25,11 +26,16 @@ import 'package:mimao/music/api/music_api.dart';
 import 'package:mimao/music/api/music_playback_api.dart';
 import 'package:mimao/music/client/kugou_client.dart';
 import 'package:mimao/music/client/kugou_identity.dart';
+import 'package:mimao/music/collect_service.dart';
+import 'package:mimao/music/history_service.dart';
 import 'package:mimao/music/library_api.dart';
+import 'package:mimao/music/music_db.dart';
 import 'package:mimao/music/music_entry.dart';
+import 'package:mimao/music/pages/music_library_page.dart';
 import 'package:mimao/music/player/playback_engine.dart';
 import 'package:mimao/music/player/player_progress.dart';
 import 'package:mimao/music/player/player_ui.dart';
+import 'package:mimao/music/search_history_service.dart';
 
 /// 全库**唯一**允许 import 四个模块目录（`anime/`、`comic/`、`music/`、
 /// `novel/`）的文件——第四条铁律的载体（docs/architecture.md §2）。
@@ -50,12 +56,17 @@ String? appModulesError;
 /// 由 registry 自己创建（而非测试注入）的 DB——只有它们需要 reset 时关闭。
 AnimeDb? _ownedAnimeDb;
 ComicDb? _ownedComicDb;
+MusicDb? _ownedMusicDb;
 
 /// 测试可见：registry 自建、reset 时会关闭的 ComicDb（生产路径才有值）。
 /// CI 没有 path_provider 插件，用这条缝验证 owned-DB 的关闭语义（closure-02
 /// 验收 A：reset 后 registry 拥有的 ComicDb 已关闭）。
 @visibleForTesting
 ComicDb? get debugRegistryOwnedComicDb => _ownedComicDb;
+
+/// 测试可见：registry 自建、reset 时会关闭的 MusicDb（生产路径才有值）。
+@visibleForTesting
+MusicDb? get debugRegistryOwnedMusicDb => _ownedMusicDb;
 
 /// 装配模块目录表。生产路径全部参数为 null；测试可逐个注入内存库/临时仓库/
 /// fixture 数据源/fake 播放器工厂/假 JS 宿主/整模块。
@@ -113,6 +124,8 @@ Future<void> initAppModules({
   MusicAccountApi? musicAccount,
 
   // ── M4-C 收藏历史（契约缝）──
+  /// 音乐模块内部权威库；测试注入内存/临时实例，生产走惰性连接。
+  MusicDb? musicDb,
   MusicCollectApi? musicCollect,
   MusicHistoryApi? musicHistory,
   MusicSearchHistoryApi? musicSearchHistory,
@@ -126,6 +139,7 @@ Future<void> initAppModules({
   appModulesError = null;
   _ownedAnimeDb = null;
   _ownedComicDb = null;
+  _ownedMusicDb = null;
 
   final errors = <String>[];
 
@@ -252,6 +266,28 @@ Future<void> initAppModules({
         identityStoreFactory: () async =>
             musicIdentityStore ?? KugouIdentityStore.openDefault(),
       );
+
+      // ── M4-C 收藏历史 ──
+      // musicDb 注入优先；否则用惰性连接的 MusicDb（构造不碰 path_provider，
+      // 首个真实查询才开库），保证既有 registry 测试（无音乐库注入、无插件
+      // 环境）仍能「零 I/O 注册」。启动探针刻意不做：探针会立即开库，与无
+      // 插件测试环境冲突；坏库/坏磁盘会在首次收藏或打开「我的」页时暴露。
+      var collectApi = musicCollect;
+      var historyApi = musicHistory;
+      var searchHistoryApi = musicSearchHistory;
+      var libraryBuilder = musicLibraryBuilder;
+      if (collectApi == null ||
+          historyApi == null ||
+          searchHistoryApi == null ||
+          libraryBuilder == null) {
+        final db = musicDb ?? MusicDb();
+        if (musicDb == null) _ownedMusicDb = db;
+        collectApi ??= MusicCollectService(db, library);
+        historyApi ??= MusicHistoryService(db, library);
+        searchHistoryApi ??= MusicSearchHistoryService(db);
+        libraryBuilder ??= _defaultMusicLibraryBuilder();
+      }
+
       // 三个切片的依赖全部来自注入缝（契约提交）；各线在自己的标记块里
       // 补生产构造，本文件不需要再改签名。
       appModules[MediaType.music] = MusicModule(
@@ -264,18 +300,44 @@ Future<void> initAppModules({
         // ── M4-L 登录 ──
         account: musicAccount,
         // ── M4-C 收藏历史 ──
-        collect: musicCollect,
-        history: musicHistory,
-        searchHistory: musicSearchHistory,
-        libraryBuilder: musicLibraryBuilder,
+        collect: collectApi,
+        history: historyApi,
+        searchHistory: searchHistoryApi,
+        libraryBuilder: libraryBuilder,
       );
     }
   } catch (error) {
     errors.add('音乐模块初始化失败：$error');
     appModules.remove(MediaType.music);
+    final owned = _ownedMusicDb;
+    _ownedMusicDb = null;
+    if (owned != null) {
+      try {
+        await owned.close();
+      } catch (_) {
+        // 与番剧/漫画失败分支同款收尾。
+      }
+    }
   }
 
   appModulesError = errors.isEmpty ? null : errors.join('\n');
+}
+
+/// 生产默认「我的」页构造器：C 线页面只认列表服务，续播缝在这里接到
+/// P 线的 `MusicPlayerUi.playSong`。注入非本线实现时给可读占位而不是崩溃。
+MusicLibraryBuilder _defaultMusicLibraryBuilder() {
+  return (context, playerUi, collect, history) {
+    final collectService = collect is MusicCollectService ? collect : null;
+    final historyService = history is MusicHistoryService ? history : null;
+    if (collectService == null || historyService == null) {
+      return const Center(child: Text('音乐库未接线'));
+    }
+    return MusicLibraryPage(
+      collect: collectService,
+      history: historyService,
+      onPlaySong: (song, startAt) => playerUi.playSong(song, startAt: startAt),
+    );
+  };
 }
 
 /// 测试隔离：清空目录表，只关闭 registry 自己创建的 DB；
@@ -303,6 +365,15 @@ Future<void> _resetOwnedDb() async {
       await comicDb.close();
     } catch (_) {
       // 同上。
+    }
+  }
+  final musicDb = _ownedMusicDb;
+  _ownedMusicDb = null;
+  if (musicDb != null) {
+    try {
+      await musicDb.close();
+    } catch (_) {
+      // 同上；惰性连接从未打开时 close 是空操作。
     }
   }
 }
