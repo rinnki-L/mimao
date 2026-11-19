@@ -7,13 +7,17 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:mimao/music/api/music_account_api.dart';
 import 'package:mimao/music/api/music_api.dart';
 import 'package:mimao/music/client/kugou_identity.dart';
 
 class MusicModuleSettings extends StatelessWidget {
-  const MusicModuleSettings({super.key, required this.api});
+  const MusicModuleSettings({super.key, required this.api, this.account});
 
   final MusicApi api;
+
+  /// L 线登录门面；null 时保留「登录功能接线中」占位（既有测试锚点不变）。
+  final MusicAccountApi? account;
 
   @override
   Widget build(BuildContext context) {
@@ -69,13 +73,17 @@ class MusicModuleSettings extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
           child: Text('账号', style: theme.textTheme.titleSmall),
         ),
-        ListTile(
-          leading: const Icon(Icons.qr_code_2),
-          title: const Text('酷狗账号登录（二维码）'),
-          subtitle: const Text('登录态 API 客户端切片接入'),
-          enabled: false,
-          trailing: const Icon(Icons.chevron_right),
-        ),
+        // ── M4-L 登录 ──
+        // account == null：契约默认态（L 线未接线），保留占位；
+        // account != null：L 线在此替换为扫码登录面板。
+        if (account == null)
+          ListTile(
+            leading: const Icon(Icons.qr_code_2),
+            title: const Text('酷狗账号登录（二维码）'),
+            subtitle: const Text('登录态 API 客户端切片接入'),
+            enabled: false,
+            trailing: const Icon(Icons.chevron_right),
+          ),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
           child: Text(

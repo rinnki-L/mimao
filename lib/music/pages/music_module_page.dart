@@ -1,15 +1,18 @@
 // ignore_for_file: deprecated_member_use — Flutter 3.50 弃用整个 material.dart，
 // 与 comic 页面同款说明。
-/// 音乐模块主页（M4 骨架）：搜索 + 结果列表。
+/// 音乐模块主页（M4）：搜索 + 结果列表；可选「我的」页与迷你播放条。
 ///
-/// 模块内部导航骨架期只有这一层；歌单/播放页随播放器切片加入时换成
-/// NavigationBar + IndexedStack（对齐 comic_module_page 的模式）。
+/// 契约提交后本页只认接口（[MusicPlayerUi]/[MusicCollectApi]/
+/// [MusicSearchHistoryApi]），不 import `player/` 实现，也不认识 C 线的
+/// 服务类——三条线可各自独立编译。
 library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
+import 'package:mimao/music/library_api.dart';
 import 'package:mimao/music/models/music_models.dart';
 import 'package:mimao/music/music_store.dart';
+import 'package:mimao/music/player/player_ui.dart';
 
 /// 搜索框 + 结果列表。embedded=true 时由壳提供顶部「返回 + 标题」。
 class MusicModulePage extends StatefulWidget {
@@ -17,6 +20,10 @@ class MusicModulePage extends StatefulWidget {
     super.key,
     required this.store,
     this.embedded = false,
+    this.playerUi,
+    this.collect,
+    this.searchHistory,
+    this.libraryTab,
   });
 
   final MusicStore store;
@@ -24,12 +31,51 @@ class MusicModulePage extends StatefulWidget {
   /// true 时由壳提供顶部栏，本页不画 AppBar。
   final bool embedded;
 
+  /// P 线播放 UI；null 时点歌显示占位提示、不渲染迷你播放条。
+  final MusicPlayerUi? playerUi;
+
+  /// C 线收藏服务；null 时不显示收藏按钮。
+  final MusicCollectApi? collect;
+
+  /// C 线搜索历史；null 时搜索不做记录。
+  final MusicSearchHistoryApi? searchHistory;
+
+  /// C 线「我的」页；null 时只有搜索页（不出底部导航）。
+  final Widget? libraryTab;
+
   @override
   State<MusicModulePage> createState() => _MusicModulePageState();
 }
 
 class _MusicModulePageState extends State<MusicModulePage> {
   late final TextEditingController _controller = TextEditingController();
+
+  int _index = 0;
+
+  /// 收藏态缓存（列表批量判断，避免逐行异步查询导致抖动）。
+  final Set<String> _collectedIds = <String>{};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCollected();
+  }
+
+  Future<void> _loadCollected() async {
+    final collect = widget.collect;
+    if (collect == null) return;
+    try {
+      final ids = await collect.collectedIds();
+      if (!mounted) return;
+      setState(() {
+        _collectedIds
+          ..clear()
+          ..addAll(ids);
+      });
+    } on Object {
+      // 收藏态加载失败不挡搜索；图标维持未收藏。
+    }
+  }
 
   @override
   void dispose() {
@@ -41,11 +87,62 @@ class _MusicModulePageState extends State<MusicModulePage> {
     final keyword = _controller.text.trim();
     if (keyword.isEmpty) return;
     widget.store.search(keyword);
+    final searchHistory = widget.searchHistory;
+    if (searchHistory != null) {
+      searchHistory.record(keyword).catchError((Object _) {});
+    }
+  }
+
+  Future<void> _toggleCollect(MusicSong song) async {
+    final collect = widget.collect;
+    if (collect == null) return;
+    final id = _songId(song);
+    if (id.isEmpty) return;
+    final wasCollected = _collectedIds.contains(id);
+    setState(() {
+      if (wasCollected) {
+        _collectedIds.remove(id);
+      } else {
+        _collectedIds.add(id);
+      }
+    });
+    try {
+      if (wasCollected) {
+        await collect.remove(id);
+      } else {
+        await collect.collect(song);
+      }
+    } on Object catch (error) {
+      if (!mounted) return;
+      setState(() {
+        if (wasCollected) {
+          _collectedIds.add(id);
+        } else {
+          _collectedIds.remove(id);
+        }
+      });
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text(wasCollected ? '取消收藏失败：$error' : '收藏失败：$error')),
+      );
+    }
+  }
+
+  String _songId(MusicSong song) => song.id.isNotEmpty ? song.id : song.hash;
+
+  void _openSong(MusicSong song) {
+    final player = widget.playerUi;
+    if (player == null) {
+      ScaffoldMessenger.maybeOf(
+        context,
+      )?.showSnackBar(const SnackBar(content: Text('播放功能随播放器切片接入')));
+      return;
+    }
+    player.playSong(song);
   }
 
   @override
   Widget build(BuildContext context) {
-    final body = Column(
+    final searchBody = Column(
       children: <Widget>[
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
@@ -67,15 +164,46 @@ class _MusicModulePageState extends State<MusicModulePage> {
           ),
         ),
         Expanded(child: Observer(builder: (_) => _buildBody(context))),
+        if (widget.playerUi != null)
+          Builder(
+            builder: (context) =>
+                widget.playerUi!.buildMiniPlayer(context) ??
+                const SizedBox.shrink(),
+          ),
       ],
     );
-    if (widget.embedded) {
-      return Scaffold(body: body);
-    }
-    return Scaffold(
-      appBar: AppBar(title: const Text('音乐')),
+
+    final libraryTab = widget.libraryTab;
+    final body = libraryTab == null
+        ? searchBody
+        : IndexedStack(
+            index: _index,
+            children: <Widget>[searchBody, libraryTab],
+          );
+
+    final scaffold = Scaffold(
+      appBar: widget.embedded ? null : AppBar(title: const Text('音乐')),
       body: body,
+      bottomNavigationBar: libraryTab == null
+          ? null
+          : NavigationBar(
+              selectedIndex: _index,
+              onDestinationSelected: (index) => setState(() => _index = index),
+              destinations: const <NavigationDestination>[
+                NavigationDestination(
+                  icon: Icon(Icons.search_outlined),
+                  selectedIcon: Icon(Icons.search),
+                  label: '搜索',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.library_music_outlined),
+                  selectedIcon: Icon(Icons.library_music),
+                  label: '我的',
+                ),
+              ],
+            ),
     );
+    return scaffold;
   }
 
   Widget _buildBody(BuildContext context) {
@@ -94,17 +222,34 @@ class _MusicModulePageState extends State<MusicModulePage> {
       itemCount: store.results.length,
       itemBuilder: (context, index) {
         final song = store.results[index];
-        return _SongTile(song: song);
+        return _SongTile(
+          song: song,
+          isCollected: _collectedIds.contains(_songId(song)),
+          onToggleCollect: widget.collect == null
+              ? null
+              : () => _toggleCollect(song),
+          onTap: () => _openSong(song),
+        );
       },
     );
   }
 }
 
-/// 结果行。封面占位图标——真实封面/点播进播放器随播放器切片接。
+/// 结果行。封面占位图标——真实封面留待播放页。
 class _SongTile extends StatelessWidget {
-  const _SongTile({required this.song});
+  const _SongTile({
+    required this.song,
+    required this.isCollected,
+    required this.onTap,
+    this.onToggleCollect,
+  });
 
   final MusicSong song;
+  final bool isCollected;
+  final VoidCallback onTap;
+
+  /// null 表示收藏功能未接线（不显示按钮）。
+  final VoidCallback? onToggleCollect;
 
   @override
   Widget build(BuildContext context) {
@@ -121,18 +266,19 @@ class _SongTile extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
-      trailing: Text(
-        _formatDuration(song.durationMs),
-        style: theme.textTheme.bodySmall?.copyWith(
-          color: theme.colorScheme.onSurfaceVariant,
-        ),
-      ),
-      // 点播为占位——播放链路（song_auth → tracker → media_kit）随后续切片接。
-      onTap: () {
-        ScaffoldMessenger.maybeOf(
-          context,
-        )?.showSnackBar(const SnackBar(content: Text('播放功能随播放器切片接入')));
-      },
+      trailing: onToggleCollect != null
+          ? IconButton(
+              tooltip: isCollected ? '取消收藏' : '收藏',
+              icon: Icon(isCollected ? Icons.favorite : Icons.favorite_border),
+              onPressed: onToggleCollect,
+            )
+          : Text(
+              _formatDuration(song.durationMs),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+      onTap: onTap,
     );
   }
 }

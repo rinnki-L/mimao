@@ -20,10 +20,16 @@ import 'package:mimao/comic/reader/reader_cache.dart';
 import 'package:mimao/comic/search_history_service.dart';
 import 'package:mimao/core/contract.dart';
 import 'package:mimao/core/library.dart';
+import 'package:mimao/music/api/music_account_api.dart';
 import 'package:mimao/music/api/music_api.dart';
+import 'package:mimao/music/api/music_playback_api.dart';
 import 'package:mimao/music/client/kugou_client.dart';
 import 'package:mimao/music/client/kugou_identity.dart';
+import 'package:mimao/music/library_api.dart';
 import 'package:mimao/music/music_entry.dart';
+import 'package:mimao/music/player/playback_engine.dart';
+import 'package:mimao/music/player/player_progress.dart';
+import 'package:mimao/music/player/player_ui.dart';
 
 /// 全库**唯一**允许 import 四个模块目录（`anime/`、`comic/`、`music/`、
 /// `novel/`）的文件——第四条铁律的载体（docs/architecture.md §2）。
@@ -83,12 +89,36 @@ Future<void> initAppModules({
   /// 测试注入整模块（依赖自含），跳过漫画生产装配直接注册。
   ComicModule? comicModule,
 
-  // ── 音乐（M4 骨架）──
+  // ── 音乐（M4 骨架 + 三线契约）──
   /// 测试注入整模块（依赖自含），跳过音乐生产装配直接注册。
   MusicModule? musicModule,
 
   /// 测试注入内存/临时身份仓库；生产走 openDefault()（path_provider）。
   KugouIdentityStore? musicIdentityStore,
+
+  // ── M4-P 播放（契约缝）──
+  /// 播放解析门面；P 线生产实现就绪后由 registry 构造注入。
+  MusicPlaybackApi? musicPlaybackApi,
+
+  /// 播放引擎工厂（生产 = media_kit 实现）；测试注入 fake。
+  MusicPlaybackEngine Function()? musicPlaybackEngineFactory,
+
+  /// 播放 UI 构造器（P 线实现后注入；null 时点歌只显示占位）。
+  MusicPlayerUiFactory? musicPlayerUiFactory,
+
+  /// 播放进度写入口；集成时由 `history.saveProgress` 包成 lambda。
+  ProgressSink? musicProgressSink,
+
+  // ── M4-L 登录（契约缝）──
+  MusicAccountApi? musicAccount,
+
+  // ── M4-C 收藏历史（契约缝）──
+  MusicCollectApi? musicCollect,
+  MusicHistoryApi? musicHistory,
+  MusicSearchHistoryApi? musicSearchHistory,
+
+  /// 「我的」页构造器（C 线实现后注入；null 时不出底部导航）。
+  MusicLibraryBuilder? musicLibraryBuilder,
 }) async {
   // 每次装配都是一次干净开始；避免旧的已关闭 DB 残留在表里。
   await _resetOwnedDb();
@@ -222,7 +252,23 @@ Future<void> initAppModules({
         identityStoreFactory: () async =>
             musicIdentityStore ?? KugouIdentityStore.openDefault(),
       );
-      appModules[MediaType.music] = MusicModule(api: api);
+      // 三个切片的依赖全部来自注入缝（契约提交）；各线在自己的标记块里
+      // 补生产构造，本文件不需要再改签名。
+      appModules[MediaType.music] = MusicModule(
+        api: api,
+        // ── M4-P 播放 ──
+        playbackApi: musicPlaybackApi,
+        engineFactory: musicPlaybackEngineFactory,
+        progressSink: musicProgressSink,
+        playerUiFactory: musicPlayerUiFactory,
+        // ── M4-L 登录 ──
+        account: musicAccount,
+        // ── M4-C 收藏历史 ──
+        collect: musicCollect,
+        history: musicHistory,
+        searchHistory: musicSearchHistory,
+        libraryBuilder: musicLibraryBuilder,
+      );
     }
   } catch (error) {
     errors.add('音乐模块初始化失败：$error');
