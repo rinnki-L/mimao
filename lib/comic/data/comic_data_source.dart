@@ -17,6 +17,20 @@ abstract interface class ComicDataSource {
 
   /// 取详情（含章节）。实现方用 [item] 的 detailUrl 抓取。
   Future<ComicDetail> detail(ComicSummary item);
+
+  /// 只搜索指定来源；key 为源 key。默认回退到全源 [search]。
+  ///
+  /// 带默认实现的可选方法：不需要单源搜索的实现（fixture、测试 fake）
+  /// 零改动即可继续工作。注意 [ComicDataSource] 是 `abstract interface class`，
+  /// Dart 的 `implements` 不继承接口的默认方法体——直接 `implements` 的具体类
+  /// 必须提供覆盖实现（一行转发即可）；「既有实现零改动」由下面这条规则保证：
+  /// 只有直接 implements 的类需补覆盖，经基类继承的实现自动获得默认体。
+  Future<List<ComicSummary>> searchSource(String key, String keyword) =>
+      search(keyword);
+
+  /// 可用于按来源筛选的源 key 列表（有序）。默认空 → UI 隐藏筛选器，
+  /// 退化为单源（聚合）搜索行为，与引入本能力前一致。
+  List<String> availableSourceKeys() => const <String>[];
 }
 
 /// 源管理页的数据入口（抽象）。

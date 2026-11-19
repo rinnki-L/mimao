@@ -239,6 +239,31 @@ class EngineComicDataSource
   }
 
   @override
+  Future<List<ComicSummary>> searchSource(String key, String keyword) async {
+    final query = keyword.trim();
+    if (query.isNotEmpty) {
+      try {
+        await _searchHistory?.record(query);
+      } on Object {
+        // 搜索历史落库失败不挡搜索（与 search 同语义）。
+      }
+    }
+    // 空关键词不做推荐流（决策⑧）：与 search 保持一致。
+    if (query.isEmpty) return const <ComicSummary>[];
+
+    final result = await engine.search(key, query);
+    _addDiagnostics(result.diagnostics.map((d) => '$key：$d'));
+    return List<ComicSummary>.unmodifiable(
+      result.items.map((item) => _mapSummary(item, key)),
+    );
+  }
+
+  @override
+  List<String> availableSourceKeys() => List<String>.unmodifiable(
+    _sources.where((s) => s.enabled).map((s) => s.key).toList()..sort(),
+  );
+
+  @override
   Future<ComicDetail> detail(ComicSummary item) async {
     final key = (item.sourceName ?? '').trim();
     if (key.isEmpty) {
