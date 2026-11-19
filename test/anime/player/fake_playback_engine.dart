@@ -27,6 +27,10 @@ class FakePlaybackEngine implements PlaybackEngine {
   final List<String> pendingErrors = <String>[];
 
   final List<String> openedUrls = <String>[];
+
+  /// 每次 open 收到的请求头（UA/Referer），供测试断言透传；fake 不真正使用它们。
+  final List<Map<String, String>?> openedHeaders = <Map<String, String>?>[];
+
   final List<Duration> seeks = <Duration>[];
   int playCount = 0;
   int pauseCount = 0;
@@ -77,8 +81,15 @@ class FakePlaybackEngine implements PlaybackEngine {
   }
 
   @override
-  Future<void> open(String url, {Duration startAt = Duration.zero}) async {
+  Future<void> open(
+    String url, {
+    Duration startAt = Duration.zero,
+    Map<String, String>? headers,
+  }) async {
     openedUrls.add(url);
+    openedHeaders.add(
+      headers == null ? null : Map<String, String>.from(headers),
+    );
     position = startAt;
     playing = true;
     completed = false;
