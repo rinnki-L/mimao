@@ -47,6 +47,14 @@ class _FlakyComicDataSource implements ComicDataSource {
   // interface 契约：implements 方需显式实现（接口默认体不 inherits）。
   @override
   List<String> takeSearchDiagnostics() => _delegate.takeSearchDiagnostics();
+
+  // ComicDataSource 是 interface：默认方法体不被 implements 继承，补转发。
+  @override
+  Future<List<ComicSummary>> searchSource(String key, String keyword) =>
+      search(keyword);
+
+  @override
+  List<String> availableSourceKeys() => const <String>[];
 }
 
 Widget _app(Widget home) => MaterialApp(

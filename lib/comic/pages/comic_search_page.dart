@@ -47,18 +47,30 @@ class _ComicSearchPageState extends State<ComicSearchPage> {
     return _searchDiagnostics;
   }
 
+  /// 数据源提供的可选来源；空表示数据源未暴露来源（退化为全源搜索）。
+  late List<String> _sourceKeys;
+
+  /// 当前选中的来源；null = 全部来源（默认聚合搜索语义不变）。
+  String? _selectedSource;
+
   @override
   void initState() {
     super.initState();
-    _future = widget.dataSource.search(_query);
+    _sourceKeys = widget.dataSource.availableSourceKeys();
+    _future = _runQuery(_query);
   }
 
   @override
   void didUpdateWidget(ComicSearchPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // 数据源被替换（fixture 切换 / A′ 引擎注入）时按当前关键词重查。
+    // 数据源被替换（fixture 切换 / A′ 引擎注入）时刷新来源并按当前关键词重查。
     if (oldWidget.dataSource != widget.dataSource) {
-      _future = widget.dataSource.search(_query);
+      _sourceKeys = widget.dataSource.availableSourceKeys();
+      // 选中的来源在新数据源里已不存在时回到「全部来源」。
+      if (_selectedSource != null && !_sourceKeys.contains(_selectedSource)) {
+        _selectedSource = null;
+      }
+      _future = _runQuery(_query);
     }
   }
 
@@ -68,12 +80,30 @@ class _ComicSearchPageState extends State<ComicSearchPage> {
     super.dispose();
   }
 
+  /// 按当前选中来源路由搜索：空关键词或「全部来源」走 [ComicDataSource.search]，
+  /// 否则走 [ComicDataSource.searchSource] 指定单源。
+  Future<List<ComicSummary>> _runQuery(String query) {
+    final key = _selectedSource;
+    if (query.isNotEmpty && key != null && key.isNotEmpty) {
+      return widget.dataSource.searchSource(key, query);
+    }
+    return widget.dataSource.search(query);
+  }
+
   void _runSearch(String value) {
     final query = value.trim();
     FocusScope.of(context).unfocus();
     setState(() {
       _query = query;
-      _future = widget.dataSource.search(query);
+      _future = _runQuery(query);
+    });
+  }
+
+  /// 切换来源后用当前关键词自动重搜；关键词为空时保持原语义（全源空查询）。
+  void _selectSource(String? key) {
+    setState(() {
+      _selectedSource = key;
+      _future = _runQuery(_query);
     });
   }
 
@@ -103,11 +133,40 @@ class _ComicSearchPageState extends State<ComicSearchPage> {
                 textInputAction: TextInputAction.search,
                 onSubmitted: _runSearch,
               ),
+              if (_sourceKeys.isNotEmpty) ...<Widget>[
+                const SizedBox(height: 8),
+                _buildSourceFilter(cs),
+              ],
               const SizedBox(height: 12),
               Expanded(child: _buildResults(context, cs)),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  /// 来源筛选行：「全部来源」+ 各可用源 key。选中后自动重搜。
+  /// 用横向滚动避免多来源时挤出 390 宽屏幕。
+  Widget _buildSourceFilter(ColorScheme cs) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: <Widget>[
+          _SourceFilterChip(
+            label: '全部来源',
+            selected: _selectedSource == null,
+            onSelected: (_) => _selectSource(null),
+            filterKey: const Key('source-filter-all'),
+          ),
+          for (final key in _sourceKeys)
+            _SourceFilterChip(
+              label: key,
+              selected: _selectedSource == key,
+              onSelected: (selected) => _selectSource(selected ? key : null),
+              filterKey: Key('source-filter-$key'),
+            ),
+        ],
       ),
     );
   }
@@ -171,6 +230,36 @@ class _ComicSearchPageState extends State<ComicSearchPage> {
           ],
         );
       },
+    );
+  }
+}
+
+/// 单个来源筛选 chip。故意包装成无状态组件：外层只关心选中态与回调，
+/// 测试用 [key] 稳定定位（all / 具体源 key）。
+class _SourceFilterChip extends StatelessWidget {
+  const _SourceFilterChip({
+    required this.label,
+    required this.selected,
+    required this.onSelected,
+    this.filterKey,
+  });
+
+  final String label;
+  final bool selected;
+  final ValueChanged<bool> onSelected;
+  final Key? filterKey;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: FilterChip(
+        key: filterKey,
+        label: Text(label),
+        selected: selected,
+        onSelected: onSelected,
+        visualDensity: VisualDensity.compact,
+      ),
     );
   }
 }
