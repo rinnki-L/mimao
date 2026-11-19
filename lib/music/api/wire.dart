@@ -38,6 +38,14 @@ String wireText(Object? value) {
   return '';
 }
 
+/// 数字或数字字符串 → double；缺省/不可解析 → null（`optional<f64>`，
+/// tracker 的 volume/volume_peak/volume_gain 用）。
+double? optionalDouble(Object? value) {
+  if (value is num) return value.toDouble();
+  if (value is String) return double.tryParse(value);
+  return null;
+}
+
 /// 可空文本（`optional` + text 组合）：null → null；bool/复合 → null；
 /// 数字 → 字符串形式（Rust ResponseValue 字符串解码）。
 String? optionalText(Object? value) {
