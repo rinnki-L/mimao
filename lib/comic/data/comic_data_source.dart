@@ -17,6 +17,13 @@ abstract interface class ComicDataSource {
 
   /// 取详情（含章节）。实现方用 [item] 的 detailUrl 抓取。
   Future<ComicDetail> detail(ComicSummary item);
+
+  /// 取走并清空最近一次 [search] 期间累积的失败诊断（每条形如
+  /// `来源key：失败原因`）。默认空实现——fixture/fake 与 C 线实现无需改动；
+  /// 真实引擎 override 本方法，让「全部源失败 → 空结果」时 UI 能把原因显示出来。
+  ///
+  /// 语义：取走即清，一次搜索只消费一次；本方法不改变 [search] 的签名。
+  List<String> takeSearchDiagnostics() => const <String>[];
 }
 
 /// 源管理页的数据入口（抽象）。

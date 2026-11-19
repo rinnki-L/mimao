@@ -126,9 +126,19 @@ class EngineComicDataSource
       const <source_engine.ComicSourceScript>[];
   final List<String> _diagnostics = <String>[];
 
+  /// 搜索期诊断缓冲：只保留最近一次 [search] 期间逐源的失败原因，供
+  /// [takeSearchDiagnostics] 取走上达 UI。与 [_diagnostics]（注册/加载/详情/
+  /// 图片等累积诊断，上限 200）分开，避免一次全源失败把长期诊断冲掉，也
+  /// 避免长期诊断里夹杂旧搜索的原因误导用户。
+  final List<String> _searchDiagnostics = <String>[];
+
   /// 诊断信息的环形上限：生产路径没有消费者（源管理页尚无诊断出口），
   /// 坏源 + 长会话下不做封顶会无界增长（对抗性审查 P2）。
   static const int _maxDiagnostics = 200;
+
+  /// 搜索期诊断缓冲上限（提示词「已知坑」建议 50）：一次搜索失败源很多时
+  /// 也不能让缓冲无界增长。
+  static const int _maxSearchDiagnostics = 50;
 
   void _addDiagnostics(Iterable<String> messages) {
     _diagnostics.addAll(messages);
@@ -142,6 +152,26 @@ class EngineComicDataSource
     final result = List<String>.from(_diagnostics);
     _diagnostics.clear();
     return result;
+  }
+
+  /// 取走并清空最近一次搜索期诊断（契约接口 [ComicDataSource] 的可选出口）。
+  /// 与 [takeDiagnostics] 分开：本方法只面向搜索页的错误态。
+  @override
+  List<String> takeSearchDiagnostics() {
+    final result = List<String>.from(_searchDiagnostics);
+    _searchDiagnostics.clear();
+    return result;
+  }
+
+  /// 追加一条搜索期诊断，保持环形上限 [_maxSearchDiagnostics]。
+  void _addSearchDiagnostic(String message) {
+    _searchDiagnostics.add(message);
+    if (_searchDiagnostics.length > _maxSearchDiagnostics) {
+      _searchDiagnostics.removeRange(
+        0,
+        _searchDiagnostics.length - _maxSearchDiagnostics,
+      );
+    }
   }
 
   /// 读取 store 全部源并注册进执行池。返回加载结果（含坏文件说明）。
@@ -214,6 +244,9 @@ class EngineComicDataSource
 
   @override
   Future<List<ComicSummary>> search(String keyword) async {
+    // 每次搜索开头清空搜索期缓冲：一次 build 只读一次（取走即清），
+    // 保证诊断只对应本次搜索，不混入上一次的失败原因。
+    _searchDiagnostics.clear();
     final query = keyword.trim();
     if (query.isNotEmpty) {
       try {
@@ -230,7 +263,17 @@ class EngineComicDataSource
     final merged = <ComicSummary>[];
     for (final source in enabled) {
       final result = await engine.search(source.key, query);
-      _addDiagnostics(result.diagnostics.map((d) => '${source.key}：$d'));
+      final prefixed = result.diagnostics
+          .map((d) => '${source.key}：$d')
+          .toList();
+      _addDiagnostics(prefixed);
+      for (final message in prefixed) {
+        _addSearchDiagnostic(message);
+      }
+      // 源返回空且无任何诊断：错误不得被吞成「没找到」，给出可读原因。
+      if (result.items.isEmpty && prefixed.isEmpty) {
+        _addSearchDiagnostic('${source.key}：搜索无结果且未返回原因');
+      }
       for (final item in result.items) {
         merged.add(_mapSummary(item, source.key));
       }
