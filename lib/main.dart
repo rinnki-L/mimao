@@ -14,8 +14,10 @@
 //   1. WidgetsFlutterBinding.ensureInitialized()
 //   2. 桌面平台（运行时判断）：windowManager.ensureInitialized + waitUntilReadyToShow
 //   3. 打开 AppDb（失败进错误页并 return——学 Kazumi 的 StorageErrorPage 兜底）
-//   4. MediaKit 初始化 —— M2 引入 media_kit 时再接（M1 无消费者，不建空初始化）
-//   5. 装配目录表（app_registry）→ runApp()
+//   4. 系统强调色（D 线）：await SystemTheme.accentColor.load() + 变化监听 +
+//      装配 MimaoApp.systemAccentProvider；失败 try/catch 兜底，不卡启动
+//   5. MediaKit 初始化 —— M2 引入 media_kit 时再接（M1 无消费者，不建空初始化）
+//   6. 装配目录表（app_registry）→ runApp()
 //   audio_service 的 init 不在本清单（M2 随番剧 audio_controller 接线）。
 // ════════════════════════════════════════════════════════════════════════
 
@@ -25,7 +27,9 @@ import 'package:mimao/core/library.dart';
 import 'package:mimao/shell/app.dart';
 import 'package:mimao/shell/app_registry.dart';
 import 'package:mimao/shell/home.dart';
+import 'package:mimao/shell/shell_store.dart';
 import 'package:mimao/shell/window/window.dart';
+import 'package:system_theme/system_theme.dart';
 
 Future<void> main() async {
   // 1. 绑定引擎
@@ -48,10 +52,40 @@ Future<void> main() async {
 
   final library = LibraryRepository(db);
 
-  // 5. 装配目录表（app_registry 是唯一 import 模块处；失败只会让番剧占位，
+  // 4. 系统强调色（D 线：跟随系统）。必须在 runApp 前 await load，否则首帧
+  //    拿不到色。取色/监听失败一律 try/catch 兜底，绝不因插件问题卡住启动。
+  await _initSystemAccent();
+
+  // 6. 装配目录表（app_registry 是唯一 import 模块处；失败只会让番剧占位，
   //    不影响其它模块/书架）→ runApp
   await initAppModules(library: library);
   runApp(LibraryScope(repository: library, child: const MimaoApp()));
+}
+
+/// 装配“跟随系统强调色”：加载系统色 → 注入 provider → 监听变化。
+///
+/// provider 直接返回 [Color]（由 [SystemTheme.accentColor] 每次读取现值），
+/// seed('system') 取色时就拿到最新 accent；变化时用 onChange 流 bump epoch
+/// 触发主题重建。system_theme 2.3.1 没有 addListener，变化通知走 onChange
+/// stream（包内 SystemAccentColor 自身也订阅同一 stream 更新缓存）。
+Future<void> _initSystemAccent() async {
+  try {
+    await SystemTheme.accentColor.load();
+  } catch (_) {
+    // 取色失败：provider 仍可读到 fallback 色，不卡启动。
+  }
+
+  // 直接返回 Color：seed('system') 每次调用都读 accent 的当前值。
+  MimaoApp.systemAccentProvider = () => SystemTheme.accentColor.accent;
+
+  // 系统色变化 → 递增 epoch → MimaoApp 的 Observer 重建 → 重新取色。
+  // load() 内部已订阅 onChange 更新 accent；这里再订阅一次只为触发 MobX 重建。
+  SystemTheme.onChange.listen(
+    (_) => shellStore.bumpSystemAccent(),
+    onError: (_) {
+      // 平台事件流异常不应冒成 unhandled error；忽略，保留当前色。
+    },
+  );
 }
 
 /// 统一库打开失败时的兜底页（Kazumi StorageErrorPage 同款思路）。

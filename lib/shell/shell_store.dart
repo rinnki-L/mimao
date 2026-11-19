@@ -25,6 +25,11 @@ abstract class _ShellStore with Store {
   @observable
   String themeSeed = 'violet';
 
+  /// 系统强调色变化计数：每次系统色变就 ++，供 MimaoApp 的 Observer 建立
+  /// 重建依赖（读一次即订阅），从而在 'system' 模式下重新取色。
+  @observable
+  int systemAccentEpoch = 0;
+
   @computed
   bool get onEntryPage => activeModule == null && !showLibrary;
 
@@ -56,6 +61,10 @@ abstract class _ShellStore with Store {
 
   @action
   void setThemeSeed(String seed) => themeSeed = seed;
+
+  /// 系统强调色变化：递增 epoch 触发主题重建（MimaoApp 的 Observer 订阅它）。
+  @action
+  void bumpSystemAccent() => systemAccentEpoch++;
 }
 
 /// 最简做法：全局单例。Kazumi 用 flutter_modular 做 DI，M1 不需要（拍板项 3）。

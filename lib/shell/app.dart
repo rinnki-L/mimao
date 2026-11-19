@@ -22,11 +22,25 @@ class MimaoApp extends StatelessWidget {
     'slate': ('石板灰', Color(0xFF546E7A)),
   };
 
-  /// MD3 种子色：基础色板 + 用户动态取色（`dyn:` 前缀）。
+  /// “跟随系统强调色”模式的色源。由 main.dart 在 runApp 前装配（从
+  /// SystemTheme.accentColor.accent 取值）；测试可注入 fake。
+  /// 未装配或抛异常都回退 violet——取色失败绝不卡住启动/主题重建。
+  static Color Function()? systemAccentProvider;
+
+  /// MD3 种子色：基础色板 + 用户动态取色（`dyn:` 前缀）+ `'system'` 跟随系统。
   /// 未知名称回落到最初的 violet（entry_variants.html 三色之一）。
   static Color seed(String name) {
     final base = seedColors[name];
     if (base != null) return base.$2;
+    if (name == 'system') {
+      final provider = systemAccentProvider;
+      if (provider == null) return const Color(0xFF7C6BFF);
+      try {
+        return provider();
+      } catch (_) {
+        return const Color(0xFF7C6BFF);
+      }
+    }
     if (name.startsWith('dyn:')) return _parseDynamic(name);
     return const Color(0xFF7C6BFF);
   }
@@ -41,21 +55,25 @@ class MimaoApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Observer(
-      builder: (_) => MaterialApp(
-        title: 'mimao',
-        debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          useMaterial3: true,
-          colorSchemeSeed: seed(shellStore.themeSeed),
-        ),
-        darkTheme: ThemeData(
-          useMaterial3: true,
-          colorSchemeSeed: seed(shellStore.themeSeed),
-          brightness: Brightness.dark,
-        ),
-        themeMode: ThemeMode.system,
-        home: const HomeShell(),
-      ),
+      builder: (_) {
+        // 建立对系统色变化 epoch 的依赖：系统强调色变 → epoch++ → 本 Observer
+        // 重建 → seed('system') 从 provider 取新色。读 epoch 无副作用，可无条件读。
+        final accentEpoch = shellStore.systemAccentEpoch;
+        final seedColor = seed(shellStore.themeSeed);
+        assert(accentEpoch >= 0); // 仅用于消费局部变量，表明“读一次即订阅”的意图。
+        return MaterialApp(
+          title: 'mimao',
+          debugShowCheckedModeBanner: false,
+          theme: ThemeData(useMaterial3: true, colorSchemeSeed: seedColor),
+          darkTheme: ThemeData(
+            useMaterial3: true,
+            colorSchemeSeed: seedColor,
+            brightness: Brightness.dark,
+          ),
+          themeMode: ThemeMode.system,
+          home: const HomeShell(),
+        );
+      },
     );
   }
 }

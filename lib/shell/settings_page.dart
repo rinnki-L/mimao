@@ -66,6 +66,7 @@ class _AppearanceGroup extends StatelessWidget {
               label: entry.value.$1,
               color: entry.value.$2,
             ),
+          const _SystemSeedChip(),
         ],
       ),
     ],
@@ -105,6 +106,33 @@ class _SeedChip extends StatelessWidget {
           selectedColor: color.withValues(alpha: 0.22),
           side: selected
               ? BorderSide(color: color, width: 2)
+              : BorderSide(color: cs.outlineVariant),
+        );
+      },
+    );
+  }
+}
+
+/// “跟随系统强调色”chip——第 9 枚，不在 seedColors 色板里，用系统图标标识。
+/// 选中态同样用 Observer 读 themeSeed == 'system'，点击直接切到该系统模式。
+class _SystemSeedChip extends StatelessWidget {
+  const _SystemSeedChip();
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Observer(
+      builder: (_) {
+        final selected = shellStore.themeSeed == 'system';
+        return ChoiceChip(
+          key: const Key('theme-seed-system'),
+          avatar: const Icon(Icons.auto_mode, size: 18),
+          label: const Text('跟随系统'),
+          selected: selected,
+          onSelected: (_) => shellStore.setThemeSeed('system'),
+          showCheckmark: false,
+          side: selected
+              ? BorderSide(color: cs.primary, width: 2)
               : BorderSide(color: cs.outlineVariant),
         );
       },

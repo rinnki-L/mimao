@@ -52,6 +52,10 @@ dependencies:
   # 纯 Dart 实现，无平台插件，CI 安全）。MD5 走上面的 crypto 包。
   pointycastle: ^3.9.0
 
+  # D 线 · 主题跟随系统强调色：system_theme 读 Windows/Android 系统 accent
+  # 并监听变化（main.dart 里 load + onChange）；CI/Linux 测试不触发插件。
+  system_theme: ^2.3.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
