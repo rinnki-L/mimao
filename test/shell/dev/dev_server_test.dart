@@ -228,15 +228,20 @@ void main() {
     });
 
     test('/eval：能力执行、未注册 404、GET 列能力', () async {
-      devRegisterCapability('__test_cap__', (args) async => <String, Object?>{
-        'echo': args['x'],
-      });
+      devRegisterCapability(
+        '__test_cap__',
+        (args) async => <String, Object?>{'echo': args['x']},
+      );
       addTearDown(() => devUnregisterCapability('__test_cap__'));
 
-      final (okStatus, okPayload) = await call('POST', '/eval', body: {
-        'capability': '__test_cap__',
-        'args': {'x': 42},
-      });
+      final (okStatus, okPayload) = await call(
+        'POST',
+        '/eval',
+        body: {
+          'capability': '__test_cap__',
+          'args': {'x': 42},
+        },
+      );
       expect(okStatus, HttpStatus.ok);
       final body = okPayload! as Map<String, Object?>;
       expect(body['ok'], true);
@@ -250,9 +255,11 @@ void main() {
         contains('__test_cap__'),
       );
 
-      final (missingStatus, missingPayload) = await call('POST', '/eval', body: {
-        'capability': 'nope',
-      });
+      final (missingStatus, missingPayload) = await call(
+        'POST',
+        '/eval',
+        body: {'capability': 'nope'},
+      );
       expect(missingStatus, HttpStatus.notFound);
       expect(
         (missingPayload! as Map<String, Object?>)['error'],

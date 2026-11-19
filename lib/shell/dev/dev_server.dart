@@ -259,7 +259,8 @@ final class DevServer {
         : DateTime.now().difference(_startedAt!).inSeconds,
     'vmServiceUri': _vmServiceUri,
     'endpoints': <String, Object?>{
-      'GET': '/health /logs?level=&limit= /route /state /shot /db（列库名） '
+      'GET':
+          '/health /logs?level=&limit= /route /state /shot /db（列库名） '
           '/eval（列能力）',
       'POST':
           '/db（{db, sql, params?}） /navigate（{action, name?}） '
@@ -347,8 +348,7 @@ final class DevServer {
       );
     }
     final args =
-        (decoded['args'] as Map<String, Object?>?) ??
-        const <String, Object?>{};
+        (decoded['args'] as Map<String, Object?>?) ?? const <String, Object?>{};
     try {
       final value = await capability(args);
       return (

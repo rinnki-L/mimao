@@ -22,6 +22,7 @@ import 'package:mimao/comic/reader/reader_cache.dart';
 import 'package:mimao/comic/search_history_service.dart';
 import 'package:mimao/core/contract.dart';
 import 'package:mimao/core/library.dart';
+import 'package:mimao/shell/dev/dev_capability.dart';
 import 'package:mimao/shell/dev/dev_databases.dart';
 import 'package:mimao/music/api/kugou_playback_api.dart';
 import 'package:mimao/music/api/music_account_api.dart';
@@ -256,6 +257,21 @@ Future<void> initAppModules({
             comicHostFactory ??
             () => QuickJsHost(bridge: ComicJsBridge(client: client)),
       );
+      // dev 能力（debug-only）：在指定源的 QuickJS runtime 里直跑任意表达式
+      // ——真源联调时 agent 直接调源函数，不用点 UI 复现。pool.execute 已收敛
+      // 错误（不抛），结果序列化交给 /eval 的 jsonEncode 兜底。
+      if (kDebugMode) {
+        devRegisterCapability('comic.eval', (args) async {
+          final result = await pool.execute(
+            args['sourceName']?.toString() ?? '',
+            args['code']?.toString() ?? '',
+          );
+          return <String, Object?>{
+            'ok': result.isOk,
+            if (result.isOk) 'result': result.value else 'error': result.error,
+          };
+        });
+      }
       final searchHistory = ComicSearchHistoryService(db);
       final adapter = await EngineComicDataSource.create(
         store: store,
@@ -281,6 +297,8 @@ Future<void> initAppModules({
   } catch (error) {
     errors.add('漫画模块初始化失败：$error');
     appModules.remove(MediaType.comic);
+    // 漫画装配失败时摘掉 /eval 能力，避免 dev 端点摸到半死 pool。
+    devUnregisterCapability('comic.eval');
     final owned = _ownedComicDb;
     _ownedComicDb = null;
     if (owned != null) {
