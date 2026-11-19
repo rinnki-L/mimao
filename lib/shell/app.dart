@@ -27,6 +27,11 @@ class MimaoApp extends StatelessWidget {
   /// 未装配或抛异常都回退 violet——取色失败绝不卡住启动/主题重建。
   static Color Function()? systemAccentProvider;
 
+  /// 导航观察者注入缝（dev harness 的 /route 追踪器由此挂上，main.dart
+  /// debug 下装配）。与 [systemAccentProvider] 同款静态注入模式——本文件不
+  /// import dev/，保持壳对 dev 设施零感知；null = 不注入（测试/生产）。
+  static List<NavigatorObserver> Function()? navigatorObserversProvider;
+
   /// MD3 种子色：基础色板 + 用户动态取色（`dyn:` 前缀）+ `'system'` 跟随系统。
   /// 未知名称回落到最初的 violet（entry_variants.html 三色之一）。
   static Color seed(String name) {
@@ -71,6 +76,8 @@ class MimaoApp extends StatelessWidget {
             brightness: Brightness.dark,
           ),
           themeMode: ThemeMode.system,
+          navigatorObservers:
+              navigatorObserversProvider?.call() ?? const <NavigatorObserver>[],
           home: const HomeShell(),
         );
       },

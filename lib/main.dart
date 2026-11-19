@@ -21,11 +21,14 @@
 //   audio_service 的 init 不在本清单（M2 随番剧 audio_controller 接线）。
 // ════════════════════════════════════════════════════════════════════════
 
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:mimao/core/db.dart';
 import 'package:mimao/core/library.dart';
 import 'package:mimao/shell/app.dart';
 import 'package:mimao/shell/app_registry.dart';
+import 'package:mimao/shell/dev/dev_harness.dart';
+import 'package:mimao/shell/dev/dev_route.dart';
 import 'package:mimao/shell/home.dart';
 import 'package:mimao/shell/shell_store.dart';
 import 'package:mimao/shell/window/window.dart';
@@ -51,6 +54,15 @@ Future<void> main() async {
   }
 
   final library = LibraryRepository(db);
+
+  // 3.5 dev harness（debug-only，release 零存在）：错误日志环形缓冲 +
+  //     本地 introspection 端点（/health /logs /route /state /db）+ driver.json。
+  //     失败绝不影响启动（内部全吞）；导航观察者经 MimaoApp 的静态注入缝挂上，
+  //     壳不感知 dev/。
+  if (kDebugMode) {
+    await startDevHarness(appDb: db);
+    MimaoApp.navigatorObserversProvider = () => [devRouteTracker];
+  }
 
   // 4. 系统强调色（D 线：跟随系统）。必须在 runApp 前 await load，否则首帧
   //    拿不到色。取色/监听失败一律 try/catch 兜底，绝不因插件问题卡住启动。

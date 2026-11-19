@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:flutter/foundation.dart' show kDebugMode, visibleForTesting;
 import 'package:flutter/widgets.dart' show Center, Text;
 import 'package:mimao/anime/anime_db.dart';
 import 'package:mimao/anime/anime_entry.dart';
@@ -22,6 +22,7 @@ import 'package:mimao/comic/reader/reader_cache.dart';
 import 'package:mimao/comic/search_history_service.dart';
 import 'package:mimao/core/contract.dart';
 import 'package:mimao/core/library.dart';
+import 'package:mimao/shell/dev/dev_databases.dart';
 import 'package:mimao/music/api/kugou_playback_api.dart';
 import 'package:mimao/music/api/music_account_api.dart';
 import 'package:mimao/music/api/music_api.dart';
@@ -151,7 +152,10 @@ Future<void> initAppModules({
   // ── 番剧装配 ──
   try {
     final db = animeDb ?? AnimeDb();
-    if (animeDb == null) _ownedAnimeDb = db;
+    if (animeDb == null) {
+      _ownedAnimeDb = db;
+      if (kDebugMode) devRegisterDatabase('anime', db);
+    }
     // 触发一次读，确保内部库真的可打开（建表在此完成）；打不开就走失败分支，
     // 不注册一个"点进去才崩"的模块。
     await db.collectRow(
@@ -231,7 +235,10 @@ Future<void> initAppModules({
       appModules[MediaType.comic] = comicModule;
     } else {
       final db = comicDb ?? ComicDb();
-      if (comicDb == null) _ownedComicDb = db;
+      if (comicDb == null) {
+        _ownedComicDb = db;
+        if (kDebugMode) devRegisterDatabase('comic', db);
+      }
       // 启动探针：内部库打不开就走失败分支，不注册"点进去才崩"的模块。
       await db.collectRow(
         const ComicRef(id: '__init_probe__', sourceName: '__init_probe__'),
@@ -321,7 +328,10 @@ Future<void> initAppModules({
           searchHistoryApi == null ||
           libraryBuilder == null) {
         final db = musicDb ?? MusicDb();
-        if (musicDb == null) _ownedMusicDb = db;
+        if (musicDb == null) {
+          _ownedMusicDb = db;
+          if (kDebugMode) devRegisterDatabase('music', db);
+        }
         collectApi ??= MusicCollectService(db, library);
         historyApi ??= MusicHistoryService(db, library);
         searchHistoryApi ??= MusicSearchHistoryService(db);
@@ -398,6 +408,8 @@ Future<void> resetAppModulesForTest() async {
 }
 
 Future<void> _resetOwnedDb() async {
+  // 先从 /db 可寻址表摘掉再关闭：dev 端点永不摸到已关闭连接。
+  devUnregisterDatabase('anime');
   final animeDb = _ownedAnimeDb;
   _ownedAnimeDb = null;
   if (animeDb != null) {
@@ -407,6 +419,7 @@ Future<void> _resetOwnedDb() async {
       // 关闭失败不应阻止重置；DB 可能已被测试提前关闭。
     }
   }
+  devUnregisterDatabase('comic');
   final comicDb = _ownedComicDb;
   _ownedComicDb = null;
   if (comicDb != null) {
@@ -416,6 +429,7 @@ Future<void> _resetOwnedDb() async {
       // 同上。
     }
   }
+  devUnregisterDatabase('music');
   final musicDb = _ownedMusicDb;
   _ownedMusicDb = null;
   if (musicDb != null) {
