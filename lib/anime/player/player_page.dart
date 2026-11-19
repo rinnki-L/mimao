@@ -61,6 +61,7 @@ class _PlayerPageState extends State<PlayerPage> {
         _buildProgressBar(context, controller),
         _buildControls(context, controller),
         const Divider(height: 1),
+        _buildRoadSelector(context, controller),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
           child: Align(
@@ -232,6 +233,55 @@ class _PlayerPageState extends State<PlayerPage> {
                 controller.currentEpisode.title,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 线路选择器：仅多线路时显示（单线路不渲染无意义 UI）。
+  /// 切换用 controller.switchRoad 走既有的切集/错误/持久化路径。
+  Widget _buildRoadSelector(BuildContext context, PlayerController controller) {
+    final roads = controller.roadNames;
+    if (roads.length < 2) return const SizedBox.shrink();
+
+    final currentIndex = controller.roadIndices.indexOf(
+      controller.currentRoadIndex,
+    );
+    final selected = currentIndex < 0 ? 0 : currentIndex;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: Row(
+        children: [
+          Text('线路', style: Theme.of(context).textTheme.bodySmall),
+          const SizedBox(width: 8),
+          Expanded(
+            child: PopupMenuButton<int>(
+              key: const Key('player-road'),
+              tooltip: '切换线路',
+              initialValue: selected,
+              onSelected: (index) {
+                final roadIndex = controller.roadIndices[index];
+                unawaited(controller.switchRoad(roadIndex));
+              },
+              itemBuilder: (context) => <PopupMenuEntry<int>>[
+                for (var i = 0; i < roads.length; i++)
+                  PopupMenuItem<int>(
+                    value: i,
+                    child: Text(roads[i], key: Key('player-road-option-$i')),
+                  ),
+              ],
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(roads[selected]),
+                    const Icon(Icons.arrow_drop_down, size: 18),
+                  ],
+                ),
               ),
             ),
           ),

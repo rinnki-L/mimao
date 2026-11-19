@@ -98,12 +98,17 @@ class RuleParseResult<T> {
   const RuleParseResult({
     this.items = const [],
     this.diagnostics = const <String>[],
+    this.coverUrl = '',
   });
 
   final List<T> items;
 
   /// 解析过程中的问题（规则不完整、XPath 执行失败、单条跳过等）。
   final List<String> diagnostics;
+
+  /// 详情页抽出的封面绝对地址（读规则 `detailCover`/`cover`）；
+  /// 搜索结果不使用本字段，恒为空串。
+  final String coverUrl;
 
   bool get isEmpty => items.isEmpty;
 

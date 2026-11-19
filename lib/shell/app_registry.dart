@@ -5,6 +5,7 @@ import 'package:mimao/anime/anime_entry.dart';
 import 'package:mimao/anime/anime_models.dart';
 import 'package:mimao/anime/collect_service.dart';
 import 'package:mimao/anime/data/anime_data_source.dart';
+import 'package:mimao/anime/data/anime_models.dart';
 import 'package:mimao/anime/data/rule_anime_data_source.dart';
 import 'package:mimao/anime/engine/engine.dart';
 import 'package:mimao/anime/history_service.dart';
@@ -160,11 +161,40 @@ Future<void> initAppModules({
     final store = ruleStore ?? await RuleStore.openDefault();
     // 启动时读一次规则仓库：目录不可读就走失败分支并给出原因，
     // 不让用户点进番剧才发现规则全坏。
-    await store.loadAll();
+    final loadedRules = await store.loadAll();
     final dataSource = animeDataSource ?? RuleAnimeDataSource.fromStore(store);
     final importer = RuleImporter();
     final collect = AnimeCollectService(db, library);
     final history = AnimeHistoryService(db, library);
+
+    // 规则级 UA/Referer 提供者：播放入口拿不到 AnimeRule，这里按 sourceName
+    // 查规则仓库，用引擎同款 playTarget 语义组装 header。启动时已 loadAll，
+    // 这里做同步查表；默认空 map 不改既有行为（Kazumi 原生规则无
+    // userAgent/referer 时不会凭空造头）。
+    final playHeaderEngine = AnimeRuleEngine();
+    final rulesBySource = <String, AnimeRule>{};
+    for (final rule in loadedRules) {
+      rulesBySource[rule.name] = rule;
+      rulesBySource[rule.name.toLowerCase()] = rule;
+    }
+    Map<String, String> animeHeadersFor(AnimeSummary item) {
+      final source = item.sourceName;
+      if (source == null || source.isEmpty) return const <String, String>{};
+      final rule = rulesBySource[source] ?? rulesBySource[source.toLowerCase()];
+      if (rule == null) return const <String, String>{};
+      return playHeaderEngine
+          .playTarget(
+            rule,
+            const RuleEpisode(
+              title: '',
+              url: '',
+              absoluteUrl: '',
+              roadIndex: 1,
+              roadName: '',
+            ),
+          )
+          .headers;
+    }
 
     final module = AnimeModule(
       dataSource: dataSource,
@@ -176,6 +206,7 @@ Future<void> initAppModules({
       // widget 测试不会走到这里。
       playbackEngineFactory:
           playbackEngineFactory ?? MediaKitPlaybackEngine.new,
+      headersFor: animeHeadersFor,
     );
     appModules[MediaType.anime] = module;
   } catch (error) {

@@ -94,6 +94,31 @@ class RuleExtractor {
       return RuleParseResult<RuleEpisode>(diagnostics: diagnostics);
     }
 
+    // 详情封面是可选扩展：Kazumi 原生规则没有 detailCover/cover 选择器时
+    // 保持空串，上层回退到搜索封面。选择器写错只记诊断，不影响剧集抽取。
+    var detailCover = '';
+    if (rule.detail.cover.isNotEmpty) {
+      try {
+        final result = root.queryXPath(rule.detail.cover);
+        final attr = result.attrs.firstWhere(
+          (value) => value != null,
+          orElse: () => null,
+        );
+        var rawCover = attr?.trim() ?? '';
+        if (rawCover.isEmpty) {
+          final coverNode = result.node;
+          if (coverNode != null) {
+            rawCover = (coverNode.attributes['src'] ?? '').trim();
+          }
+        }
+        detailCover = rawCover.isEmpty
+            ? ''
+            : normalizeRuleUrl(rule.baseUrl, rawCover);
+      } catch (error) {
+        diagnostics.add('详情封面 XPath 无法执行：$error');
+      }
+    }
+
     final List<XPathNode<dynamic>> roads;
     try {
       roads = root.query(rule.detail.roads).nodes;
@@ -143,7 +168,11 @@ class RuleExtractor {
       }
     }
 
-    return RuleParseResult<RuleEpisode>(items: items, diagnostics: diagnostics);
+    return RuleParseResult<RuleEpisode>(
+      items: items,
+      diagnostics: diagnostics,
+      coverUrl: detailCover,
+    );
   }
 
   XPath<dynamic>? _parseDocument(String html, List<String> diagnostics) {

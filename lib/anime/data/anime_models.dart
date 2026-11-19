@@ -46,13 +46,66 @@ class AnimeEpisode {
   /// 时长文本，如「24:00」。
   final String? duration;
 
+  /// 播放线路序号（从 1 开始）；单线路规则恒为 1。
+  final int roadIndex;
+
+  /// 播放线路名（如「播放线路1」）；规则未提供线路名时为空串。
+  final String roadName;
+
   const AnimeEpisode({
     required this.number,
     required this.title,
     required this.url,
     this.duration,
+    this.roadIndex = 1,
+    this.roadName = '',
   });
+
+  /// 从 JSON 还原；缺省字段给稳定默认值，保证旧快照也能读。
+  factory AnimeEpisode.fromJson(Map<String, dynamic> json) {
+    return AnimeEpisode(
+      number: _readInt(json['number'], fallback: 1),
+      title: _readText(json['title']),
+      url: _readText(json['url']),
+      duration: json['duration'] == null ? null : _readText(json['duration']),
+      roadIndex: _readInt(json['roadIndex'], fallback: 1),
+      roadName: _readText(json['roadName']),
+    );
+  }
+
+  Map<String, dynamic> toJson() => <String, dynamic>{
+    'number': number,
+    'title': title,
+    'url': url,
+    'duration': duration,
+    'roadIndex': roadIndex,
+    'roadName': roadName,
+  };
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AnimeEpisode &&
+          other.number == number &&
+          other.title == title &&
+          other.url == url &&
+          other.duration == duration &&
+          other.roadIndex == roadIndex &&
+          other.roadName == roadName;
+
+  @override
+  int get hashCode =>
+      Object.hash(number, title, url, duration, roadIndex, roadName);
 }
+
+int _readInt(dynamic value, {int fallback = 0}) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  if (value is String) return int.tryParse(value.trim()) ?? fallback;
+  return fallback;
+}
+
+String _readText(dynamic value) => value == null ? '' : value.toString();
 
 /// 番剧详情（规则引擎「详情抽取」的输出）。
 class AnimeDetail {

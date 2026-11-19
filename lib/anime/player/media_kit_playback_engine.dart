@@ -86,14 +86,27 @@ class MediaKitPlaybackEngine implements PlaybackEngine {
   }
 
   @override
-  Future<void> open(String url, {Duration startAt = Duration.zero}) async {
+  Future<void> open(
+    String url, {
+    Duration startAt = Duration.zero,
+    Map<String, String>? headers,
+  }) async {
     _position = startAt;
     _duration = Duration.zero;
     _completed = false;
     _error = null;
     _emit();
+    // media_kit 的 HTTP header 透传走 Media.httpHeaders（不是 mpv 的
+    // user-agent/referrer 单属性）：native 实现会把这里每个 "K: V" 写进
+    // libmpv 的 `http-header-fields` 数组属性（见 media_kit 1.2.6
+    // lib/src/player/native/player/real.dart:2145-2165），web 实现则作为
+    // XHR/hls.js 的 header。因此 UA/Referer 也直接放进这个 map。
     await _player.open(
-      Media(url, start: startAt > Duration.zero ? startAt : null),
+      Media(
+        url,
+        start: startAt > Duration.zero ? startAt : null,
+        httpHeaders: headers == null || headers.isEmpty ? null : headers,
+      ),
       play: true,
     );
   }

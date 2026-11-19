@@ -6,13 +6,31 @@ import 'package:mimao/anime/player/playback_engine.dart';
 
 /// 一集：展示号 + 标题 + 可播放地址（m3u8 或直链）。
 ///
-/// A 线（规则引擎）联调时由剧集列表映射成它；本线先用硬编码列表验证。
+/// [roadIndex]/[roadName] 来自规则线路的映射，供播放页做线路切换；
+/// [headers] 是规则级请求头（UA/Referer），打开时交给 [PlaybackEngine.open]。
+/// 三者都有默认值——不带这些信息的旧调用点与测试完全不受影响。
 class Episode {
   final int number;
   final String title;
   final String url;
 
-  const Episode({required this.number, required this.title, required this.url});
+  /// 播放线路序号（从 1 开始），单线路恒为 1。
+  final int roadIndex;
+
+  /// 播放线路名（如「播放线路1」），规则未提供时为空串。
+  final String roadName;
+
+  /// 规则级 HTTP 请求头（UA/Referer）；默认空 map 表示不附加。
+  final Map<String, String> headers;
+
+  const Episode({
+    required this.number,
+    required this.title,
+    required this.url,
+    this.roadIndex = 1,
+    this.roadName = '',
+    this.headers = const <String, String>{},
+  });
 }
 
 /// 播放页/控制器的粗粒度状态，UI 只按它切换加载态与错误态。
@@ -29,15 +47,22 @@ class PlayerController extends ChangeNotifier {
     ProgressRecorder? progressRecorder,
     this.onProgress,
     int initialIndex = 0,
+    Map<String, String> Function(Episode episode)? headersFor,
   }) : _episodes = List<Episode>.unmodifiable(episodes),
        _recorder = progressRecorder,
-       _index = initialIndex {
+       _index = initialIndex,
+       _headersFor = headersFor ?? _defaultHeadersFor {
     if (episodes.isEmpty) {
       throw ArgumentError.value(episodes, 'episodes', '剧集列表不能为空');
     }
     RangeError.checkValidIndex(initialIndex, episodes, 'initialIndex');
     _subscription = engine.snapshots.listen(_onSnapshot);
   }
+
+  /// 无 header provider 时直接取 [Episode.headers]（默认空 map），
+  /// 保证既有调用点与 Kazumi 原生规则的行为完全不变。
+  static Map<String, String> _defaultHeadersFor(Episode episode) =>
+      episode.headers;
 
   static const double minSpeed = 0.5;
   static const double maxSpeed = 3.0;
@@ -57,6 +82,10 @@ class PlayerController extends ChangeNotifier {
   final PlaybackEngine engine;
   final List<Episode> _episodes;
   final ProgressRecorder? _recorder;
+
+  /// 规则级请求头提供者：集成方（registry）装配，把当前集的 UA/Referer
+  /// 交给他指定；默认取 [Episode.headers]。空 map 表示不附加请求头。
+  final Map<String, String> Function(Episode episode) _headersFor;
 
   /// 播放进度回调：每次后端快照上报 `(position, total)`，单位 Duration。
   /// 集成方接 UI 进度条/时间表时用；持久化仍走 [ProgressRecorder] 的持久化点。
@@ -90,6 +119,30 @@ class PlayerController extends ChangeNotifier {
   bool get hasPrevious => _index > 0;
   bool get hasNext => _index < _episodes.length - 1;
 
+  /// 全部线路名（按线路序号去重、保序），供播放页渲染线路选择器。
+  /// 只有一条线路时返回长度 1 的列表——页面据此隐藏选择器。
+  List<String> get roadNames {
+    final names = <String>[];
+    final seen = <int>{};
+    for (final episode in _episodes) {
+      if (seen.add(episode.roadIndex)) names.add(episode.roadName);
+    }
+    return List<String>.unmodifiable(names);
+  }
+
+  /// 各线路名对应的线路序号（与 [roadNames] 同序），切换时按索引取用。
+  List<int> get roadIndices {
+    final indices = <int>[];
+    final seen = <int>{};
+    for (final episode in _episodes) {
+      if (seen.add(episode.roadIndex)) indices.add(episode.roadIndex);
+    }
+    return List<int>.unmodifiable(indices);
+  }
+
+  /// 当前集所在的线路序号。
+  int get currentRoadIndex => currentEpisode.roadIndex;
+
   /// 打开当前集起播。`resumeAt` 供"从上次进度继续"用（校正点/详情页联调）。
   Future<void> start({Duration? resumeAt}) async {
     if (_disposed) return;
@@ -101,7 +154,11 @@ class PlayerController extends ChangeNotifier {
     _completionPersisted = false;
     _notify();
     try {
-      await engine.open(episode.url, startAt: _position);
+      await engine.open(
+        episode.url,
+        startAt: _position,
+        headers: _headersFor(episode),
+      );
     } catch (error) {
       _fail(error);
     }
@@ -125,13 +182,40 @@ class PlayerController extends ChangeNotifier {
     _notify();
 
     try {
+      final episode = _episodes[index];
       await engine.open(
-        _episodes[index].url,
+        episode.url,
         startAt: startAt ?? Duration.zero,
+        headers: _headersFor(episode),
       );
     } catch (error) {
       _fail(error);
     }
+  }
+
+  /// 切换线路：用[新线路的第 N 集]重建播放地址并起播，N 取当前集数
+  /// （按"每线路集数一致"的常见规则假设；若新线路没有该集则回退第 1 集）。
+  ///
+  /// 复用 [loadEpisode] 的加载/错误态与持久化路径——[switchRoad] 只是先定位
+  /// 目标集再走既有的切集逻辑，不另造状态机。找不到目标线路时保持状态不变。
+  Future<void> switchRoad(int roadIndex) async {
+    if (_disposed) return;
+    var target = _episodes.indexWhere((e) => e.roadIndex == roadIndex);
+    if (target < 0) return;
+
+    // 优先匹配与当前集相同的集数（按"同 content number 优先"策略，
+    // 让切线路后仍停在"当前第几话"；注释见交付文档的真机待验项）。
+    final currentNumber = currentEpisode.number;
+    final sameNumber = _episodes.indexWhere(
+      (e) => e.roadIndex == roadIndex && e.number == currentNumber,
+    );
+    if (sameNumber >= 0) {
+      target = sameNumber;
+    } else {
+      final first = _episodes.indexWhere((e) => e.roadIndex == roadIndex);
+      if (first >= 0) target = first;
+    }
+    await loadEpisode(target);
   }
 
   Future<void> togglePlay() async {

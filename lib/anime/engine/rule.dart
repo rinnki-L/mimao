@@ -88,6 +88,7 @@ class AnimeRule {
       detail: DetailRule(
         roads: _readString(json['chapterRoads']),
         episodes: _readString(json['chapterResult']),
+        cover: _readString(json['detailCover'] ?? json['cover']),
       ),
       play: PlayRule(
         urlAttribute: rawAttribute.isEmpty ? 'href' : rawAttribute,
@@ -175,6 +176,7 @@ class AnimeRule {
       'searchMode': searchMode,
       'chapterMode': chapterMode,
       if (search.cover.isNotEmpty) 'searchCover': search.cover,
+      if (detail.cover.isNotEmpty) 'detailCover': detail.cover,
       if (play.urlAttribute != 'href') 'playUrlAttribute': play.urlAttribute,
       ...extras,
     };
@@ -228,7 +230,11 @@ class SearchRule {
 
 /// 详情规则：播放线路容器 + 剧集节点。
 class DetailRule {
-  const DetailRule({required this.roads, required this.episodes});
+  const DetailRule({
+    required this.roads,
+    required this.episodes,
+    this.cover = '',
+  });
 
   /// `chapterRoads`：播放线路（一个 tab/面板）的 XPath。
   final String roads;
@@ -236,10 +242,17 @@ class DetailRule {
   /// `chapterResult`：线路内剧集链接的 XPath（相对线路）。
   final String episodes;
 
+  /// 引擎扩展：详情页封面（相对文档根），读 `detailCover`/`cover`。
+  /// Kazumi 原生规则没有这个字段，缺省为空——是**可选**选择器，
+  /// 不参与 [hasSelectors]/[hasValidSelectors] 的严格性判定。
+  final String cover;
+
   bool get hasSelectors => roads.isNotEmpty || episodes.isNotEmpty;
 
   bool get hasValidSelectors =>
-      isSupportedXPathSelector(roads) && isSupportedXPathSelector(episodes);
+      isSupportedXPathSelector(roads) &&
+      isSupportedXPathSelector(episodes) &&
+      (cover.isEmpty || isSupportedXPathSelector(cover));
 }
 
 /// 播放规则：从剧集节点取播放地址的方式。
@@ -278,6 +291,8 @@ const Set<String> _knownJsonKeys = <String>{
   'searchCover',
   'chapterRoads',
   'chapterResult',
+  'detailCover',
+  'cover',
   'referer',
   'searchMode',
   'chapterMode',
