@@ -33,6 +33,14 @@ class _EmptyWithDiagnostics implements ComicDataSource {
 
   @override
   List<String> takeSearchDiagnostics() => List<String>.from(diagnostics);
+
+  // interface 默认体不被 implements 继承，补等价转发（C 线新增方法）。
+  @override
+  Future<List<ComicSummary>> searchSource(String key, String keyword) =>
+      search(keyword);
+
+  @override
+  List<String> availableSourceKeys() => const <String>[];
 }
 
 Widget _app(Widget home) => MaterialApp(
