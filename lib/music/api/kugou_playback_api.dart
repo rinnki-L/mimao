@@ -47,7 +47,23 @@ class KugouPlaybackApi implements MusicPlaybackApi {
     if (authorization != null && authorization.isNotEmpty) {
       userAuth = authorization;
     } else {
-      userAuth = (await userVerify(_client, identity)).authorization;
+      final UserAuthorization userAuthorization;
+      try {
+        userAuthorization = await userVerify(_client, identity);
+      } on KugouApiException catch (error) {
+        // 产品映射（探针结论 2026-11-19）：匿名设备能搜索，但 user_verify
+        // 返回 business/35002，拿不到播放授权；可行动作是登录。已登录账号
+        // 的 business 保持原样（错误码透出，不误导成登录问题）。
+        if (!identity.hasAccount && error.kind == 'business') {
+          throw KugouApiException(
+            'authentication',
+            '请先登录酷狗账号后播放',
+            code: error.code,
+          );
+        }
+        rethrow;
+      }
+      userAuth = userAuthorization.authorization;
     }
     final songAuthorization = await songAuthorize(
       _client,

@@ -246,4 +246,54 @@ void main() {
     );
     expect(adapter.requests, isEmpty);
   });
+  test('匿名 user_verify business(35002) → authentication（请先登录）', () async {
+    final adapter = _RoutingAdapter((options) {
+      if (Uri.parse(options.path).path == '/v1/user_verify') {
+        return _json('{"status":0,"error_code":35002}');
+      }
+      return _happyPath(options);
+    });
+    await expectLater(
+      build(adapter).resolvePlayback(song()),
+      throwsA(
+        isA<KugouApiException>()
+            .having((error) => error.kind, 'kind', 'authentication')
+            .having((error) => error.message, 'message', contains('请先登录'))
+            .having((error) => error.code, 'code', 35002),
+      ),
+    );
+    expect(adapter.requests.length, 1, reason: '拿不到授权就不进 song_auth');
+  });
+
+  test('已登录账号 user_verify business → 保持 business 并透出错误码', () async {
+    api = _FakeMusicApi(
+      KugouIdentity(
+        userId: 12345,
+        token: 'TOKEN',
+        t1: '',
+        mid: 'mid-123',
+        dfid: 'dfid-123',
+        uuid: '-',
+        guid: 'guid-123',
+        mac: '',
+        deviceName: '',
+        renderFingerprint: '',
+      ),
+    );
+    final adapter = _RoutingAdapter((options) {
+      if (Uri.parse(options.path).path == '/v1/user_verify') {
+        return _json('{"status":0,"error_code":35002}');
+      }
+      return _happyPath(options);
+    });
+    await expectLater(
+      build(adapter).resolvePlayback(song()),
+      throwsA(
+        isA<KugouApiException>()
+            .having((error) => error.kind, 'kind', 'business')
+            .having((error) => error.code, 'code', 35002),
+      ),
+    );
+    expect(adapter.requests.length, 1);
+  });
 }
