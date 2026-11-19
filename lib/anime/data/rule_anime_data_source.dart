@@ -212,7 +212,12 @@ class RuleAnimeDataSource implements AnimeDataSource {
       }
       return _emptyDetail(item, sourceName: ruleName);
     }
-    return detailFromRule(rule, item, parsed.items);
+    return detailFromRule(
+      rule,
+      item,
+      parsed.items,
+      detailCoverUrl: parsed.absoluteCoverUrl,
+    );
   }
 
   /// 无规则 / 抓不到剧集时的返回值：标题封面地址仍取 item，其余留空。

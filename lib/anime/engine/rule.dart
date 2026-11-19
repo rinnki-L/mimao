@@ -88,6 +88,7 @@ class AnimeRule {
       detail: DetailRule(
         roads: _readString(json['chapterRoads']),
         episodes: _readString(json['chapterResult']),
+        cover: _readString(json['detailCover'] ?? json['cover']),
       ),
       play: PlayRule(
         urlAttribute: rawAttribute.isEmpty ? 'href' : rawAttribute,
@@ -171,6 +172,7 @@ class AnimeRule {
       'searchResult': search.link,
       'chapterRoads': detail.roads,
       'chapterResult': detail.episodes,
+      if (detail.cover.isNotEmpty) 'detailCover': detail.cover,
       'referer': referer,
       'searchMode': searchMode,
       'chapterMode': chapterMode,
@@ -226,9 +228,13 @@ class SearchRule {
   }
 }
 
-/// 详情规则：播放线路容器 + 剧集节点。
+/// 详情规则：播放线路容器 + 剧集节点 + 可选详情封面。
 class DetailRule {
-  const DetailRule({required this.roads, required this.episodes});
+  const DetailRule({
+    required this.roads,
+    required this.episodes,
+    this.cover = '',
+  });
 
   /// `chapterRoads`：播放线路（一个 tab/面板）的 XPath。
   final String roads;
@@ -236,8 +242,16 @@ class DetailRule {
   /// `chapterResult`：线路内剧集链接的 XPath（相对线路）。
   final String episodes;
 
+  /// 引擎扩展：详情封面 XPath。读 `detailCover`/`cover`，Kazumi 原生规则没有
+  /// 这个字段，缺省为空串——此时详情封面回退到搜索封面，行为完全不变。
+  final String cover;
+
+  /// 详情主干选择器：封面是可选扩展，不参与"规则是否可用"判定。
+  /// 刻意只按 roads/episodes 判断——加封面不得让规则变得更严或更宽松。
   bool get hasSelectors => roads.isNotEmpty || episodes.isNotEmpty;
 
+  /// 详情主干 XPath 合法性：不检查可选封面，非法封面最多回退到搜索封面，
+  /// 不会让一条原本可用的规则失效。
   bool get hasValidSelectors =>
       isSupportedXPathSelector(roads) && isSupportedXPathSelector(episodes);
 }
@@ -278,6 +292,8 @@ const Set<String> _knownJsonKeys = <String>{
   'searchCover',
   'chapterRoads',
   'chapterResult',
+  'detailCover',
+  'cover',
   'referer',
   'searchMode',
   'chapterMode',

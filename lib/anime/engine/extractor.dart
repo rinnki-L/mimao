@@ -22,6 +22,49 @@ import 'rule.dart';
 class RuleExtractor {
   const RuleExtractor();
 
+  /// 详情页封面抽取结果：原始值与基于 baseURL 归一化的绝对地址。
+  /// 没有可用选择器 / 抽不到内容时两者都是空串。
+  ({String coverUrl, String absoluteCoverUrl}) parseDetailCover(
+    String html,
+    AnimeRule rule,
+  ) {
+    final diagnostics = <String>[];
+    final root = _parseDocument(html, diagnostics);
+    if (root == null) return (coverUrl: '', absoluteCoverUrl: '');
+    return _coverFromRoot(root, rule);
+  }
+
+  /// 从已解析的文档根节点取详情封面。
+  ({String coverUrl, String absoluteCoverUrl}) _coverFromRoot<T>(
+    XPath<T> root,
+    AnimeRule rule,
+  ) {
+    final selector = rule.detail.cover.trim();
+    if (selector.isEmpty || !isSupportedXPathSelector(selector)) {
+      return (coverUrl: '', absoluteCoverUrl: '');
+    }
+    try {
+      // 根节点是 XPath（查询器）而非 XPathNode，直接用 query 取属性，语义与
+      // _firstAttribute 一致：先取结果里的属性值，再回退到节点自身的 src。
+      final result = root.query(selector);
+      var cover = result.attrs.firstWhere(
+        (item) => item != null,
+        orElse: () => null,
+      );
+      cover ??= result.node?.attributes['src'];
+      final coverUrl = (cover ?? '').trim();
+      return (
+        coverUrl: coverUrl,
+        absoluteCoverUrl: coverUrl.isEmpty
+            ? ''
+            : normalizeRuleUrl(rule.baseUrl, coverUrl),
+      );
+    } catch (_) {
+      // 封面是可选增强：解析失败就回退，不让整个详情页失败。
+      return (coverUrl: '', absoluteCoverUrl: '');
+    }
+  }
+
   /// 解析搜索结果页。
   RuleParseResult<RuleSearchResult> parseSearch(String html, AnimeRule rule) {
     final diagnostics = <String>[];
@@ -94,6 +137,9 @@ class RuleExtractor {
       return RuleParseResult<RuleEpisode>(diagnostics: diagnostics);
     }
 
+    // 详情封面与剧集同一次解析，避免二次抓取；可选字段，抽不到就是空串。
+    final cover = _coverFromRoot(root, rule);
+
     final List<XPathNode<dynamic>> roads;
     try {
       roads = root.query(rule.detail.roads).nodes;
@@ -143,7 +189,12 @@ class RuleExtractor {
       }
     }
 
-    return RuleParseResult<RuleEpisode>(items: items, diagnostics: diagnostics);
+    return RuleParseResult<RuleEpisode>(
+      items: items,
+      diagnostics: diagnostics,
+      coverUrl: cover.coverUrl,
+      absoluteCoverUrl: cover.absoluteCoverUrl,
+    );
   }
 
   XPath<dynamic>? _parseDocument(String html, List<String> diagnostics) {

@@ -43,15 +43,17 @@ AnimeSummary? summaryFromRule(AnimeRule rule, RuleSearchResult hit) {
 
 /// 把详情页抽取结果映射成 [AnimeDetail]。
 ///
-/// `number` 从 1 开始按传入顺序生成；`roadIndex` / `roadName` 属于 A 线线路
-/// 概念，D 模型没有对应字段，刻意丢弃（不拼进标题）。`duration` 恒为 null
-/// （Kazumi 规则无时长选择器）。标题/封面/地址取传入的 [item]，简介与标签
-/// 留空——引擎没有简介选择器，页面显示「暂无简介」，不伪造内容。
+/// `number` 从 1 开始按传入顺序生成；`roadIndex` / `roadName` 来自 A 线线路
+/// 概念，原样透传到 [AnimeEpisode]（播放页据此切线路）。`duration` 恒为 null
+/// （Kazumi 规则无时长选择器）。标题取传入的 [item]；封面回退链为
+/// [detailCoverUrl]（详情封面）→ [AnimeSummary.coverUrl]（搜索封面）→ 空串。
+/// 简介与标签留空——引擎没有简介选择器，页面显示「暂无简介」，不伪造内容。
 AnimeDetail detailFromRule(
   AnimeRule rule,
   AnimeSummary item,
-  List<RuleEpisode> episodes,
-) {
+  List<RuleEpisode> episodes, {
+  String detailCoverUrl = '',
+}) {
   final mapped = <AnimeEpisode>[];
   for (var index = 0; index < episodes.length; index++) {
     final episode = episodes[index];
@@ -62,13 +64,18 @@ AnimeDetail detailFromRule(
         title: episode.title,
         url: absoluteUrl.isEmpty ? episode.url : episode.absoluteUrl,
         duration: null,
+        roadIndex: episode.roadIndex,
+        roadName: episode.roadName,
       ),
     );
   }
 
+  final detailCover = detailCoverUrl.trim();
+  final coverUrl = detailCover.isNotEmpty ? detailCover : item.coverUrl;
+
   return AnimeDetail(
     title: item.title,
-    coverUrl: item.coverUrl,
+    coverUrl: coverUrl,
     detailUrl: item.detailUrl,
     description: '',
     sourceName: ruleDisplayName(rule),

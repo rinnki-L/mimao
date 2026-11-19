@@ -94,16 +94,27 @@ class RuleEpisode {
 ///
 /// 规则写错、页面结构变了都不会抛异常，而是返回空 [items] 并在
 /// [diagnostics] 里说明原因——搜索引擎可以逐条源容错，不需要 try/catch。
+///
+/// [coverUrl]/[absoluteCoverUrl] 是详情抽取的可选封面（读规则 `detailCover`/
+/// `cover`）；搜索解析不用它，保持空串。缺省值让既有构造点零改动。
 class RuleParseResult<T> {
   const RuleParseResult({
     this.items = const [],
     this.diagnostics = const <String>[],
+    this.coverUrl = '',
+    this.absoluteCoverUrl = '',
   });
 
   final List<T> items;
 
   /// 解析过程中的问题（规则不完整、XPath 执行失败、单条跳过等）。
   final List<String> diagnostics;
+
+  /// 详情封面原始地址；空字符串表示规则未提供或抽不到。
+  final String coverUrl;
+
+  /// 基于规则 baseURL 归一化后的详情封面绝对地址；无封面时为空。
+  final String absoluteCoverUrl;
 
   bool get isEmpty => items.isEmpty;
 
