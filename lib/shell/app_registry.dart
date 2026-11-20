@@ -313,6 +313,8 @@ Future<void> initAppModules({
         history: historyApi,
         searchHistory: searchHistoryApi,
         libraryBuilder: libraryBuilder,
+        // ── 扩容浏览能力（发现/榜单/专辑/歌手/歌单/用户/歌词…）──
+        browse: api.browseApis,
       );
     }
   } catch (error) {

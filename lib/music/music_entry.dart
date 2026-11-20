@@ -17,12 +17,19 @@ import 'package:flutter/material.dart';
 import 'package:mimao/core/contract.dart';
 import 'package:mimao/music/api/music_account_api.dart';
 import 'package:mimao/music/api/music_api.dart';
+import 'package:mimao/music/api/music_browse_apis.dart';
 import 'package:mimao/music/api/music_playback_api.dart';
 import 'package:mimao/music/library_api.dart';
 import 'package:mimao/music/music_store.dart';
+import 'package:mimao/music/pages/music_album_detail_page.dart';
+import 'package:mimao/music/pages/music_artist_detail_page.dart';
+import 'package:mimao/music/pages/music_discovery_page.dart';
 import 'package:mimao/music/pages/music_login_gate.dart';
 import 'package:mimao/music/pages/music_module_page.dart';
 import 'package:mimao/music/pages/music_module_settings.dart';
+import 'package:mimao/music/pages/music_playlist_detail_page.dart';
+import 'package:mimao/music/pages/music_playlist_list_page.dart';
+import 'package:mimao/music/pages/music_rank_page.dart';
 import 'package:mimao/music/player/playback_engine.dart';
 import 'package:mimao/music/player/player_progress.dart';
 import 'package:mimao/music/player/player_ui.dart';
@@ -41,6 +48,7 @@ class MusicModule implements AppModule {
     this.history,
     this.searchHistory,
     this.libraryBuilder,
+    this.browse,
   }) : _api = api,
        store = store ?? MusicStore(api);
 
@@ -64,6 +72,10 @@ class MusicModule implements AppModule {
   final MusicHistoryApi? history;
   final MusicSearchHistoryApi? searchHistory;
   final MusicLibraryBuilder? libraryBuilder;
+
+  /// 扩容端点能力包（发现/榜单/专辑/歌手/歌单/用户/账号/歌词…）。
+  /// null 时模块退回旧搜索主页，不显示新入口。
+  final MusicBrowseApis? browse;
 
   /// 播放 UI 懒构造：P 线产品路径才注入 [playerUiFactory]；测试/未接线时
   /// 保持 null，绝不触碰 media_kit。
@@ -97,6 +109,7 @@ class MusicModule implements AppModule {
     final collect = this.collect;
     final history = this.history;
     final builder = libraryBuilder;
+    final browseApis = browse;
     final libraryTab =
         (builder != null &&
             player != null &&
@@ -104,6 +117,42 @@ class MusicModule implements AppModule {
             history != null)
         ? builder(context, player, collect, history)
         : null;
+
+    // 发现页（搜索扩展 + 推荐）：只有搜索扩展/发现/播放三者都就绪才替换
+    // 旧搜索首 tab；否则保持既有搜索主页，不影响未接线环境。
+    final searchExt = browseApis?.searchExt;
+    final discovery = browseApis?.discovery;
+    final discoveryTab =
+        (player != null && searchExt != null && discovery != null)
+        ? MusicDiscoveryPage(
+            searchExt: searchExt,
+            discovery: discovery,
+            store: store,
+            player: player,
+            lyric: browseApis?.lyric,
+            collect: collect,
+            searchHistory: searchHistory,
+            onOpenAlbum: browseApis?.album == null
+                ? null
+                : (id) => _openAlbum(context, id),
+            onOpenArtist: browseApis?.artist == null
+                ? null
+                : (id) => _openArtist(context, id),
+            onOpenPlaylist: browseApis?.playlistRead == null
+                ? null
+                : (globalId) => _openPlaylistDetail(context, globalId),
+            onOpenRank: browseApis?.rank == null
+                ? null
+                : () => _openRank(context),
+          )
+        : null;
+
+    // 「我的」页顶部的歌单入口；缺任何一项就隐藏，避免死链。
+    final canOpenPlaylists =
+        player != null &&
+        browseApis?.userLibrary != null &&
+        browseApis?.playlistRead != null;
+
     final home = MusicModulePage(
       store: store,
       embedded: true,
@@ -111,6 +160,8 @@ class MusicModule implements AppModule {
       collect: collect,
       searchHistory: searchHistory,
       libraryTab: libraryTab,
+      browseTab: discoveryTab,
+      onOpenPlaylists: canOpenPlaylists ? () => _openPlaylists(context) : null,
       // 各入口的设置放进各入口：账号/设备设置作为最右侧「设置」tab。
       settingsTab: buildSettings(context),
     );
@@ -119,6 +170,91 @@ class MusicModule implements AppModule {
     final loginAccount = account;
     if (loginAccount == null) return home;
     return MusicLoginGate(api: _api, account: loginAccount, child: home);
+  }
+
+  void _openAlbum(BuildContext context, int albumId) {
+    final api = browse?.album;
+    final player = _resolvePlayerUi;
+    if (api == null || player == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'music/album'),
+        builder: (_) => MusicAlbumDetailPage(
+          album: api,
+          albumId: albumId,
+          player: player,
+          onOpenArtist: browse?.artist == null
+              ? null
+              : (id) => _openArtist(context, id),
+        ),
+      ),
+    );
+  }
+
+  void _openArtist(BuildContext context, int artistId) {
+    final api = browse?.artist;
+    final player = _resolvePlayerUi;
+    if (api == null || player == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'music/artist'),
+        builder: (_) => MusicArtistDetailPage(
+          artist: api,
+          artistId: artistId,
+          player: player,
+          onOpenAlbum: browse?.album == null
+              ? null
+              : (id) => _openAlbum(context, id),
+        ),
+      ),
+    );
+  }
+
+  void _openPlaylistDetail(BuildContext context, String globalId) {
+    final read = browse?.playlistRead;
+    final player = _resolvePlayerUi;
+    if (read == null || player == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'music/playlist'),
+        builder: (_) => MusicPlaylistDetailPage(
+          read: read,
+          player: player,
+          globalId: globalId,
+          write: browse?.playlistWrite,
+        ),
+      ),
+    );
+  }
+
+  void _openPlaylists(BuildContext context) {
+    final library = browse?.userLibrary;
+    final read = browse?.playlistRead;
+    final player = _resolvePlayerUi;
+    if (library == null || read == null || player == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'music/playlists'),
+        builder: (_) => MusicPlaylistListPage(
+          library: library,
+          read: read,
+          player: player,
+          write: browse?.playlistWrite,
+        ),
+      ),
+    );
+  }
+
+  void _openRank(BuildContext context) {
+    final api = browse?.rank;
+    final player = _resolvePlayerUi;
+    if (api == null || player == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'music/rank'),
+        builder: (_) => MusicRankPage(api: api, player: player),
+      ),
+    );
   }
 
   @override

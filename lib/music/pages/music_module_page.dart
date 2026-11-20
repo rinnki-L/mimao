@@ -25,6 +25,9 @@ class MusicModulePage extends StatefulWidget {
     this.collect,
     this.searchHistory,
     this.libraryTab,
+    this.accountTab,
+    this.browseTab,
+    this.onOpenPlaylists,
     this.settingsTab,
   });
 
@@ -44,6 +47,16 @@ class MusicModulePage extends StatefulWidget {
 
   /// C 线「我的」页；null 时不显示「我的」tab。
   final Widget? libraryTab;
+
+  /// 账号中心页（用户资料/等级/会员/历史/已购）；null 时不显示「账号」tab。
+  final Widget? accountTab;
+
+  /// 发现页（搜索扩展 + 推荐）；非空时作为首 tab 并取代独立的搜索 tab
+  /// （发现页自身带歌曲搜索）。null 时保持旧的「搜索」首 tab。
+  final Widget? browseTab;
+
+  /// 「我的」页顶部的「我的歌单」入口；null 时不显示。
+  final VoidCallback? onOpenPlaylists;
 
   /// 最右侧「设置」tab 的内容；由模块出口 buildSettings 注入。
   /// 与 libraryTab 都为 null 时不出底部导航（保持未接线时的行为）。
@@ -186,24 +199,67 @@ class _MusicModulePageState extends State<MusicModulePage> {
     );
 
     final libraryTab = widget.libraryTab;
+    final accountTab = widget.accountTab;
+    final browseTab = widget.browseTab;
     final settingsTab = widget.settingsTab;
 
-    // tab 列表：搜索恒在；「我的」「设置」按注入与否出现，设置永远最右。
-    final destinations = <NavigationDestination>[
-      const NavigationDestination(
-        icon: Icon(Icons.search_outlined),
-        selectedIcon: Icon(Icons.search),
-        label: '搜索',
-      ),
-    ];
-    final tabs = <Widget>[searchBody];
+    // tab 列表：发现页（注入时）或旧搜索页恒在；「我的」「账号」「设置」
+    // 按注入与否出现，设置永远最右。
+    final destinations = <NavigationDestination>[];
+    final tabs = <Widget>[];
+    if (browseTab != null) {
+      tabs.add(browseTab);
+      destinations.add(
+        const NavigationDestination(
+          icon: Icon(Icons.explore_outlined),
+          selectedIcon: Icon(Icons.explore),
+          label: '发现',
+        ),
+      );
+    } else {
+      tabs.add(searchBody);
+      destinations.add(
+        const NavigationDestination(
+          icon: Icon(Icons.search_outlined),
+          selectedIcon: Icon(Icons.search),
+          label: '搜索',
+        ),
+      );
+    }
     if (libraryTab != null) {
-      tabs.add(libraryTab);
+      final openPlaylists = widget.onOpenPlaylists;
+      tabs.add(
+        openPlaylists == null
+            ? libraryTab
+            : Column(
+                children: <Widget>[
+                  ListTile(
+                    leading: const Icon(Icons.queue_music),
+                    title: const Text('我的歌单'),
+                    subtitle: const Text('云歌单与收藏歌单'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: openPlaylists,
+                  ),
+                  const Divider(height: 1),
+                  Expanded(child: libraryTab),
+                ],
+              ),
+      );
       destinations.add(
         const NavigationDestination(
           icon: Icon(Icons.library_music_outlined),
           selectedIcon: Icon(Icons.library_music),
           label: '我的',
+        ),
+      );
+    }
+    if (accountTab != null) {
+      tabs.add(accountTab);
+      destinations.add(
+        const NavigationDestination(
+          icon: Icon(Icons.person_outline),
+          selectedIcon: Icon(Icons.person),
+          label: '账号',
         ),
       );
     }
