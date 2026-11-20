@@ -14,6 +14,7 @@
 library;
 
 import 'package:mimao/music/client/kugou_client.dart';
+import 'package:mimao/music/client/kugou_error.dart';
 import 'package:mimao/music/client/kugou_identity.dart';
 
 /// 读取（必要时生成/注册）可用身份。
@@ -41,4 +42,12 @@ class MusicSession {
 
   /// 统一写回身份（与搜索/播放共用同一份缓存，避免登录后仍用旧 token）。
   final MusicIdentitySaver saveIdentity;
+}
+
+/// 需要账号的端点前置校验——上游 `cloudlist::account` /
+/// `user_protocol::require_account` 同语义：匿名直接 authentication。
+void requireMusicAccount(KugouIdentity identity) {
+  if (identity.userId == 0 || identity.token.isEmpty) {
+    throw const KugouApiException('authentication', '请先登录');
+  }
 }

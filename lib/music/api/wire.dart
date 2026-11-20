@@ -139,7 +139,9 @@ void ensureBusinessSuccess(int status, int errorCode, {String context = ''}) {
 /// - `ErrcodeEnvelope` 用 `status` + `errcode`（rank/list 等）；
 /// - 歌词端点用 `status` + `error_code`，但成功状态是 200（调用方自行判定）。
 ///
-/// 与 [decodeEnvelope] 一样，20018 在解码层统一映射 authentication。
+/// 登录过期语义严格对齐 request.rs `authentication_expiration`：
+/// - 只认 `error_code`（`errcode` 等别名不参与，20018 在别名下是 business）；
+/// - `msg` 文本含「登录已过期」也算过期（即使没有 error_code）。
 WireEnvelope decodeEnvelopeWithFields(
   Uint8List bytes, {
   String statusKey = 'status',
@@ -155,11 +157,17 @@ WireEnvelope decodeEnvelopeWithFields(
   if (decoded is! Map) {
     throw const KugouApiException('decode', '响应信封不是 JSON object');
   }
-  final errorCode = requiredScalarInt(decoded[errorCodeKey], errorCodeKey);
-  if (mapAuthenticationExpired &&
-      errorCode == kugouErrorCodeAuthenticationExpired) {
-    throw const KugouApiException('authentication', '登录已过期，请重新登录酷狗账号');
+  if (mapAuthenticationExpired) {
+    final message = decoded['msg'];
+    final expiredMessage = message is String && message.contains('登录已过期');
+    final rawErrorCode = errorCodeKey == 'error_code'
+        ? optionalInt(decoded['error_code'])
+        : null;
+    if (expiredMessage || rawErrorCode == kugouErrorCodeAuthenticationExpired) {
+      throw const KugouApiException('authentication', '登录已过期，请重新登录酷狗账号');
+    }
   }
+  final errorCode = requiredScalarInt(decoded[errorCodeKey], errorCodeKey);
   return WireEnvelope(
     requiredScalarInt(decoded[statusKey], statusKey),
     errorCode,

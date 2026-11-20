@@ -128,4 +128,100 @@ void main() {
       ),
     );
   });
+
+  // ── 扩容共享 crypto（crypto.rs 黄金向量）──
+
+  test('AES-256-CBC hex 与上游 refresh 向量逐字节一致', () {
+    expect(
+      kugouAes256Hex(
+        utf8.encode('fixture-t1|1700000000123'),
+        utf8.encode('5e4ef500e9597fe004bd09a46d8add98'),
+        utf8.encode('04bd09a46d8add98'),
+      ),
+      '54109b3de6f4ef96c75ee57eddfa19068e695b6a1d1edaa432cff9eaaf6f4d3d',
+    );
+  });
+
+  test('参数信封（裸 RSA + AES-256）与上游向量逐字节一致', () {
+    final envelope = kugouVerificationEnvelope(<String, Object?>{
+      'code': '123456',
+    }, seed: '0123456789abcdef');
+    expect(
+      envelope.portrait,
+      '8f00be7ef062ab4a56be2cce9177273c52ff9c37cd2534deb222cffd3f9d0244'
+      '25e520fef4fde78d48a6661f1814e13ecbb1dce7937417ae356fa21d097e11dd'
+      '1a9f55b28f94715f9df841a2e8b0413974f157a1c64fc9e7c7c611d4dda8b37e'
+      '58d27fc7266df185b68b2a2fbcc1e1c2b46242a68409d63d8879772bf7bb4735',
+    );
+    expect(
+      envelope.params,
+      'f6b8a061ddc6d8b1abb7222ae9d44b489e9f3f405c5a336864661bf8af172a65',
+    );
+  });
+
+  test('凭证解密：JSON object / 原始字符串 / 非法密文', () {
+    expect(
+      utf8.decode(
+        kugouDecryptCredentials(
+          'f6b8a061ddc6d8b1abb7222ae9d44b489e9f3f405c5a336864661bf8af172a65',
+          '0123456789abcdef',
+        ),
+      ),
+      '{"code":"123456"}',
+    );
+    expect(
+      () => kugouDecryptCredentials('00', '0123456789abcdef'),
+      throwsA(isA<Exception>()),
+    );
+    expect(
+      () => kugouDecryptCredentials('not-hex', '0123456789abcdef'),
+      throwsA(isA<Exception>()),
+    );
+  });
+
+  test('歌单写入信封（AES-128）与上游向量逐字节一致', () {
+    final envelope = KugouPlaylistEnvelope.withSeed(
+      <String, Object?>{'listid': 123, 'type': 0},
+      userId: 123,
+      token: 'fixture-token',
+      seed: 'A1b2C3',
+    );
+    expect(
+      envelope.body
+          .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+          .join(),
+      '93a42d45891d448c849f3ab521eae7c6b837287d88d8bbe2426c07329c0278fb',
+    );
+    expect(
+      utf8.decode(envelope.base64Body()),
+      'k6QtRYkdRIyEnzq1Iernxrg3KH2I2LviQmwHMpwCePs=',
+    );
+    expect(envelope.portrait.length, 256);
+    expect(
+      utf8.decode(envelope.decrypt(envelope.body)),
+      '{"listid":123,"type":0}',
+    );
+  });
+
+  test('云歌单时间键与上游 cloudlist 向量一致', () {
+    expect(
+      kugouCloudListKeyedTime(1700000000),
+      'bad0ee207bf429bd91402b77fc8f7a5b',
+    );
+  });
+
+  test('图片校验和：合法日期 32 位 hex，非法日期 → input', () {
+    expect(
+      RegExp(r'^[0-9a-f]{32}$').hasMatch(kugouImageChecksum('20261121')),
+      isTrue,
+    );
+    for (final invalid in <String>['2026-1-1', '20261301', '20260230', '']) {
+      expect(
+        () => kugouImageChecksum(invalid),
+        throwsA(
+          predicate((Object e) => e is Exception && '$e'.contains('input')),
+        ),
+      );
+    }
+  });
 }
