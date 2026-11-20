@@ -7,9 +7,13 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mimao/music/api/search.dart';
+import 'package:mimao/music/api/session.dart';
 import 'package:mimao/music/client/kugou_client.dart';
 import 'package:mimao/music/client/kugou_error.dart';
 import 'package:mimao/music/client/kugou_identity.dart';
+import 'package:mimao/music/client/signature.dart';
+
+import 'search_ext/fake_session.dart';
 
 class _FakeAdapter implements HttpClientAdapter {
   _FakeAdapter(this.bytes);
@@ -107,11 +111,13 @@ void main() {
   late _FakeAdapter adapter;
   late KugouClient client;
   late KugouIdentity identity;
+  late MusicSession session;
 
   setUp(() {
     adapter = _FakeAdapter(Uint8List(0));
     client = KugouClient(dio: Dio()..httpClientAdapter = adapter);
     identity = KugouIdentity.anonymous();
+    session = fakeMusicSession(client, identity);
   });
 
   test('请求装配：路径/路由/平台参数/显式 userid=0/clientver=201', () async {
@@ -286,4 +292,351 @@ void main() {
     const SearchSongsQuery(keyword: 'k', pageSize: 1).validate();
     const SearchSongsQuery(keyword: 'k', pageSize: 100).validate();
   });
+
+  // ---- 扩容分支（search.rs Album/Author/Special/Lyric）----
+
+  test(
+    '专辑分支：请求装配（/v1/search/album + category/sorttype/searchsong + 签名自验）',
+    () async {
+      adapter.bytes = Uint8List.fromList(utf8.encode(albumWire()));
+      final page = await fetchSearchAlbums(
+        session,
+        const SearchSongsQuery(keyword: '周杰伦', page: 2, pageSize: 20),
+      );
+      expect(page.items, isNotEmpty);
+      expect(
+        '${adapter.captured.uri}'.startsWith(
+          'https://gateway.kugou.com/v1/search/album?',
+        ),
+        isTrue,
+      );
+      expect(adapter.captured.headers['x-router'], 'complexsearch.kugou.com');
+      final query = adapter.captured.queryParameters.map(
+        (key, value) => MapEntry(key, '$value'),
+      );
+      expect(query['keyword'], '周杰伦');
+      expect(query['page'], '2');
+      expect(query['pagesize'], '20');
+      expect(query['platform'], 'AndroidFilter');
+      expect(query['iscorrection'], '1');
+      expect(query['clientver'], '201');
+      expect(query['category'], '1');
+      expect(query['sorttype'], '0');
+      expect(query['searchsong'], '0');
+      expect(
+        query.containsKey('userid'),
+        isFalse,
+        reason: '只有 Song 分支带显式 userid；Album 分支没有',
+      );
+      expect(
+        query.length,
+        15,
+        reason: '9 端点参数 + 5 个传输默认（clientver 被端点覆盖）+ signature',
+      );
+      final signature = query.remove('signature');
+      expect(signature, kugouSignatureAndroid(query, const <int>[]));
+    },
+  );
+
+  test('专辑解码：字段映射/数字字符串宽容/封面占位符/歌手列表', () async {
+    adapter.bytes = Uint8List.fromList(utf8.encode(albumWire()));
+    final page = await fetchSearchAlbums(
+      session,
+      const SearchSongsQuery(keyword: 'k'),
+    );
+    expect(page.page, 2);
+    expect(page.pageSize, 20);
+    expect(page.total, 57);
+    final album = page.items.single;
+    expect(album.id, 105, reason: 'albumid 是数字字符串，scalar 宽容解码');
+    expect(album.title, '经典专辑');
+    expect(album.artistText, '歌手A / 歌手B');
+    expect(album.artists[1].id, isNull);
+    expect(album.coverUrl, contains('/240/'));
+    expect(album.coverUrl, isNot(contains('{size}')));
+    expect(album.songCount, 12);
+    expect(album.publishedAt, '2021-01-01');
+  });
+
+  test('专辑 singers 空对象宽容；lists 缺失回空页（WirePage.lists 有 default）', () async {
+    adapter.bytes = Uint8List.fromList(
+      utf8.encode(albumWire(singers: <String, Object?>{})),
+    );
+    final emptySingers = await fetchSearchAlbums(
+      session,
+      const SearchSongsQuery(keyword: 'k'),
+    );
+    expect(emptySingers.items.single.artists, isEmpty);
+
+    adapter.bytes = Uint8List.fromList(
+      utf8.encode(albumWire(includeLists: false)),
+    );
+    final missingLists = await fetchSearchAlbums(
+      session,
+      const SearchSongsQuery(keyword: 'k'),
+    );
+    expect(
+      missingLists.items,
+      isEmpty,
+      reason:
+          '扩容期上游 WirePage.lists 带 serde(default)：缺键回空页；'
+          'Song 分支保持骨架期的必填语义（见上方 lists 缺失测试）',
+    );
+  });
+
+  test('歌手分支：装配（albumhide/nocollect）+ Avatar 不替换 {size} 占位符', () async {
+    adapter.bytes = Uint8List.fromList(utf8.encode(authorWire()));
+    final page = await fetchSearchArtists(
+      session,
+      const SearchSongsQuery(keyword: 'k'),
+    );
+    expect(
+      '${adapter.captured.uri}'.startsWith(
+        'https://gateway.kugou.com/v1/search/author?',
+      ),
+      isTrue,
+    );
+    final query = adapter.captured.queryParameters.map(
+      (key, value) => MapEntry(key, '$value'),
+    );
+    expect(query['albumhide'], '0');
+    expect(query['nocollect'], '0');
+    expect(
+      query.containsKey('category'),
+      isFalse,
+      reason: 'category/sorttype 是 Album 专属',
+    );
+
+    final artist = page.items.single;
+    expect(artist.id, 9);
+    expect(artist.name, '歌手A');
+    expect(
+      artist.avatarUrl,
+      contains('{size}'),
+      reason: 'search.rs Author 分支 avatar_url: a.avatar 原样，不替换占位符',
+    );
+    expect(artist.albumCount, 11);
+    expect(artist.songCount, 222);
+    expect(artist.fans, 333);
+  });
+
+  test('歌单分支：解码 special 字段/封面原样/play_count 文本解析', () async {
+    adapter.bytes = Uint8List.fromList(
+      utf8.encode(specialWire(playCount: '152600')),
+    );
+    final page = await fetchSearchPlaylists(
+      session,
+      const SearchSongsQuery(keyword: 'k'),
+    );
+    expect(
+      '${adapter.captured.uri}'.startsWith(
+        'https://gateway.kugou.com/v1/search/special?',
+      ),
+      isTrue,
+    );
+    final playlist = page.items.single;
+    expect(playlist.id, 77);
+    expect(playlist.globalId, 'GID123');
+    expect(playlist.title, '精选歌单');
+    expect(playlist.creatorId, 'UID9');
+    expect(playlist.creatorName, '创建者');
+    expect(
+      playlist.coverUrl,
+      contains('{size}'),
+      reason: 'Special 封面原样（cover_url: s.img）',
+    );
+    expect(playlist.songCount, 8);
+    expect(playlist.playCount, 152600);
+  });
+
+  test('歌单 play_count 非数字/负数/空串 → null（u64 parse 语义）', () async {
+    for (final raw in <String>['', '-5', '12x']) {
+      adapter.bytes = Uint8List.fromList(
+        utf8.encode(specialWire(playCount: raw)),
+      );
+      final page = await fetchSearchPlaylists(
+        session,
+        const SearchSongsQuery(keyword: 'k'),
+      );
+      expect(page.items.single.playCount, isNull, reason: 'play_count=$raw');
+    }
+  });
+
+  test('歌词分支：MixSongID 数字→文本/TimeLength 秒→毫秒/资源折叠/excerpt', () async {
+    adapter.bytes = Uint8List.fromList(utf8.encode(lyricWire()));
+    final page = await fetchSearchLyrics(
+      session,
+      const SearchSongsQuery(keyword: 'k'),
+    );
+    expect(
+      '${adapter.captured.uri}'.startsWith(
+        'https://gateway.kugou.com/v1/search/lyric?',
+      ),
+      isTrue,
+    );
+    final hit = page.items.single;
+    expect(hit.lyricId, 555);
+    expect(hit.excerpt, '歌词片段');
+    expect(hit.song.id, '6789', reason: '该分支 MixSongID 是 JSON 数字，text 统一成字符串');
+    expect(hit.song.hash, 'HASHLYRIC');
+    expect(hit.song.durationMs, 240000);
+    expect(hit.song.albumId, '42');
+    expect(hit.song.albumTitle, '', reason: 'Rust album_title: None');
+    expect(hit.song.coverUrl, contains('/240/'));
+    expect(hit.song.privilege, 8);
+    final quality = hit.song.resources.single;
+    expect(quality.quality, '320');
+    expect(quality.hash, 'HQHASH');
+    expect(quality.bitRateBps, 320000);
+  });
+
+  test(
+    '扩容分支：lists 项非 object / 歌手项非 object → decode；status=0 → business',
+    () async {
+      adapter.bytes = Uint8List.fromList(
+        utf8.encode(albumWire(nullItem: true)),
+      );
+      await expectLater(
+        fetchSearchAlbums(session, const SearchSongsQuery(keyword: 'k')),
+        throwsA(predicate((Object e) => '$e'.contains('decode'))),
+      );
+
+      adapter.bytes = Uint8List.fromList(
+        utf8.encode(albumWire(singers: <Object?>[null])),
+      );
+      await expectLater(
+        fetchSearchAlbums(session, const SearchSongsQuery(keyword: 'k')),
+        throwsA(predicate((Object e) => '$e'.contains('decode'))),
+      );
+
+      adapter.bytes = Uint8List.fromList(
+        utf8.encode('{"status":0,"error_code":152,"data":{}}'),
+      );
+      await expectLater(
+        fetchSearchPlaylists(session, const SearchSongsQuery(keyword: 'k')),
+        throwsA(predicate((Object e) => '$e'.contains('business'))),
+      );
+    },
+  );
+
+  test('扩容分支共用校验：空关键词/页码 0/分页超界 → input', () async {
+    for (final query in const <SearchSongsQuery>[
+      SearchSongsQuery(keyword: '  '),
+      SearchSongsQuery(keyword: 'k', page: 0),
+      SearchSongsQuery(keyword: 'k', pageSize: 101),
+    ]) {
+      await expectLater(
+        fetchSearchAlbums(session, query),
+        throwsA(predicate((Object e) => '$e'.contains('input'))),
+      );
+    }
+  });
 }
+
+/// 专辑分支 wire（search.rs Album 分支的最小可信结构）。
+///
+/// 边界注入：`singers` 换成 `{}`/`[null]`；`includeLists=false` 模拟 lists 键
+/// 缺失；`nullItem=true` 让 lists 首项为 null（非 object）。
+String albumWire({
+  Object? singers = _kAlbumSingers,
+  bool includeLists = true,
+  bool nullItem = false,
+}) => jsonEncode(<String, Object?>{
+  'status': 1,
+  'error_code': 0,
+  'data': <String, Object?>{
+    'page': 2,
+    'pagesize': 20,
+    'total': 57,
+    if (includeLists)
+      'lists': <Object?>[
+        if (nullItem)
+          null
+        else
+          <String, Object?>{
+            'albumid': '105',
+            'albumname': '经典专辑',
+            'singers': singers,
+            'img': 'http://imge.kugou.com/stdmusic/{size}/album.png',
+            'songcount': '12',
+            'publish_time': '2021-01-01',
+          },
+      ],
+  },
+});
+
+const List<Object?> _kAlbumSingers = <Object?>[
+  <String, Object?>{'id': 3, 'name': '歌手A'},
+  <String, Object?>{'name': '歌手B'},
+];
+
+/// 歌手分支 wire（search.rs Author 分支）。
+String authorWire() => jsonEncode(<String, Object?>{
+  'status': 1,
+  'error_code': 0,
+  'data': <String, Object?>{
+    'page': 1,
+    'pagesize': 30,
+    'total': 1,
+    'lists': <Object?>[
+      <String, Object?>{
+        'AuthorId': 9,
+        'AuthorName': '歌手A',
+        'Avatar': 'http://imge.kugou.com/artist/{size}/a.png',
+        'AlbumCount': 11,
+        'AudioCount': 222,
+        'FansNum': '333',
+      },
+    ],
+  },
+});
+
+/// 歌单分支 wire（search.rs Special 分支）。
+String specialWire({required String playCount}) => jsonEncode(<String, Object?>{
+  'status': 1,
+  'error_code': 0,
+  'data': <String, Object?>{
+    'page': 1,
+    'pagesize': 30,
+    'total': 1,
+    'lists': <Object?>[
+      <String, Object?>{
+        'specialid': '77',
+        'specialname': '精选歌单',
+        'gid': 'GID123',
+        'suid': 'UID9',
+        'nickname': '创建者',
+        'img': 'http://imge.kugou.com/{size}/p.png',
+        'song_count': '8',
+        'play_count': playCount,
+      },
+    ],
+  },
+});
+
+/// 歌词分支 wire（search.rs Lyric 分支；MixSongID 数字 + TimeLength 秒）。
+String lyricWire() => jsonEncode(<String, Object?>{
+  'status': 1,
+  'error_code': 0,
+  'data': <String, Object?>{
+    'page': 1,
+    'pagesize': 30,
+    'total': 1,
+    'lists': <Object?>[
+      <String, Object?>{
+        'MixSongID': 6789,
+        'FileHash': 'HASHLYRIC',
+        'SongName': '歌名',
+        'Singers': <Object?>[],
+        'AlbumID': '42',
+        'TimeLength': 240,
+        'Image': 'http://imge.kugou.com/stdmusic/{size}/l.png',
+        'Privilege': 8,
+        'LyricID': '555',
+        'Lyric': '歌词片段',
+        'HQFileHash': 'HQHASH',
+        'HQBitrate': 320,
+      },
+    ],
+  },
+});
