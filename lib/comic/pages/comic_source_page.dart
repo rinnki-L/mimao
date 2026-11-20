@@ -355,7 +355,6 @@ class _ComicSourcePageState extends State<ComicSourcePage> {
             controller: _indexUrlController,
             enabled: !_browsing && !_importingRepo,
             decoration: const InputDecoration(
-              labelText: '清单地址（index.json）',
               hintText: defaultComicSourceIndexUrl,
               isDense: true,
             ),
