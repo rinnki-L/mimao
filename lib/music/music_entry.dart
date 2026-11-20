@@ -8,7 +8,8 @@
 /// `MusicModule(api: _FakeApi())` 继续可编译可跑：
 /// - 播放（P）：[playbackApi] + [engineFactory] + [progressSink] → [playerUiFactory]
 ///   懒构造出 [MusicPlayerUi]；
-/// - 登录（L）：[account] 透传给设置分组；
+/// - 登录（L）：[account] 透传给设置分组，并在进入模块时驱动全屏登录闸门
+///   （匿名每次进入都弹、可跳过）；
 /// - 收藏历史（C）：[collect] / [history] / [searchHistory] + [libraryBuilder]。
 library;
 
@@ -19,6 +20,7 @@ import 'package:mimao/music/api/music_api.dart';
 import 'package:mimao/music/api/music_playback_api.dart';
 import 'package:mimao/music/library_api.dart';
 import 'package:mimao/music/music_store.dart';
+import 'package:mimao/music/pages/music_login_gate.dart';
 import 'package:mimao/music/pages/music_module_page.dart';
 import 'package:mimao/music/pages/music_module_settings.dart';
 import 'package:mimao/music/player/playback_engine.dart';
@@ -102,7 +104,7 @@ class MusicModule implements AppModule {
             history != null)
         ? builder(context, player, collect, history)
         : null;
-    return MusicModulePage(
+    final home = MusicModulePage(
       store: store,
       embedded: true,
       playerUi: player,
@@ -112,6 +114,11 @@ class MusicModule implements AppModule {
       // 各入口的设置放进各入口：账号/设备设置作为最右侧「设置」tab。
       settingsTab: buildSettings(context),
     );
+    // 未登录时每次进入都全屏弹扫码（可跳过）；account 未接线时直接返回主页，
+    // 不套闸门层（既有测试断言 buildHome 返回 MusicModulePage 的锚点不变）。
+    final loginAccount = account;
+    if (loginAccount == null) return home;
+    return MusicLoginGate(api: _api, account: loginAccount, child: home);
   }
 
   @override

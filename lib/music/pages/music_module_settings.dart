@@ -9,14 +9,12 @@
 /// 二维码是服务端直接给的 PNG data URL，用 [Image.memory] 渲染，不引二维码库。
 library;
 
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
-import 'package:mimao/core/theme.dart';
 import 'package:mimao/music/api/music_account_api.dart';
 import 'package:mimao/music/api/music_api.dart';
 import 'package:mimao/music/client/kugou_identity.dart';
 import 'package:mimao/music/pages/qr_login_controller.dart';
+import 'package:mimao/music/pages/qr_login_view.dart';
 
 class MusicModuleSettings extends StatefulWidget {
   const MusicModuleSettings({
@@ -270,9 +268,6 @@ class _QrLoginDialogState extends State<_QrLoginDialog> {
   @override
   Widget build(BuildContext context) {
     final session = _controller.session;
-    final bytes = session == null
-        ? null
-        : decodeQrImageData(session.imageDataUrl);
     return AlertDialog(
       title: const Text('扫码登录'),
       content: SizedBox(
@@ -280,10 +275,13 @@ class _QrLoginDialogState extends State<_QrLoginDialog> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            _QrImage(bytes: bytes, phase: _controller.phase),
+            QrCodeImage(
+              dataUrl: session?.imageDataUrl,
+              phase: _controller.phase,
+            ),
             const SizedBox(height: 12),
             Text(
-              _statusText(_controller),
+              qrLoginStatusText(_controller),
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodyMedium,
             ),
@@ -299,65 +297,6 @@ class _QrLoginDialogState extends State<_QrLoginDialog> {
         ),
         TextButton(onPressed: _cancel, child: const Text('取消')),
       ],
-    );
-  }
-
-  String _statusText(QrLoginController controller) {
-    return switch (controller.phase) {
-      QrLoginPhase.idle || QrLoginPhase.loading => '正在获取二维码…',
-      QrLoginPhase.waiting => '等待扫码',
-      QrLoginPhase.scanned => '已扫码，请在手机上确认',
-      QrLoginPhase.authorized => '登录成功',
-      QrLoginPhase.expired => '二维码已过期，点击刷新',
-      QrLoginPhase.failed => controller.error ?? '登录失败，请重试',
-    };
-  }
-}
-
-/// 二维码展示：解析失败给可读占位，不把异常抛进 build。
-class _QrImage extends StatelessWidget {
-  const _QrImage({required this.bytes, required this.phase});
-
-  final Uint8List? bytes;
-  final QrLoginPhase phase;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final bytes = this.bytes;
-    if (phase == QrLoginPhase.loading) {
-      return const SizedBox(
-        width: 220,
-        height: 220,
-        child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-      );
-    }
-    if (bytes == null) {
-      return Container(
-        width: 220,
-        height: 220,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainerHighest,
-          borderRadius: MimaoShapes.sm,
-        ),
-        child: Text(
-          '二维码图片解析失败，请刷新',
-          textAlign: TextAlign.center,
-          style: theme.textTheme.bodySmall,
-        ),
-      );
-    }
-    return Image.memory(
-      bytes,
-      width: 220,
-      height: 220,
-      fit: BoxFit.contain,
-      errorBuilder: (context, error, stackTrace) => const SizedBox(
-        width: 220,
-        height: 220,
-        child: Center(child: Text('二维码图片解析失败，请刷新')),
-      ),
     );
   }
 }
