@@ -16,8 +16,7 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:mimao/music/api/session.dart';
-import 'package:mimao/music/api/wire.dart';
-import 'package:mimao/music/client/kugou_client.dart';
+import 'package:mimao/music/api/verify_user_info.dart';
 import 'package:mimao/music/client/kugou_error.dart';
 import 'package:mimao/music/client/kugou_identity.dart';
 import 'package:mimao/music/models/search_models.dart';
@@ -39,9 +38,9 @@ class MusicSideDtQuery {
 
   void validate() {
     if (eventId.trim().isEmpty ||
-        eventId.length > 4096 ||
+        utf8.encode(eventId).length > 4096 ||
         proof.trim().isEmpty ||
-        proof.length > 16384) {
+        utf8.encode(proof).length > 16384) {
       throw const KugouApiException('input', '验证事件或验证码无效');
     }
     if (verifyType != 23 && verifyType != 32) {
@@ -68,51 +67,17 @@ Future<MusicSideDtAcknowledgement> fetchSideDt(
   Random? random,
   DateTime Function()? now,
 }) async {
-  query.validate();
-  final identity = await session.ensureDevice();
-  final source = random ?? Random.secure();
-  final fingerprint = generateSidedtFingerprint(
-    identity,
-    random: source,
-    now: now ?? DateTime.now,
-  );
-  // verify_type==32 时信封带 code，否则空对象（verify_user_info.rs）。
-  final (pk, params) = kugouSidedtVerificationEnvelope(
-    query.verifyType == 32
-        ? <String, Object?>{'code': query.proof}
-        : <String, Object?>{},
-    random: source,
-  );
-  // serde_json 默认 Map 是 BTreeMap：请求体键按字典序输出（与 kugou_crypto
-  // 注释同一约定）；body 键序进入签名覆盖的字节流，顺序不能乱。
-  final body = <String, Object?>{};
-  if (query.verifyType == 32) {
-    body['code'] = query.proof;
-  }
-  body['edt'] = fingerprint.edt;
-  body['eventid'] = query.eventId;
-  body['i'] = '';
-  body['params'] = params;
-  body['pk'] = pk;
-  body['platid'] = 2;
-  body['sid'] = fingerprint.sid;
-  body['v_type'] = query.verifyType;
-  body['userid'] = identity.userId;
-  if (query.verifyType != 32) {
-    body['verifycode'] = query.proof;
-  }
-  body['wasm'] = 1;
-  final response = await session.client.sendEndpoint(
-    identity,
-    KugouEndpoint(
-      origin: KugouOrigin.verification,
-      path: '/v4/verify_user_info',
-      method: 'POST',
-      params: const <String, String>{'clientver': '11510'},
-      body: encodeJsonBody(body),
+  final acknowledgement = await fetchVerifyUserInfo(
+    session,
+    MusicVerifyUserInfoQuery(
+      eventId: query.eventId,
+      verifyType: query.verifyType,
+      proof: query.proof,
     ),
+    random: random,
+    now: now,
   );
-  return _convertSideDt(response.bytes);
+  return MusicSideDtAcknowledgement(acknowledged: acknowledgement.acknowledged);
 }
 
 /// 本地指纹生成（generate_simulate.rs `generate`）。
@@ -354,57 +319,4 @@ String _bigIntToHex(BigInt value, int byteLength) {
   var text = value.toRadixString(16);
   if (text.length.isOdd) text = '0$text';
   return text.padLeft(byteLength * 2, '0').toUpperCase();
-}
-
-/// wire 解析（verify_user_info.rs `convert`）。
-///
-/// status 是必填 WireNumber（整数或整数字符串）；error_code/err_code/errcode
-/// 是 strict_optional——提供了但读不出来必须 decode 失败，不吞成成功。
-MusicSideDtAcknowledgement _convertSideDt(Uint8List bytes) {
-  Object? decoded;
-  try {
-    decoded = jsonDecode(utf8.decode(bytes));
-  } on Object {
-    throw const KugouApiException('decode', '响应不是合法 JSON');
-  }
-  final root = wireMap(decoded);
-  if (root == null) {
-    throw const KugouApiException('decode', '验证响应不是 JSON object');
-  }
-  // request.rs decode 前置：根上 error_code=20018 → authentication。
-  if (optionalInt(root['error_code']) == kugouErrorCodeAuthenticationExpired) {
-    throw const KugouApiException('authentication', '登录已过期，请重新登录酷狗账号');
-  }
-  final status = _wireNumber(root['status'], 'status');
-  final code = _sideDtErrorCode(root);
-  if (status != 1 || code != 0) {
-    throw KugouApiException('business', '验证服务返回失败', code: code);
-  }
-  return const MusicSideDtAcknowledgement(acknowledged: true);
-}
-
-/// verify_user_info.rs `WireNumber`：JSON 整数或 trim 后可解析的整数字符串。
-int _wireNumber(Object? value, String field) {
-  if (value is int) return value;
-  if (value is String) {
-    final parsed = int.tryParse(value.trim());
-    if (parsed != null) return parsed;
-  }
-  throw KugouApiException('decode', '响应字段 $field 缺失或不是标量数字');
-}
-
-/// 三个错误键按序取第一个非空者；缺省/明写 null → 0（unwrap_or(0)）。
-int _sideDtErrorCode(Map<String, Object?> root) {
-  for (final key in const <String>['error_code', 'err_code', 'errcode']) {
-    if (!root.containsKey(key)) continue;
-    final value = root[key];
-    if (value == null) continue;
-    if (value is int) return value;
-    if (value is String) {
-      final parsed = int.tryParse(value.trim());
-      if (parsed != null) return parsed;
-    }
-    throw KugouApiException('decode', '响应字段 $key 缺失或不是标量数字');
-  }
-  return 0;
 }
