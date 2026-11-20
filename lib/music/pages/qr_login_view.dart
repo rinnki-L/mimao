@@ -9,6 +9,8 @@
 /// 控制器本身在 [QrLoginController] 里、不依赖 Flutter；本文件只负责展示。
 library;
 
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:mimao/core/theme.dart';
 import 'package:mimao/music/api/music_account_api.dart';
@@ -129,7 +131,13 @@ class _QrLoginScreenState extends State<QrLoginScreen> {
 }
 
 /// 二维码图片：加载中 / 解析失败给占位，不把异常抛进 build。
-class QrCodeImage extends StatelessWidget {
+///
+/// **必须 StoryfulWidget + 记忆化 bytes**：轮询每次 setState 都会重建本 widget，
+/// 而 Flutter 的 [MemoryImage] 用 `bytes` 的引用相等判断图片缓存命中
+/// （`operator ==` 是 `other.bytes == bytes`）。若在 build 里对同一 dataUrl
+/// 反复 base64 解码生成新 [Uint8List]，缓存永远不命中 → 每轮重新解码 → 二维码闪烁。
+/// 这里按 dataUrl 缓存解码结果：只有真正换新码（刷新二维码）时才重新解码。
+class QrCodeImage extends StatefulWidget {
   const QrCodeImage({super.key, required this.dataUrl, required this.phase});
 
   /// 服务端给的 PNG data URL（或纯 base64）；null 表示还没取到码。
@@ -137,17 +145,32 @@ class QrCodeImage extends StatelessWidget {
   final QrLoginPhase phase;
 
   @override
+  State<QrCodeImage> createState() => _QrCodeImageState();
+}
+
+class _QrCodeImageState extends State<QrCodeImage> {
+  String? _decodedUrl;
+  Uint8List? _bytes;
+
+  /// 同一 dataUrl 复用同一 [Uint8List] 引用，保证 MemoryImage 缓存命中。
+  Uint8List? _bytesFor(String? url) {
+    if (url == null) return null;
+    if (_decodedUrl == url) return _bytes;
+    _decodedUrl = url;
+    return _bytes = decodeQrImageData(url);
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    if (phase == QrLoginPhase.loading) {
+    if (widget.phase == QrLoginPhase.loading) {
       return const SizedBox(
         width: 220,
         height: 220,
         child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
       );
     }
-    final url = dataUrl;
-    final bytes = url == null ? null : decodeQrImageData(url);
+    final bytes = _bytesFor(widget.dataUrl);
     if (bytes == null) {
       return Container(
         width: 220,

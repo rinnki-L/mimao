@@ -10,6 +10,8 @@ import 'package:mimao/music/api/music_api.dart';
 import 'package:mimao/music/client/kugou_identity.dart';
 import 'package:mimao/music/models/music_models.dart';
 import 'package:mimao/music/pages/music_module_settings.dart';
+import 'package:mimao/music/pages/qr_login_controller.dart';
+import 'package:mimao/music/pages/qr_login_view.dart';
 
 const _pngBase64 =
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8'
@@ -181,6 +183,43 @@ void main() {
 
     await tester.tap(find.text('取消'));
     await tester.pumpAndSettle();
+  });
+
+  testWidgets('QrCodeImage 同一 dataUrl 多次重建复用同一 bytes 引用（不闪烁）', (tester) async {
+    // Flutter 的 MemoryImage 用 bytes 引用相等判断缓存命中；轮询 setState
+    // 重建时若每次重新 base64 解码生成新 Uint8List，缓存不命中 → 二维码闪烁。
+    // 这里把渲染出的 Image provider 提出来，断言同一 dataUrl 下引用稳定。
+    const url = 'data:image/png;base64,$_pngBase64';
+    await tester.pumpWidget(
+      MaterialApp(
+        home: QrCodeImage(dataUrl: url, phase: QrLoginPhase.waiting),
+      ),
+    );
+
+    final first = tester.widget<Image>(find.byType(Image)).image as MemoryImage;
+    // 模拟轮询导致的状态重建：不同 phase、同一 dataUrl。
+    await tester.pumpWidget(
+      MaterialApp(
+        home: QrCodeImage(dataUrl: url, phase: QrLoginPhase.scanned),
+      ),
+    );
+    final second =
+        tester.widget<Image>(find.byType(Image)).image as MemoryImage;
+
+    expect(identical(first.bytes, second.bytes), isTrue);
+
+    // 真正换新码（刷新）时必须重新解码、换 bytes 引用。
+    const otherUrl =
+        'data:image/png;base64,'
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/nK8AAAAASUVORK5CYII=';
+    await tester.pumpWidget(
+      MaterialApp(
+        home: QrCodeImage(dataUrl: otherUrl, phase: QrLoginPhase.waiting),
+      ),
+    );
+    final refreshed =
+        tester.widget<Image>(find.byType(Image)).image as MemoryImage;
+    expect(identical(first.bytes, refreshed.bytes), isFalse);
   });
 
   testWidgets('未登录与二维码对话框都不回显 token/t1 文案', (tester) async {
