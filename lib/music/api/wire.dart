@@ -55,13 +55,43 @@ String? optionalText(Object? value) {
   return null;
 }
 
-/// 非 List → decode 失败；null → 空 List（`list`：缺省字段给空表，
-/// 类型错配与 Rust 一致按失败处理，不吞成空表静默通过）。
+/// 非 List → decode 失败；null 与**空 object** → 空 List（`list`：缺省字段
+/// 给空表；上游把 `{}` 也视为空集合，例如 top_playlist 的 tags；非空 object
+/// 与其它类型错配仍按失败处理，不吞成空表静默通过）。
 List<Object?> wireList(Object? value, String field) {
   if (value == null) return const <Object?>[];
   if (value is List) return value;
+  if (value is Map && value.isEmpty) return const <Object?>[];
   throw KugouApiException('decode', '响应字段 $field 不是数组');
 }
+
+/// 必填 object（`from_value` 到结构体失败 → decode）；null/非 object → decode。
+Map<String, Object?> requiredWireMap(Object? value, String field) {
+  final map = wireMap(value);
+  if (map == null) {
+    throw KugouApiException('decode', '响应字段 $field 不是 object');
+  }
+  return map;
+}
+
+/// 展示用 0/1 布尔（util/numeric.rs `boolean`）：0→false、1→true、其它/缺省
+/// → null（未知服务码保留未知，不臆造负向事实）。
+bool? optionalBool(Object? value) {
+  final numeric = optionalInt(value);
+  return switch (numeric) {
+    0 => false,
+    1 => true,
+    _ => null,
+  };
+}
+
+/// 展示用封面 URL：`{size}` 占位符 → [size]（domain.rs `cover_url`）。
+String coverUrl(String template, {int size = 240}) =>
+    template.replaceAll('{size}', '$size');
+
+/// 请求体 JSON 字节（`request::encode`）。
+Uint8List encodeJsonBody(Object? value) =>
+    Uint8List.fromList(utf8.encode(jsonEncode(value)));
 
 /// 非 Map → null。
 Map<String, Object?>? wireMap(Object? value) {
@@ -90,21 +120,32 @@ const int kugouErrorCodeAuthenticationExpired = 20018;
 /// - status!=1 或 error_code!=0 → business。
 WireEnvelope decodeBusinessEnvelope(Uint8List bytes, {String context = ''}) {
   final envelope = decodeEnvelope(bytes);
-  if (envelope.status != 1 || envelope.errorCode != 0) {
-    throw KugouApiException(
-      'business',
-      '音乐服务返回失败${context.isEmpty ? '' : '（$context）'}'
-          '（status=${envelope.status}）',
-      code: envelope.errorCode,
-    );
-  }
+  ensureBusinessSuccess(envelope.status, envelope.errorCode, context: context);
   return envelope;
 }
 
-/// 信封解码（不做业务判定——register_dev 有自己的分支语义）。
-/// 登录过期码 20018 在这一层统一映射为 authentication（Rust request::decode
-/// 语义：即使 HTTP 成功、即使端点层另有分支，也先判过期）。
-WireEnvelope decodeEnvelope(Uint8List bytes) {
+/// 业务成功判定（request.rs `success`：status==1 且 code==0）。
+void ensureBusinessSuccess(int status, int errorCode, {String context = ''}) {
+  if (status == 1 && errorCode == 0) return;
+  throw KugouApiException(
+    'business',
+    '音乐服务返回失败${context.isEmpty ? '' : '（$context）'}'
+        '（status=$status）',
+    code: errorCode,
+  );
+}
+
+/// 可配置字段名的信封解码：
+/// - `ErrcodeEnvelope` 用 `status` + `errcode`（rank/list 等）；
+/// - 歌词端点用 `status` + `error_code`，但成功状态是 200（调用方自行判定）。
+///
+/// 与 [decodeEnvelope] 一样，20018 在解码层统一映射 authentication。
+WireEnvelope decodeEnvelopeWithFields(
+  Uint8List bytes, {
+  String statusKey = 'status',
+  String errorCodeKey = 'error_code',
+  bool mapAuthenticationExpired = true,
+}) {
   Object? decoded;
   try {
     decoded = jsonDecode(utf8.decode(bytes));
@@ -114,13 +155,19 @@ WireEnvelope decodeEnvelope(Uint8List bytes) {
   if (decoded is! Map) {
     throw const KugouApiException('decode', '响应信封不是 JSON object');
   }
-  final errorCode = requiredScalarInt(decoded['error_code'], 'error_code');
-  if (errorCode == kugouErrorCodeAuthenticationExpired) {
+  final errorCode = requiredScalarInt(decoded[errorCodeKey], errorCodeKey);
+  if (mapAuthenticationExpired &&
+      errorCode == kugouErrorCodeAuthenticationExpired) {
     throw const KugouApiException('authentication', '登录已过期，请重新登录酷狗账号');
   }
   return WireEnvelope(
-    requiredScalarInt(decoded['status'], 'status'),
+    requiredScalarInt(decoded[statusKey], statusKey),
     errorCode,
     decoded['data'],
   );
 }
+
+/// 信封解码（不做业务判定——register_dev 有自己的分支语义）。
+/// 登录过期码 20018 在这一层统一映射为 authentication（Rust request::decode
+/// 语义：即使 HTTP 成功、即使端点层另有分支，也先判过期）。
+WireEnvelope decodeEnvelope(Uint8List bytes) => decodeEnvelopeWithFields(bytes);
