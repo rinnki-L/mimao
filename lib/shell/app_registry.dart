@@ -47,6 +47,7 @@ import 'package:mimao/music/player/player_progress.dart';
 import 'package:mimao/music/player/player_ui.dart';
 import 'package:mimao/music/player/player_ui_impl.dart';
 import 'package:mimao/music/search_history_service.dart';
+import 'package:mimao/novel/novel_entry.dart';
 
 /// 全库**唯一**允许 import 四个模块目录（`anime/`、`comic/`、`music/`、
 /// `novel/`）的文件——第四条铁律的载体（docs/architecture.md §2）。
@@ -153,6 +154,10 @@ Future<void> initAppModules({
 
   /// 「我的」页构造器（C 线实现后注入；null 时不出底部导航）。
   MusicLibraryBuilder? musicLibraryBuilder,
+
+  // ── 小说（M5 导航骨架）──
+  /// 测试注入整模块（依赖自含），跳过默认装配直接注册。
+  NovelModule? novelModule,
 }) async {
   // 每次装配都是一次干净开始；避免旧的已关闭 DB 残留在表里。
   await _resetOwnedDb();
@@ -450,6 +455,16 @@ Future<void> initAppModules({
         // 与番剧/漫画失败分支同款收尾。
       }
     }
+  }
+
+  // ── 小说装配（M5 导航骨架）──
+  // 骨架期零依赖：模块只渲染五 tab + typed 路由占位屏，不碰任何库/网络/插件，
+  // 启动探针与失败分支都无需——真实书源/数据层随后续切片接入时再在此补装配。
+  try {
+    appModules[MediaType.novel] = novelModule ?? NovelModule();
+  } catch (error) {
+    errors.add('小说模块初始化失败：$error');
+    appModules.remove(MediaType.novel);
   }
 
   appModulesError = errors.isEmpty ? null : errors.join('\n');

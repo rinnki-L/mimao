@@ -7,6 +7,9 @@ import 'package:flutter/material.dart';
 import 'package:mimao/core/contract.dart';
 import 'package:mimao/novel/engine/engine.dart';
 import 'package:mimao/novel/library_api.dart';
+import 'package:mimao/novel/pages/novel_module_page.dart'
+    show NovelModulePage, NovelSettingsPlaceholder;
+import 'package:mimao/novel/pages/novel_routes.dart' show pushNovelRoute;
 
 class NovelModule implements AppModule {
   NovelModule({
@@ -34,21 +37,17 @@ class NovelModule implements AppModule {
 
   @override
   Widget buildHome(BuildContext context) {
-    // 本阶段占位页：解析后续接入。不依赖任何注入字段、不崩。
-    return Scaffold(
-      body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Icon(MediaType.novel.icon, size: 64),
-            const SizedBox(height: 16),
-            const Text('小说模块契约骨架已就绪，书源解析后续接入'),
-          ],
-        ),
-      ),
+    // 导航骨架：五 tab + typed 路由占位屏。不依赖任何注入字段、不崩；
+    // 真实抓取/解析/阅读随后续切片接入后，只需在模块内替换 tab 内容。
+    return NovelModulePage(
+      embedded: true,
+      settingsTab: buildSettings(context),
+      onOpenRoute: (route, {args = const <String, Object?>{}}) =>
+          pushNovelRoute<void>(context, route, args: args),
     );
   }
 
   @override
-  Widget buildSettings(BuildContext context) => const SizedBox.shrink();
+  Widget buildSettings(BuildContext context) =>
+      const NovelSettingsPlaceholder();
 }

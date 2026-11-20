@@ -99,7 +99,7 @@ void main() {
     playbackEngineFactory: env.engineFactory,
   );
 
-  test('initAppModules 后番剧/漫画/音乐已注册，小说为 null', () async {
+  test('initAppModules 后番剧/漫画/音乐/小说均已注册', () async {
     await initAppModules(
       library: env.library,
       animeDb: env.animeDb,
@@ -113,10 +113,11 @@ void main() {
     );
 
     expect(moduleFor(MediaType.anime), isNotNull);
-    // closure-02：漫画分件注入后也注册；M4 骨架：音乐无插件依赖也注册。
+    // closure-02：漫画分件注入后也注册；M4 骨架：音乐无插件依赖也注册；
+    // M5 导航骨架：小说零依赖也注册。
     expect(moduleFor(MediaType.comic), isNotNull);
     expect(moduleFor(MediaType.music), isNotNull);
-    expect(moduleFor(MediaType.novel), isNull);
+    expect(moduleFor(MediaType.novel), isNotNull);
     expect(appModulesError, isNull);
   });
 

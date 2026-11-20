@@ -31,20 +31,22 @@ void main() {
     expect(module.icon, MediaType.novel.icon);
   });
 
-  testWidgets('5 buildHome/buildSettings 渲染占位页不 throw（buildHome 自带 Scaffold）', (
+  testWidgets('5 buildHome/buildSettings 渲染骨架页不 throw（buildHome 自带 Scaffold）', (
     tester,
   ) async {
     final module = NovelModule();
-    // buildHome 返回自带 Scaffold 的占位页，直接作为 MaterialApp.home。
+    // buildHome 返回自带 Scaffold 的导航骨架，直接作为 MaterialApp.home。
     await tester.pumpWidget(
       MaterialApp(
         home: Builder(builder: (context) => module.buildHome(context)),
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('小说模块契约骨架已就绪，书源解析后续接入'), findsOneWidget);
+    // 首页默认「书架」tab；五 tab 的 NavigationBar 已就位。
+    expect(find.byType(NavigationBar), findsOneWidget);
+    expect(find.text('书架'), findsWidgets);
 
-    // buildSettings 是空 SizedBox，套一层 Scaffold 才能作为 home 渲染。
+    // buildSettings 是设置占位页，套一层 Scaffold 才能作为 home 渲染。
     await tester.pumpWidget(
       MaterialApp(
         home: Builder(
