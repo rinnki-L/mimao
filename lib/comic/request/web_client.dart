@@ -6,9 +6,11 @@
 library;
 
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:cookie_jar/cookie_jar.dart';
 import 'package:dio/dio.dart';
+import 'package:dio/io.dart';
 
 import 'challenge.dart';
 import 'cookie_store.dart';
@@ -145,16 +147,35 @@ class ComicWebClient implements ComicHttpClient {
     Dio? dio,
     CookieJar? cookieJar,
     this.challengeSolver,
+    this.proxyRule,
     this.defaultUserAgent = defaultComicUserAgent,
     this.timeout = const Duration(seconds: 20),
-  }) : _dio = dio ?? Dio(),
+  }) : _dio = dio ?? _buildDio(proxyRule),
        _cookieJar = cookieJar ?? ComicCookieJar();
 
   final Dio _dio;
   final CookieJar _cookieJar;
   final ComicChallengeSolver? challengeSolver;
+
+  /// `HttpClient.findProxy` 规则（每次请求回调，实时反映设置）。
+  final String Function(Uri)? proxyRule;
   final String defaultUserAgent;
   final Duration timeout;
+
+  /// 未注入 Dio 时按代理规则建默认客户端；注入了（测试假 adapter）就不碰。
+  static Dio _buildDio(String Function(Uri)? proxyRule) {
+    final dio = Dio();
+    if (proxyRule != null) {
+      dio.httpClientAdapter = IOHttpClientAdapter(
+        createHttpClient: () {
+          final client = HttpClient();
+          client.findProxy = proxyRule;
+          return client;
+        },
+      );
+    }
+    return dio;
+  }
 
   bool _jarReady = false;
 

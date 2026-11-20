@@ -14,6 +14,7 @@ import 'package:mimao/core/contract.dart';
 import 'package:mimao/core/library.dart';
 import 'package:mimao/shell/app.dart';
 import 'package:mimao/shell/dev/dev_capability.dart';
+import 'package:mimao/shell/network_settings.dart';
 import 'package:mimao/shell/dev/dev_databases.dart';
 import 'package:mimao/music/api/kugou_playback_api.dart';
 import 'package:mimao/music/api/music_account_api.dart';
@@ -398,6 +399,7 @@ Future<ComicWebClient> _createDefaultComicClient() async {
     challengeSolver: CloudflareWebViewSolver(
       navigatorProvider: () => MimaoApp.navigatorKey.currentState,
     ),
+    proxyRule: networkSettings.findProxy,
   );
   await client.ready();
   return client;

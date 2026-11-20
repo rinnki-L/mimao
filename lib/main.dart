@@ -26,11 +26,13 @@ import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:mimao/core/db.dart';
 import 'package:mimao/core/library.dart';
+import 'package:mimao/core/settings.dart';
 import 'package:mimao/shell/app.dart';
 import 'package:mimao/shell/app_registry.dart';
 import 'package:mimao/shell/dev/dev_harness.dart';
 import 'package:mimao/shell/dev/dev_route.dart';
 import 'package:mimao/shell/home.dart';
+import 'package:mimao/shell/network_settings.dart';
 import 'package:mimao/shell/shell_store.dart';
 import 'package:mimao/shell/window/window.dart';
 import 'package:system_theme/system_theme.dart';
@@ -55,6 +57,13 @@ Future<void> main() async {
   }
 
   final library = LibraryRepository(db);
+
+  // 3.2 网络设置（漫画抓取代理）。读失败不挡启动，按默认直连。
+  try {
+    await networkSettings.load(SettingsRepository(db));
+  } catch (_) {
+    // 设置读不出来时保持默认值即可。
+  }
 
   // 3.5 dev harness（debug-only，release 零存在）：错误日志环形缓冲 +
   //     本地 introspection 端点（/health /logs /route /state /db）+ driver.json。

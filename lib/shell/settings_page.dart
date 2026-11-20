@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:mimao/shell/app.dart';
+import 'package:mimao/shell/network_settings.dart';
 import 'package:mimao/shell/shell_store.dart';
 
 /// 全局设置抽屉——只放**通用**设置（外观 / 存储）。
@@ -25,6 +26,8 @@ class SettingsPage extends StatelessWidget {
             child: Text('设置', style: Theme.of(context).textTheme.headlineSmall),
           ),
           const _AppearanceGroup(),
+          const Divider(),
+          const _NetworkGroup(),
           const Divider(),
           const _StorageGroup(),
           const SizedBox(height: 24),
@@ -101,6 +104,103 @@ class _AppearanceGroup extends StatelessWidget {
         ),
         const SizedBox(height: 8),
       ],
+    );
+  }
+}
+
+/// 网络代理设置：漫画源抓取走直连 / 环境变量 / 自定义 HTTP 代理。
+/// 切换即时生效（客户端每次请求读 [networkSettings.findProxy]）。
+class _NetworkGroup extends StatelessWidget {
+  const _NetworkGroup();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final hintStyle = theme.textTheme.bodySmall?.apply(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+    return AnimatedBuilder(
+      animation: networkSettings,
+      builder: (context, _) {
+        final mode = networkSettings.proxyMode;
+        return ExpansionTile(
+          leading: const Icon(Icons.wifi_tethering),
+          title: const Text('网络'),
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+              child: Text('漫画源抓取使用的代理；内嵌验证页跟随系统代理。', style: hintStyle),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: SegmentedButton<NetworkProxyMode>(
+                segments: const <ButtonSegment<NetworkProxyMode>>[
+                  ButtonSegment<NetworkProxyMode>(
+                    value: NetworkProxyMode.direct,
+                    label: Text('直连'),
+                  ),
+                  ButtonSegment<NetworkProxyMode>(
+                    value: NetworkProxyMode.environment,
+                    label: Text('环境变量'),
+                  ),
+                  ButtonSegment<NetworkProxyMode>(
+                    value: NetworkProxyMode.custom,
+                    label: Text('自定义'),
+                  ),
+                ],
+                selected: <NetworkProxyMode>{mode},
+                onSelectionChanged: (selection) =>
+                    networkSettings.setProxyMode(selection.first),
+              ),
+            ),
+            if (mode == NetworkProxyMode.environment)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: Text(
+                  '读取 HTTP_PROXY / HTTPS_PROXY / ALL_PROXY / NO_PROXY。',
+                  style: hintStyle,
+                ),
+              ),
+            if (mode == NetworkProxyMode.custom)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: Row(
+                  children: <Widget>[
+                    Expanded(
+                      flex: 3,
+                      child: TextFormField(
+                        initialValue: networkSettings.proxyHost,
+                        decoration: const InputDecoration(
+                          labelText: '代理地址',
+                          hintText: '127.0.0.1',
+                          isDense: true,
+                        ),
+                        onChanged: (value) =>
+                            networkSettings.setCustomProxy(host: value),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      flex: 1,
+                      child: TextFormField(
+                        initialValue: '${networkSettings.proxyPort}',
+                        decoration: const InputDecoration(
+                          labelText: '端口',
+                          isDense: true,
+                        ),
+                        keyboardType: TextInputType.number,
+                        onChanged: (value) => networkSettings.setCustomProxy(
+                          port: int.tryParse(value),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            const SizedBox(height: 8),
+          ],
+        );
+      },
     );
   }
 }

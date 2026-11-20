@@ -113,8 +113,12 @@ void main() {
     await tester.tap(find.byTooltip('设置'));
     await tester.pumpAndSettle();
     expect(find.text('设置'), findsWidgets);
-    // 用户拍板：总设置与各入口设置分开——抽屉只留外观/存储。
+    // 用户拍板：总设置与各入口设置分开——抽屉只留外观/网络/存储。
     expect(find.text('外观'), findsOneWidget);
+    // 三组叠加后「存储」在绘制视口外，先滚到它再断言。
+    await tester.drag(find.byType(ListView).first, const Offset(0, -320));
+    await tester.pumpAndSettle();
+    expect(find.text('网络'), findsOneWidget);
     expect(find.text('存储'), findsOneWidget);
     for (final type in MediaType.values) {
       expect(find.widgetWithText(ExpansionTile, type.label), findsNothing);
