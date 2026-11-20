@@ -1,98 +1,193 @@
-// 封面镜像工具 + 控制器的离线单测：纯函数不联网 / 控制器用假 SettingsRepository。
-
-import 'package:flutter_test/flutter_test.dart';
-import 'package:mimao/anime/pages/anime_image_mirror.dart';
-import 'package:mimao/core/settings.dart';
+// 图片加速（直连/镜像）纯函数 + 控制器 + Bangumi 服务的离线单测。
 
 import 'package:drift/native.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:mimao/anime/data/bangumi_api.dart';
+import 'package:mimao/anime/pages/anime_image_mirror.dart';
 import 'package:mimao/core/db.dart';
+import 'package:mimao/core/settings.dart';
 
-/// 用真实内存 AppDb 驱动 SettingsRepository，验证开关真的落库并可读回。
-const cover = 'https://site.example/img/a.jpg?x=1&y=2';
+const cover = 'https://lain.bgm.tv/pic/cover/l/13/c5/400602.jpg';
 
 void main() {
-  group('applyAnimeImageMirror 纯函数', () {
-    test('关闭时原样返回', () {
-      expect(applyAnimeImageMirror(cover, enabled: false), cover);
+  group('applyAnimeImageAcceleration 纯函数', () {
+    test('直连时原样返回', () {
+      expect(
+        applyAnimeImageAcceleration(cover, mode: AnimeImageAcceleration.direct),
+        cover,
+      );
     });
 
-    test('开启时改写成代理地址，目标 URL 被 URI 编码', () {
-      final result = applyAnimeImageMirror(cover, enabled: true);
+    test('镜像时改写成 wsrv.nl 代理，目标 URL 被 URI 编码', () {
+      final result = applyAnimeImageAcceleration(
+        cover,
+        mode: AnimeImageAcceleration.mirror,
+      );
       expect(result, startsWith(animeImageMirrorTemplate));
       final encoded = result.substring(animeImageMirrorTemplate.length);
       expect(Uri.decodeComponent(encoded), cover);
     });
 
     test('幂等：已镜像的地址不再二次包裹', () {
-      final once = applyAnimeImageMirror(cover, enabled: true);
-      expect(applyAnimeImageMirror(once, enabled: true), once);
+      final once = applyAnimeImageAcceleration(
+        cover,
+        mode: AnimeImageAcceleration.mirror,
+      );
+      expect(
+        applyAnimeImageAcceleration(once, mode: AnimeImageAcceleration.mirror),
+        once,
+      );
     });
 
     test('assets / 空串 / 非 http(s) 地址原样返回', () {
       for (final url in <String>['', '   ', 'assets/mimao.png', 'ftp://x/y']) {
-        expect(applyAnimeImageMirror(url, enabled: true), url.trim());
+        expect(
+          applyAnimeImageAcceleration(url, mode: AnimeImageAcceleration.mirror),
+          url.trim(),
+        );
       }
     });
 
-    test('自定义模板生效', () {
-      const template = 'https://proxy.test/?src=';
-      final result = applyAnimeImageMirror(
-        cover,
-        enabled: true,
-        template: template,
+    test('gif 追加 n=-1（对齐 Kazumi）', () {
+      final result = applyAnimeImageAcceleration(
+        'https://lain.bgm.tv/a.gif',
+        mode: AnimeImageAcceleration.mirror,
       );
-      expect(result, startsWith(template));
-      expect(Uri.decodeComponent(result.substring(template.length)), cover);
+      expect(result, endsWith('&n=-1'));
+    });
+
+    test('isBangumiImage 识别 bgm 图床与 api image 端点', () {
+      expect(isBangumiImage(Uri.parse(cover)), isTrue);
+      expect(
+        isBangumiImage(
+          Uri.parse('https://api.bgm.tv/v0/subjects/400602/image?type=large'),
+        ),
+        isTrue,
+      );
+      expect(isBangumiImage(Uri.parse('https://other.com/a.jpg')), isFalse);
+      expect(
+        isBangumiImage(Uri.parse('https://api.bgm.tv/v0/subjects/400602')),
+        isFalse,
+      );
     });
   });
 
-  group('AnimeImageMirrorController 持久化', () {
+  group('AnimeImageAccelerationController 持久化', () {
     test('无 settings 时只维护内存态，set 立即生效', () async {
-      final controller = AnimeImageMirrorController();
-      // 关 → 开：验证内存态切换与 mirror 跟随。
-      await controller.set(false);
-      expect(controller.value, isFalse);
-      expect(controller.mirror(cover), cover);
-      await controller.set(true);
-      expect(controller.value, isTrue);
-      expect(controller.mirror(cover), isNot(cover));
-    });
-
-    test('默认值开启，镜像生效', () {
-      final controller = AnimeImageMirrorController();
-      expect(controller.value, isTrue);
-      expect(controller.mirror(cover), startsWith(animeImageMirrorTemplate));
+      final controller = AnimeImageAccelerationController();
+      expect(controller.value, AnimeImageAcceleration.mirror);
+      await controller.set(AnimeImageAcceleration.direct);
+      expect(controller.value, AnimeImageAcceleration.direct);
+      expect(controller.accelerate(cover), cover);
     });
 
     test('load 从设置库读初值，set 写入设置库', () async {
       final db = AppDb.forTesting(NativeDatabase.memory());
       addTearDown(db.close);
       final settings = SettingsRepository(db);
-      await settings.setBool(animeImageMirrorKey, false);
+      await settings.set(animeImageAccelerationKey, 'direct');
 
-      final controller = AnimeImageMirrorController(settings: settings);
+      final controller = AnimeImageAccelerationController(settings: settings);
       await controller.load();
-      expect(controller.value, isFalse);
-      expect(controller.mirror(cover), cover, reason: '关闭时不应改写');
+      expect(controller.value, AnimeImageAcceleration.direct);
+      expect(controller.accelerate(cover), cover);
 
-      await controller.set(true);
-      expect(controller.value, isTrue);
-      // 用一个新控制器读回，验证真的持久化了。
-      final reloaded = AnimeImageMirrorController(settings: settings);
+      await controller.set(AnimeImageAcceleration.mirror);
+      final reloaded = AnimeImageAccelerationController(settings: settings);
       await reloaded.load();
-      expect(reloaded.value, isTrue);
+      expect(reloaded.value, AnimeImageAcceleration.mirror);
     });
 
-    test('设置库读取抛异常时保留默认值，不冒泡', () async {
+    test('未知持久化值回退默认模式', () async {
       final db = AppDb.forTesting(NativeDatabase.memory());
       addTearDown(db.close);
-      // 关掉 DB 后读取会抛，验证 load 吞异常。
-      await db.close();
-      final controller = AnimeImageMirrorController(
-        settings: SettingsRepository(db),
-      );
+      final settings = SettingsRepository(db);
+      await settings.set(animeImageAccelerationKey, 'bogus');
+      final controller = AnimeImageAccelerationController(settings: settings);
       await controller.load();
-      expect(controller.value, animeImageMirrorDefault);
+      expect(controller.value, AnimeImageAcceleration.defaultMode);
     });
   });
+
+  group('Bangumi API 纯函数', () {
+    test('searchUrl 带 limit/offset，searchBody 只取动画', () {
+      expect(
+        BangumiEndpoints.searchUrl(
+          BangumiEndpoints.mirror,
+          limit: 5,
+          offset: 10,
+        ),
+        'https://api.bgmapi.com/v0/search/subjects?limit=5&offset=10',
+      );
+      final body = BangumiEndpoints.searchBody('芙莉莲');
+      expect(body['keyword'], '芙莉莲');
+      expect((body['filter'] as Map)['type'], <int>[2]);
+    });
+
+    test('BangumiSubject 解析：中文名优先，封面 large 优先', () {
+      final subject = BangumiSubject.fromJson(<String, dynamic>{
+        'id': 400602,
+        'name': '葬送のフリーレン',
+        'name_cn': '葬送的芙莉莲',
+        'images': <String, dynamic>{
+          'large': 'https://lain.bgm.tv/l.jpg',
+          'common': 'https://lain.bgm.tv/c.jpg',
+        },
+      });
+      expect(subject.displayName, '葬送的芙莉莲');
+      expect(subject.coverUrl, 'https://lain.bgm.tv/l.jpg');
+    });
+
+    test('lookupBangumiCover 取首条有封面的结果，失败回退 null', () async {
+      final client = _FakeBangumiClient([
+        BangumiSearchResponse(
+          subjects: [
+            BangumiSubject(
+              id: 1,
+              name: 'A',
+              nameCn: '',
+              images: const <String, String>{},
+            ),
+            BangumiSubject(
+              id: 2,
+              name: 'B',
+              nameCn: '',
+              images: const <String, String>{'large': cover},
+            ),
+          ],
+        ),
+      ]);
+      expect(
+        await lookupBangumiCover('x', client, baseUrl: BangumiEndpoints.mirror),
+        cover,
+      );
+      expect(
+        await lookupBangumiCover(
+          'x',
+          _FakeBangumiClient([], fail: true),
+          baseUrl: BangumiEndpoints.mirror,
+        ),
+        isNull,
+      );
+    });
+  });
+}
+
+class _FakeBangumiClient implements BangumiClient {
+  _FakeBangumiClient(this.responses, {this.fail = false});
+
+  final List<BangumiSearchResponse> responses;
+  final bool fail;
+  int _calls = 0;
+
+  @override
+  Future<BangumiSearchResponse> searchSubjects(
+    String keyword, {
+    required String baseUrl,
+    int limit = 5,
+    int offset = 0,
+  }) async {
+    if (fail) throw StateError('network down');
+    return responses[_calls++ % responses.length];
+  }
 }

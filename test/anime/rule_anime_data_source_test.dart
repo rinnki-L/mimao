@@ -718,4 +718,76 @@ void main() {
       expect(detail.title, item.title);
     });
   });
+
+  group('E · Bangumi 封面补全（coverLookup 注入）', () {
+    test('注入 coverLookup 后用 Bangumi 封面覆盖规则站点封面', () async {
+      final client = _FakeClient();
+      client.responses['https://a.test/search?q=x'] = AnimeHttpResponse(
+        statusCode: 200,
+        body: listPage([itemHtml('same', '/a/1', img: '/rule-cover.jpg')]),
+      );
+      const bangumiCover = 'https://lain.bgm.tv/pic/cover/l/same.jpg';
+      final queried = <String>[];
+
+      final source = RuleAnimeDataSource(
+        engine: AnimeRuleEngine(client: client),
+        loadRules: () async => <AnimeRule>[rule('甲站', 'a.test')],
+        coverLookup: (title) async {
+          queried.add(title);
+          return bangumiCover;
+        },
+      );
+
+      final results = await source.search('x');
+      expect(results, hasLength(1));
+      expect(results.single.coverUrl, bangumiCover);
+      expect(queried, <String>['same']);
+    });
+
+    test('coverLookup 返回 null/抛异常时保留规则站点原封面', () async {
+      final client = _FakeClient();
+      client.responses['https://a.test/search?q=x'] = AnimeHttpResponse(
+        statusCode: 200,
+        body: listPage([itemHtml('same', '/a/1', img: '/rule-cover.jpg')]),
+      );
+      final source = RuleAnimeDataSource(
+        engine: AnimeRuleEngine(client: client),
+        loadRules: () async => <AnimeRule>[rule('甲站', 'a.test')],
+        coverLookup: (_) async => throw StateError('bangumi down'),
+      );
+      final results = await source.search('x');
+      expect(results.single.coverUrl, 'https://a.test/rule-cover.jpg');
+    });
+
+    test('同标题只查一次 Bangumi（跨规则去重）', () async {
+      final client = _FakeClient();
+      client.responses['https://a.test/search?q=x'] = AnimeHttpResponse(
+        statusCode: 200,
+        body: listPage([itemHtml('same', '/a/1')]),
+      );
+      client.responses['https://b.test/search?q=x'] = AnimeHttpResponse(
+        statusCode: 200,
+        body: listPage([itemHtml('same', '/b/1')]),
+      );
+      var calls = 0;
+      final source = RuleAnimeDataSource(
+        engine: AnimeRuleEngine(client: client),
+        loadRules: () async => <AnimeRule>[
+          rule('甲站', 'a.test'),
+          rule('乙站', 'b.test'),
+        ],
+        coverLookup: (_) async {
+          calls++;
+          return 'https://lain.bgm.tv/cover.jpg';
+        },
+      );
+      final results = await source.search('x');
+      expect(results, hasLength(2));
+      expect(calls, 1);
+      expect(
+        results.every((e) => e.coverUrl == 'https://lain.bgm.tv/cover.jpg'),
+        isTrue,
+      );
+    });
+  });
 }

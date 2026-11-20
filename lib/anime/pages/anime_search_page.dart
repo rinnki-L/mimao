@@ -29,7 +29,7 @@ class AnimeSearchPage extends StatefulWidget {
   final ValueChanged<AnimeSummary>? onOpenDetail;
 
   /// 封面镜像开关控制器；null 时封面不走代理（保持既有行为）。
-  final AnimeImageMirrorController? mirror;
+  final AnimeImageAccelerationController? mirror;
 
   @override
   State<AnimeSearchPage> createState() => _AnimeSearchPageState();
@@ -173,7 +173,7 @@ class _AnimePosterCard extends StatelessWidget {
 
   final AnimeSummary item;
   final VoidCallback? onTap;
-  final AnimeImageMirrorController? mirror;
+  final AnimeImageAccelerationController? mirror;
 
   @override
   Widget build(BuildContext context) {

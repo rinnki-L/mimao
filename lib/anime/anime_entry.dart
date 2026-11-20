@@ -39,7 +39,7 @@ class AnimeModule implements AppModule {
   final RuleImporter ruleImporter;
 
   /// 封面镜像开关控制器；由 registry 注入并贯穿设置/搜索/详情，null 时不镜像。
-  final AnimeImageMirrorController? imageMirror;
+  final AnimeImageAccelerationController? imageMirror;
 
   /// 规则导入/删除后的重读钩子（registry 注入，刷新播放头索引）。
   /// 模块不认识 registry，仅在此透传；null 时不额外动作。

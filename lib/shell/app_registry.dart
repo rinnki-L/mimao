@@ -6,6 +6,7 @@ import 'package:mimao/anime/anime_models.dart';
 import 'package:mimao/anime/collect_service.dart';
 import 'package:mimao/anime/data/anime_data_source.dart';
 import 'package:mimao/anime/data/anime_models.dart';
+import 'package:mimao/anime/data/bangumi_api.dart';
 import 'package:mimao/anime/data/rule_anime_data_source.dart';
 import 'package:mimao/anime/engine/engine.dart';
 import 'package:mimao/anime/history_service.dart';
@@ -69,7 +70,7 @@ MusicDb? _ownedMusicDb;
 
 /// 封面镜像开关控制器：进程内单例，跨 initAppModules 重置保持开关状态；
 /// 设置 tab 拨动后所有封面即时刷新。测试可注入自己的实例。
-AnimeImageMirrorController? _animeImageMirror;
+AnimeImageAccelerationController? _animeImageMirror;
 
 /// 测试可见：registry 自建、reset 时会关闭的 ComicDb（生产路径才有值）。
 /// CI 没有 path_provider 插件，用这条缝验证 owned-DB 的关闭语义（closure-02
@@ -96,7 +97,10 @@ Future<void> initAppModules({
   PlaybackEngine Function()? playbackEngineFactory,
 
   /// 测试注入的镜像开关控制器；生产复用进程内单例并从设置库读初值。
-  AnimeImageMirrorController? animeImageMirror,
+  AnimeImageAccelerationController? animeImageMirror,
+
+  /// 测试注入的 Bangumi 客户端；生产走 DioBangumiClient。
+  BangumiClient? bangumiClient,
 
   // ── 漫画（closure-02）──
   ComicDb? comicDb,
@@ -176,18 +180,32 @@ Future<void> initAppModules({
     // 启动时读一次规则仓库：目录不可读就走失败分支并给出原因，
     // 不让用户点进番剧才发现规则全坏。
     var loadedRules = await store.loadAll();
-    final dataSource = animeDataSource ?? RuleAnimeDataSource.fromStore(store);
+
+    // 图片加速控制器：进程内单例 + 从 core 设置库读初值；读失败走默认。
+    final acceleration =
+        animeImageMirror ??
+        (_animeImageMirror ??= AnimeImageAccelerationController(
+          settings: SettingsRepository(library.db),
+        ));
+    await acceleration.load();
+
+    // Bangumi 封面查询：按当前加速模式选 host——镜像模式本机/CI 都可达，
+    // 直连模式走官方 api.bgm.tv（国内可能超时，用户可切回镜像）。
+    // 每次搜索都读 controller 当前值，设置切换后下次搜索立即生效。
+    final bangumi = bangumiClient ?? DioBangumiClient();
+    Future<String?> bangumiCoverLookup(String title) {
+      final baseUrl = acceleration.value == AnimeImageAcceleration.mirror
+          ? BangumiEndpoints.mirror
+          : BangumiEndpoints.direct;
+      return lookupBangumiCover(title, bangumi, baseUrl: baseUrl);
+    }
+
+    final dataSource =
+        animeDataSource ??
+        RuleAnimeDataSource.fromStore(store, coverLookup: bangumiCoverLookup);
     final importer = RuleImporter();
     final collect = AnimeCollectService(db, library);
     final history = AnimeHistoryService(db, library);
-
-    // 封面镜像开关：进程内单例 + 从 core 设置库读初值；读失败走默认。
-    final mirror =
-        animeImageMirror ??
-        (_animeImageMirror ??= AnimeImageMirrorController(
-          settings: SettingsRepository(library.db),
-        ));
-    await mirror.load();
 
     // 规则级 UA/Referer 提供者：播放入口拿不到 AnimeRule，这里按 sourceName
     // 查规则仓库，用引擎同款 playTarget 语义组装 header。启动时已 loadAll，
@@ -235,7 +253,7 @@ Future<void> initAppModules({
       playbackEngineFactory:
           playbackEngineFactory ?? MediaKitPlaybackEngine.new,
       headersFor: animeHeadersFor,
-      imageMirror: mirror,
+      imageMirror: acceleration,
     );
     // 设置页导入/删除规则后：刷新播放头索引（换源要用新规则的 UA/Referer）。
     // AnimeModule 自己不认识 registry，这里是唯一的装配接缝。

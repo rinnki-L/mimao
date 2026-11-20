@@ -32,7 +32,7 @@ class AnimeDetailPage extends StatefulWidget {
   final ValueChanged<bool>? onFavoriteChanged;
 
   /// 封面镜像开关控制器；null 时封面不走代理（保持既有行为）。
-  final AnimeImageMirrorController? mirror;
+  final AnimeImageAccelerationController? mirror;
 
   /// 播放器接线前留空；提供时剧集行才显示播放图标并可点击。
   /// 连同当前 [AnimeDetail] 与选中的播放源一起回调，模块层据此映射剧集列表、
@@ -168,7 +168,7 @@ class _DetailBody extends StatelessWidget {
   final Future<List<AnimeSummary>>? sourcesFuture;
   final AnimeSummary selectedSource;
   final ValueChanged<AnimeSummary> onSourceSelected;
-  final AnimeImageMirrorController? mirror;
+  final AnimeImageAccelerationController? mirror;
 
   @override
   Widget build(BuildContext context) {

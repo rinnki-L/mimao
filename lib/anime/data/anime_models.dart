@@ -31,6 +31,23 @@ class AnimeSummary {
     this.subtitle,
     this.sourceName,
   });
+
+  /// 复制并覆盖部分字段（Bangumi 封面补全 / 镜像切换用）。
+  AnimeSummary copyWith({
+    String? id,
+    String? title,
+    String? coverUrl,
+    String? detailUrl,
+    String? subtitle,
+    String? sourceName,
+  }) => AnimeSummary(
+    id: id ?? this.id,
+    title: title ?? this.title,
+    coverUrl: coverUrl ?? this.coverUrl,
+    detailUrl: detailUrl ?? this.detailUrl,
+    subtitle: subtitle ?? this.subtitle,
+    sourceName: sourceName ?? this.sourceName,
+  );
 }
 
 /// 详情页里的一集。

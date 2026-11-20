@@ -363,10 +363,10 @@ void main() {
   });
 
   group('封面镜像', () {
-    testWidgets('开关拨动后网络封面 URL 被改写为代理地址', (tester) async {
+    testWidgets('切换直连/镜像后网络封面 URL 被改写为代理地址', (tester) async {
       _usePhoneSize(tester);
-      final controller = AnimeImageMirrorController();
-      await controller.set(false);
+      final controller = AnimeImageAccelerationController();
+      await controller.set(AnimeImageAcceleration.direct);
       const url = 'https://site.example/cover.jpg';
       final source = FixtureAnimeDataSource(
         searchResults: <AnimeSummary>[
@@ -384,26 +384,26 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // 关闭时封面是原始地址。
-      Image closedImage = tester.widget<Image>(
+      // 直连时封面是原始地址。
+      Image directImage = tester.widget<Image>(
         find.descendant(
           of: find.byType(AnimeCover),
           matching: find.byType(Image),
         ),
       );
-      expect((closedImage.image as NetworkImage).url, url);
+      expect((directImage.image as NetworkImage).url, url);
 
-      // 打开镜像（不经过 UI，直接拨 controller；UI 监听即时重建）。
-      await controller.set(true);
+      // 切到镜像（不经过 UI，直接拨 controller；UI 监听即时重建）。
+      await controller.set(AnimeImageAcceleration.mirror);
       await tester.pumpAndSettle();
 
-      Image openedImage = tester.widget<Image>(
+      Image mirrorImage = tester.widget<Image>(
         find.descendant(
           of: find.byType(AnimeCover),
           matching: find.byType(Image),
         ),
       );
-      final mirroredUrl = (openedImage.image as NetworkImage).url;
+      final mirroredUrl = (mirrorImage.image as NetworkImage).url;
       expect(mirroredUrl, isNot(url));
       expect(mirroredUrl, contains(Uri.encodeComponent(url)));
     });

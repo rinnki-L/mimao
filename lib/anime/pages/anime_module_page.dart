@@ -56,7 +56,7 @@ class AnimeModulePage extends StatefulWidget {
   onEpisodeTap;
 
   /// 封面镜像开关控制器；null 时封面不走代理（保持既有行为）。
-  final AnimeImageMirrorController? mirror;
+  final AnimeImageAccelerationController? mirror;
 
   @override
   State<AnimeModulePage> createState() => _AnimeModulePageState();

@@ -30,21 +30,33 @@ class RuleSourceDiagnostic {
 /// 用规则引擎驱动 [AnimeDataSource] 的实现。
 class RuleAnimeDataSource implements AnimeDataSource {
   /// 可注入构造：网络、解析、规则列表都可替换，便于离线单测。
-  RuleAnimeDataSource({required this.engine, required this.loadRules});
+  ///
+  /// [coverLookup] 可选：按标题查 Bangumi 封面。注入后在 search 结果上批量补封面，
+  /// 查不到保留规则站点原封面；不注入时行为与之前完全一致（fixture/旧测试）。
+  RuleAnimeDataSource({
+    required this.engine,
+    required this.loadRules,
+    this.coverLookup,
+  });
 
   /// 从本地规则仓库构造：每次调用都重新读盘，设置页刚导入的规则下次即生效。
   factory RuleAnimeDataSource.fromStore(
     RuleStore store, {
     AnimeRuleEngine? engine,
+    Future<String?> Function(String title)? coverLookup,
   }) {
     return RuleAnimeDataSource(
       engine: engine ?? AnimeRuleEngine(),
       loadRules: store.loadAll,
+      coverLookup: coverLookup,
     );
   }
 
   final AnimeRuleEngine engine;
   final Future<List<AnimeRule>> Function() loadRules;
+
+  /// 可选 Bangumi 封面查询：按标题返回 lain.bgm.tv 封面 URL；null/ch error 时回退原封面。
+  final Future<String?> Function(String title)? coverLookup;
 
   final List<RuleSourceDiagnostic> _diagnostics = <RuleSourceDiagnostic>[];
 
@@ -88,7 +100,43 @@ class RuleAnimeDataSource implements AnimeDataSource {
       _diagnostics.addAll(part.diagnostics);
       results.addAll(part.items);
     }
-    return results;
+    return _applyBangumiCovers(results);
+  }
+
+  /// 用 Bangumi 按标题补封面：同一标题只查一次，查不到/失败保留规则站点原封面。
+  /// 这是纯增益步骤——[coverLookup] 为 null 时零开销原样返回，不影响任何既有行为。
+  Future<List<AnimeSummary>> _applyBangumiCovers(
+    List<AnimeSummary> results,
+  ) async {
+    final lookup = coverLookup;
+    if (lookup == null || results.isEmpty) return results;
+
+    // 先按标题去重再并发：避免 Future.wait 里多个 async map 同时检查 containsKey
+    // 造成重复查询（同一标题只打一次 Bangumi）。
+    final titles = <String>{
+      for (final item in results)
+        if (item.title.trim().isNotEmpty) item.title.trim(),
+    };
+    final coversByTitle = <String, String>{};
+    await Future.wait(
+      titles.map((title) async {
+        try {
+          final cover = await lookup(title);
+          if (cover != null && cover.trim().isNotEmpty) {
+            coversByTitle[title] = cover.trim();
+          }
+        } on Object {
+          // 封面查询失败纯增益回退：保留规则站点原封面，不影响搜索。
+        }
+      }),
+    );
+
+    return <AnimeSummary>[
+      for (final item in results)
+        coversByTitle[item.title.trim()] != null
+            ? item.copyWith(coverUrl: coversByTitle[item.title.trim()]!)
+            : item,
+    ];
   }
 
   /// 单条规则的搜索：异常与坏规则都收敛到本规则自己的诊断，不影响其它源。

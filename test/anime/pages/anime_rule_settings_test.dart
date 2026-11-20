@@ -358,30 +358,29 @@ void main() {
     expect(find.byKey(const Key('anime-repo-import-selected')), findsNothing);
   });
 
-  testWidgets('封面镜像开关：注入控制器后显示并可切换', (tester) async {
-    final mirror = AnimeImageMirrorController();
-    await mirror.set(false);
+  testWidgets('图片加速：注入控制器后显示直连/镜像并可切换', (tester) async {
+    final controller = AnimeImageAccelerationController();
+    await controller.set(AnimeImageAcceleration.direct);
     await tester.pumpWidget(
       _app(
         AnimeRuleSettings(
           store: store,
           importer: RuleImporter(client: _FakeClient()),
-          mirror: mirror,
+          mirror: controller,
         ),
       ),
     );
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('anime-image-mirror-switch')), findsOneWidget);
-    expect(find.text('封面镜像（图片代理）'), findsOneWidget);
-    expect(mirror.value, isFalse);
+    expect(find.byKey(const Key('anime-image-acceleration')), findsOneWidget);
+    expect(find.text('图片加速'), findsOneWidget);
+    expect(find.text('直连'), findsOneWidget);
+    expect(find.text('镜像'), findsOneWidget);
+    expect(controller.value, AnimeImageAcceleration.direct);
 
-    // 拨动开关 → 控制器内存态翻转（设置页通过 controller.set 落库/广播）。
-    final switchWidget = tester.widget<SwitchListTile>(
-      find.byKey(const Key('anime-image-mirror-switch')),
-    );
-    switchWidget.onChanged!(true);
+    // 点「镜像」段 → 控制器切换到镜像（设置页经 controller.set 落库/广播）。
+    await tester.tap(find.text('镜像'));
     await tester.pumpAndSettle();
-    expect(mirror.value, isTrue);
+    expect(controller.value, AnimeImageAcceleration.mirror);
   });
 }

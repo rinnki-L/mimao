@@ -29,7 +29,7 @@ class AnimeSchedulePage extends StatefulWidget {
   final ValueChanged<AnimeSummary>? onOpenDetail;
 
   /// 封面镜像开关控制器；null 时封面不走代理（保持既有行为）。
-  final AnimeImageMirrorController? mirror;
+  final AnimeImageAccelerationController? mirror;
 
   @override
   State<AnimeSchedulePage> createState() => _AnimeSchedulePageState();
@@ -98,7 +98,7 @@ class _ScheduleBody extends StatelessWidget {
 
   final List<AnimeScheduleSection> sections;
   final ValueChanged<AnimeSummary>? onOpenDetail;
-  final AnimeImageMirrorController? mirror;
+  final AnimeImageAccelerationController? mirror;
 
   @override
   Widget build(BuildContext context) {
@@ -146,7 +146,7 @@ class _ScheduleSectionView extends StatelessWidget {
 
   final AnimeScheduleSection section;
   final ValueChanged<AnimeSummary>? onOpenDetail;
-  final AnimeImageMirrorController? mirror;
+  final AnimeImageAccelerationController? mirror;
 
   @override
   Widget build(BuildContext context) {
@@ -223,7 +223,7 @@ class _ScheduleRow extends StatelessWidget {
 
   final AnimeSummary item;
   final VoidCallback? onTap;
-  final AnimeImageMirrorController? mirror;
+  final AnimeImageAccelerationController? mirror;
 
   @override
   Widget build(BuildContext context) {

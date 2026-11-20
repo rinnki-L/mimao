@@ -1,13 +1,13 @@
-/// 番剧封面镜像（反防盗链）工具——纯函数，不依赖 Flutter/网络库，便于单测。
+/// Bangumi 封面「直连 / 镜像」加速工具——对齐 Kazumi 的 ImageAcceleration 设计。
 ///
-/// 背景：规则站点多数对图片做了防盗链——`Image.network` 不带 Referer/UA，
-/// 直链要么 403、要么返回占位图，于是搜索结果「没有图片」。
+/// Kazumi 上游把图片加速做成三态（direct/ech/mirror），本项目按用户拍板只保留
+/// 两态：直连（加载原始图片）与镜像（走图片代理）。ECH 依赖原生插件 ech_http，
+/// CI / 本机不可用，故不引入（详见 docs 上游源码 services/network/）。
 ///
-/// 开启镜像后，封面直链被改写成公共图片代理的地址：代理在服务端代为取图，
-/// 绕开浏览器端的同源/防盗链限制。镜像只作用于 http(s) 封面直链；
-/// `assets/` 路径、空串、非 http(s) 地址原样返回，不影响离线占位逻辑。
-///
-/// 一个 URL 即便被改写多次也不会嵌套：`_mirrorPrefixes` 命中时直接返回原串。
+/// 背景：bangumi 图床 `lain.bgm.tv` 在国内直连常超时，且规则站点封面多有防盗链，
+/// `Image.network` 不带 Referer/UA 时直接不显示。镜像态把图片 URL 改写成公共
+/// 图片代理 `wsrv.nl/?url=...`（Kazumi 同款服务），由代理在服务端取图绕过限制。
+/// 实测（2026-11-20 本机）：api.bgm.tv/lain.bgm.tv 直连超时，wsrv.nl 代理 200。
 library;
 
 import 'package:flutter/foundation.dart';
@@ -15,16 +15,38 @@ import 'package:flutter/foundation.dart';
 import 'package:mimao/core/settings.dart';
 
 /// 设置项 key（写进 core 的 app_settings 表，[SettingsRepository] 读写）。
-const String animeImageMirrorKey = 'anime.imageMirror.enabled';
+const String animeImageAccelerationKey = 'anime.imageAcceleration';
 
-/// 镜像开关默认值：默认开启——让搜索封面直接可见（用户的原始诉求）；
-/// 用户可在番剧「设置」tab 关闭（例如不想把直链交给第三方代理时）。
-const bool animeImageMirrorDefault = true;
+/// 图片加速模式——对齐 Kazumi 的 ImageAcceleration（去掉需原生依赖的 ECH）。
+enum AnimeImageAcceleration {
+  /// 直连：加载原始图片地址（Kazumi: direct）。
+  direct('直连', '加载原始图片'),
+
+  /// 镜像：经图片代理加载（Kazumi: mirror）。
+  mirror('镜像', '使用图片镜像（wsrv.nl）');
+
+  const AnimeImageAcceleration(this.label, this.description);
+
+  final String label;
+  final String description;
+
+  /// 从持久化字符串还原；未知值回退 [defaultMode]。
+  static AnimeImageAcceleration fromName(
+    String? name, [
+    AnimeImageAcceleration fallback = defaultMode,
+  ]) {
+    for (final mode in values) {
+      if (mode.name == name) return mode;
+    }
+    return fallback;
+  }
+
+  static const defaultMode = AnimeImageAcceleration.mirror;
+}
 
 /// 镜像服务前缀（带结尾 `?url=`，目标地址会被 URI 编码后拼接）。
 ///
-/// 选 `wsrv.nl`（images.weserv.nl 的短域）作为默认：公开、稳定、支持任意
-/// http(s) 源图与缩放参数，对防盗链站点兼容性好。允许外部注入以便替换服务。
+/// 与 Kazumi `BangumiImageUrlRewriter` 同款 `wsrv.nl`。允许注入以便替换服务。
 const String animeImageMirrorTemplate = 'https://wsrv.nl/?url=';
 
 /// 已知镜像前缀，用于幂等判断（避免对已镜像地址二次包裹）。
@@ -34,18 +56,37 @@ const List<String> _mirrorPrefixes = <String>[
   'https://wsrv.nl/?url=',
 ];
 
-/// 把封面直链按镜像开关改写成代理地址。
+/// bangumi 图床 host：镜像/直连判断与元数据服务共用。
+const String bangumiImageHost = 'lain.bgm.tv';
+const String bangumiApiHost = 'api.bgm.tv';
+
+/// 是否为 bangumi 图片（对齐 Kazumi `BangumiImageUrlRewriter.isBangumiImage`）。
+bool isBangumiImage(Uri uri) {
+  if (uri.scheme != 'http' && uri.scheme != 'https') return false;
+  if (uri.host == bangumiImageHost) return true;
+  if (uri.host != bangumiApiHost) return false;
+  final segments = uri.pathSegments;
+  if (segments.length != 4 || segments[0] != 'v0' || segments[3] != 'image') {
+    return false;
+  }
+  const kinds = <String>{'subjects', 'characters', 'persons'};
+  final id = int.tryParse(segments[2]);
+  return kinds.contains(segments[1]) && id != null && id > 0;
+}
+
+/// 把图片地址按加速模式改写。
 ///
-/// - [enabled] 为 false、[url] 为空/`assets/`/非 http(s)/已是镜像地址时原样返回；
-/// - [template] 允许测试或用户替换为其它兼容 `?url=` 约定的代理前缀；
-/// - 只对 `http`/`https` 生效。
-String applyAnimeImageMirror(
+/// - [mode] 为直连、URL 为空/`assets/`/非 http(s)/已是镜像地址时原样返回；
+/// - 镜像态：只对 http(s) 图片改写为 `wsrv.nl/?url=<encoded>`；gif 追加 `n=-1`
+///   （对齐 Kazumi，禁止动图循环播放）；
+/// - [template] 允许测试或用户替换为其它兼容 `?url=` 约定的代理前缀。
+String applyAnimeImageAcceleration(
   String url, {
-  required bool enabled,
+  required AnimeImageAcceleration mode,
   String template = animeImageMirrorTemplate,
 }) {
   final trimmed = url.trim();
-  if (!enabled || trimmed.isEmpty) return trimmed;
+  if (mode == AnimeImageAcceleration.direct || trimmed.isEmpty) return trimmed;
   for (final prefix in _mirrorPrefixes) {
     if (trimmed.startsWith(prefix)) return trimmed;
   }
@@ -56,17 +97,24 @@ String applyAnimeImageMirror(
       uri.host.isEmpty) {
     return trimmed;
   }
-  return '$template${Uri.encodeComponent(trimmed)}';
+  final isGif = uri.path.toLowerCase().endsWith('.gif');
+  // 目标参数值用完整 URL 编码——实测 wsrv.nl 同时接受带/不带 scheme，
+  // 保留 scheme 对非 bgm 图床（规则站点）兼容更好。
+  return '$template${Uri.encodeQueryComponent(trimmed)}'
+      '${isGif ? '&n=-1' : ''}';
 }
 
-/// 镜像开关控制器：内存态 + 可选持久化，所有封面 widget 监听它即时刷新。
+/// 图片加速控制器：内存态 + 可选持久化，所有封面 widget 监听它即时刷新。
 ///
 /// 由 registry 创建并注入 AnimeModule，同一个实例贯穿设置 tab 与搜索/详情/时间表。
 /// [settings] 为 null 时（widget 测试）只维护内存态，不碰数据库。
-class AnimeImageMirrorController extends ValueNotifier<bool> {
-  AnimeImageMirrorController({SettingsRepository? settings, bool? initial})
-    : _settings = settings,
-      super(initial ?? animeImageMirrorDefault);
+class AnimeImageAccelerationController
+    extends ValueNotifier<AnimeImageAcceleration> {
+  AnimeImageAccelerationController({
+    SettingsRepository? settings,
+    AnimeImageAcceleration? initial,
+  }) : _settings = settings,
+       super(initial ?? AnimeImageAcceleration.defaultMode);
 
   final SettingsRepository? _settings;
 
@@ -75,27 +123,26 @@ class AnimeImageMirrorController extends ValueNotifier<bool> {
     final settings = _settings;
     if (settings == null) return;
     try {
-      value = await settings.getBool(
-        animeImageMirrorKey,
-        fallback: animeImageMirrorDefault,
-      );
+      final name = await settings.get(animeImageAccelerationKey);
+      value = AnimeImageAcceleration.fromName(name);
     } on Object {
       // 读设置失败保留内存默认值，不冒泡。
     }
   }
 
-  /// 切换开关并持久化；写失败不回滚内存态（UI 仍按用户操作立即生效）。
-  Future<void> set(bool enabled) async {
-    value = enabled;
+  /// 切换模式并持久化；写失败不回滚内存态（UI 仍按用户操作立即生效）。
+  Future<void> set(AnimeImageAcceleration mode) async {
+    value = mode;
     final settings = _settings;
     if (settings == null) return;
     try {
-      await settings.setBool(animeImageMirrorKey, enabled);
+      await settings.set(animeImageAccelerationKey, mode.name);
     } on Object {
       // 写失败保留内存态，不冒泡。
     }
   }
 
-  /// 用当前开关改写一条封面 URL。
-  String mirror(String url) => applyAnimeImageMirror(url, enabled: value);
+  /// 用当前模式改写一条封面 URL。
+  String accelerate(String url) =>
+      applyAnimeImageAcceleration(url, mode: value);
 }

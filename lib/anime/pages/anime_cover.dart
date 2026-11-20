@@ -25,7 +25,7 @@ class AnimeCover extends StatefulWidget {
   final double radius;
 
   /// 镜像开关控制器；null 表示不走镜像（fixture / 未注入的测试）。
-  final AnimeImageMirrorController? mirror;
+  final AnimeImageAccelerationController? mirror;
 
   @override
   State<AnimeCover> createState() => _AnimeCoverState();
@@ -63,7 +63,7 @@ class _AnimeCoverState extends State<AnimeCover> {
     // 有控制器时按当前开关改写；无控制器时不镜像，保持离线测试行为。
     final trimmed = widget.mirror == null
         ? widget.url.trim()
-        : widget.mirror!.mirror(widget.url);
+        : widget.mirror!.accelerate(widget.url);
     final Widget image;
     if (trimmed.isEmpty) {
       image = placeholder;

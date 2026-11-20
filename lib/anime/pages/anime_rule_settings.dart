@@ -28,7 +28,7 @@ class AnimeRuleSettings extends StatefulWidget {
   final VoidCallback? onRulesChanged;
 
   /// 封面镜像开关控制器；注入后设置页顶部显示开关并即时生效。
-  final AnimeImageMirrorController? mirror;
+  final AnimeImageAccelerationController? mirror;
 
   @override
   State<AnimeRuleSettings> createState() => _AnimeRuleSettingsState();
@@ -395,21 +395,57 @@ class _AnimeRuleSettingsState extends State<AnimeRuleSettings> {
     );
   }
 
-  /// 封面镜像开关：开启后搜索/详情封面走公共图片代理，绕过站点防盗链。
+  /// 图片加速：对齐 Kazumi 的 direct/mirror 两态选择（ECH 需原生依赖，不引入）。
   Widget _buildMirrorSection(ThemeData theme) {
-    final mirror = widget.mirror!;
+    final controller = widget.mirror!;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        ValueListenableBuilder<bool>(
-          valueListenable: mirror,
-          builder: (context, enabled, _) => SwitchListTile(
-            key: const Key('anime-image-mirror-switch'),
-            title: const Text('封面镜像（图片代理）'),
-            subtitle: const Text('开启后通过图片代理加载封面，解决部分站点图片不显示'),
-            value: enabled,
-            onChanged: (value) => mirror.set(value),
+        Row(
+          children: <Widget>[
+            Icon(
+              Icons.image_outlined,
+              size: 16,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+            const SizedBox(width: 4),
+            Text('图片加速', style: theme.textTheme.titleSmall),
+          ],
+        ),
+        const SizedBox(height: 8),
+        ValueListenableBuilder<AnimeImageAcceleration>(
+          valueListenable: controller,
+          builder: (context, mode, _) =>
+              SegmentedButton<AnimeImageAcceleration>(
+                key: const Key('anime-image-acceleration'),
+                segments: <ButtonSegment<AnimeImageAcceleration>>[
+                  for (final option in AnimeImageAcceleration.values)
+                    ButtonSegment<AnimeImageAcceleration>(
+                      value: option,
+                      label: Text(option.label),
+                      icon: Icon(
+                        option == AnimeImageAcceleration.direct
+                            ? Icons.public_outlined
+                            : Icons.speed_outlined,
+                      ),
+                    ),
+                ],
+                selected: <AnimeImageAcceleration>{mode},
+                onSelectionChanged: (selected) {
+                  if (selected.isNotEmpty) controller.set(selected.first);
+                },
+              ),
+        ),
+        const SizedBox(height: 6),
+        ValueListenableBuilder<AnimeImageAcceleration>(
+          valueListenable: controller,
+          builder: (context, mode, _) => Text(
+            mode.description,
+            key: const Key('anime-image-acceleration-desc'),
+            style: theme.textTheme.bodySmall?.apply(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
           ),
         ),
       ],
