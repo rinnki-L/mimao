@@ -38,46 +38,71 @@ class _AppearanceGroup extends StatelessWidget {
   const _AppearanceGroup();
 
   @override
-  Widget build(BuildContext context) => ExpansionTile(
-    leading: const Icon(Icons.palette_outlined),
-    title: const Text('外观'),
-    initiallyExpanded: true,
-    children: [
-      Padding(
-        padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
-        child: Text('主题模式', style: Theme.of(context).textTheme.labelLarge),
-      ),
-      // MD3 SegmentedButton：跟随系统 / 浅色 / 深色，一段即一个选项。
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        child: _ThemeModeSegmented(),
-      ),
-      Padding(
-        padding: const EdgeInsets.fromLTRB(8, 10, 8, 0),
-        child: Text('主题种子色', style: Theme.of(context).textTheme.labelLarge),
-      ),
-      // 紧凑色块（而非纵向 ListTile + RadioGroup）：8 色两行排完，
-      // 抽屉不至于过长。每个 chip 自己 Observer 选中态。
-      // （childrenPadding 由 expansionTileTheme 统一给 16，这里再补 8 = 原 24。）
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        child: Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            for (final entry in MimaoApp.seedColors.entries)
-              _SeedChip(
-                keyName: entry.key,
-                label: entry.value.$1,
-                color: entry.value.$2,
-              ),
-            const _SystemSeedChip(),
-          ],
+  Widget build(BuildContext context) {
+    final seeds = MimaoApp.seedColors.entries.toList();
+    return ExpansionTile(
+      leading: const Icon(Icons.palette_outlined),
+      title: const Text('外观'),
+      initiallyExpanded: true,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+          child: Text('主题模式', style: Theme.of(context).textTheme.labelLarge),
         ),
-      ),
-      const SizedBox(height: 8),
-    ],
-  );
+        // MD3 SegmentedButton：跟随系统 / 浅色 / 深色，一段即一个选项。
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: _ThemeModeSegmented(),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 10, 8, 0),
+          child: Text('主题种子色', style: Theme.of(context).textTheme.labelLarge),
+        ),
+        // 两列分别贴住可用宽度的左右两侧、中间自然留缝：每列内部用
+        // CrossAxisAlignment.start 让气泡前端对齐，字数不同（紫罗兰/石板灰
+        // 3 字）也不会让右列前端参差。第 9 枚「跟随系统」归入左列末行。
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (var i = 0; i < seeds.length; i += 2)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: _SeedChip(
+                        keyName: seeds[i].key,
+                        label: seeds[i].value.$1,
+                        color: seeds[i].value.$2,
+                      ),
+                    ),
+                  const _SystemSeedChip(),
+                ],
+              ),
+              const Spacer(),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (var i = 1; i < seeds.length; i += 2)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: _SeedChip(
+                        keyName: seeds[i].key,
+                        label: seeds[i].value.$1,
+                        color: seeds[i].value.$2,
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+      ],
+    );
+  }
 }
 
 /// 主题模式三段选择：读 shellStore.themeMode 渲染选中态，
