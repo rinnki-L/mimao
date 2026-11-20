@@ -97,6 +97,26 @@ void main() {
       expect(adapter.seenOptions?.responseType, ResponseType.bytes);
     });
 
+    test('源脚本广告的 br/zstd 编码被收敛为 gzip（dart:io 解不了 br）', () async {
+      final adapter = _RecordingAdapter();
+      final client = ComicWebClient(dio: Dio()..httpClientAdapter = adapter);
+
+      await client.fetch(
+        'https://site.test/search',
+        options: const ComicFetchOptions(
+          headers: <String, String>{
+            'accept-encoding': 'gzip, deflate, br, zstd',
+          },
+        ),
+      );
+
+      final sent = adapter.seenOptions!.headers.entries
+          .where((e) => e.key.toLowerCase() == 'accept-encoding')
+          .toList();
+      expect(sent, hasLength(1));
+      expect(sent.single.value, 'gzip');
+    });
+
     test('setCookies 后 fetch 自动携带 Cookie 头', () async {
       final adapter = _RecordingAdapter();
       final client = ComicWebClient(dio: Dio()..httpClientAdapter = adapter);

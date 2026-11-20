@@ -38,9 +38,13 @@
 | `randomInt` / `randomDouble` | `random` | `Random.secure()` |
 | `setTimeout` / `setInterval` | `delay` | `Future.delayed` |
 | `console.log/warn/error` | `log` | 落到 `ComicJsBridge.logs` |
-| `ComicSource.loadData/loadSetting/saveData/deleteData/isLogged` | `load_data` / `load_setting` / `save_data` / `delete_data` / `isLogged` | 可注入回调（C′ 存储线对接；默认 null/false） |
+| `ComicSource.loadData/loadSetting/saveData/deleteData/isLogged` | `load_data` / `load_setting` / `save_data` / `delete_data` / `isLogged` | 可注入回调（C′ 存储线对接；默认 null/false）。`loadSetting` 先取保存值，缺失时回落到 `source.settings[key].default`（注册期快照） |
 | `APP.locale` / `getPlatform` / `getLocale` | `getLocale` / `getPlatform` | 固定 `zh_CN` / `windows` |
 | `Comic` / `ComicDetails` / `Comment` / `ImageLoadingConfig` 构造器 | —（纯 JS 对象） | `comicInitJs` 内定义 |
+
+**注册期**：`SourceExecutionPool.register` 实例化脚本类后会先拍 `source.settings`
+的默认值快照，再调用可选 `init()`（对齐 Venera `initializeRuntime()`）。顺序不可
+颠倒：个别源（如 copy_manga）会在 init 里改写 settings 定义。
 
 **源方法调用**（`source` 是脚本里 `class X extends ComicSource` 的实例）：
 

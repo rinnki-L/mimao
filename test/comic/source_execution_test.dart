@@ -163,7 +163,57 @@ void main() {
     expect(result.error, contains('源未注册'));
   });
 
-  test('⑥ 类名发现与注册：findSourceClassName 对齐 Venera 规则', () {
+  test('⑥ settings 默认值生效，且 init() 在注册期执行', () async {
+    if (!_hasNativeJs) return;
+    final settingsPool = SourceExecutionPool(
+      hostFactory: () =>
+          QuickJsHost(bridge: ComicJsBridge(client: _FixtureClient())),
+    );
+    try {
+      await settingsPool.register('settings_probe', _settingsProbeScript);
+
+      // 没有用户保存值 → 回落 settings 定义里的 default。
+      final domain = await settingsPool.execute(
+        'settings_probe',
+        'source.loadSetting("domains")',
+      );
+      expect(domain.value, 'example.com');
+      // 默认 false 不能被当成「缺失」。
+      final flag = await settingsPool.execute(
+        'settings_probe',
+        'source.loadSetting("flag")',
+      );
+      expect(flag.value, isFalse);
+      // 没有默认值的 setting 仍返回 null（与旧行为一致）。
+      final missing = await settingsPool.execute(
+        'settings_probe',
+        'source.loadSetting("missing")',
+      );
+      expect(missing.value, isNull);
+
+      // init() 在注册时已被调用。
+      final inited = await settingsPool.execute(
+        'settings_probe',
+        'source.inited === true',
+      );
+      expect(inited.value, isTrue);
+
+      // getter 基于默认值拼出的地址进入真实搜索路径。
+      final result = await ComicSourceEngine(
+        pool: settingsPool,
+      ).search('settings_probe', '海贼');
+      expect(
+        result.diagnostics,
+        isEmpty,
+        reason: result.diagnostics.toString(),
+      );
+      expect(result.items.single.title, '海贼@https://example.com');
+    } finally {
+      settingsPool.disposeAll();
+    }
+  });
+
+  test('⑦ 类名发现与注册：findSourceClassName 对齐 Venera 规则', () {
     // 这条不需要 native，任何环境都跑。
     expect(
       QuickJsHost.findSourceClassName(fixtureSourceScript),
@@ -172,7 +222,7 @@ void main() {
     expect(QuickJsHost.findSourceClassName(fixtureNotASource), isNull);
   });
 
-  test('⑦ 执行超时不崩溃：fake 慢宿主超时收敛为错误诊断', () async {
+  test('⑧ 执行超时不崩溃：fake 慢宿主超时收敛为错误诊断', () async {
     // 不需要 native：用故意挂起的 fake JsHost 验证 SourceExecutionPool 的超时保护。
     final slowPool = SourceExecutionPool(
       hostFactory: () => _HangingHost(),
@@ -196,21 +246,49 @@ void main() {
 
 /// 执行阶段永远不完成的宿主——专门用来触发 SourceExecutionPool 超时保护。
 class _HangingHost implements JsHost {
-  bool _registered = false;
-
   @override
   Future<void> loadScript(String script) async {}
 
   @override
   Future<Object?> evaluate(String expression) async {
-    // 注册时的 `source = new ...` 赋值立即返回；真正的方法调用才挂起。
-    if (!_registered) {
-      _registered = true;
-      return null;
-    }
+    // 注册期的实例化 / 默认值快照 / init 表达式立即返回；真正的方法调用才挂起。
+    if (!expression.startsWith('source.search.load')) return null;
     return Completer<Object?>().future; // 永不 complete
   }
 
   @override
   void close() {}
 }
+
+/// 设置默认值 / init 探针源：没有用户保存值时 loadSetting 读 settings.default，
+/// init() 在注册期给实例打标。
+const String _settingsProbeScript = r'''
+class SettingsProbeSource extends ComicSource {
+  name = "设置探针源";
+  key = "settings_probe";
+  version = "1.0.0";
+  minAppVersion = "1.0.0";
+
+  settings = {
+    domains: { title: "域名", type: "input", default: "example.com" },
+    flag: { title: "开关", type: "switch", default: false },
+  };
+
+  get baseUrl() {
+    return `https://${this.loadSetting("domains")}`;
+  }
+
+  init() {
+    this.inited = true;
+  }
+
+  search = {
+    load: async (keyword, options, page) => {
+      return {
+        comics: [new Comic({ id: "1", title: keyword + "@" + this.baseUrl })],
+        maxPage: 1,
+      };
+    },
+  };
+}
+''';

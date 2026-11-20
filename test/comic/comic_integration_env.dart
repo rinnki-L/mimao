@@ -121,7 +121,13 @@ class FakeSourceHost implements JsHost {
       _key = registration.group(1);
       return null;
     }
-    if (_key != null && failKeys.contains(_key)) {
+    // 注册期的额外探针（settings 默认值快照 / init()）不模拟故障：故障按
+    // 契约发生在「方法调用」时（search/loadInfo/loadEp）。
+    if (_key != null &&
+        failKeys.contains(_key) &&
+        (expression.startsWith('source.search.load') ||
+            expression.startsWith('source.comic.loadInfo') ||
+            expression.startsWith('source.comic.loadEp'))) {
       throw StateError('源 $_key 故障');
     }
     if (expression.startsWith('source.search.load')) {

@@ -17,6 +17,12 @@ const String comicInitGlobalSetter = '(key, value) => { this[key] = value; }';
 const String comicInitJs = r'''
 // ---- Venera-compatible source runtime (self-written, API-aligned) ----
 
+// 源设置默认值快照：宿主在实例化源、调用 init() 之前从 `source.settings`
+// 拍一份 `{settingKey: default}`（对齐 Venera 在注册期解析 settings 定义）。
+// 之后 loadSetting 读不到用户保存值时回落到这里；脚本再改 settings 定义也
+// 不影响已拍下的默认值。
+let __sourceSettingDefaults = {};
+
 function setTimeout(callback, delay) {
     sendMessage({ method: 'delay', time: delay || 0 }).then(callback);
 }
@@ -228,7 +234,17 @@ class ComicSource {
     static sources = {};
     constructor() {}
     loadData(k) { return sendMessage({method:'load_data', key:this.key, data_key:k}); }
-    loadSetting(k) { return sendMessage({method:'load_setting', key:this.key, setting_key:k}); }
+    // 对齐 Venera：先取用户保存值，再回落到脚本 settings 定义的 default。
+    // 缺失时返回 null（上游会 throw，但源脚本普遍按 null/假值写兜底，返回
+    // null 更不易把可选设置读崩）。
+    loadSetting(k) {
+        const stored = sendMessage({method:'load_setting', key:this.key, setting_key:k});
+        if (stored !== null && stored !== undefined) return stored;
+        if (Object.prototype.hasOwnProperty.call(__sourceSettingDefaults, k)) {
+            return __sourceSettingDefaults[k];
+        }
+        return null;
+    }
     saveData(k, d) { return sendMessage({method:'save_data', key:this.key, data_key:k, data:d}); }
     deleteData(k) { return sendMessage({method:'delete_data', key:this.key, data_key:k}); }
     get isLogged() { return sendMessage({method:'isLogged', key:this.key}); }

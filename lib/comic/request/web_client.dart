@@ -166,6 +166,7 @@ class ComicWebClient implements ComicHttpClient {
     }
 
     final headers = options.toHeaders(defaultUserAgent: defaultUserAgent);
+    _normalizeAcceptEncoding(headers);
     if (options.useCookieJar) {
       final cookies = await _loadCookies(uri);
       if (cookies.isNotEmpty) {
@@ -203,6 +204,18 @@ class ComicWebClient implements ComicHttpClient {
       url: response.realUri.toString(),
       headers: response.headers.map,
     );
+  }
+
+  /// 源脚本常照浏览器广告 `gzip, deflate, br, zstd`，但 dart:io 只会自动
+  /// 解压 gzip：服务端真回 br/zstd 时正文是压缩字节，解析结果为空且不抛错
+  /// （manhuaren 搜索 200 却 0 条的根因）。把 Accept-Encoding 收敛为 gzip，
+  /// 服务端就只回我们能解压的编码。
+  void _normalizeAcceptEncoding(Map<String, String> headers) {
+    for (final key in headers.keys.toList(growable: false)) {
+      if (key.toLowerCase() == 'accept-encoding') {
+        headers[key] = 'gzip';
+      }
+    }
   }
 
   /// 依据 Content-Type 的 charset 解码；缺省 UTF-8，失败回退 latin1。

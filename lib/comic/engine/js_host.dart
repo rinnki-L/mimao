@@ -110,32 +110,82 @@ class SourceExecutionPool {
   final Duration timeout;
   final Map<String, _PooledSource> _sources = <String, _PooledSource>{};
 
+  /// 注册期 `init()` 的失败原因（按源 key）。init 不阻塞注册，异步部分
+  /// 失败时先记在这里，由上层（搜索/源管理）取走作为诊断，不静默吞掉。
+  final Map<String, String> _initErrors = <String, String>{};
+
+  /// 取走某源注册期 init 的失败原因（取走即清）；没有失败返回 null。
+  String? takeInitError(String key) => _initErrors.remove(key);
+
   /// 注册（或覆盖）一个源脚本。
   ///
   /// 像 Venera 一样从脚本里找出 `class Xxx extends ComicSource`，实例化后挂到
   /// `source` 与 `ComicSource.sources[key]`，上层即可用 `source.search.load(...)`
   /// 等表达式调用。类名找不到时原样加载脚本（脚本自己挂 `source` 也支持）。
+  ///
+  /// 实例化后按 Venera 的顺序做两件事：先拍下 `source.settings` 的默认值快照
+  /// （`loadSetting` 无用户存储值时回落到它），再调用可选 `init()`。顺序不能
+  /// 反——个别源（如 copy_manga）会在 init 里改写 settings 定义，默认值必须
+  /// 以注册期定义为准。
+  ///
+  /// `init()` **不 await**：app 启动期在 `runApp` 前注册全部源，等异步 init
+  /// 的网络请求会把入口卡住；同步部分照常先执行，异步失败记入 [_initErrors]。
   Future<void> register(String key, String script) async {
     final previous = _sources.remove(key);
     previous?.host.close();
+    _initErrors.remove(key);
     final host = _hostFactory();
     try {
       await host.loadScript(script);
       final className = QuickJsHost.findSourceClassName(script);
+      Object? registered;
       if (className != null) {
-        final registered = await host.evaluate(
+        registered = await host.evaluate(
           'source = new $className(); source.key = ${_jsString(key)}; '
           'ComicSource.sources[${_jsString(key)}] = source;',
         );
-        // 注册表达式返回实例（含 JS 函数包装），释放 Dart 侧引用避免 leak 报告。
-        JSRef.freeRecursive(registered);
       }
+      // 默认值快照不改变脚本文本；脚本自挂 source 的路径同样适用。
+      await host.evaluate(_captureSettingDefaultsExpression);
+      _runInitThenRelease(host, key, registered);
     } catch (_) {
       // 脚本注入/实例化失败（语法错等）：关掉宿主再抛出，交给调用方容错。
       host.close();
       rethrow;
     }
     _sources[key] = _PooledSource(host: host, script: script);
+  }
+
+  /// 调 init 并在其**开始执行后**释放注册表达式的 Dart 侧包装。
+  ///
+  /// 不能在调用前释放：注册结果递归包含了实例方法的 JSRef，提前
+  /// `freeRecursive` 会让 init() 抛 "JSValue released"。init 返回 Promise 时
+  /// 等它 settle（成功或失败）再释放，避免异步 continuation 用到已释放句柄。
+  void _runInitThenRelease(JsHost host, String key, Object? registered) {
+    final Future<Object?> started;
+    try {
+      started = host.evaluate(_sourceInitExpression);
+    } on Object catch (error) {
+      _initErrors[key] = error.toString();
+      JSRef.freeRecursive(registered);
+      return;
+    }
+    unawaited(
+      started
+          .then<void>(
+            (_) {},
+            onError: (Object error, StackTrace _) {
+              _initErrors[key] = error.toString();
+            },
+          )
+          .whenComplete(() {
+            try {
+              JSRef.freeRecursive(registered);
+            } on Object {
+              // 宿主已 close 时释放可能失败；进程内资源已随 runtime 回收。
+            }
+          }),
+    );
   }
 
   /// 是否已注册。
@@ -200,6 +250,40 @@ class _PooledSource {
   final JsHost host;
   final String script;
 }
+
+/// 把 `source.settings` 的 `default` 拍成 `__sourceSettingDefaults` 快照。
+/// 只取对象定义（`{title, type, default}`）里的 `default`，没有默认值的
+/// setting 不写入——`loadSetting` 会返回 null，与旧行为一致。
+const String _captureSettingDefaultsExpression = '''
+(() => {
+  const defaults = {};
+  const settings = (typeof source !== 'undefined' && source) ? source.settings : null;
+  if (settings && typeof settings === 'object') {
+    for (const key of Object.keys(settings)) {
+      const definition = settings[key];
+      if (definition && typeof definition === 'object' &&
+          Object.prototype.hasOwnProperty.call(definition, 'default')) {
+        defaults[key] = definition.default;
+      }
+    }
+  }
+  __sourceSettingDefaults = defaults;
+})()
+''';
+
+/// 调用源脚本的可选 `init()`；同步返回值忽略，返回 Promise 时等它完成。
+/// 与 Venera `initializeRuntime()` 的表达式一致（含 init 不存在的兼容）。
+const String _sourceInitExpression = '''
+(() => {
+  if (typeof source === 'undefined' || !source || typeof source.init !== 'function') {
+    return undefined;
+  }
+  const result = source.init();
+  return result && typeof result.then === 'function'
+      ? result.then(() => undefined)
+      : undefined;
+})()
+''';
 
 /// 把 Dart 字符串序列化成安全的 JS 字符串字面量。
 String _jsString(String value) =>

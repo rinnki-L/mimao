@@ -174,6 +174,16 @@ class EngineComicDataSource
     }
   }
 
+  /// 注册期 `init()` 是非阻塞的：异步失败在注册时可能还没落地，这里在
+  /// 搜索入口补一次取走，转成长期诊断 + 本次搜索诊断，避免静默吞掉。
+  void _takeInitError(String key) {
+    final error = engine.pool.takeInitError(key);
+    if (error == null) return;
+    final message = '$key：初始化失败（$error）';
+    _addDiagnostics(<String>[message]);
+    _addSearchDiagnostic(message);
+  }
+
   /// 读取 store 全部源并注册进执行池。返回加载结果（含坏文件说明）。
   Future<source_engine.ComicSourceLoadResult> reload() async {
     final loaded = await store.loadAllDetailed();
@@ -215,6 +225,11 @@ class EngineComicDataSource
     try {
       await engine.pool.register(source.key, source.script);
       _registeredScripts[source.key] = source.script;
+      // init 是注册期非阻塞调用；同步失败此时已记下，异步失败由搜索入口再取。
+      final initError = engine.pool.takeInitError(source.key);
+      if (initError != null) {
+        _addDiagnostics(<String>['${source.key}：初始化失败（$initError）']);
+      }
     } on Object catch (error) {
       _addDiagnostics(<String>['${source.key}：脚本注册失败（$error）']);
     }
@@ -260,11 +275,20 @@ class EngineComicDataSource
 
     final enabled = _sources.where((s) => s.enabled).toList()
       ..sort((a, b) => a.key.compareTo(b.key));
+    // 并发搜索：33 个源串行 + 单源最长 30s 会让一次搜索拖到数分钟；并行后
+    // 总耗时收敛为「最慢的源」。诊断按源 key 顺序合并，结果顺序保持稳定。
+    final entries = await Future.wait(
+      enabled.map((source) async {
+        final result = await engine.search(source.key, query);
+        return (key: source.key, result: result);
+      }),
+    );
     final merged = <ComicSummary>[];
-    for (final source in enabled) {
-      final result = await engine.search(source.key, query);
+    for (final entry in entries) {
+      _takeInitError(entry.key);
+      final result = entry.result;
       final prefixed = result.diagnostics
-          .map((d) => '${source.key}：$d')
+          .map((d) => '${entry.key}：$d')
           .toList();
       _addDiagnostics(prefixed);
       for (final message in prefixed) {
@@ -272,10 +296,10 @@ class EngineComicDataSource
       }
       // 源返回空且无任何诊断：错误不得被吞成「没找到」，给出可读原因。
       if (result.items.isEmpty && prefixed.isEmpty) {
-        _addSearchDiagnostic('${source.key}：搜索无结果且未返回原因');
+        _addSearchDiagnostic('${entry.key}：搜索无结果且未返回原因');
       }
       for (final item in result.items) {
-        merged.add(_mapSummary(item, source.key));
+        merged.add(_mapSummary(item, entry.key));
       }
     }
     return List<ComicSummary>.unmodifiable(merged);
@@ -299,6 +323,7 @@ class EngineComicDataSource
     if (query.isEmpty) return const <ComicSummary>[];
 
     final result = await engine.search(key, query);
+    _takeInitError(key);
     final prefixed = result.diagnostics.map((d) => '$key：$d').toList();
     _addDiagnostics(prefixed);
     for (final message in prefixed) {
