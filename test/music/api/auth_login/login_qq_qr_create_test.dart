@@ -265,6 +265,36 @@ void main() {
     expect(kugouQqHash33('QRSIG1'), sum & 0x7FFFFFFF);
     expect(kugouQqHash33(''), 0);
   });
+
+  test('同一响应多条 Set-Cookie 全部进 jar（headerValues 全量语义）', () async {
+    adapter
+      ..clear()
+      ..enqueue(200, _htmlWithSrc)
+      // 键用大写验证大小写不敏感；同一响应两条 Set-Cookie。
+      ..enqueueValues(200, 'ok', <String, List<String>>{
+        'SET-COOKIE': <String>[
+          'pt_local_token=LOC1; Path=/',
+          'pt_login_sig=SIG1',
+        ],
+      })
+      ..enqueueBytes(200, _pngBytes(), <String, String>{
+        'set-cookie': 'qrsig=QRSIG1',
+      });
+
+    final result = await run();
+
+    // ptqrshow 请求的 Cookie 已带上前一条响应里的两条 cookie（BTreeMap 键序）。
+    expect(
+      adapter.requests[2].headers['Cookie'],
+      'pt_local_token=LOC1; pt_login_sig=SIG1',
+    );
+    expect(result.ptLoginSig, 'SIG1', reason: '多条里仍能按名取到');
+    expect(
+      result.cookie,
+      'pt_local_token=LOC1; pt_login_sig=SIG1; qrsig=QRSIG1',
+      reason: '会话 cookie 是三轮响应 jar 的合并',
+    );
+  });
 }
 
 /// 固定随机源（nonce 形态断言用，不参与协议）。
