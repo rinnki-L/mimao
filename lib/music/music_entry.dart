@@ -20,7 +20,9 @@ import 'package:mimao/music/api/music_api.dart';
 import 'package:mimao/music/api/music_browse_apis.dart';
 import 'package:mimao/music/api/music_playback_api.dart';
 import 'package:mimao/music/library_api.dart';
+import 'package:mimao/music/models/user_library_models.dart';
 import 'package:mimao/music/music_store.dart';
+import 'package:mimao/music/pages/music_account_center_page.dart';
 import 'package:mimao/music/pages/music_album_detail_page.dart';
 import 'package:mimao/music/pages/music_artist_detail_page.dart';
 import 'package:mimao/music/pages/music_discovery_page.dart';
@@ -153,6 +155,23 @@ class MusicModule implements AppModule {
         browseApis?.userLibrary != null &&
         browseApis?.playlistRead != null;
 
+    final userProfile = browseApis?.userProfile;
+    final userLibrary = browseApis?.userLibrary;
+    final accountTab =
+        (player != null && userProfile != null && userLibrary != null)
+        ? MusicAccountCenterPage(
+            profile: userProfile,
+            library: userLibrary,
+            player: player,
+            onOpenAlbum: browseApis?.album == null
+                ? null
+                : (id) => _openAlbum(context, id),
+            onOpenPlaylist: browseApis?.playlistRead == null
+                ? null
+                : (playlist) => _openUserPlaylist(context, playlist),
+          )
+        : null;
+
     final home = MusicModulePage(
       store: store,
       embedded: true,
@@ -160,6 +179,7 @@ class MusicModule implements AppModule {
       collect: collect,
       searchHistory: searchHistory,
       libraryTab: libraryTab,
+      accountTab: accountTab,
       browseTab: discoveryTab,
       onOpenPlaylists: canOpenPlaylists ? () => _openPlaylists(context) : null,
       // 各入口的设置放进各入口：账号/设备设置作为最右侧「设置」tab。
@@ -221,6 +241,26 @@ class MusicModule implements AppModule {
           read: read,
           player: player,
           globalId: globalId,
+          write: browse?.playlistWrite,
+        ),
+      ),
+    );
+  }
+
+  void _openUserPlaylist(BuildContext context, MusicUserPlaylist playlist) {
+    final read = browse?.playlistRead;
+    final player = _resolvePlayerUi;
+    if (read == null || player == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'music/playlist'),
+        builder: (_) => MusicPlaylistDetailPage(
+          read: read,
+          player: player,
+          globalId: playlist.globalId,
+          cloudListId: playlist.cloudListId,
+          title: playlist.title,
+          coverUrl: playlist.coverUrl,
           write: browse?.playlistWrite,
         ),
       ),
