@@ -6,6 +6,7 @@ import 'package:mimao/anime/anime_models.dart';
 import 'package:mimao/anime/collect_service.dart';
 import 'package:mimao/anime/data/anime_data_source.dart';
 import 'package:mimao/anime/data/anime_models.dart';
+import 'package:mimao/anime/data/bangumi_anime_data_source.dart';
 import 'package:mimao/anime/data/bangumi_api.dart';
 import 'package:mimao/anime/data/rule_anime_data_source.dart';
 import 'package:mimao/anime/engine/engine.dart';
@@ -189,20 +190,22 @@ Future<void> initAppModules({
         ));
     await acceleration.load();
 
-    // Bangumi 封面查询：按当前加速模式选 host——镜像模式本机/CI 都可达，
-    // 直连模式走官方 api.bgm.tv（国内可能超时，用户可切回镜像）。
+    // Bangumi host：按当前加速模式选（镜像模式本机/CI 都可达，直连走官方）。
     // 每次搜索都读 controller 当前值，设置切换后下次搜索立即生效。
     final bangumi = bangumiClient ?? DioBangumiClient();
-    Future<String?> bangumiCoverLookup(String title) {
-      final baseUrl = acceleration.value == AnimeImageAcceleration.mirror
-          ? BangumiEndpoints.mirror
-          : BangumiEndpoints.direct;
-      return lookupBangumiCover(title, bangumi, baseUrl: baseUrl);
-    }
+    String bangumiBaseUrl() =>
+        acceleration.value == AnimeImageAcceleration.mirror
+        ? BangumiEndpoints.mirror
+        : BangumiEndpoints.direct;
 
+    // Kazumi 式组合：Bangumi 提供干净搜索结果/元数据，规则站点提供播放源。
     final dataSource =
         animeDataSource ??
-        RuleAnimeDataSource.fromStore(store, coverLookup: bangumiCoverLookup);
+        BangumiAnimeDataSource(
+          bangumi: bangumi,
+          ruleSource: RuleAnimeDataSource.fromStore(store),
+          baseUrlFor: bangumiBaseUrl,
+        );
     final importer = RuleImporter();
     final collect = AnimeCollectService(db, library);
     final history = AnimeHistoryService(db, library);

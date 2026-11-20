@@ -300,7 +300,7 @@ void main() {
     });
   });
 
-  group('换源（选择规则观看）', () {
+  group('换源（选择来源观看）', () {
     /// 三条规则都提供同一部番的详情，剧集 URL 带各自规则名，便于断言换源生效。
     late _MultiSourceDataSource multi;
 
@@ -322,7 +322,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // 三个来源 chips 都在，默认选中第一个规则。
+      // 三个来源 chips 都在；多来源时默认不抓剧集（Kazumi 式：先选源）。
       for (final source in multi.sources) {
         expect(
           find.byKey(
@@ -331,22 +331,24 @@ void main() {
           findsOneWidget,
         );
       }
-      expect(find.text('选择规则观看（3 个来源）'), findsOneWidget);
-      expect(find.text('共 5 集'), findsOneWidget);
+      expect(find.text('选择来源观看（3 个来源）'), findsOneWidget);
+      expect(find.text('请选择一个来源以加载剧集'), findsOneWidget);
+      expect(find.byKey(const ValueKey<String>('episode-1')), findsNothing);
 
-      // 点「乙站」→ 详情重抓，剧集 URL 切换为乙站。
+      // 点「乙站」→ 才抓该源详情，剧集 URL 切换为乙站。
       final yiSource = multi.sources.firstWhere((s) => s.sourceName == '乙站');
       await tester.tap(
         find.byKey(ValueKey<String>('source-chip-乙站-${yiSource.id}')),
       );
       await tester.pumpAndSettle();
 
+      expect(find.text('共 5 集'), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey<String>('episode-1')));
       expect(tappedSource?.sourceName, '乙站');
       expect(multi.lastDetailSource, '乙站');
     });
 
-    testWidgets('单来源时不渲染换源选择器', (tester) async {
+    testWidgets('单来源时自动选中并加载剧集，不显示换源 chips', (tester) async {
       _usePhoneSize(tester);
       await tester.pumpWidget(
         _app(
@@ -358,7 +360,9 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('选择规则观看'), findsNothing);
+      expect(find.textContaining('选择来源观看'), findsNothing);
+      expect(find.text('共 5 集'), findsOneWidget);
+      expect(find.byKey(const ValueKey<String>('episode-1')), findsOneWidget);
     });
   });
 

@@ -138,56 +138,24 @@ void main() {
       expect(subject.coverUrl, 'https://lain.bgm.tv/l.jpg');
     });
 
-    test('lookupBangumiCover 取首条有封面的结果，失败回退 null', () async {
-      final client = _FakeBangumiClient([
-        BangumiSearchResponse(
-          subjects: [
-            BangumiSubject(
-              id: 1,
-              name: 'A',
-              nameCn: '',
-              images: const <String, String>{},
-            ),
-            BangumiSubject(
-              id: 2,
-              name: 'B',
-              nameCn: '',
-              images: const <String, String>{'large': cover},
-            ),
-          ],
-        ),
-      ]);
-      expect(
-        await lookupBangumiCover('x', client, baseUrl: BangumiEndpoints.mirror),
-        cover,
-      );
-      expect(
-        await lookupBangumiCover(
-          'x',
-          _FakeBangumiClient([], fail: true),
-          baseUrl: BangumiEndpoints.mirror,
-        ),
-        isNull,
-      );
+    test('BangumiSubject 解析评分/首播/标签', () {
+      final subject = BangumiSubject.fromJson(<String, dynamic>{
+        'id': 1,
+        'name': 'A',
+        'name_cn': '',
+        'summary': '简介',
+        'date': '2023-09-29',
+        'rating': <String, dynamic>{'score': 8.7},
+        'tags': <dynamic>[
+          <String, dynamic>{'name': '奇幻'},
+          <String, dynamic>{'name': '治愈'},
+        ],
+      });
+      expect(subject.summary, '简介');
+      expect(subject.airDate, '2023-09-29');
+      expect(subject.rating, 8.7);
+      expect(subject.tags, <String>['奇幻', '治愈']);
+      expect(subject.searchKeyword, 'A');
     });
   });
-}
-
-class _FakeBangumiClient implements BangumiClient {
-  _FakeBangumiClient(this.responses, {this.fail = false});
-
-  final List<BangumiSearchResponse> responses;
-  final bool fail;
-  int _calls = 0;
-
-  @override
-  Future<BangumiSearchResponse> searchSubjects(
-    String keyword, {
-    required String baseUrl,
-    int limit = 5,
-    int offset = 0,
-  }) async {
-    if (fail) throw StateError('network down');
-    return responses[_calls++ % responses.length];
-  }
 }

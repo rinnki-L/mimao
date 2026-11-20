@@ -1,8 +1,8 @@
-/// Bangumi 元数据服务（纯 Dart + dio）——提供番剧封面，对齐 Kazumi 的接入方式。
+/// Bangumi 元数据服务（纯 Dart + dio）——Kazumi 式搜索主源。
 ///
 /// Kazumi 搜索主走 Bangumi API 拿元数据/封面（lain.bgm.tv），播放源交给规则站点
-/// 按标题搜索。本项目保留现有「规则站点搜索 + 播放」链路，仅按标题向 Bangumi
-/// 补一张更可靠的封面——不动 detail/watchSources/播放器契约。
+/// 按标题搜索。本项目照此：搜索结果只来自 Bangumi（干净、只含相关条目），
+/// 详情页用标题让规则站点提供播放源供用户选，选中后才抓剧集。
 ///
 /// 两态 host（对齐 Kazumi 的 direct/mirror，去掉需原生依赖的 ECH）：
 /// - 直连：api.bgm.tv（国内常超时，Kazumi direct）
@@ -17,18 +17,22 @@ abstract interface class BangumiClient {
   Future<BangumiSearchResponse> searchSubjects(
     String keyword, {
     required String baseUrl,
-    int limit = 5,
+    int limit = 20,
     int offset = 0,
   });
 }
 
-/// 一条 Bangumi 番剧元数据（只保留补封面所需字段）。
+/// 一条 Bangumi 番剧元数据（对齐 Kazumi BangumiItem 的展示字段）。
 class BangumiSubject {
   const BangumiSubject({
     required this.id,
     required this.name,
     required this.nameCn,
     required this.images,
+    this.summary = '',
+    this.rating,
+    this.airDate = '',
+    this.tags = const <String>[],
   });
 
   final int id;
@@ -38,10 +42,16 @@ class BangumiSubject {
   /// images 各尺寸 URL（large/common/medium/small/grid）；域名通常 lain.bgm.tv。
   final Map<String, String> images;
 
+  /// 简介 / 评分 / 首播日期 / 标签（Bangumi 详情页展示用）。
+  final String summary;
+  final double? rating;
+  final String airDate;
+  final List<String> tags;
+
   /// 展示名：中文名优先，回退原名（Kazumi BangumiItem.nameCn 同款逻辑）。
   String get displayName => nameCn.trim().isEmpty ? name : nameCn;
 
-  /// 封面 URL：large → common → medium → small → image，按 Kazumi 卡片优先级。
+  /// 封面 URL：large → common → medium → small → grid，按 Kazumi 卡片优先级。
   String get coverUrl {
     for (final key in <String>['large', 'common', 'medium', 'small', 'grid']) {
       final url = images[key]?.trim() ?? '';
@@ -49,6 +59,9 @@ class BangumiSubject {
     }
     return '';
   }
+
+  /// 用于规则站点按标题搜播放源的关键词（Kazumi source_sheet 同款：中文名优先）。
+  String get searchKeyword => displayName;
 
   factory BangumiSubject.fromJson(Map<String, dynamic> json) {
     final rawImages = json['images'];
@@ -64,6 +77,25 @@ class BangumiSubject {
     if (images.isEmpty && singleImage != null && singleImage.isNotEmpty) {
       images['large'] = singleImage;
     }
+
+    // rating.score / tags[].name / date（Kazumi BangumiItem.fromJson 同款映射）
+    final rating = json['rating'];
+    double? score;
+    if (rating is Map && rating['score'] != null) {
+      score = (rating['score'] as num?)?.toDouble();
+    }
+    final tags = <String>[];
+    final rawTags = json['tags'];
+    if (rawTags is List) {
+      for (final tag in rawTags) {
+        if (tag is Map && tag['name'] != null) {
+          tags.add(tag['name'].toString());
+        }
+        if (tags.length >= 8) break;
+      }
+    }
+    final airDate = (json['date']?.toString() ?? '').trim();
+
     return BangumiSubject(
       id: (json['id'] is num)
           ? (json['id'] as num).toInt()
@@ -71,6 +103,10 @@ class BangumiSubject {
       name: json['name']?.toString() ?? '',
       nameCn: json['name_cn']?.toString() ?? json['nameCN']?.toString() ?? '',
       images: Map<String, String>.unmodifiable(images),
+      summary: json['summary']?.toString() ?? '',
+      rating: score,
+      airDate: airDate,
+      tags: List<String>.unmodifiable(tags),
     );
   }
 }
@@ -91,11 +127,11 @@ class BangumiEndpoints {
   static const String searchPath = '/v0/search/subjects';
 
   /// 构造搜索 URL（Kazumi `bangumiRankSearch` 同款 limit/offset query）。
-  static String searchUrl(String baseUrl, {int limit = 5, int offset = 0}) =>
+  static String searchUrl(String baseUrl, {int limit = 20, int offset = 0}) =>
       '$baseUrl$searchPath?limit=$limit&offset=$offset';
 
   /// 构造搜索 JSON body（Kazumi `buildBangumiSearchParams` 精简版：只取 type=2 动画 +
-  /// nsfw=false，避免返回漫画/里番干扰封面匹配）。
+  /// nsfw=false，避免返回漫画/里番干扰）。
   static Map<String, dynamic> searchBody(String keyword) => <String, dynamic>{
     'keyword': keyword,
     'sort': 'heat',
@@ -118,7 +154,7 @@ class DioBangumiClient implements BangumiClient {
   Future<BangumiSearchResponse> searchSubjects(
     String keyword, {
     required String baseUrl,
-    int limit = 5,
+    int limit = 20,
     int offset = 0,
   }) async {
     final response = await _dio.post<Map<String, dynamic>>(
@@ -162,29 +198,5 @@ class DioBangumiClient implements BangumiClient {
       }
     }
     return BangumiSearchResponse(subjects: subjects, statusCode: status);
-  }
-}
-
-/// 按标题查 Bangumi 封面：取第一个有封面的条目（Bangumi 按热度排序，首条最相关）。
-///
-/// 返回 null 表示没查到 / 请求失败——调用方保留规则站点原封面，绝不因此打断搜索。
-Future<String?> lookupBangumiCover(
-  String title,
-  BangumiClient client, {
-  required String baseUrl,
-}) async {
-  final keyword = title.trim();
-  if (keyword.isEmpty) return null;
-  try {
-    final response = await client.searchSubjects(keyword, baseUrl: baseUrl);
-    if (!response.isSuccessful) return null;
-    for (final subject in response.subjects) {
-      final cover = subject.coverUrl;
-      if (cover.isNotEmpty) return cover;
-    }
-    return null;
-  } on Object {
-    // 网络失败/解析异常一律回退：封面是纯增益，不能挡搜索。
-    return null;
   }
 }

@@ -23,6 +23,21 @@ class AnimeSummary {
   /// 来源站点名，如「樱花动漫」。
   final String? sourceName;
 
+  /// Bangumi 条目 id（Bangumi 作为搜索主源时填入；规则搜索为 null）。
+  final int? bangumiId;
+
+  /// 简介（Bangumi summary）。
+  final String description;
+
+  /// 评分（Bangumi rating.score），null 表示无评分。
+  final double? rating;
+
+  /// 首播日期文本（Bangumi date）。
+  final String airDate;
+
+  /// 标签/题材（Bangumi tags 前几个）。
+  final List<String> tags;
+
   const AnimeSummary({
     required this.id,
     required this.title,
@@ -30,9 +45,14 @@ class AnimeSummary {
     required this.detailUrl,
     this.subtitle,
     this.sourceName,
+    this.bangumiId,
+    this.description = '',
+    this.rating,
+    this.airDate = '',
+    this.tags = const <String>[],
   });
 
-  /// 复制并覆盖部分字段（Bangumi 封面补全 / 镜像切换用）。
+  /// 复制并覆盖部分字段（换源 / Bangumi 元数据用）。
   AnimeSummary copyWith({
     String? id,
     String? title,
@@ -40,6 +60,11 @@ class AnimeSummary {
     String? detailUrl,
     String? subtitle,
     String? sourceName,
+    int? bangumiId,
+    String? description,
+    double? rating,
+    String? airDate,
+    List<String>? tags,
   }) => AnimeSummary(
     id: id ?? this.id,
     title: title ?? this.title,
@@ -47,6 +72,11 @@ class AnimeSummary {
     detailUrl: detailUrl ?? this.detailUrl,
     subtitle: subtitle ?? this.subtitle,
     sourceName: sourceName ?? this.sourceName,
+    bangumiId: bangumiId ?? this.bangumiId,
+    description: description ?? this.description,
+    rating: rating ?? this.rating,
+    airDate: airDate ?? this.airDate,
+    tags: tags ?? this.tags,
   );
 }
 
