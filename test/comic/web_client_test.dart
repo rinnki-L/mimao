@@ -3,6 +3,7 @@
 library;
 
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
@@ -178,6 +179,51 @@ void main() {
       // deleteCookies 后同步缓存也清空。
       await client.deleteCookies('https://site.test');
       expect(client.getCookies('https://site.test'), isEmpty);
+    });
+
+    test('持久化 Cookie：新 client ready() 后同步 getCookies 与请求头都可见', () async {
+      final dir = await Directory.systemTemp.createTemp('mimao-webclient-');
+      addTearDown(() async {
+        if (await dir.exists()) await dir.delete(recursive: true);
+      });
+      final cookieFile = File('${dir.path}/comic_cookies.json');
+
+      final firstJar = ComicCookieJar(file: cookieFile);
+      final first = ComicWebClient(
+        dio: Dio()..httpClientAdapter = _RecordingAdapter(),
+        cookieJar: firstJar,
+      );
+      await first.setCookies('https://site.test', <String, String>{
+        'sid': 'abc',
+      });
+      await firstJar.persist();
+
+      // 模拟重启：全新 jar 从同一文件加载。
+      final secondJar = ComicCookieJar(file: cookieFile);
+      final second = ComicWebClient(
+        dio: Dio()..httpClientAdapter = _RecordingAdapter(),
+        cookieJar: secondJar,
+      );
+      await second.ready();
+      expect(
+        second.getCookies('https://site.test'),
+        contains(
+          predicate(
+            (Map<String, String> c) =>
+                c['name'] == 'sid' && c['value'] == 'abc',
+          ),
+        ),
+      );
+
+      // 后续请求自动携带落盘 Cookie。
+      final adapter = _RecordingAdapter();
+      final third = ComicWebClient(
+        dio: Dio()..httpClientAdapter = adapter,
+        cookieJar: ComicCookieJar(file: cookieFile),
+      );
+      await third.ready();
+      await third.fetch('https://site.test/comic/9');
+      expect(adapter.seenOptions?.headers['Cookie'], contains('sid=abc'));
     });
 
     test('POST data 以字节体发送；4xx 不抛异常', () async {

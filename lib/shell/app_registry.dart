@@ -171,7 +171,7 @@ Future<void> initAppModules({
       // 启动读一次源仓库：目录不可读/清单损坏在此暴露为可读失败原因。
       await store.loadAllDetailed();
 
-      final client = comicHttpClient ?? ComicWebClient();
+      final client = comicHttpClient ?? await _createDefaultComicClient();
       // 生产宿主与适配器共用同一 client（共享 cookie 语义）；
       // CI/测试注入假宿主工厂，不依赖 flutter_qjs_plugin.dll。
       final pool = SourceExecutionPool(
@@ -384,6 +384,16 @@ Future<void> resetAppModulesForTest() async {
   appModules.clear();
   appModulesError = null;
   await _resetOwnedDb();
+}
+
+/// 生产漫画抓取客户端：持久 Cookie（`comic_cookies.json`），装配期加载完成，
+/// 让源脚本的同步 `getCookies` 能立刻看到上次保存的登录态/`cf_clearance`。
+/// 测试一律注入 `comicHttpClient`，不会走到 path_provider。
+Future<ComicWebClient> _createDefaultComicClient() async {
+  final jar = await ComicCookieJar.openDefault();
+  final client = ComicWebClient(cookieJar: jar);
+  await client.ready();
+  return client;
 }
 
 Future<void> _resetOwnedDb() async {

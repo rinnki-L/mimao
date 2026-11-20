@@ -10,6 +10,8 @@ import 'dart:convert';
 import 'package:cookie_jar/cookie_jar.dart';
 import 'package:dio/dio.dart';
 
+import 'cookie_store.dart';
+
 /// 默认 UA：桌面 Chrome。多数漫画站对空 UA / Dart 默认 UA 直接 403。
 const String defaultComicUserAgent =
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
@@ -119,12 +121,30 @@ class ComicWebClient implements ComicHttpClient {
     this.defaultUserAgent = defaultComicUserAgent,
     this.timeout = const Duration(seconds: 20),
   }) : _dio = dio ?? Dio(),
-       _cookieJar = cookieJar ?? CookieJar();
+       _cookieJar = cookieJar ?? ComicCookieJar();
 
   final Dio _dio;
   final CookieJar _cookieJar;
   final String defaultUserAgent;
   final Duration timeout;
+
+  bool _jarReady = false;
+
+  /// 等待持久化 Cookie 加载完成，并把落盘 Cookie 水合进同步缓存。
+  ///
+  /// 生产在装配期 await 一次；此后 [getCookies] 这类同步 API 才能看到
+  /// 上次启动保存的登录态 / `cf_clearance`。
+  Future<void> ready() async {
+    if (_jarReady) return;
+    final jar = _cookieJar;
+    if (jar is ComicCookieJar) {
+      await jar.ensureLoaded();
+      _syncCookieCache
+        ..clear()
+        ..addAll(jar.allCookies);
+    }
+    _jarReady = true;
+  }
 
   Future<List<Cookie>> _loadCookies(Uri uri) async {
     try {
@@ -160,6 +180,7 @@ class ComicWebClient implements ComicHttpClient {
     String url, {
     ComicFetchOptions options = const ComicFetchOptions(),
   }) async {
+    await ready();
     final uri = Uri.tryParse(url.trim());
     if (uri == null || !uri.hasScheme || uri.host.isEmpty) {
       throw ArgumentError.value(url, 'url', '必须是绝对 URL');
@@ -242,6 +263,7 @@ class ComicWebClient implements ComicHttpClient {
 
   @override
   Future<void> setCookies(String url, Map<String, String> cookies) async {
+    await ready();
     final uri = Uri.tryParse(url.trim());
     if (uri == null || uri.host.isEmpty) return;
     final parsed = <Cookie>[];
@@ -270,6 +292,7 @@ class ComicWebClient implements ComicHttpClient {
 
   @override
   Future<void> deleteCookies(String url) async {
+    await ready();
     final uri = Uri.tryParse(url.trim());
     if (uri == null) return;
     await _cookieJar.delete(uri);
