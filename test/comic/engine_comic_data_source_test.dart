@@ -197,6 +197,27 @@ void main() {
       expect(adapter.takeDiagnostics(), isNotEmpty);
     });
 
+    test('单源解析异常不拖垮其它源：转诊断而非整次「搜索失败」', () async {
+      // 真实事故：某源 maxPage=NaN 让 parseComicList 抛异常，Future.wait
+      // 整体 reject，搜索页只剩「搜索失败，请稍后重试」。
+      final other = source_engine.parseSourceScript(
+        integrationSourceScriptText.replaceFirst('bilimanga', 'boomsource'),
+      );
+      await env.sourceStore.save(other);
+      final adapter = await env.buildAdapter(
+        boomSearchKeys: <String>{'boomsource'},
+      );
+
+      final results = await adapter.search('海贼王');
+      expect(results, hasLength(2));
+      expect(results.map((e) => e.sourceName).toSet(), <String>{
+        'bilimanga',
+      }, reason: 'boomsource 解析失败，其余源结果仍在');
+      final diagnostics = adapter.takeSearchDiagnostics();
+      expect(diagnostics.join(), contains('boomsource'));
+      expect(diagnostics.join(), contains('搜索异常'));
+    });
+
     test('空关键词返回空列表，不调用源脚本', () async {
       final adapter = await env.buildAdapter();
       expect(await adapter.search(''), isEmpty);

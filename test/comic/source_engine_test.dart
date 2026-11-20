@@ -80,6 +80,33 @@ void main() {
       expect(result.maxPage, 9);
     });
 
+    test('maxPage/stars 非有限数（NaN/Infinity）收敛为 null，不抛异常', () {
+      // 多个源在 total 缺失时算 `Math.ceil(undefined / 21)` → NaN；
+      // 真实事故：一个源返回 NaN 就让整次聚合搜索报「搜索失败」。
+      for (final bad in <num>[
+        double.nan,
+        double.infinity,
+        double.negativeInfinity,
+      ]) {
+        final result = engine.parseComicList(<String, dynamic>{
+          'comics': <dynamic>[
+            <String, dynamic>{'id': 'c1', 'title': 'A', 'maxPage': bad},
+          ],
+          'maxPage': bad,
+        }, 'maxPage');
+        expect(result.items, hasLength(1));
+        expect(result.maxPage, isNull, reason: '$bad');
+        expect(result.items.single.maxPage, isNull, reason: '$bad');
+      }
+
+      final comic = engine.parseComic(<String, dynamic>{
+        'id': 'c1',
+        'title': 'A',
+        'stars': double.nan,
+      });
+      expect(comic!.stars, isNull);
+    });
+
     test('parseImages 收拢图片地址并跳过空项', () {
       final result = engine.parseImages(<String, dynamic>{
         'images': <dynamic>['https://x/1.jpg', '', 'https://x/2.jpg'],

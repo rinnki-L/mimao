@@ -90,17 +90,20 @@ class FakeComicHttpClient implements ComicHttpClient {
 /// 假 JS 宿主：从池的注册表达式里学自己的 key，然后按表达式前缀回放预置
 /// 结果。[failKeys] 里的源在方法调用时抛错（单源失败容错测试）；
 /// [failLoadMarkers] 命中的脚本在 loadScript 时抛错（注册失败测试）；
-/// [emptyEpisodeIds] 里的章节回放空图片列表（空章跳过测试）。
+/// [emptyEpisodeIds] 里的章节回放空图片列表（空章跳过测试）；
+/// [boomSearchKeys] 里的源返回无法解析的字段（解析期异常隔离测试）。
 class FakeSourceHost implements JsHost {
   FakeSourceHost({
     this.failKeys = const <String>{},
     this.failLoadMarkers = const <String>{},
     this.emptyEpisodeIds = const <String>{},
+    this.boomSearchKeys = const <String>{},
   });
 
   final Set<String> failKeys;
   final Set<String> failLoadMarkers;
   final Set<String> emptyEpisodeIds;
+  final Set<String> boomSearchKeys;
   String? _key;
 
   @override
@@ -131,6 +134,14 @@ class FakeSourceHost implements JsHost {
       throw StateError('源 $_key 故障');
     }
     if (expression.startsWith('source.search.load')) {
+      if (_key != null && boomSearchKeys.contains(_key)) {
+        // title 的 toString 在 Dart 解析阶段抛错，模拟源返回畸形字段。
+        return <String, Object?>{
+          'comics': <Object?>[
+            <String, Object?>{'id': 'boom', 'title': _ThrowingTitle()},
+          ],
+        };
+      }
       return integrationSearchResponse;
     }
     if (expression.startsWith('source.comic.loadInfo')) {
@@ -150,6 +161,12 @@ class FakeSourceHost implements JsHost {
 
   @override
   void close() {}
+}
+
+/// 解析时必抛的标题值——模拟源返回的畸形字段（如无法转字符串的对象）。
+class _ThrowingTitle {
+  @override
+  String toString() => throw StateError('标题解析炸了');
 }
 
 /// `source.search.load` 的回放结果（引擎 parseComicList 直接消费）。
@@ -278,12 +295,14 @@ class ComicIntegrationEnv {
     Set<String> failKeys = const <String>{},
     Set<String> failLoadMarkers = const <String>{},
     Set<String> emptyEpisodeIds = const <String>{},
+    Set<String> boomSearchKeys = const <String>{},
   }) {
     final pool = SourceExecutionPool(
       hostFactory: () => FakeSourceHost(
         failKeys: failKeys,
         failLoadMarkers: failLoadMarkers,
         emptyEpisodeIds: emptyEpisodeIds,
+        boomSearchKeys: boomSearchKeys,
       ),
     );
     final engine = ComicSourceEngine(pool: pool);

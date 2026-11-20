@@ -217,15 +217,20 @@ class ComicSourceEngine {
   }
 
   int? _int(Object? raw) {
-    if (raw is int) return raw;
-    if (raw is num) return raw.toInt();
+    // JS 侧 `Math.ceil(undefined / 21)` 会得到 NaN、除零得到 Infinity（多个
+    // 源在 total 缺失时这么算 maxPage）；直接 toInt() 会抛
+    // "Infinity or NaN toInt"，一个源就能把整次聚合搜索打崩。
+    if (raw is num) return raw.isFinite ? raw.toInt() : null;
     if (raw is String) return int.tryParse(raw.trim());
     return null;
   }
 
   double? _double(Object? raw) {
-    if (raw is num) return raw.toDouble();
-    if (raw is String) return double.tryParse(raw.trim());
+    if (raw is num) return raw.isFinite ? raw.toDouble() : null;
+    if (raw is String) {
+      final parsed = double.tryParse(raw.trim());
+      return parsed != null && parsed.isFinite ? parsed : null;
+    }
     return null;
   }
 

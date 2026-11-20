@@ -277,16 +277,28 @@ class EngineComicDataSource
       ..sort((a, b) => a.key.compareTo(b.key));
     // 并发搜索：33 个源串行 + 单源最长 30s 会让一次搜索拖到数分钟；并行后
     // 总耗时收敛为「最慢的源」。诊断按源 key 顺序合并，结果顺序保持稳定。
+    // 单源失败（引擎 throw / 解析异常）只记诊断，不让 Future.wait 整体 reject
+    // 成「搜索失败」——否则一个坏源就吞掉其它源的全部结果。
     final entries = await Future.wait(
       enabled.map((source) async {
-        final result = await engine.search(source.key, query);
-        return (key: source.key, result: result);
+        try {
+          final result = await engine.search(source.key, query);
+          return (key: source.key, result: result, error: null);
+        } on Object catch (error) {
+          return (key: source.key, result: null, error: error);
+        }
       }),
     );
     final merged = <ComicSummary>[];
     for (final entry in entries) {
       _takeInitError(entry.key);
       final result = entry.result;
+      if (result == null) {
+        final message = '${entry.key}：搜索异常（${entry.error}）';
+        _addDiagnostics(<String>[message]);
+        _addSearchDiagnostic(message);
+        continue;
+      }
       final prefixed = result.diagnostics
           .map((d) => '${entry.key}：$d')
           .toList();
@@ -322,7 +334,15 @@ class EngineComicDataSource
     // 空关键词不做推荐流（决策⑧）：与 search 保持一致。
     if (query.isEmpty) return const <ComicSummary>[];
 
-    final result = await engine.search(key, query);
+    final source_engine.ComicSourceResult<source_engine.ComicSummary> result;
+    try {
+      result = await engine.search(key, query);
+    } on Object catch (error) {
+      final message = '$key：搜索异常（$error）';
+      _addDiagnostics(<String>[message]);
+      _addSearchDiagnostic(message);
+      return const <ComicSummary>[];
+    }
     _takeInitError(key);
     final prefixed = result.diagnostics.map((d) => '$key：$d').toList();
     _addDiagnostics(prefixed);
