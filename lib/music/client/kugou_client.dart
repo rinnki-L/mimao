@@ -107,13 +107,20 @@ class KugouEndpoint {
   final List<(String, String)> headers;
 }
 
-/// 传输层返回：字节 + HTTP 状态（request.rs `HttpResponse`；非 2xx 已在
-/// [KugouClient.sendEndpoint] 按 Rust receive() 语义抛 http 异常）。
+/// 传输层返回：字节 + HTTP 状态 + 响应头（request.rs `HttpResponse`；非 2xx
+/// 已在 [KugouClient.sendEndpoint] 按 Rust receive() 语义抛 http 异常）。
 class KugouHttpResponse {
-  const KugouHttpResponse({required this.bytes, required this.statusCode});
+  const KugouHttpResponse({
+    required this.bytes,
+    required this.statusCode,
+    this.headers = const <String, String>{},
+  });
 
   final Uint8List bytes;
   final int statusCode;
+
+  /// 响应头（同名多值取第一个；第三方登录轮询需要读取跳转头）。
+  final Map<String, String> headers;
 }
 
 /// 网关客户端。无状态：身份（[KugouIdentity]）每次调用显式传入，
@@ -240,6 +247,7 @@ class KugouClient {
     return KugouHttpResponse(
       bytes: Uint8List.fromList(response.data ?? <int>[]),
       statusCode: statusCode,
+      headers: _responseHeaders(response),
     );
   }
 
@@ -255,6 +263,7 @@ class KugouClient {
     Map<String, String> params = const <String, String>{},
     List<int> body = const <int>[],
     Map<String, String> headers = const <String, String>{},
+    bool allowNon2xx = false,
   }) async {
     final response = await _dio.request<List<int>>(
       url,
@@ -268,11 +277,20 @@ class KugouClient {
       queryParameters: params,
     );
     final statusCode = response.statusCode ?? 0;
-    _ensureSuccess(statusCode);
+    if (!allowNon2xx) _ensureSuccess(statusCode);
     return KugouHttpResponse(
       bytes: Uint8List.fromList(response.data ?? <int>[]),
       statusCode: statusCode,
+      headers: _responseHeaders(response),
     );
+  }
+
+  Map<String, String> _responseHeaders(Response<List<int>> response) {
+    final output = <String, String>{};
+    response.headers.forEach((name, values) {
+      if (values.isNotEmpty) output[name] = values.first;
+    });
+    return output;
   }
 
   void _ensureSuccess(int statusCode) {
