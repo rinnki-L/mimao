@@ -63,6 +63,12 @@ let Convert = {
     sha512: (v) => sendMessage({method:'convert', type:'sha512', value:v, isEncode:true}),
     hmac: (k, v, h) => sendMessage({method:'convert', type:'hmac', key:k, value:v, hash:h, isEncode:true}),
     hmacString: (k, v, h) => sendMessage({method:'convert', type:'hmac', key:k, value:v, hash:h, isEncode:true, isString:true}),
+    // AES 原语（对齐 Venera：直接按块处理，不自动加/去 padding；调用方保证
+    // 数据长度是 16 的倍数）。jm 等源的域名列表解密依赖 decryptAesEcb。
+    encryptAesEcb: (v, k) => sendMessage({method:'convert', type:'aes-ecb', value:v, key:k, isEncode:true}),
+    decryptAesEcb: (v, k) => sendMessage({method:'convert', type:'aes-ecb', value:v, key:k, isEncode:false}),
+    encryptAesCbc: (v, k, iv) => sendMessage({method:'convert', type:'aes-cbc', value:v, key:k, iv:iv, isEncode:true}),
+    decryptAesCbc: (v, k, iv) => sendMessage({method:'convert', type:'aes-cbc', value:v, key:k, iv:iv, isEncode:false}),
     hexEncode: (bytes) => {
         const view = new Uint8Array(bytes);
         let out = '';

@@ -243,6 +243,68 @@ void main() {
     slowPool.disposeAll();
   });
 
+  test('⑨ execute 等待注册期 init settle：首搜能读到 init 设置的标记', () async {
+    // fake 宿主的 init 延迟完成并打标；execute 不等 init 的话会读到 false。
+    final host = _InitDelayHost(initDelay: const Duration(milliseconds: 100));
+    final initPool = SourceExecutionPool(
+      hostFactory: () => host,
+      timeout: const Duration(seconds: 5),
+    );
+    addTearDown(initPool.disposeAll);
+    await initPool.register('delayed_init', fixtureSourceScript);
+    // 注册不阻塞启动：init 尚未完成，register 已经返回。
+    expect(host.inited, isFalse);
+
+    final result = await initPool.execute(
+      'delayed_init',
+      'source.search.load("x",[],1)',
+    );
+    expect(result.isOk, isTrue, reason: result.error);
+    expect(result.value, isTrue, reason: 'execute 未等待 init，标记仍为 false');
+  });
+
+  test('⑩ init 失败不阻塞 execute：仍能执行并保留诊断', () async {
+    final host = _InitDelayHost(
+      initDelay: const Duration(milliseconds: 20),
+      failInit: true,
+    );
+    final failPool = SourceExecutionPool(
+      hostFactory: () => host,
+      timeout: const Duration(seconds: 5),
+    );
+    addTearDown(failPool.disposeAll);
+    await failPool.register('failed_init', fixtureSourceScript);
+
+    final result = await failPool.execute(
+      'failed_init',
+      'source.search.load("x",[],1)',
+    );
+    expect(result.isOk, isTrue, reason: result.error);
+    // init 抛错后标记仍为 false，但执行本身成功返回。
+    expect(result.value, isFalse);
+    // 失败原因仍走现有诊断路径。
+    expect(failPool.takeInitError('failed_init'), contains('init boom'));
+  });
+
+  test('⑪ init 永不完成时 execute 按池超时收敛，不永久挂住', () async {
+    final hangPool = SourceExecutionPool(
+      hostFactory: () => _HangingInitHost(),
+      timeout: const Duration(milliseconds: 60),
+    );
+    addTearDown(hangPool.disposeAll);
+    await hangPool.register('hanging_init', fixtureSourceScript);
+    final result = await hangPool.execute(
+      'hanging_init',
+      'source.search.load("x",[],1)',
+    );
+    expect(result.isOk, isFalse);
+    expect(
+      result.error!.toLowerCase(),
+      contains('timeout'),
+      reason: '超时错误应含 timeout：${result.error}',
+    );
+  });
+
   test('挑战验证期间暂停执行超时，验证结束后恢复计时', () async {
     final slowPool = SourceExecutionPool(
       hostFactory: () => _DelayHost(const Duration(milliseconds: 400)),
@@ -310,6 +372,57 @@ class _HangingHost implements JsHost {
     // 注册期的实例化 / 默认值快照 / init 表达式立即返回；真正的方法调用才挂起。
     if (!expression.startsWith('source.search.load')) return null;
     return Completer<Object?>().future; // 永不 complete
+  }
+
+  @override
+  void close() {}
+}
+
+/// 表达式是否是注册期 init 调用（对齐 js_host.dart 的 _sourceInitExpression）。
+bool _isInitCall(String expression) => expression.contains('source.init');
+
+/// init 延迟完成的宿主：完成后打上 [inited] 标记，搜索表达式读它。
+/// 用来验证 execute 在 evaluate 之前确实等到了 init settle。
+class _InitDelayHost implements JsHost {
+  _InitDelayHost({
+    this.initDelay = const Duration(milliseconds: 80),
+    this.failInit = false,
+  });
+
+  final Duration initDelay;
+  final bool failInit;
+  bool inited = false;
+
+  @override
+  Future<void> loadScript(String script) async {}
+
+  @override
+  Future<Object?> evaluate(String expression) async {
+    if (_isInitCall(expression)) {
+      await Future<void>.delayed(initDelay);
+      if (failInit) throw StateError('init boom');
+      inited = true;
+      return null;
+    }
+    if (expression.startsWith('source.search.load')) return inited;
+    return null;
+  }
+
+  @override
+  void close() {}
+}
+
+/// init 永远不完成的宿主：验证首执行不会因 init 挂死而永久等待。
+class _HangingInitHost implements JsHost {
+  @override
+  Future<void> loadScript(String script) async {}
+
+  @override
+  Future<Object?> evaluate(String expression) {
+    if (_isInitCall(expression)) {
+      return Completer<Object?>().future; // 永不 complete
+    }
+    return Future<Object?>.value(null);
   }
 
   @override

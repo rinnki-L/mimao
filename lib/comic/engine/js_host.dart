@@ -131,11 +131,14 @@ class SourceExecutionPool {
   ///
   /// `init()` **不 await**：app 启动期在 `runApp` 前注册全部源，等异步 init
   /// 的网络请求会把入口卡住；同步部分照常先执行，异步失败记入 [_initErrors]。
+  /// init 的完成信号以 Future 形式存进 [_PooledSource]，由首次 [execute] 等待
+  /// （对齐 Venera 等 init settle 后再使用源）。
   Future<void> register(String key, String script) async {
     final previous = _sources.remove(key);
     previous?.host.close();
     _initErrors.remove(key);
     final host = _hostFactory();
+    final Future<void> init;
     try {
       await host.loadScript(script);
       final className = QuickJsHost.findSourceClassName(script);
@@ -148,45 +151,50 @@ class SourceExecutionPool {
       }
       // 默认值快照不改变脚本文本；脚本自挂 source 的路径同样适用。
       await host.evaluate(_captureSettingDefaultsExpression);
-      _runInitThenRelease(host, key, registered);
+      init = _runInitThenRelease(host, key, registered);
     } catch (_) {
       // 脚本注入/实例化失败（语法错等）：关掉宿主再抛出，交给调用方容错。
       host.close();
       rethrow;
     }
-    _sources[key] = _PooledSource(host: host, script: script);
+    _sources[key] = _PooledSource(host: host, script: script, init: init);
   }
 
-  /// 调 init 并在其**开始执行后**释放注册表达式的 Dart 侧包装。
+  /// 调 init 并在其**settle 后**释放注册表达式的 Dart 侧包装。
   ///
   /// 不能在调用前释放：注册结果递归包含了实例方法的 JSRef，提前
   /// `freeRecursive` 会让 init() 抛 "JSValue released"。init 返回 Promise 时
   /// 等它 settle（成功或失败）再释放，避免异步 continuation 用到已释放句柄。
-  void _runInitThenRelease(JsHost host, String key, Object? registered) {
+  ///
+  /// 返回的 Future 在 init settle（成功或失败）后完成，**从不抛错**：
+  /// 失败原因仍写进 [_initErrors]，首次 [execute] 据此等待而不被阻塞。
+  Future<void> _runInitThenRelease(
+    JsHost host,
+    String key,
+    Object? registered,
+  ) {
     final Future<Object?> started;
     try {
       started = host.evaluate(_sourceInitExpression);
     } on Object catch (error) {
       _initErrors[key] = error.toString();
       JSRef.freeRecursive(registered);
-      return;
+      return Future<void>.value();
     }
-    unawaited(
-      started
-          .then<void>(
-            (_) {},
-            onError: (Object error, StackTrace _) {
-              _initErrors[key] = error.toString();
-            },
-          )
-          .whenComplete(() {
-            try {
-              JSRef.freeRecursive(registered);
-            } on Object {
-              // 宿主已 close 时释放可能失败；进程内资源已随 runtime 回收。
-            }
-          }),
-    );
+    return started
+        .then<void>(
+          (_) {},
+          onError: (Object error, StackTrace _) {
+            _initErrors[key] = error.toString();
+          },
+        )
+        .whenComplete(() {
+          try {
+            JSRef.freeRecursive(registered);
+          } on Object {
+            // 宿主已 close 时释放可能失败；进程内资源已随 runtime 回收。
+          }
+        });
   }
 
   /// 是否已注册。
@@ -213,13 +221,28 @@ class SourceExecutionPool {
     }
     try {
       final value = await _withIdleTimeout(
-        pooled.host.evaluate(expression),
+        // 首次执行前先等注册期 init settle；等待与调用一起受空闲超时管，
+        // 挑战验证页打开期间的暂停逻辑对两者同样生效。
+        _evaluateAfterInit(pooled, expression),
         timeout ?? this.timeout,
       );
       return SourceExecutionResult(value: value);
     } catch (error) {
       return SourceExecutionResult.error(error.toString());
     }
+  }
+
+  /// 等注册期 init settle（失败也算 settle）后再 evaluate。
+  ///
+  /// init 失败不阻塞搜索：原因已经写进 [_initErrors]，这里只吞掉错误继续执行。
+  Future<Object?> _evaluateAfterInit(
+    _PooledSource pooled,
+    String expression,
+  ) async {
+    await pooled.init.catchError((Object _) {
+      // init 抛错时继续执行；诊断由 takeInitError 提供。
+    });
+    return pooled.host.evaluate(expression);
   }
 
   /// 带「空闲计时」的超时：挑战验证页打开期间（[ComicChallengeGate.active]）
@@ -289,10 +312,18 @@ class SourceExecutionResult {
 }
 
 class _PooledSource {
-  const _PooledSource({required this.host, required this.script});
+  const _PooledSource({
+    required this.host,
+    required this.script,
+    required this.init,
+  });
 
   final JsHost host;
   final String script;
+
+  /// 注册期 init 的 settle 信号：成功或失败后完成，从不抛错。
+  /// 首次执行前由 [SourceExecutionPool._evaluateAfterInit] await。
+  final Future<void> init;
 }
 
 /// 把 `source.settings` 的 `default` 拍成 `__sourceSettingDefaults` 快照。

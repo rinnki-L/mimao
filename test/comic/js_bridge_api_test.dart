@@ -299,6 +299,53 @@ void main() {
       );
     });
   });
+  group('convert · AES（jm 域名列表解密依赖）', () {
+    test('AES-128 ECB 零块符合 NIST 向量', () {
+      final bridge = ComicJsBridge();
+      final encrypted =
+          bridge._sync(<dynamic, dynamic>{
+                'method': 'convert',
+                'type': 'aes-ecb',
+                'value': List<int>.filled(16, 0),
+                'key': List<int>.filled(16, 0),
+                'isEncode': true,
+              })
+              as List<int>;
+      expect(
+        encrypted.map((b) => b.toRadixString(16).padLeft(2, '0')).join(),
+        '66e94bd4ef8a2c3b884cfa59ca342b2e',
+      );
+    });
+
+    test('AES-256 CBC 加解密往返', () {
+      final bridge = ComicJsBridge();
+      final key = List<int>.generate(32, (i) => i + 1);
+      final iv = List<int>.generate(16, (i) => 255 - i);
+      final plain = utf8.encode('0123456789abcdef0123456789abcdef');
+      final encrypted =
+          bridge._sync(<dynamic, dynamic>{
+                'method': 'convert',
+                'type': 'aes-cbc',
+                'value': plain,
+                'key': key,
+                'iv': iv,
+                'isEncode': true,
+              })
+              as List<int>;
+      expect(encrypted, isNot(plain));
+      final decrypted =
+          bridge._sync(<dynamic, dynamic>{
+                'method': 'convert',
+                'type': 'aes-cbc',
+                'value': encrypted,
+                'key': key,
+                'iv': iv,
+                'isEncode': false,
+              })
+              as List<int>;
+      expect(decrypted, plain);
+    });
+  });
 }
 
 /// 测试便捷封装：拿同步分派的值（http 不会走到这里）。

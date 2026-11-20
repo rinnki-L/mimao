@@ -16,14 +16,32 @@ class ComicSourceEngine {
   SourceExecutionPool get pool => _pool;
 
   /// 搜索：`source.search.load(keyword, options, page)` → `{comics, maxPage}`。
+  ///
+  /// 未显式传 [options] 时按 Venera 的搜索页语义，用每个
+  /// `source.search.optionList` 项的 `defaultValue` 作为默认选项（有 `default`
+  /// 取 `JSON.stringify(default)`，否则取第一个合法 option 的 value）。默认值
+  /// 必须在 JS 侧算：`optionList` 是运行期存活的源数据，Dart 看不到，另起一次
+  /// 执行又多一轮 roundtrip。
+  ///
+  /// 只实现了 `search.loadNext` 的源（如 ehentai）没有 `search.load`，回退到
+  /// `search.loadNext(keyword, options, null)`——首屏没有 next token；这种源
+  /// 不支持翻页，maxPage 固定为 null。
   Future<ComicSourceResult<ComicSummary>> search(
     String key,
     String keyword, {
     List<String?> options = const <String?>[],
     int page = 1,
   }) async {
+    final keywordJs = _q(keyword);
+    final optionsJs = options.isEmpty
+        ? _defaultSearchOptionsJs
+        : _jsonList(options);
+    // 三元而不是 IIFE：既有测试/宿主按 `source.search.load` 前缀识别搜索调用。
     final expression =
-        'source.search.load(${_q(keyword)}, ${_jsonList(options)}, $page)';
+        'source.search.load && typeof source.search.load === "function"'
+        ' ? source.search.load($keywordJs, $optionsJs, $page)'
+        ' : Promise.resolve(source.search.loadNext($keywordJs, $optionsJs, null))'
+        '.then((r) => Array.isArray(r) ? r : { comics: r && r.comics, maxPage: null })';
     final execution = await _pool.execute(key, expression);
     if (!execution.isOk) {
       return ComicSourceResult(diagnostics: <String>[execution.error!]);
@@ -240,3 +258,34 @@ class ComicSourceEngine {
   String _jsonList(List<String?> values) =>
       '[${values.map((v) => v == null ? 'null' : _q(v)).join(',')}]';
 }
+
+/// 在 JS 侧算默认搜索选项（对齐 Venera `source_search_parser.dart`）：
+///
+/// * `optionList` 不存在 / 不是数组 → `[]`，不抛错；
+/// * 项有 `default` → `JSON.stringify(default)`（multi-select 得到
+///   `["0","1"]`，源脚本自行 `JSON.parse`）；
+/// * 否则取 `options` 里第一个 `"value-显示名"` 的 value；没有合法项 → `""`。
+///
+/// 表达式整体是字符串字面量，不拼接任何源数据；关键词仍由调用方 [_q] 转义，
+/// 因此不存在注入面。
+const String _defaultSearchOptionsJs = '''
+(() => {
+  const list = source.search && source.search.optionList;
+  if (!Array.isArray(list)) return [];
+  return list.map((item) => {
+    if (item && typeof item === 'object' &&
+        Object.prototype.hasOwnProperty.call(item, 'default') &&
+        item.default !== undefined) {
+      const encoded = JSON.stringify(item.default);
+      return encoded === undefined ? "" : encoded;
+    }
+    const entries = item && Array.isArray(item.options) ? item.options : [];
+    for (const entry of entries) {
+      if (typeof entry !== "string") continue;
+      const dash = entry.indexOf("-");
+      if (dash < 0) continue;
+      return entry.slice(0, dash);
+    }
+    return "";
+  });
+})()''';

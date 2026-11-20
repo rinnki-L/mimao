@@ -12,9 +12,11 @@ library;
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 import 'dart:math' as math;
 
 import 'package:crypto/crypto.dart' as crypto;
+import 'package:pointycastle/export.dart';
 
 import '../request/web_client.dart';
 import 'html_dom_bridge.dart';
@@ -274,10 +276,56 @@ class ComicJsBridge {
           return crypto.sha512.convert(_toBytes(rawValue)).bytes;
         case 'hmac':
           return _hmac(message);
+        case 'aes-ecb':
+          return _aes(
+            message,
+            isEncode: isEncode,
+            cipher: ECBBlockCipher(AESEngine()),
+          );
+        case 'aes-cbc':
+          final iv = _toBytes(message['iv']);
+          return _aes(
+            message,
+            isEncode: isEncode,
+            cipher: CBCBlockCipher(AESEngine()),
+            iv: iv,
+          );
         default:
           return null;
       }
     } catch (_) {
+      return null;
+    }
+  }
+
+  /// AES ECB/CBC 的原始块处理（对齐 Venera `js_engine.dart`）：不做 padding，
+  /// 输入长度必须是 16 的倍数；key 支持 16/24/32 字节（AES-128/192/256）。
+  Object? _aes(
+    Map<dynamic, dynamic> message, {
+    required bool isEncode,
+    required BlockCipher cipher,
+    List<int>? iv,
+  }) {
+    final key = _toBytes(message['key']);
+    if (key.length != 16 && key.length != 24 && key.length != 32) return null;
+    final input = _toBytes(message['value']);
+    if (input.isEmpty || input.length % 16 != 0) return null;
+    try {
+      final keyParam = KeyParameter(Uint8List.fromList(key));
+      cipher.init(
+        isEncode,
+        iv == null
+            ? keyParam
+            : ParametersWithIV<KeyParameter>(keyParam, Uint8List.fromList(iv)),
+      );
+      final source = Uint8List.fromList(input);
+      final output = Uint8List(source.length);
+      var offset = 0;
+      while (offset < source.length) {
+        offset += cipher.processBlock(source, offset, output, offset);
+      }
+      return output;
+    } on Object {
       return null;
     }
   }
