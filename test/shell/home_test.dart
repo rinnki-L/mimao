@@ -1,6 +1,6 @@
-// 壳的冒烟测试：验证入口拼贴页四个入口齐全、钻进/返回导航可用。
+// 壳的冒烟测试：验证入口拼贴页三个入口齐全、钻进/返回导航可用。
 // 顺带把 shell/ 与其生成的 shell_store.g.dart 拉进覆盖率分母并真实执行。
-// closure-01：加入"初始化后进入番剧"与"设置抽屉显示模块设置"用例，
+// 用户拍板：番剧入口移除（Bangumi 搜索国内不可用），只保留漫画/小说/音乐。
 // 并在 setUp/tearDown 调 resetAppModulesForTest() 避免全局注册表跨测试泄漏。
 
 // ignore_for_file: deprecated_member_use — 见 lib/main.dart 文件头同款说明。
@@ -50,23 +50,27 @@ void main() {
     return LibraryScope(repository: env.library, child: const MimaoApp());
   }
 
-  testWidgets('入口页展示标题与四个媒体入口', (tester) async {
+  testWidgets('入口页展示标题与三个媒体入口，无番剧入口', (tester) async {
     await tester.pumpWidget(pumpApp());
     await tester.pumpAndSettle();
 
     expect(find.text('mimao'), findsOneWidget);
-    for (final type in MediaType.values) {
+    expect(find.text('漫画 · 小说 · 音乐，一站聚合'), findsOneWidget);
+    for (final type in entryTypes) {
       expect(find.text(type.label), findsWidgets);
     }
+    // 番剧不再进入口卡（代码/注册保留）。
+    expect(find.text('番剧'), findsNothing);
   });
 
   testWidgets('点入口卡片钻进模块层，返回后回到入口页', (tester) async {
     await tester.pumpWidget(pumpApp());
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text(MediaType.anime.label).first);
+    // 未注册时模块层显示占位；用漫画验证导航。
+    await tester.tap(find.text(MediaType.comic.label).first);
     await tester.pumpAndSettle();
-    expect(find.text('${MediaType.anime.label}模块尚未接入'), findsOneWidget);
+    expect(find.text('${MediaType.comic.label}模块尚未接入'), findsOneWidget);
 
     await tester.tap(find.byTooltip('返回'));
     await tester.pumpAndSettle();
@@ -112,11 +116,11 @@ void main() {
     expect(find.textContaining('该模块设置将在接入后开放'), findsNothing);
   });
 
-  // 番剧（closure-01）与漫画（closure-02）都分件注入：番剧用 fixture 数据源
-  // 与 fake 播放器；漫画用内存 DB/源仓库 + 假宿主（CI 无 DLL/插件）。
+  // 漫画（closure-02）分件注入：内存 DB/源仓库 + 假宿主（CI 无 DLL/插件）。
   // 音乐（M4 骨架）走生产装配——身份仓库惰性解析、注册留到首搜，正常用例
   // 不会触达；这里仍注入临时目录仓库，把「点开音乐设置分组也不会碰
   // path_provider 插件」的陷阱钉死。
+  // 番剧代码/注册保留但不进入口卡，壳层测试不再点它（其自身测试在 test/anime/）。
   Future<void> initModules() => initAppModules(
     library: env.library,
     animeDb: env.animeDb,
@@ -129,67 +133,6 @@ void main() {
     comicHostFactory: () => FakeSourceHost(),
     musicIdentityStore: KugouIdentityStore(Directory.systemTemp),
   );
-
-  group('closure-01：模块注册后', () {
-    testWidgets('注册后点番剧进入搜索页，不再显示占位', (tester) async {
-      await initModules();
-      await tester.pumpWidget(pumpApp());
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.text(MediaType.anime.label).first);
-      await tester.pumpAndSettle();
-
-      expect(find.text('${MediaType.anime.label}模块尚未接入'), findsNothing);
-      expect(find.text('共 4 部'), findsOneWidget);
-      expect(
-        find.byKey(const ValueKey<String>('search-result-xinghai')),
-        findsOneWidget,
-      );
-    });
-
-    testWidgets('模块层只有一套顶部导航，返回后可再次进入', (tester) async {
-      await initModules();
-      await tester.pumpWidget(pumpApp());
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.text(MediaType.anime.label).first);
-      await tester.pumpAndSettle();
-
-      // 壳的"返回 + 番剧"存在；搜索页不再画自己的"搜索" AppBar
-      // （导航栏上的"搜索"标签不是 AppBar，用 descendant 精确排除）。
-      expect(find.byTooltip('返回'), findsOneWidget);
-      expect(find.text('番剧'), findsWidgets);
-      expect(
-        find.descendant(of: find.byType(AppBar), matching: find.text('搜索')),
-        findsNothing,
-      );
-
-      await tester.tap(find.byTooltip('返回'));
-      await tester.pumpAndSettle();
-      expect(find.text('mimao'), findsOneWidget);
-
-      await tester.tap(find.text(MediaType.anime.label).first);
-      await tester.pumpAndSettle();
-      expect(find.text('共 4 部'), findsOneWidget);
-    });
-
-    testWidgets('番剧设置收进模块页底部导航最右「设置」tab', (tester) async {
-      await initModules();
-      await tester.pumpWidget(pumpApp());
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.text(MediaType.anime.label).first);
-      await tester.pumpAndSettle();
-      // 底部导航最右一枚是「设置」；点它切到规则面板。
-      expect(find.text('设置'), findsOneWidget);
-      await tester.tap(find.text('设置'));
-      await tester.pumpAndSettle();
-
-      expect(find.byKey(const Key('anime-rule-url')), findsOneWidget);
-      expect(find.byKey(const Key('anime-rule-import')), findsOneWidget);
-      expect(find.text('还没有规则，先从 KazumiRules 导入'), findsOneWidget);
-    });
-  });
 
   group('closure-02：漫画注册后', () {
     testWidgets('注册后点漫画进入 ComicModulePage，不再显示占位；返回回入口页', (tester) async {

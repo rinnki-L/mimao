@@ -76,9 +76,19 @@ class _InheritedLibrary extends InheritedWidget {
 
 // ────────────────────────────────────────────────────────────────
 // 入口页：C · 拼贴（用户拍板的方案）
-//   非对称 bento：番剧跨 2 列、音乐跨 2 列，漫画/小说各 1 列。
-//   点任意卡片 → 钻进该模块层，另外三个入口消失。
+//   用户拍板：番剧入口移除（Bangumi 搜索国内不可用），只保留漫画/小说/音乐。
+//   非对称 bento：宽窗上行漫画(2列)+小说(1列)、下行音乐全宽；
+//   窄窗漫画全宽、小说/音乐并排。点任意卡片 → 钻进该模块层。
+//   番剧模块代码与注册保留（app_registry 仍注册），仅不再显示入口卡。
 // ────────────────────────────────────────────────────────────────
+
+/// 入口页展示的媒体类型——三入口（番剧代码保留但不进入口）。
+const List<MediaType> entryTypes = <MediaType>[
+  MediaType.comic,
+  MediaType.novel,
+  MediaType.music,
+];
+
 class _EntryPage extends StatelessWidget {
   const _EntryPage();
 
@@ -103,7 +113,7 @@ class _EntryPage extends StatelessWidget {
                       style: Theme.of(context).textTheme.headlineSmall,
                     ),
                     Text(
-                      '番剧 · 漫画 · 小说 · 音乐，一站聚合',
+                      '漫画 · 小说 · 音乐，一站聚合',
                       style: Theme.of(
                         context,
                       ).textTheme.bodySmall?.apply(color: cs.onSurfaceVariant),
@@ -139,50 +149,37 @@ class _EntryPage extends StatelessWidget {
     );
   }
 
-  /// 宽窗：3 列 × 2 行。flex 比照 CSS `1.18fr 1.18fr .94fr`：
-  ///   行1 番剧(1-2 列, 2.36) | 漫画(3 列, 0.94)
-  ///   行2 小说(1 列, 1.18)   | 音乐(2-3 列, 2.12)
+  /// 宽窗：上行漫画(占 2 列) + 小说(1 列)，下行音乐全宽。
   Widget _bentoWide() => Column(
     children: [
       Expanded(
         child: Row(
-          children: [
-            const Expanded(flex: 236, child: _BentoCard(MediaType.anime)),
+          children: <Widget>[
+            const Expanded(flex: 2, child: _BentoCard(MediaType.comic)),
             const SizedBox(width: 16),
-            const Expanded(flex: 94, child: _BentoCard(MediaType.comic)),
+            const Expanded(flex: 1, child: _BentoCard(MediaType.novel)),
           ],
         ),
       ),
       const SizedBox(height: 16),
-      Expanded(
-        child: Row(
-          children: [
-            const Expanded(flex: 118, child: _BentoCard(MediaType.novel)),
-            const SizedBox(width: 16),
-            const Expanded(flex: 212, child: _BentoCard(MediaType.music)),
-          ],
-        ),
-      ),
+      const Expanded(child: _BentoCard(MediaType.music)),
     ],
   );
 
-  /// 窄窗：番剧全宽 → 漫画/小说并排 → 音乐全宽，四个入口仍在一屏
-  /// （entry_variants.html 的手机适配结论）。
+  /// 窄窗：漫画全宽 → 小说/音乐并排，三个入口仍在屏内。
   Widget _bentoNarrow() => Column(
-    children: [
-      const Expanded(child: _BentoCard(MediaType.anime)),
+    children: <Widget>[
+      const Expanded(child: _BentoCard(MediaType.comic)),
       const SizedBox(height: 12),
       const Expanded(
         child: Row(
-          children: [
-            Expanded(child: _BentoCard(MediaType.comic)),
-            SizedBox(width: 12),
+          children: <Widget>[
             Expanded(child: _BentoCard(MediaType.novel)),
+            SizedBox(width: 12),
+            Expanded(child: _BentoCard(MediaType.music)),
           ],
         ),
       ),
-      const SizedBox(height: 12),
-      const Expanded(child: _BentoCard(MediaType.music)),
     ],
   );
 }
