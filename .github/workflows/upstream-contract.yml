@@ -12,7 +12,7 @@
 #       exit 2 = 网络失败（重试耗尽）→ 多半是 CDN/网络问题，重跑即可
 # 覆盖的上游对接（之后小说/音乐做同类仓库对接时各加一个 tool/smoke_*.dart）：
 #   - 漫画：Venera 官方源仓库 venera-configs（index.json → {fileName}.js）
-#   - 番剧：KazumiRules（index.json → {name}.json XPath 规则）
+#   - 番剧规则仓库冒烟已随番剧模块下线移除。
 # 脚本直接 import 纯 Dart 引擎文件（不进 engine barrel，避开 path_provider
 # → dart:ui），所以本 job 无需跑任何 Flutter 测试，只需 pub get + dart run。
 # ==============================================================
@@ -68,5 +68,3 @@ jobs:
       - name: 漫画源仓库冒烟（Venera venera-configs）
         run: dart run tool/smoke_source_catalog.dart
 
-      - name: 番剧规则仓库冒烟（KazumiRules）
-        run: dart run tool/smoke_anime_rules.dart

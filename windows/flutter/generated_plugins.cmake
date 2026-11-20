@@ -9,7 +9,6 @@ list(APPEND FLUTTER_PLUGIN_LIST
   sqlite3_flutter_libs
   system_theme
   tray_manager
-  media_kit_video
   window_manager
 )
 

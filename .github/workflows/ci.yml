@@ -1,5 +1,5 @@
 # ==============================================================
-# 严苛 CI 门禁 · Flutter 聚合应用（番剧 / 漫画 / 小说 / 音乐）
+# 严苛 CI 门禁 · Flutter 聚合应用（漫画 / 小说 / 音乐）
 # ==============================================================
 # 【重要】本文件只是流水线；要让 CI 真正守住 main，还必须在仓库
 # Settings 里手动启用以下设置（缺一不可）：
@@ -26,12 +26,12 @@
 #   测试门          测试失败 → 红；已测文件集合上的行覆盖率低于 MIN_COVERAGE → 红
 #   构建门          Windows / Android release 构建失败 → 红
 #   合并预演门      与 origin/main 存在合并冲突 → 红（冲突文件写入 Step Summary）
-#   分域说明        格式/分析/dart fix 三扇门覆盖全部自写代码（含 lib/anime；
+#   分域说明        格式/分析/dart fix 三扇门覆盖全部自写代码（含 lib/comic；
 #                   R1 已取消镜像豁免）与 tool/ 下已入库脚本；demos/ 不进任何
 #                   门（docs/architecture.md R1）
 #
 # 【现状说明】Flutter 工程已落位（2026-11-17）：pubspec.yaml / pubspec.lock /
-# 生成物均入库，static-checks 与 tests 按真实工程运行；lib/anime 为自写代码，
+# 生成物均入库，static-checks 与 tests 按真实工程运行；lib/comic 等为自写代码，
 # 已纳入全部严档（R1）。M3 起 rhttp 需要 Rust/NDK：build-windows/build-android
 # 已预置 Rust 工具链步骤；当前依赖未含 rhttp，该步骤幂等无害，接 rhttp 时按
 # docs/architecture.md §11.4 补齐即可。
@@ -98,7 +98,7 @@ jobs:
           flutter pub get --enforce-lockfile
 
       # 第二扇门：格式漂移即红。R1（docs/architecture.md）已取消镜像豁免：
-      # 引擎移植 + 功能自写，lib/anime 也是自写代码，必须过 format。demos/ 是
+      # 引擎移植 + 功能自写，各模块目录也是自写代码，必须过 format。demos/ 是
       # 选型材料，不进此门。生成物（*.g.dart 等）同样排除：它们由 build_runner
       # 产出，格式化它们会让第五扇门（重建后 diff 必须干净）自相矛盾。
       - name: 格式门——自写代码格式漂移即红（demos/、生成物豁免）
@@ -108,7 +108,7 @@ jobs:
           for p in lib/main.dart lib/*/*_entry.dart lib/*/*_module.dart; do
             if [ -f "$p" ]; then targets="$targets $p"; fi
           done
-          for d in lib/shell lib/core lib/anime lib/comic lib/music lib/novel test tool; do
+          for d in lib/shell lib/core lib/comic lib/music lib/novel test tool; do
             if [ ! -d "$d" ]; then continue; fi
             for f in $(find "$d" -type f -name '*.dart' ! -name '*.g.dart' ! -name '*.drift.dart' ! -name '*.freezed.dart' ! -name '*.mock.dart' ! -name '*.mocks.dart'); do
               targets="$targets $f"
@@ -122,7 +122,7 @@ jobs:
           dart format --output=none --set-exit-if-changed $targets
 
       # 第三扇门：--fatal-infos 把 info 升级为失败，warning 默认即失败。
-      # R1（§11.1 的镜像豁免作废）：引擎移植 + 功能自写，lib/anime 也是自写代码，
+      # R1（§11.1 的镜像豁免作废）：引擎移植 + 功能自写，各模块也是自写代码，
       # 与 shell/core/test 同档；未来若真有整树镜像目录，必须先在架构文档登记豁免。
       # 强度前提（如实注明）：实际覆盖面取决于 analysis_options.yaml 启用的 lint 集——
       # docs/directory-layout.md 已拍板「lint 从宽」（不开 always_use_package_imports），
@@ -139,7 +139,7 @@ jobs:
             echo "::error::analysis_options.yaml 只有注释或空行——等效于空文件，分析门会静默降级"
             exit 1
           fi
-          for p in lib/main.dart lib/shell lib/core lib/anime lib/comic lib/music lib/novel test tool lib/*/*_entry.dart lib/*/*_module.dart; do
+          for p in lib/main.dart lib/shell lib/core lib/comic lib/music lib/novel test tool lib/*/*_entry.dart lib/*/*_module.dart; do
             if [ -e "$p" ]; then
               dart analyze --fatal-infos "$p"
             fi
@@ -147,12 +147,12 @@ jobs:
 
       # 第四扇门：dart fix --dry-run 的输出里必须是「Nothing to fix!」；
       # 出现任何可自动修复项（或命令本身异常退出）都红——防「能自动修却没人修」。
-      # R1 起 lib/anime 同为自写代码，一并进本门；dart fix 只接受目录参数，故
+      # R1 起各模块目录同为自写代码，一并进本门；dart fix 只接受目录参数，故
       # lib/main.dart 与模块入口文件由上一扇门的 format/analyze 覆盖，不在此门。
       - name: dart fix 门——自写目录存在可自动修复项即红（grep 判定）
         run: |
           set -euo pipefail
-          for p in lib/shell lib/core lib/anime lib/comic lib/music lib/novel test tool; do
+          for p in lib/shell lib/core lib/comic lib/music lib/novel test tool; do
             if [ ! -d "$p" ]; then continue; fi
             log=$(dart fix --dry-run "$p" 2>&1) || { printf '%s\n' "$log"; echo "::error::dart fix --dry-run $p 本身非零退出"; exit 1; }
             printf '%s\n' "$log"

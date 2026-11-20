@@ -73,5 +73,19 @@ class AppDb extends _$AppDb {
   AppDb.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
+
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+    onCreate: (m) => m.createAll(),
+    onUpgrade: (m, from, to) async {
+      if (from < 2) {
+        // 番剧已下线：清掉旧库残留的 anime 投影行，否则 MediaTypeConverter
+        // 读到已删除的枚举名会抛异常，整个书架渲染失败。
+        await m.database.customStatement(
+          "DELETE FROM media_entries WHERE media_type = 'anime'",
+        );
+      }
+    },
+  );
 }

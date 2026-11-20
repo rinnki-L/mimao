@@ -1,6 +1,6 @@
 // 壳的冒烟测试：验证入口拼贴页三个入口齐全、钻进/返回导航可用。
 // 顺带把 shell/ 与其生成的 shell_store.g.dart 拉进覆盖率分母并真实执行。
-// 用户拍板：番剧入口移除（Bangumi 搜索国内不可用），只保留漫画/小说/音乐。
+// 番剧已整体下线（Bangumi 搜索国内不可用），只保留漫画/小说/音乐。
 // 并在 setUp/tearDown 调 resetAppModulesForTest() 避免全局注册表跨测试泄漏。
 
 // ignore_for_file: deprecated_member_use — 见 lib/main.dart 文件头同款说明。
@@ -12,18 +12,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mimao/comic/comic_db.dart';
 import 'package:mimao/core/contract.dart';
+import 'package:mimao/core/db.dart';
+import 'package:mimao/core/library.dart';
 import 'package:mimao/music/client/kugou_identity.dart';
 import 'package:mimao/shell/app.dart';
 import 'package:mimao/shell/app_registry.dart';
 import 'package:mimao/shell/home.dart';
 import 'package:mimao/shell/shell_store.dart';
 
-import '../anime/anime_integration_env.dart';
 import '../comic/comic_integration_env.dart'
     show FakeComicHttpClient, FakeSourceHost, MemoryComicSourceStore;
 
 void main() {
-  late AnimeIntegrationEnv env;
+  late AppDb appDb;
+  late LibraryRepository library;
 
   // closure-02：漫画生产装配的分件注入（内存 DB/源仓库/假宿主）。不注入的话
   // ComicDb() 生产构造的 drift eager 连接在无插件测试环境会以 unhandled
@@ -32,7 +34,8 @@ void main() {
   late MemoryComicSourceStore comicSourceStore;
 
   setUp(() async {
-    env = await AnimeIntegrationEnv.create();
+    appDb = AppDb.forTesting(NativeDatabase.memory());
+    library = LibraryRepository(appDb);
     comicDb = ComicDb.forTesting(NativeDatabase.memory());
     comicSourceStore = MemoryComicSourceStore();
     shellStore.goHome();
@@ -43,11 +46,11 @@ void main() {
   tearDown(() async {
     await resetAppModulesForTest();
     await comicDb.close();
-    await env.close();
+    await appDb.close();
   });
 
   Widget pumpApp() {
-    return LibraryScope(repository: env.library, child: const MimaoApp());
+    return LibraryScope(repository: library, child: const MimaoApp());
   }
 
   testWidgets('入口页展示三个媒体入口，无品牌标题、无番剧入口', (tester) async {
@@ -123,13 +126,8 @@ void main() {
   // 音乐（M4 骨架）走生产装配——身份仓库惰性解析、注册留到首搜，正常用例
   // 不会触达；这里仍注入临时目录仓库，把「点开音乐设置分组也不会碰
   // path_provider 插件」的陷阱钉死。
-  // 番剧代码/注册保留但不进入口卡，壳层测试不再点它（其自身测试在 test/anime/）。
   Future<void> initModules() => initAppModules(
-    library: env.library,
-    animeDb: env.animeDb,
-    ruleStore: env.memoryRuleStore,
-    animeDataSource: env.dataSource,
-    playbackEngineFactory: env.engineFactory,
+    library: library,
     comicDb: comicDb,
     comicSourceStore: comicSourceStore,
     comicHttpClient: FakeComicHttpClient(),

@@ -2,15 +2,14 @@
 /// 音乐模块测试：模块注册（整模块注入）、主页搜索流、错误态、设置分组。
 /// 全部走 fake MusicApi，无真实 I/O（FakeAsync 兼容）。
 ///
-/// registry 测试必须同时注入番剧/漫画的内存分件——initAppModules 会跑全部
-/// 模块的生产装配，不注入的话 drift 懒连接在无插件环境会永久挂起
-/// （comic_registry_test.dart 头注记录过同款坑）。
+/// registry 测试必须同时注入漫画的内存分件——initAppModules 会跑漫画/音乐/小说
+/// 的生产装配，不注入的话 drift 懒连接在无插件环境会永久挂起
+/// （comic_registry_test.dart 头注记录过同款坑）。番剧已下线，无需再注入。
 library;
 
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mimao/anime/anime_db.dart';
 import 'package:mimao/comic/comic_db.dart';
 import 'package:mimao/core/db.dart';
 import 'package:mimao/core/library.dart';
@@ -25,7 +24,6 @@ import 'package:mimao/music/pages/music_module_page.dart';
 import 'package:mimao/music/pages/music_module_settings.dart';
 import 'package:mimao/shell/app_registry.dart';
 
-import '../anime/anime_integration_env.dart' show MemoryRuleStore;
 import '../comic/comic_integration_env.dart'
     show FakeComicHttpClient, FakeSourceHost, MemoryComicSourceStore;
 
@@ -84,13 +82,10 @@ void main() {
 
   test('整模块注入后注册成功（type/label/icon 正确）', () async {
     final appDb = AppDb.forTesting(NativeDatabase.memory());
-    final animeDb = AnimeDb.forTesting(NativeDatabase.memory());
     final comicDb = ComicDb.forTesting(NativeDatabase.memory());
     final module = MusicModule(api: _FakeApi());
     await initAppModules(
       library: LibraryRepository(appDb),
-      animeDb: animeDb,
-      ruleStore: MemoryRuleStore(),
       comicDb: comicDb,
       comicSourceStore: MemoryComicSourceStore(),
       comicHttpClient: FakeComicHttpClient(),
@@ -105,7 +100,6 @@ void main() {
     expect(registered.icon, MediaType.music.icon);
     expect(appModulesError, isNull);
     await appDb.close();
-    await animeDb.close();
     await comicDb.close();
   });
 
@@ -113,13 +107,10 @@ void main() {
     tester,
   ) async {
     final appDb = AppDb.forTesting(NativeDatabase.memory());
-    final animeDb = AnimeDb.forTesting(NativeDatabase.memory());
     final comicDb = ComicDb.forTesting(NativeDatabase.memory());
     final module = MusicModule(api: _FakeApi());
     await initAppModules(
       library: LibraryRepository(appDb),
-      animeDb: animeDb,
-      ruleStore: MemoryRuleStore(),
       comicDb: comicDb,
       comicSourceStore: MemoryComicSourceStore(),
       comicHttpClient: FakeComicHttpClient(),
@@ -127,7 +118,6 @@ void main() {
       musicModule: module,
     );
     addTearDown(appDb.close);
-    addTearDown(animeDb.close);
     addTearDown(comicDb.close);
 
     late Widget home;

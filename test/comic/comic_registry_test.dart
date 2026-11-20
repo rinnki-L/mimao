@@ -6,9 +6,9 @@
 // - owned-DB 关闭验证：mock PathProviderPlatform 让生产 ComicDb() 真的打开
 //   临时目录 sqlite，reset 后验证 registry 自建实例已关闭。
 //
-// 注意：AnimeDb()/ComicDb() 生产构造会启动 drift 的 eager 连接，无插件环境下
+// 注意：ComicDb() 生产构造会启动 drift 的 eager 连接，无插件环境下
 // 错误会以 unhandled async error 逃逸——所以凡不验证失败分支的测试都必须注入
-// animeDb（内存）避免生产构造。
+// comicDb（内存）避免生产构造。
 
 import 'dart:io';
 
@@ -18,7 +18,6 @@ import 'package:drift/native.dart';
 // ignore: depend_on_referenced_packages
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mimao/anime/anime_db.dart';
 import 'package:mimao/comic/comic_db.dart';
 import 'package:mimao/comic/comic_entry.dart';
 import 'package:mimao/comic/comic_models.dart';
@@ -26,27 +25,23 @@ import 'package:mimao/comic/engine/engine.dart';
 import 'package:mimao/core/contract.dart';
 import 'package:mimao/shell/app_registry.dart';
 
-import '../anime/anime_integration_env.dart' show MemoryRuleStore;
 import 'comic_integration_env.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   late ComicIntegrationEnv env;
-  late AnimeDb animeDb;
   late ComicModule module;
 
   setUp(() async {
     env = ComicIntegrationEnv.memory();
     await env.seedSource();
-    animeDb = AnimeDb.forTesting(NativeDatabase.memory());
     await resetAppModulesForTest();
   });
 
   tearDown(() async {
     await resetAppModulesForTest();
     await env.close();
-    await animeDb.close();
   });
 
   Future<ComicModule> buildModule() async {
@@ -61,12 +56,10 @@ void main() {
     );
   }
 
-  test('分件注入后番剧与漫画同时注册（type/label/icon 正确），小说仍占位', () async {
+  test('分件注入后漫画注册（type/label/icon 正确），小说仍占位', () async {
     module = await buildModule();
     await initAppModules(
       library: env.library,
-      animeDb: animeDb,
-      ruleStore: MemoryRuleStore(),
       comicDb: env.comicDb,
       comicSourceStore: env.sourceStore,
       comicHttpClient: env.client,
@@ -79,7 +72,6 @@ void main() {
     expect(registered!.type, MediaType.comic);
     expect(registered.label, '漫画');
     expect(registered.icon, MediaType.comic.icon);
-    expect(moduleFor(MediaType.anime), isNotNull, reason: '番剧不受漫画装配影响');
     // M4 骨架：音乐生产装配不碰插件（身份仓库惰性解析），无注入也注册。
     expect(moduleFor(MediaType.music), isNotNull);
     expect(moduleFor(MediaType.novel), isNull);
@@ -90,8 +82,6 @@ void main() {
     module = await buildModule();
     await initAppModules(
       library: env.library,
-      animeDb: animeDb,
-      ruleStore: MemoryRuleStore(),
       comicDb: env.comicDb,
       comicSourceStore: env.sourceStore,
       comicHttpClient: env.client,
@@ -113,15 +103,13 @@ void main() {
     );
   });
 
-  test('ComicDb 打不开 → 失败分支：漫画不注册、错误可读、番剧不受影响', () async {
+  test('ComicDb 打不开 → 失败分支：漫画不注册、错误可读', () async {
     // drift 对已关闭的内存库会静默重开，探针不会失败——用子类让启动探针
     // 直接抛错，模拟「内部库打不开」。
     final brokenDb = _BrokenComicDb();
 
     await initAppModules(
       library: env.library,
-      animeDb: animeDb,
-      ruleStore: MemoryRuleStore(),
       comicDb: brokenDb,
       comicSourceStore: env.sourceStore,
       comicHttpClient: env.client,
@@ -130,11 +118,10 @@ void main() {
 
     expect(moduleFor(MediaType.comic), isNull);
     expect(appModulesError ?? '', contains('漫画模块初始化失败'));
-    expect(moduleFor(MediaType.anime), isNotNull, reason: '其它模块不受影响');
   });
 
   test('registry 自建的 ComicDb 在 reset 时被关闭；生产装配链路整条走通', () async {
-    // mock path_provider → 生产 AnimeDb()/ComicDb() 真的打开临时目录 sqlite，
+    // mock path_provider → 生产 ComicDb() 真的打开临时目录 sqlite，
     // 探针通过 → 除 DLL 外的生产装配（源仓库读取 + 执行池注册 + 适配器 +
     // ComicModule 装配）全部执行。
     final dir = await Directory.systemTemp.createTemp('mimao_owned_db_');
@@ -149,7 +136,6 @@ void main() {
       );
 
       expect(moduleFor(MediaType.comic), isNotNull);
-      expect(moduleFor(MediaType.anime), isNotNull);
       final owned = debugRegistryOwnedComicDb;
       expect(owned, isNotNull, reason: 'registry 自建的实例应在 ownership 内');
 
@@ -180,8 +166,6 @@ void main() {
   test('源仓库不可读 → 失败分支，漫画不注册', () async {
     await initAppModules(
       library: env.library,
-      animeDb: animeDb,
-      ruleStore: MemoryRuleStore(),
       comicDb: env.comicDb,
       comicSourceStore: _ThrowingStore(),
       comicHttpClient: env.client,

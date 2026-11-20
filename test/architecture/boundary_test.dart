@@ -3,15 +3,15 @@
 // 扫描 lib/**/*.dart 的 import/export 目标，把四条"约定"变成机器断言。
 // 不依赖 lint（上游镜像含相对导入，开 always_use_package_imports 会误伤一片）。
 //
-// 约定：本文与架构文档里的"模块目录"一律指 lib/anime、lib/comic、lib/music、
-// lib/novel 四条具体路径；不存在 lib/modules/ 这一层（那是 Kazumi 的按域划分）。
+// 约定：本文与架构文档里的"模块目录"一律指 lib/comic、lib/music、lib/novel
+// 三条具体路径（番剧已下线）；不存在 lib/modules/ 这一层（那是 Kazumi 的按域划分）。
 
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
-const moduleDirs = <String>{'anime', 'comic', 'music', 'novel'};
+const moduleDirs = <String>{'comic', 'music', 'novel'};
 const libRoot = 'lib';
 
 void main() {
@@ -32,7 +32,7 @@ void main() {
   });
 
   group('四条铁律', () {
-    test('① core/ 永不 import shell/ 与四个模块目录', () {
+    test('① core/ 永不 import shell/ 与三个模块目录', () {
       _assertNoImports(
         dartFiles,
         (area) => area == 'core',
@@ -41,7 +41,7 @@ void main() {
       );
     });
 
-    test('② 四个模块目录互不 import', () {
+    test('② 三个模块目录互不 import', () {
       for (final file in dartFiles) {
         final area = _areaOf(file.rel);
         if (!moduleDirs.contains(area)) continue;
@@ -55,7 +55,7 @@ void main() {
       }
     });
 
-    test('③ 四个模块目录不 import shell/（只准 import core/）', () {
+    test('③ 三个模块目录不 import shell/（只准 import core/）', () {
       _assertNoImports(
         dartFiles,
         (area) => moduleDirs.contains(area),
@@ -64,7 +64,7 @@ void main() {
       );
     });
 
-    test('④ shell/ 中仅 app_registry.dart 允许 import 四个模块目录', () {
+    test('④ shell/ 中仅 app_registry.dart 允许 import 三个模块目录', () {
       for (final file in dartFiles) {
         if (_areaOf(file.rel) != 'shell') continue;
         final importsModules = _importAreas(file).any(moduleDirs.contains);
@@ -121,7 +121,7 @@ void _assertNoImports(
   }
 }
 
-/// 把一条 import URI 解析成 lib/ 下的顶层区域名（core/shell/anime/…或 '(root)'/'(外部)'）。
+/// 把一条 import URI 解析成 lib/ 下的顶层区域名（core/shell/comic/…或 '(root)'/'(外部)'）。
 String _targetArea(_DartFile file, String uri) {
   if (uri.startsWith('dart:')) return '(外部)';
   const pkg = 'package:mimao/';

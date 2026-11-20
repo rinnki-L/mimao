@@ -1,13 +1,14 @@
 // ignore_for_file: deprecated_member_use — Flutter 3.50 弃用整个 material.dart，
 // 但 Kazumi/Venera 上游镜像全部用它；为保持类型一致与 patch 可重放，M1 继续用。
 // ════════════════════════════════════════════════════════════════════════
-// mimao — 聚合番剧 / 漫画 / 小说 / 音乐的本地媒体应用
+// mimao — 聚合漫画 / 小说 / 音乐的本地媒体应用
+//   （番剧已按用户拍板整体下线：Bangumi 搜索国内不可用）
 //
 // ── 四条铁律（docs/architecture.md §2，test/architecture/boundary_test.dart 把守）
-//   ① core/ 永不 import shell/ 与四个模块目录（anime/comic/music/novel）
-//   ② 四个模块目录互不 import
-//   ③ 四个模块目录不 import shell/（只准 import core/）
-//   ④ shell/ 中仅 app_registry.dart 允许 import 四个模块目录
+//   ① core/ 永不 import shell/ 与三个模块目录（comic/novel/music）
+//   ② 三个模块目录互不 import
+//   ③ 三个模块目录不 import shell/（只准 import core/）
+//   ④ shell/ 中仅 app_registry.dart 允许 import 三个模块目录
 //   注：开工当天（M1）不建任何模块目录；未接入模块在壳里显示占位页。
 //
 // ── 启动时序（docs/architecture.md §1.1，M1 一次定型）
@@ -18,7 +19,7 @@
 //      装配 MimaoApp.systemAccentProvider；失败 try/catch 兜底，不卡启动
 //   5. MediaKit 初始化 —— M2 引入 media_kit 时再接（M1 无消费者，不建空初始化）
 //   6. 装配目录表（app_registry）→ runApp()
-//   audio_service 的 init 不在本清单（M2 随番剧 audio_controller 接线）。
+//   audio_service 的 init 不在本清单。
 // ════════════════════════════════════════════════════════════════════════
 
 import 'package:flutter/foundation.dart' show kDebugMode;
@@ -68,7 +69,7 @@ Future<void> main() async {
   //    拿不到色。取色/监听失败一律 try/catch 兜底，绝不因插件问题卡住启动。
   await _initSystemAccent();
 
-  // 6. 装配目录表（app_registry 是唯一 import 模块处；失败只会让番剧占位，
+  // 6. 装配目录表（app_registry 是唯一 import 模块处；某模块失败只让它占位，
   //    不影响其它模块/书架）→ runApp
   await initAppModules(library: library);
   runApp(

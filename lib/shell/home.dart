@@ -76,14 +76,13 @@ class _InheritedLibrary extends InheritedWidget {
 
 // ────────────────────────────────────────────────────────────────
 // 入口页：斜切拼贴（用户拍板，替换掉叠牌式）
-//   用户拍板：番剧入口移除（Bangumi 搜索国内不可用），只保留漫画/小说/音乐。
+//   用户拍板：番剧入口/模块已整体删除（Bangumi 搜索国内不可用），只保留漫画/小说/音乐。
 //   三入口用三条平行斜带铺满整屏：没有任何水平分界，手机好看、桌面更舒展。
 //   点某条带 → 按点击的 y 坐标换算落在哪一带 → 一步钻进该模块。
 //   切换进来时三带自上而下依次滑入（easeOutCubic 分级间隔）。
-//   番剧模块代码与注册保留（app_registry 仍注册），仅不再显示入口卡。
 // ────────────────────────────────────────────────────────────────
 
-/// 入口页展示的媒体类型——三入口（番剧代码保留但不进入口）。
+/// 入口页展示的媒体类型——三入口（漫画/小说/音乐）。
 const List<MediaType> entryTypes = <MediaType>[
   MediaType.comic,
   MediaType.novel,
@@ -246,7 +245,6 @@ class _DiagonalBand extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final (container, onContainer) = switch (type) {
-      MediaType.anime => (cs.primaryContainer, cs.onPrimaryContainer),
       MediaType.comic => (cs.secondaryContainer, cs.onSecondaryContainer),
       MediaType.novel => (cs.tertiaryContainer, cs.onTertiaryContainer),
       MediaType.music => (cs.surfaceContainerHighest, cs.onSurface),
@@ -377,8 +375,8 @@ class _LibraryLayer extends StatelessWidget {
 }
 
 // ────────────────────────────────────────────────────────────────
-// 模块层：进入后另外三个入口消失。顶部只有"返回"和标题。
-// 内容来自 app_registry 查表；未接入的模块显示占位页（M1 四个都未接入）。
+// 模块层：进入后另外两个入口消失。顶部只有"返回"和标题。
+// 内容来自 app_registry 查表；未接入的模块显示占位页。
 // ────────────────────────────────────────────────────────────────
 class _ModuleLayer extends StatelessWidget {
   final MediaType type;
@@ -416,7 +414,8 @@ class _ModuleLayer extends StatelessWidget {
   }
 }
 
-/// M1 占位页：模块尚未接入（docs/directory-layout.md §2 的开工当天状态）。
+/// 模块尚未接入时的占位页（app_registry 查表失败兜底）。番剧下线后，
+/// 三入口均常驻注册，本页仅在某模块装配异常被移除时出现。
 class _UnimplementedModule extends StatelessWidget {
   final MediaType type;
 

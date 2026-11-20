@@ -2,29 +2,27 @@
 // 但 Kazumi/Venera 上游镜像全部用它；为保持类型一致与 patch 可重放，M1 继续用。
 import 'package:flutter/material.dart';
 
-/// 四种媒体——全库共用的最小分类词表（demo 01/02 已验证够用）。
+/// 三种媒体——全库共用的最小分类词表（demo 01/02 已验证够用）。
 ///
 /// 刻意不建"统一内容模型"：跨类型的共同列在 core/db.dart 的投影表里，
 /// 各类型的私有结构留在模块的 payload 里（docs/architecture.md 锁定决策）。
-enum MediaType { anime, comic, novel, music }
+/// 番剧（anime）已按用户拍板下线：Bangumi 搜索国内不可用，枚举与模块一并移除。
+enum MediaType { comic, novel, music }
 
 extension MediaTypeX on MediaType {
   String get label => switch (this) {
-    MediaType.anime => '番剧',
     MediaType.comic => '漫画',
     MediaType.novel => '小说',
     MediaType.music => '音乐',
   };
 
   IconData get icon => switch (this) {
-    MediaType.anime => Icons.smart_display,
     MediaType.comic => Icons.image,
     MediaType.novel => Icons.menu_book,
     MediaType.music => Icons.music_note,
   };
 
   IconData get outlinedIcon => switch (this) {
-    MediaType.anime => Icons.smart_display_outlined,
     MediaType.comic => Icons.image_outlined,
     MediaType.novel => Icons.menu_book_outlined,
     MediaType.music => Icons.music_note_outlined,
@@ -32,7 +30,6 @@ extension MediaTypeX on MediaType {
 
   /// 入口卡片上的一句话说明（docs/demos/entry_variants.html DATA[*].tag）。
   String get tagline => switch (this) {
-    MediaType.anime => '追更 · 弹幕 · 时间表',
     MediaType.comic => '多源 · 阅读器 · 本地',
     MediaType.novel => '书源 · 离线 · 朗读',
     MediaType.music => '登录态 · 歌单 · 后台播放',

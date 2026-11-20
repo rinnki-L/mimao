@@ -31,9 +31,9 @@ dependencies:
   xpath_selector: ^3.0.2
   xpath_selector_html_parser: ^3.0.1
 
-  # B 线 · 播放器内核：media_kit（libmpv 后端）+ 视频输出 + 各平台预编译库
+  # 音乐播放器内核：media_kit（libmpv 后端）+ 各平台预编译 native 库
+  # （media_kit_libs_video 内含 libmpv/音频解码，纯音频播放复用它）
   media_kit: ^1.2.6
-  media_kit_video: ^2.0.1
   media_kit_libs_video: ^1.0.7
 
   # 漫画 A′ 线 · 源引擎：flutter_qjs(CyrilPeng fork) 跑社区 Venera JS 源；

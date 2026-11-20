@@ -9,7 +9,7 @@
 <img alt="Dart" src="https://img.shields.io/badge/Dart-0175C2?style=for-the-badge&logo=dart&logoColor=white"></img>
 <img alt="status" src="https://img.shields.io/badge/status-%E8%A7%84%E5%88%92%E6%9C%9F-orange.svg?style=for-the-badge"></img>
 
-<p>一个把 <strong>番剧 · 漫画 · 小说 · 音乐</strong> 聚到一处的本地媒体应用。使用 Flutter + Material 3 开发, 桌面优先 (Windows), 纯本地运行、无需自建服务器。四大模块分别移植自成熟的开源客户端, 目录按上游形状生长, 便于跟随上游修复。绝赞规划中 (～￣▽￣)～</p>
+<p>一个把 <strong>漫画 · 小说 · 音乐</strong> 聚到一处的本地媒体应用。使用 Flutter + Material 3 开发, 桌面优先 (Windows), 纯本地运行、无需自建服务器。三大模块分别移植自成熟的开源客户端, 目录按上游形状生长, 便于跟随上游修复。绝赞规划中 (～￣▽￣)～</p>
 
 </div>
 
@@ -22,8 +22,7 @@
 
 ## 功能 / 开发计划
 
-- [ ] 统一的 Material 3 壳（拼贴式四入口 + 全局设置）
-- [ ] 番剧模块（移植 Kazumi 规则引擎）
+- [ ] 统一的 Material 3 壳（拼贴式三入口 + 全局设置）
 - [ ] 漫画模块（复用 Venera 的 `flutter_qjs` 漫画源）
 - [ ] 音乐模块（重写酷狗概念版 API 网络层 + 播放器）
 - [ ] 小说模块（legado 书源引擎 Dart 化, 最难、最后做）
@@ -32,11 +31,10 @@
 
 ## 设计
 
-四个模块各自的来源与接入方式：
+三个模块各自的来源与接入方式：
 
 | 内容 | 参考上游 | 接入方式 |
 | --- | --- | --- |
-| 番剧 | [Kazumi](https://github.com/Predidit/Kazumi) | 移植其规则引擎与 UI 模块 |
 | 漫画 | [Venera](https://github.com/venera-app/venera) | 复用 `flutter_qjs` 漫画源与模块（Venera-Next 可借鉴） |
 | 小说 | [legado 阅读](https://github.com/gedoor/legado) | 书源引擎在 Dart 中重写 |
 | 音乐 | [EchoMusicNext](https://github.com/hoowhoami/EchoMusic) | 重写酷狗概念版 API 网络层 + 播放器 |
@@ -65,7 +63,6 @@
 
 特别感谢以下上游项目, 本项目站在它们的肩膀上：
 
-- [Kazumi](https://github.com/Predidit/Kazumi) — 番剧模块的规则引擎与 UI 来源
 - [Venera](https://github.com/venera-app/venera) — 漫画模块与 `flutter_qjs` 漫画源；[Venera-Next](https://github.com/venera-app/venera-next) 作为活跃后续版本供借鉴
 - [legado 阅读](https://github.com/gedoor/legado) — 小说书源引擎的参考实现
 - [EchoMusicNext](https://github.com/hoowhoami/EchoMusic) — 音乐模块网络层的参考实现

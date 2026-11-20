@@ -4,7 +4,7 @@ import 'package:drift/drift.dart';
 ///
 /// 注册时机由各创建方负责：
 ///   - main.dart 经 startDevHarness(appDb:) 注册 `'app'`
-///   - app_registry.dart 注册自建的模块库（`'anime'` / `'comic'` / `'music'`）
+///   - app_registry.dart 注册自建的模块库（`'comic'` / `'music'`）
 ///   - 测试可直接读写本表注册内存库
 ///
 /// 类型刻意收窄到 [GeneratedDatabase]（drift 任意生成库的公共基类）：dev 文件

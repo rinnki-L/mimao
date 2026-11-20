@@ -1,19 +1,5 @@
 import 'package:flutter/foundation.dart' show kDebugMode, visibleForTesting;
 import 'package:flutter/widgets.dart' show Center, Text;
-import 'package:mimao/anime/anime_db.dart';
-import 'package:mimao/anime/anime_entry.dart';
-import 'package:mimao/anime/anime_models.dart';
-import 'package:mimao/anime/collect_service.dart';
-import 'package:mimao/anime/data/anime_data_source.dart';
-import 'package:mimao/anime/data/anime_models.dart';
-import 'package:mimao/anime/data/bangumi_anime_data_source.dart';
-import 'package:mimao/anime/data/bangumi_api.dart';
-import 'package:mimao/anime/data/rule_anime_data_source.dart';
-import 'package:mimao/anime/engine/engine.dart';
-import 'package:mimao/anime/history_service.dart';
-import 'package:mimao/anime/pages/anime_image_mirror.dart';
-import 'package:mimao/anime/player/media_kit_playback_engine.dart';
-import 'package:mimao/anime/player/playback_engine.dart';
 import 'package:mimao/comic/collect_service.dart';
 import 'package:mimao/comic/comic_db.dart';
 import 'package:mimao/comic/comic_entry.dart';
@@ -25,7 +11,6 @@ import 'package:mimao/comic/reader/reader_cache.dart';
 import 'package:mimao/comic/search_history_service.dart';
 import 'package:mimao/core/contract.dart';
 import 'package:mimao/core/library.dart';
-import 'package:mimao/core/settings.dart';
 import 'package:mimao/shell/dev/dev_capability.dart';
 import 'package:mimao/shell/dev/dev_databases.dart';
 import 'package:mimao/music/api/kugou_playback_api.dart';
@@ -49,13 +34,13 @@ import 'package:mimao/music/player/player_ui_impl.dart';
 import 'package:mimao/music/search_history_service.dart';
 import 'package:mimao/novel/novel_entry.dart';
 
-/// 全库**唯一**允许 import 四个模块目录（`anime/`、`comic/`、`music/`、
+/// 全库**唯一**允许 import 三个模块目录（`comic/`、`music/`、
 /// `novel/`）的文件——第四条铁律的载体（docs/architecture.md §2）。
 ///
 /// 壳只认这张目录表，不认识任何模块内部类型；模块实现与依赖全部在这里装配，
 /// 删模块 = 删目录 + 删这里一行 import + 一处注册（机械可验证）。
 ///
-/// 唯一 AudioHandler 也经本文件从模块入口取出并注册（§6.2，M2）。
+/// 番剧（anime）已按用户拍板下线，不再装配。
 final Map<MediaType, AppModule> appModules = <MediaType, AppModule>{};
 
 /// 壳查询某类型的模块实现；返回 null 表示"尚未接入"，由壳显示占位页。
@@ -66,13 +51,8 @@ AppModule? moduleFor(MediaType type) => appModules[type];
 String? appModulesError;
 
 /// 由 registry 自己创建（而非测试注入）的 DB——只有它们需要 reset 时关闭。
-AnimeDb? _ownedAnimeDb;
 ComicDb? _ownedComicDb;
 MusicDb? _ownedMusicDb;
-
-/// 封面镜像开关控制器：进程内单例，跨 initAppModules 重置保持开关状态；
-/// 设置 tab 拨动后所有封面即时刷新。测试可注入自己的实例。
-AnimeImageAccelerationController? _animeImageMirror;
 
 /// 测试可见：registry 自建、reset 时会关闭的 ComicDb（生产路径才有值）。
 /// CI 没有 path_provider 插件，用这条缝验证 owned-DB 的关闭语义（closure-02
@@ -91,18 +71,6 @@ MusicDb? get debugRegistryOwnedMusicDb => _ownedMusicDb;
 /// [appModulesError] 记录原因，其它模块不受影响。
 Future<void> initAppModules({
   required LibraryRepository library,
-
-  // ── 番剧 ──
-  AnimeDb? animeDb,
-  RuleStore? ruleStore,
-  AnimeDataSource? animeDataSource,
-  PlaybackEngine Function()? playbackEngineFactory,
-
-  /// 测试注入的镜像开关控制器；生产复用进程内单例并从设置库读初值。
-  AnimeImageAccelerationController? animeImageMirror,
-
-  /// 测试注入的 Bangumi 客户端；生产走 DioBangumiClient。
-  BangumiClient? bangumiClient,
 
   // ── 漫画（closure-02）──
   ComicDb? comicDb,
@@ -163,130 +131,10 @@ Future<void> initAppModules({
   await _resetOwnedDb();
   appModules.clear();
   appModulesError = null;
-  _ownedAnimeDb = null;
   _ownedComicDb = null;
   _ownedMusicDb = null;
 
   final errors = <String>[];
-
-  // ── 番剧装配 ──
-  try {
-    final db = animeDb ?? AnimeDb();
-    if (animeDb == null) {
-      _ownedAnimeDb = db;
-      if (kDebugMode) devRegisterDatabase('anime', db);
-    }
-    // 触发一次读，确保内部库真的可打开（建表在此完成）；打不开就走失败分支，
-    // 不注册一个"点进去才崩"的模块。
-    await db.collectRow(
-      const AnimeRef(id: '__init_probe__', sourceName: '__init_probe__'),
-    );
-
-    final store = ruleStore ?? await RuleStore.openDefault();
-    // 启动时读一次规则仓库：目录不可读就走失败分支并给出原因，
-    // 不让用户点进番剧才发现规则全坏。
-    var loadedRules = await store.loadAll();
-
-    // 图片加速控制器：进程内单例 + 从 core 设置库读初值；读失败走默认。
-    final acceleration =
-        animeImageMirror ??
-        (_animeImageMirror ??= AnimeImageAccelerationController(
-          settings: SettingsRepository(library.db),
-        ));
-    await acceleration.load();
-
-    // Bangumi 搜索 host：照抄 Kazumi，固定走官方 api.bgm.tv（direct）。
-    // 注意与「图片加速」解耦——Kazumi 的 BangumiAcceleration（条目 API）与
-    // ImageAcceleration（封面）是两个独立设置；图片镜像只改写 lain.bgm.tv 封面，
-    // 绝不能把搜索也切到镜像 host。api.bgmapi.com 是 Kazumi 的鉴权 API，其
-    // search 端点不按关键词过滤（任何关键词都返回同一热门榜），不可用于搜索。
-    final bangumi = bangumiClient ?? DioBangumiClient();
-
-    // Kazumi 式组合：Bangumi 提供干净搜索结果/元数据，规则站点提供播放源。
-    final dataSource =
-        animeDataSource ??
-        BangumiAnimeDataSource(
-          bangumi: bangumi,
-          ruleSource: RuleAnimeDataSource.fromStore(store),
-          baseUrl: BangumiEndpoints.direct,
-        );
-    final importer = RuleImporter();
-    final collect = AnimeCollectService(db, library);
-    final history = AnimeHistoryService(db, library);
-
-    // 规则级 UA/Referer 提供者：播放入口拿不到 AnimeRule，这里按 sourceName
-    // 查规则仓库，用引擎同款 playTarget 语义组装 header。启动时已 loadAll，
-    // 这里做同步查表；默认空 map 不改既有行为（Kazumi 原生规则无
-    // userAgent/referer 时不会凭空造头）。导入新规则后 onRulesChanged 重读一次。
-    final playHeaderEngine = AnimeRuleEngine();
-    var rulesBySource = <String, AnimeRule>{};
-    void indexRules(Iterable<AnimeRule> rules) {
-      final map = <String, AnimeRule>{};
-      for (final rule in rules) {
-        map[rule.name] = rule;
-        map[rule.name.toLowerCase()] = rule;
-      }
-      rulesBySource = map;
-    }
-
-    indexRules(loadedRules);
-    Map<String, String> animeHeadersFor(AnimeSummary item) {
-      final source = item.sourceName;
-      if (source == null || source.isEmpty) return const <String, String>{};
-      final rule = rulesBySource[source] ?? rulesBySource[source.toLowerCase()];
-      if (rule == null) return const <String, String>{};
-      return playHeaderEngine
-          .playTarget(
-            rule,
-            const RuleEpisode(
-              title: '',
-              url: '',
-              absoluteUrl: '',
-              roadIndex: 1,
-              roadName: '',
-            ),
-          )
-          .headers;
-    }
-
-    final module = AnimeModule(
-      dataSource: dataSource,
-      collect: collect,
-      history: history,
-      ruleStore: store,
-      ruleImporter: importer,
-      // 只有真正点剧集时才会调用这个工厂去初始化 media_kit；注入 fake 的
-      // widget 测试不会走到这里。
-      playbackEngineFactory:
-          playbackEngineFactory ?? MediaKitPlaybackEngine.new,
-      headersFor: animeHeadersFor,
-      imageMirror: acceleration,
-    );
-    // 设置页导入/删除规则后：刷新播放头索引（换源要用新规则的 UA/Referer）。
-    // AnimeModule 自己不认识 registry，这里是唯一的装配接缝。
-    module.onRulesReloaded = () async {
-      try {
-        loadedRules = await store.loadAll();
-        indexRules(loadedRules);
-      } on Object {
-        // 重读失败保留旧索引，不冒泡。
-      }
-    };
-    appModules[MediaType.anime] = module;
-  } catch (error) {
-    errors.add('番剧模块初始化失败：$error');
-    appModules.remove(MediaType.anime);
-    // 失败分支不留下已打开的自建连接（审查 P2；漫画块同款对称处理）。
-    final owned = _ownedAnimeDb;
-    _ownedAnimeDb = null;
-    if (owned != null) {
-      try {
-        await owned.close();
-      } catch (_) {
-        // 关闭失败不影响失败分支的收尾。
-      }
-    }
-  }
 
   // ── 漫画装配（closure-02 §6）──
   try {
@@ -496,16 +344,6 @@ Future<void> resetAppModulesForTest() async {
 
 Future<void> _resetOwnedDb() async {
   // 先从 /db 可寻址表摘掉再关闭：dev 端点永不摸到已关闭连接。
-  devUnregisterDatabase('anime');
-  final animeDb = _ownedAnimeDb;
-  _ownedAnimeDb = null;
-  if (animeDb != null) {
-    try {
-      await animeDb.close();
-    } catch (_) {
-      // 关闭失败不应阻止重置；DB 可能已被测试提前关闭。
-    }
-  }
   devUnregisterDatabase('comic');
   final comicDb = _ownedComicDb;
   _ownedComicDb = null;

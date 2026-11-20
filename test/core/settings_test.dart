@@ -87,7 +87,7 @@ void main() {
   test('map() 从原始列数据重建行（含 nullable coverUrl 的空/非空两路）', () async {
     await library.upsert(
       id: 'x:2',
-      type: MediaType.anime,
+      type: MediaType.comic,
       sourceName: '源',
       title: '无封面',
       payload: '{}',
@@ -109,7 +109,7 @@ void main() {
     // 不传 tablePrefix（传空串会拼出 ".id" 这种键，反而取不到列）。
     final mapped = db.mediaEntries.map(raw);
     expect(mapped.coverUrl, isNull);
-    expect(mapped.mediaType, MediaType.anime);
+    expect(mapped.mediaType, MediaType.comic);
   });
 
   test('映射转换器对未知枚举名抛出（契约：库里只存四种类型）', () {

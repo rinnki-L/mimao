@@ -22,8 +22,8 @@ void main() {
 
   Future<void> seed({
     String id = 'kazumi:1001',
-    MediaType type = MediaType.anime,
-    String source = 'Demo番剧源',
+    MediaType type = MediaType.comic,
+    String source = 'Demo漫画源',
     String title = '葬送的芙莉莲',
     String payload = '{"episode":12,"positionSec":843}',
     String progress = '看到第 12 话',
@@ -45,7 +45,7 @@ void main() {
     final rows = await repo.timeline();
     expect(rows, hasLength(1));
     expect(rows.first.title, '葬送的芙莉莲');
-    expect(rows.first.type, MediaType.anime);
+    expect(rows.first.type, MediaType.comic);
     expect(rows.first.progressText, '看到第 12 话');
     expect(rows.first.starred, isFalse);
   });
@@ -65,16 +65,16 @@ void main() {
   });
 
   test('按类型筛选', () async {
-    await seed(type: MediaType.anime);
+    await seed(type: MediaType.comic);
     await seed(
       id: 'venera:1',
       type: MediaType.comic,
       source: 'Demo漫画源',
       title: '尖帽子的魔法工坊',
     );
-    final anime = await repo.timeline(type: MediaType.anime);
-    expect(anime, hasLength(1));
-    expect(anime.first.type, MediaType.anime);
+    final comic = await repo.timeline(type: MediaType.comic);
+    expect(comic, hasLength(1));
+    expect(comic.first.type, MediaType.comic);
   });
 
   test('收藏筛选 + setStarred 切换', () async {
