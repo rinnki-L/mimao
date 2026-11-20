@@ -1,7 +1,5 @@
 // ignore_for_file: deprecated_member_use — Flutter 3.50 弃用整个 material.dart，
 // 但 Kazumi/Venera 上游镜像全部用它；为保持类型一致与 patch 可重放，M1 继续用。
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:mimao/core/contract.dart';
@@ -14,128 +12,13 @@ import 'package:mimao/shell/shell_store.dart';
 
 /// 壳的导航与承载。M1 只有三个视图：入口拼贴页 / 模块层 / 统一时间线。
 /// 壳不含任何业务——模块层的内容由 app_registry 查表得到（未接入则占位）。
-class HomeShell extends StatefulWidget {
+class HomeShell extends StatelessWidget {
   const HomeShell({super.key});
 
   @override
-  State<HomeShell> createState() => _HomeShellState();
-}
-
-class _HomeShellState extends State<HomeShell>
-    with SingleTickerProviderStateMixin {
-  /// 入口色系铺开动画控制器。点击某入口时：从触点画一个该入口色系的圆
-  /// 铺满全屏（遮盖入口页）→ 底下 AnimatedSwitcher 已切到模块层 → 圆淡出。
-  late final AnimationController _transition = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 420),
-  );
-
-  /// 铺开动画是否进行中——驱动覆盖层的挂载/卸载。
-  bool _revealing = false;
-
-  /// 铺开动画期间显示的圆参数：中心/半径/色系。
-  Offset _revealCenter = Offset.zero;
-  double _revealMaxRadius = 0;
-  Color _revealColor = Colors.transparent;
-  Color _revealOnColor = Colors.transparent;
-  IconData _revealIcon = Icons.zoom_in;
-  String _revealLabel = '';
-
-  @override
-  void initState() {
-    super.initState();
-    // 动画结束/被反向重置时卸载覆盖层（视觉已透明，这一步只为清场）。
-    _transition.addStatusListener((status) {
-      if (status == AnimationStatus.completed && mounted && _revealing) {
-        setState(() => _revealing = false);
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _transition.dispose();
-    super.dispose();
-  }
-
-  /// 由入口页点击回调：记下触点/目标色系，起铺开动画。
-  /// 业务状态（activeModule）已由入口页的 onTapDown 同步切好，这里只管视觉。
-  void _startReveal(MediaType type, Offset globalCenter) {
-    // 圆要覆盖整个屏幕：取触点到四个角的最大距离。
-    final screen = MediaQuery.of(context).size;
-    var radius = 0.0;
-    for (final corner in <Offset>[
-      Offset.zero,
-      Offset(screen.width, 0),
-      Offset(0, screen.height),
-      Offset(screen.width, screen.height),
-    ]) {
-      radius = math.max(radius, (globalCenter - corner).distance);
-    }
-
-    final cs = Theme.of(context).colorScheme;
-    final (color, onColor) = switch (type) {
-      MediaType.comic => (cs.secondary, cs.onSecondary),
-      MediaType.novel => (cs.tertiary, cs.onTertiary),
-      MediaType.music => (cs.primary, cs.onPrimary),
-    };
-
-    setState(() {
-      _revealing = true;
-      _revealCenter = globalCenter;
-      _revealMaxRadius = radius;
-      _revealColor = color;
-      _revealOnColor = onColor;
-      _revealIcon = type.icon;
-      _revealLabel = type.label;
-    });
-    _transition.forward(from: 0);
-  }
-
-  /// 圆形覆盖层：0→0.62 铺满全屏，0.62→1 淡出露出底下的模块层。
-  Widget _revealOverlay() {
-    return AnimatedBuilder(
-      animation: _transition,
-      builder: (context, _) {
-        final t = _transition.value;
-        final radius = (t / 0.62).clamp(0.0, 1.0) * _revealMaxRadius;
-        final opacity = t < 0.62 ? 1.0 : 1.0 - (t - 0.62) / 0.38;
-        return IgnorePointer(
-          child: Opacity(
-            opacity: opacity.clamp(0.0, 1.0),
-            child: ClipPath(
-              clipper: _CircleRevealClipper(
-                center: _revealCenter,
-                radius: radius,
-              ),
-              child: Container(
-                color: _revealColor,
-                child: Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(_revealIcon, size: 72, color: _revealOnColor),
-                      const SizedBox(height: 12),
-                      Text(
-                        _revealLabel,
-                        style: Theme.of(context).textTheme.headlineMedium
-                            ?.apply(color: _revealOnColor),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  @override
   Widget build(BuildContext context) {
+    // LibraryRepository 由 main.dart 经 LibraryScope 注入；壳只读 core 的 facade。
     final library = _InheritedLibrary.of(context);
-
     return Scaffold(
       body: Observer(
         builder: (_) {
@@ -145,14 +28,12 @@ class _HomeShellState extends State<HomeShell>
           )) {
             (final MediaType type, false) => _ModuleLayer(type: type),
             (null, true) => _LibraryLayer(repository: library),
-            _ => _EntryPage(onEntryTap: _startReveal),
+            _ => const _EntryPage(),
           };
-          final normal = AnimatedSwitcher(
+          return AnimatedSwitcher(
             duration: const Duration(milliseconds: 260),
             child: view,
           );
-          // 动画运行时叠一层圆形色系铺开，盖住切换过程；结束即移除。
-          return Stack(children: [normal, if (_revealing) _revealOverlay()]);
         },
       ),
       endDrawer: const SettingsPage(),
@@ -161,22 +42,6 @@ class _HomeShellState extends State<HomeShell>
       },
     );
   }
-}
-
-/// 以触点为中心、给定半径裁一个圆（铺开动画用）。
-class _CircleRevealClipper extends CustomClipper<Path> {
-  final Offset center;
-  final double radius;
-
-  const _CircleRevealClipper({required this.center, required this.radius});
-
-  @override
-  Path getClip(Size size) =>
-      Path()..addOval(Rect.fromCircle(center: center, radius: radius));
-
-  @override
-  bool shouldReclip(_CircleRevealClipper old) =>
-      old.center != center || old.radius != radius;
 }
 
 /// 把 LibraryRepository 从 main.dart 传到壳（壳不自己 new DB，便于测试替换）。
@@ -225,10 +90,7 @@ const List<MediaType> entryTypes = <MediaType>[
 ];
 
 class _EntryPage extends StatelessWidget {
-  /// 点击入口时回调：传入目标类型与屏幕全局触点，供壳层起铺开动画。
-  final void Function(MediaType type, Offset globalCenter)? onEntryTap;
-
-  const _EntryPage({this.onEntryTap});
+  const _EntryPage();
 
   @override
   Widget build(BuildContext context) {
@@ -264,7 +126,6 @@ class _EntryPage extends StatelessWidget {
                 builder: (context, constraints) => _DiagonalEntry(
                   width: constraints.maxWidth,
                   height: constraints.maxHeight,
-                  onEntryTap: onEntryTap,
                 ),
               ),
             ),
@@ -284,24 +145,34 @@ const double _b2Right = 0.44;
 class _DiagonalEntry extends StatefulWidget {
   final double width;
   final double height;
-  final void Function(MediaType type, Offset globalCenter)? onEntryTap;
 
-  const _DiagonalEntry({
-    required this.width,
-    required this.height,
-    this.onEntryTap,
-  });
+  const _DiagonalEntry({required this.width, required this.height});
 
   @override
   State<_DiagonalEntry> createState() => _DiagonalEntryState();
 }
 
 class _DiagonalEntryState extends State<_DiagonalEntry>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
+  /// 三带依次滑入的控制器。
   late final AnimationController _ctrl = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 920),
   );
+
+  /// 点击后「三带全部染成选中入口色系」的控制器。tint 0→1 时，每条带
+  /// 从自己的原色 lerp 到选中的色；铺满后再切模块。
+  late final AnimationController _tintCtrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 360),
+  );
+  late final Animation<double> _tint = CurvedAnimation(
+    parent: _tintCtrl,
+    curve: Curves.easeInOutCubic,
+  );
+
+  /// 被点中的入口；null = 尚未点击（显示三带各自色）。
+  MediaType? _selected;
 
   // 三条带自上而下依次滑入：每条用不同 Interval 做分级延迟。
   late final List<Animation<Offset>> _slides = List.generate(
@@ -323,17 +194,25 @@ class _DiagonalEntryState extends State<_DiagonalEntry>
   void initState() {
     super.initState();
     _ctrl.forward();
+    // 染色铺满 → 一步进模块（延迟到动画结束，先让用户看到整屏变色）。
+    _tintCtrl.addStatusListener((status) {
+      if (status == AnimationStatus.completed && mounted && _selected != null) {
+        shellStore.openModule(_selected!);
+      }
+    });
   }
 
   @override
   void dispose() {
     _ctrl.dispose();
+    _tintCtrl.dispose();
     super.dispose();
   }
 
   /// 点任意位置 → 把点击 x 代入两条分界线方程，算出该处两条线的 y →
-  /// 判断落在该 x 上的哪一条带 → 一步进对应模块。
+  /// 判断落在该 x 上的哪一条带 → 三带染成该带色系，铺满后进对应模块。
   void _onTapDown(TapDownDetails details) {
+    if (_selected != null) return; // 染色中忽略连点，避免重复进模块。
     final w = widget.width;
     final h = widget.height;
     final x = details.localPosition.dx;
@@ -341,13 +220,8 @@ class _DiagonalEntryState extends State<_DiagonalEntry>
     final b1 = (_b1Left + (_b1Right - _b1Left) * x / w) * h;
     final b2 = (_b2Left + (_b2Right - _b2Left) * x / w) * h;
     final index = y < b1 ? 0 : (y < b2 ? 1 : 2);
-    final type = entryTypes[index];
-    // 先同步业务状态（NavigationObserver/dev route 等依赖它），再起色系铺开动画。
-    shellStore.openModule(type);
-    final onTap = widget.onEntryTap;
-    if (onTap != null) {
-      onTap(type, details.globalPosition);
-    }
+    setState(() => _selected = entryTypes[index]);
+    _tintCtrl.forward(from: 0);
   }
 
   @override
@@ -367,6 +241,8 @@ class _DiagonalEntryState extends State<_DiagonalEntry>
                 width: widget.width,
                 height: widget.height,
                 slide: _slides[i],
+                tint: _tint,
+                selected: _selected,
               ),
           ],
         ),
@@ -375,13 +251,24 @@ class _DiagonalEntryState extends State<_DiagonalEntry>
   }
 }
 
+/// 一条入口带在 ColorScheme 里的（底色, 底色上的文字色）。
+(Color, Color) _bandColors(MediaType type, ColorScheme cs) => switch (type) {
+  MediaType.comic => (cs.secondaryContainer, cs.onSecondaryContainer),
+  MediaType.novel => (cs.tertiaryContainer, cs.onTertiaryContainer),
+  MediaType.music => (cs.surfaceContainerHighest, cs.onSurface),
+};
+
 /// 一条斜带：带底色的斜切 Path + 叠在带内的文字（文字不进 clip，避免被裁）。
+/// tint 0→1 时，底色从本带原色 lerp 到选中带色系；选中带文字保留并强调，
+/// 未选中带文字随染色淡出——最终整块入口区融成同一色的「选中的入口」。
 class _DiagonalBand extends StatelessWidget {
   final int index;
   final MediaType type;
   final double width;
   final double height;
   final Animation<Offset> slide;
+  final Animation<double> tint;
+  final MediaType? selected;
 
   const _DiagonalBand({
     required this.index,
@@ -389,56 +276,75 @@ class _DiagonalBand extends StatelessWidget {
     required this.width,
     required this.height,
     required this.slide,
+    required this.tint,
+    required this.selected,
   });
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final (container, onContainer) = switch (type) {
-      MediaType.comic => (cs.secondaryContainer, cs.onSecondaryContainer),
-      MediaType.novel => (cs.tertiaryContainer, cs.onTertiaryContainer),
-      MediaType.music => (cs.surfaceContainerHighest, cs.onSurface),
-    };
-    // 文字放在各带靠左、带高足够的位置（避开右端收窄的尖端）。
-    final textTop = const <double>[0.05, 0.42, 0.76][index] * height;
+    final (ownContainer, ownOn) = _bandColors(type, cs);
+    final isSelected = selected == type;
+    // 整屏目标色 = 选中带色系；未点击时各带保持自身色。
+    final (target, targetOn) = selected != null
+        ? _bandColors(selected!, cs)
+        : (ownContainer, ownOn);
 
     return SlideTransition(
       position: slide,
-      child: Stack(
-        children: <Widget>[
-          ClipPath(
-            clipper: _BandClipper(index: index),
-            child: Container(width: width, height: height, color: container),
-          ),
-          Positioned(
-            left: 28,
-            top: textTop,
-            child: Row(
-              children: [
-                Icon(type.icon, color: onContainer, size: 30),
-                const SizedBox(width: 12),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      type.label,
-                      style: Theme.of(
-                        context,
-                      ).textTheme.titleLarge?.apply(color: onContainer),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      type.tagline,
-                      style: Theme.of(context).textTheme.bodySmall?.apply(
-                        color: onContainer.withValues(alpha: .8),
+      child: AnimatedBuilder(
+        animation: tint,
+        builder: (context, _) {
+          final t = tint.value;
+          final color = Color.lerp(ownContainer, target, t)!;
+          final onColor = Color.lerp(ownOn, targetOn, t)!;
+          // 未选中带的文字在染色铺开时淡出，选中带保持不透明。
+          final textOpacity = selected == null
+              ? 1.0
+              : (isSelected ? 1.0 : (1 - t).clamp(0.0, 1.0));
+
+          // 文字放在各带靠左、带高足够的位置（避开右端收窄的尖端）。
+          final textTop = const <double>[0.05, 0.42, 0.76][index] * height;
+          return Stack(
+            children: <Widget>[
+              ClipPath(
+                clipper: _BandClipper(index: index),
+                child: Container(width: width, height: height, color: color),
+              ),
+              Positioned(
+                left: 28,
+                top: textTop,
+                child: Opacity(
+                  opacity: textOpacity,
+                  child: Row(
+                    children: [
+                      Icon(type.icon, color: onColor, size: 30),
+                      const SizedBox(width: 12),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            type.label,
+                            style: Theme.of(
+                              context,
+                            ).textTheme.titleLarge?.apply(color: onColor),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            type.tagline,
+                            style: Theme.of(context).textTheme.bodySmall?.apply(
+                              color: onColor.withValues(alpha: .8),
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ],
-            ),
-          ),
-        ],
+              ),
+            ],
+          );
+        },
       ),
     );
   }
