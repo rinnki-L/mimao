@@ -722,31 +722,30 @@ void main() {
     });
   });
 
-  group('E · BangumiAnimeDataSource（Kazumi 式组合）', () {
-    test('search 走 Bangumi，返回干净元数据（id=bgm://, 带评分/简介）', () async {
+  group('E · BangumiAnimeDataSource（照抄 Kazumi）', () {
+    BangumiItem frieren() => const BangumiItem(
+      id: 400602,
+      type: 2,
+      name: 'Frieren',
+      nameCn: '葬送的芙莉莲',
+      summary: '魔法使芙莉莲的旅途',
+      airDate: '2023-09-29',
+      rank: 1,
+      images: <String, String>{'large': 'https://lain.bgm.tv/l.jpg'},
+      ratingScore: 9.2,
+      votes: 100,
+      tags: <String>['奇幻', '治愈'],
+    );
+
+    test('search 只走 Bangumi，映射干净元数据（id=bgm://, 带评分/简介）', () async {
       final bangumi = _FakeBangumiClient([
-        BangumiSearchResponse(
-          subjects: [
-            BangumiSubject(
-              id: 400602,
-              name: 'Frieren',
-              nameCn: '葬送的芙莉莲',
-              images: const <String, String>{
-                'large': 'https://lain.bgm.tv/l.jpg',
-              },
-              summary: '魔法使芙莉莲的旅途',
-              rating: 9.2,
-              airDate: '2023-09-29',
-              tags: const <String>['奇幻', '治愈'],
-            ),
-          ],
-        ),
+        BangumiSearchPage(items: [frieren()], rawCount: 1),
       ]);
       final ruleSource = _FakeRuleSource();
       final ds = BangumiAnimeDataSource(
         bangumi: bangumi,
         ruleSource: ruleSource,
-        baseUrlFor: () => BangumiEndpoints.mirror,
+        baseUrl: BangumiEndpoints.direct,
       );
 
       final results = await ds.search('芙莉莲');
@@ -758,8 +757,26 @@ void main() {
       expect(results.single.description, '魔法使芙莉莲的旅途');
       expect(results.single.tags, <String>['奇幻', '治愈']);
       expect(bangumi.keywords, <String>['芙莉莲']);
-      // 规则站点不在 search 阶段被打扰。
       expect(ruleSource.searchCalls, 0);
+    });
+
+    test('Kazumi nameCn 过滤：无中文名的条目不进搜索结果', () async {
+      // API 层已保证 nameCn 非空；这里验证数据源不额外塞规则条目。
+      final bangumi = _FakeBangumiClient([
+        BangumiSearchPage(
+          // 只含一条有中文名的条目。
+          items: [frieren()],
+          rawCount: 2, // rawCount 含被过滤项，Kazumi 分页语义。
+        ),
+      ]);
+      final ds = BangumiAnimeDataSource(
+        bangumi: bangumi,
+        ruleSource: _FakeRuleSource(),
+        baseUrl: BangumiEndpoints.direct,
+      );
+      final results = await ds.search('芙莉莲');
+      expect(results, hasLength(1));
+      expect(results.single.title, '葬送的芙莉莲');
     });
 
     test('空关键词不请求 Bangumi', () async {
@@ -767,31 +784,30 @@ void main() {
       final ds = BangumiAnimeDataSource(
         bangumi: bangumi,
         ruleSource: _FakeRuleSource(),
-        baseUrlFor: () => BangumiEndpoints.mirror,
+        baseUrl: BangumiEndpoints.direct,
       );
       expect(await ds.search('  '), isEmpty);
       expect(bangumi.keywords, isEmpty);
     });
 
-    test('Bangumi 失败/无结果时返回空，绝不回退规则搜索（统一搜索逻辑）', () async {
+    test('Bangumi 失败返回 null 时返回空，绝不回退规则搜索', () async {
       final bangumi = _FakeBangumiClient([], fail: true);
       final ruleSource = _FakeRuleSource();
       final ds = BangumiAnimeDataSource(
         bangumi: bangumi,
         ruleSource: ruleSource,
-        baseUrlFor: () => BangumiEndpoints.mirror,
+        baseUrl: BangumiEndpoints.direct,
       );
       expect(await ds.search('x'), isEmpty);
-      // 关键：失败时也不碰规则站点，否则结果会混入无关条目。
       expect(ruleSource.searchCalls, 0);
 
       final emptyBangumi = _FakeBangumiClient([
-        BangumiSearchResponse(subjects: const <BangumiSubject>[]),
+        BangumiSearchPage(items: const <BangumiItem>[], rawCount: 0),
       ]);
       final ds2 = BangumiAnimeDataSource(
         bangumi: emptyBangumi,
         ruleSource: ruleSource,
-        baseUrlFor: () => BangumiEndpoints.mirror,
+        baseUrl: BangumiEndpoints.direct,
       );
       expect(await ds2.search('没有这部番'), isEmpty);
       expect(ruleSource.searchCalls, 0);
@@ -802,7 +818,7 @@ void main() {
       final ds = BangumiAnimeDataSource(
         bangumi: _FakeBangumiClient([]),
         ruleSource: ruleSource,
-        baseUrlFor: () => BangumiEndpoints.mirror,
+        baseUrl: BangumiEndpoints.direct,
       );
       final item = AnimeSummary(
         id: 'bgm://1',
@@ -812,7 +828,6 @@ void main() {
       );
       await ds.watchSources(item, keyword: '某番');
       expect(ruleSource.watchKeywords, <String>['某番']);
-      // Bangumi 条目 detailUrl 为空，detail 委托规则层（不抛异常）。
       final detail = await ds.detail(item);
       expect(detail.title, '规则详情');
       expect(await ds.schedule(), isEmpty);
@@ -823,13 +838,13 @@ void main() {
 class _FakeBangumiClient implements BangumiClient {
   _FakeBangumiClient(this.responses, {this.fail = false});
 
-  final List<BangumiSearchResponse> responses;
+  final List<BangumiSearchPage> responses;
   final bool fail;
   final keywords = <String>[];
   int _calls = 0;
 
   @override
-  Future<BangumiSearchResponse> searchSubjects(
+  Future<BangumiSearchPage?> bangumiSearch(
     String keyword, {
     required String baseUrl,
     int limit = 20,
@@ -837,6 +852,7 @@ class _FakeBangumiClient implements BangumiClient {
   }) async {
     keywords.add(keyword);
     if (fail) throw StateError('bangumi down');
+    if (responses.isEmpty) return null;
     return responses[_calls++ % responses.length];
   }
 }

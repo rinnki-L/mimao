@@ -195,13 +195,12 @@ Future<void> initAppModules({
         ));
     await acceleration.load();
 
-    // Bangumi host：按当前加速模式选（镜像模式本机/CI 都可达，直连走官方）。
-    // 每次搜索都读 controller 当前值，设置切换后下次搜索立即生效。
+    // Bangumi 搜索 host：照抄 Kazumi，固定走官方 api.bgm.tv（direct）。
+    // 注意与「图片加速」解耦——Kazumi 的 BangumiAcceleration（条目 API）与
+    // ImageAcceleration（封面）是两个独立设置；图片镜像只改写 lain.bgm.tv 封面，
+    // 绝不能把搜索也切到镜像 host。api.bgmapi.com 是 Kazumi 的鉴权 API，其
+    // search 端点不按关键词过滤（任何关键词都返回同一热门榜），不可用于搜索。
     final bangumi = bangumiClient ?? DioBangumiClient();
-    String bangumiBaseUrl() =>
-        acceleration.value == AnimeImageAcceleration.mirror
-        ? BangumiEndpoints.mirror
-        : BangumiEndpoints.direct;
 
     // Kazumi 式组合：Bangumi 提供干净搜索结果/元数据，规则站点提供播放源。
     final dataSource =
@@ -209,7 +208,7 @@ Future<void> initAppModules({
         BangumiAnimeDataSource(
           bangumi: bangumi,
           ruleSource: RuleAnimeDataSource.fromStore(store),
-          baseUrlFor: bangumiBaseUrl,
+          baseUrl: BangumiEndpoints.direct,
         );
     final importer = RuleImporter();
     final collect = AnimeCollectService(db, library);

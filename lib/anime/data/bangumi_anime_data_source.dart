@@ -18,14 +18,11 @@ import 'package:mimao/anime/data/anime_data_source.dart';
 import 'package:mimao/anime/data/anime_models.dart';
 import 'package:mimao/anime/data/bangumi_api.dart';
 
-/// 两态 host 提供者（由 registry 注入，读当前图片加速模式的 Bangumi host）。
-typedef BangumiBaseUrlProvider = String Function();
-
 class BangumiAnimeDataSource implements AnimeDataSource {
   BangumiAnimeDataSource({
     required this.bangumi,
     required this.ruleSource,
-    required this.baseUrlFor,
+    required this.baseUrl,
   });
 
   final BangumiClient bangumi;
@@ -33,45 +30,40 @@ class BangumiAnimeDataSource implements AnimeDataSource {
   /// 规则数据源（提供 watchSources / detail / schedule）。
   final AnimeDataSource ruleSource;
 
-  /// 当前 Bangumi host（直连/镜像，随图片加速模式切换）。
-  final BangumiBaseUrlProvider baseUrlFor;
+  /// Bangumi 搜索 host——照抄 Kazumi 固定官方直连 api.bgm.tv，与图片加速解耦。
+  final String baseUrl;
 
   @override
   Future<List<AnimeSummary>> search(String keyword) async {
     final query = keyword.trim();
     if (query.isEmpty) return const <AnimeSummary>[];
 
+    // Kazumi bangumiSearch：异常返回 null；items 已在 API 层做 nameCn 过滤 + id 去重。
+    // 数据源层再兜一层：客户端万一抛异常也返回空，绝不回退规则站点。
+    final BangumiSearchPage? page;
     try {
-      final response = await bangumi.searchSubjects(
-        query,
-        baseUrl: baseUrlFor(),
-        limit: 20,
-      );
-      if (!response.isSuccessful) return const <AnimeSummary>[];
-      return <AnimeSummary>[
-        for (final subject in response.subjects)
-          if (subject.displayName.trim().isNotEmpty)
-            AnimeSummary(
-              // Bangumi id 作为稳定主键：同一部番跨规则来源共享详情页身份。
-              id: 'bgm://${subject.id}',
-              title: subject.displayName,
-              coverUrl: subject.coverUrl,
-              // Bangumi 条目没有 detailUrl；留空，detail/watchSources 用标题定位。
-              detailUrl: '',
-              subtitle: subject.airDate.isEmpty
-                  ? null
-                  : '首播 ${subject.airDate}',
-              bangumiId: subject.id,
-              description: subject.summary,
-              rating: subject.rating,
-              airDate: subject.airDate,
-              tags: subject.tags,
-            ),
-      ];
+      page = await bangumi.bangumiSearch(query, baseUrl: baseUrl, limit: 20);
     } on Object {
-      // 搜索失败统一返回空（不回退规则站点，保证来源逻辑一致）；详情页会给出空态。
       return const <AnimeSummary>[];
     }
+    if (page == null) return const <AnimeSummary>[];
+    return <AnimeSummary>[
+      for (final item in page.items)
+        AnimeSummary(
+          // Bangumi id 作为稳定主键：同一部番跨规则来源共享详情页身份。
+          id: 'bgm://${item.id}',
+          title: item.displayName,
+          coverUrl: item.coverUrl,
+          // Bangumi 条目没有 detailUrl；留空，detail/watchSources 用标题定位。
+          detailUrl: '',
+          subtitle: item.airDate.isEmpty ? null : '首播 ${item.airDate}',
+          bangumiId: item.id,
+          description: item.summary,
+          rating: item.ratingScore > 0 ? item.ratingScore : null,
+          airDate: item.airDate,
+          tags: item.tags,
+        ),
+    ];
   }
 
   @override

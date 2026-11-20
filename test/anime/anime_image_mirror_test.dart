@@ -119,13 +119,13 @@ void main() {
         ),
         'https://api.bgmapi.com/v0/search/subjects?limit=5&offset=10',
       );
-      final body = BangumiEndpoints.searchBody('芙莉莲');
+      final body = buildBangumiSearchParams('芙莉莲');
       expect(body['keyword'], '芙莉莲');
       expect((body['filter'] as Map)['type'], <int>[2]);
     });
 
-    test('BangumiSubject 解析：中文名优先，封面 large 优先', () {
-      final subject = BangumiSubject.fromJson(<String, dynamic>{
+    test('BangumiItem 解析：中文名优先，封面 large 优先', () {
+      final subject = BangumiItem.fromJson(<String, dynamic>{
         'id': 400602,
         'name': '葬送のフリーレン',
         'name_cn': '葬送的芙莉莲',
@@ -138,8 +138,8 @@ void main() {
       expect(subject.coverUrl, 'https://lain.bgm.tv/l.jpg');
     });
 
-    test('BangumiSubject 解析评分/首播/标签', () {
-      final subject = BangumiSubject.fromJson(<String, dynamic>{
+    test('BangumiItem 解析评分/首播/标签', () {
+      final subject = BangumiItem.fromJson(<String, dynamic>{
         'id': 1,
         'name': 'A',
         'name_cn': '',
@@ -153,7 +153,7 @@ void main() {
       });
       expect(subject.summary, '简介');
       expect(subject.airDate, '2023-09-29');
-      expect(subject.rating, 8.7);
+      expect(subject.ratingScore, 8.7);
       expect(subject.tags, <String>['奇幻', '治愈']);
       expect(subject.searchKeyword, 'A');
     });
