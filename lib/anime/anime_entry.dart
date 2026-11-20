@@ -8,6 +8,7 @@ import 'package:mimao/anime/data/anime_models.dart';
 import 'package:mimao/anime/engine/engine.dart';
 import 'package:mimao/anime/history_service.dart';
 import 'package:mimao/anime/pages/anime_module_page.dart';
+import 'package:mimao/anime/pages/anime_image_mirror.dart';
 import 'package:mimao/anime/pages/anime_rule_settings.dart';
 import 'package:mimao/anime/player/anime_player_page.dart';
 import 'package:mimao/anime/player/episode_progress.dart';
@@ -28,6 +29,7 @@ class AnimeModule implements AppModule {
     required this.ruleImporter,
     this.playbackEngineFactory,
     this.headersFor,
+    this.imageMirror,
   });
 
   final AnimeDataSource dataSource;
@@ -35,6 +37,13 @@ class AnimeModule implements AppModule {
   final AnimeHistoryService history;
   final RuleStore ruleStore;
   final RuleImporter ruleImporter;
+
+  /// 封面镜像开关控制器；由 registry 注入并贯穿设置/搜索/详情，null 时不镜像。
+  final AnimeImageMirrorController? imageMirror;
+
+  /// 规则导入/删除后的重读钩子（registry 注入，刷新播放头索引）。
+  /// 模块不认识 registry，仅在此透传；null 时不额外动作。
+  Future<void> Function()? onRulesReloaded;
 
   /// 播放器后端工厂；app_registry 生产路径注入 MediaKitPlaybackEngine，
   /// 测试注入 FakePlaybackEngine。为 null 时点剧集显示提示而不崩溃。
@@ -66,14 +75,24 @@ class AnimeModule implements AppModule {
       isFavorite: (item) => collect.isCollected(refOf(item)),
       onFavoriteChanged: (item, favorite) =>
           _setFavorite(item, favorite, context),
-      onEpisodeTap: (item, detail, episode) =>
-          _openPlayer(item, detail, episode, context),
+      onEpisodeTap: (item, source, detail, episode) =>
+          _openPlayer(source, detail, episode, context),
+      mirror: imageMirror,
     );
   }
 
   @override
   Widget buildSettings(BuildContext context) {
-    return AnimeRuleSettings(store: ruleStore, importer: ruleImporter);
+    return AnimeRuleSettings(
+      store: ruleStore,
+      importer: ruleImporter,
+      mirror: imageMirror,
+      onRulesChanged: onRulesReloaded == null
+          ? null
+          : () {
+              onRulesReloaded!();
+            },
+    );
   }
 
   /// 列表项 → 模块内部权威主键。id 由 03 适配器定义为绝对详情 URL，

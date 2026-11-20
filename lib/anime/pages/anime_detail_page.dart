@@ -5,6 +5,7 @@ import 'package:mimao/anime/data/anime_data_source.dart';
 import 'package:mimao/anime/data/anime_models.dart';
 import 'package:mimao/anime/pages/anime_cover.dart';
 import 'package:mimao/anime/pages/anime_error_state.dart';
+import 'package:mimao/anime/pages/anime_image_mirror.dart';
 import 'package:mimao/core/theme.dart';
 
 /// 番剧详情页：封面 / 标题 / 简介 + 剧集列表 + 追番按钮。
@@ -19,6 +20,7 @@ class AnimeDetailPage extends StatefulWidget {
     this.initiallyFavorite = false,
     this.onFavoriteChanged,
     this.onEpisodeTap,
+    this.mirror,
   });
 
   final AnimeDataSource dataSource;
@@ -29,9 +31,18 @@ class AnimeDetailPage extends StatefulWidget {
   final bool initiallyFavorite;
   final ValueChanged<bool>? onFavoriteChanged;
 
+  /// 封面镜像开关控制器；null 时封面不走代理（保持既有行为）。
+  final AnimeImageMirrorController? mirror;
+
   /// 播放器接线前留空；提供时剧集行才显示播放图标并可点击。
-  /// 连同当前 [AnimeDetail] 一起回调，模块层据此映射剧集列表与 initialIndex。
-  final void Function(AnimeDetail detail, AnimeEpisode episode)? onEpisodeTap;
+  /// 连同当前 [AnimeDetail] 与选中的播放源一起回调，模块层据此映射剧集列表、
+  /// initialIndex 与规则请求头——换源后回传的是新来源，保证头与播放器一致。
+  final void Function(
+    AnimeSummary source,
+    AnimeDetail detail,
+    AnimeEpisode episode,
+  )?
+  onEpisodeTap;
 
   @override
   State<AnimeDetailPage> createState() => _AnimeDetailPageState();
@@ -41,11 +52,21 @@ class _AnimeDetailPageState extends State<AnimeDetailPage> {
   late Future<AnimeDetail> _future;
   late bool _isFavorite;
 
+  /// 换源候选：当前规则 + 其它规则搜到的同一部番。默认只有当前条目
+  /// （数据源不支持换源时保持单来源行为）。
+  Future<List<AnimeSummary>>? _sourcesFuture;
+  AnimeSummary? _selectedSource;
+
   @override
   void initState() {
     super.initState();
     _isFavorite = widget.initiallyFavorite;
+    _selectedSource = widget.summary;
     _future = widget.dataSource.detail(widget.summary);
+    _sourcesFuture = widget.dataSource.watchSources(
+      widget.summary,
+      keyword: widget.summary.title,
+    );
   }
 
   @override
@@ -53,8 +74,25 @@ class _AnimeDetailPageState extends State<AnimeDetailPage> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.dataSource != widget.dataSource ||
         oldWidget.summary.id != widget.summary.id) {
+      _selectedSource = widget.summary;
       _future = widget.dataSource.detail(widget.summary);
+      _sourcesFuture = widget.dataSource.watchSources(
+        widget.summary,
+        keyword: widget.summary.title,
+      );
     }
+  }
+
+  /// 选中另一个规则来源：用该来源重抓详情与剧集。
+  void _selectSource(AnimeSummary source) {
+    if (source.id == _selectedSource?.id &&
+        source.sourceName == _selectedSource?.sourceName) {
+      return;
+    }
+    setState(() {
+      _selectedSource = source;
+      _future = widget.dataSource.detail(source);
+    });
   }
 
   void _toggleFavorite() {
@@ -63,7 +101,10 @@ class _AnimeDetailPageState extends State<AnimeDetailPage> {
   }
 
   void _retry() {
-    setState(() => _future = widget.dataSource.detail(widget.summary));
+    setState(
+      () =>
+          _future = widget.dataSource.detail(_selectedSource ?? widget.summary),
+    );
   }
 
   @override
@@ -89,8 +130,12 @@ class _AnimeDetailPageState extends State<AnimeDetailPage> {
           return _DetailBody(
             detail: snapshot.data!,
             isFavorite: _isFavorite,
+            sourcesFuture: _sourcesFuture,
+            selectedSource: _selectedSource ?? widget.summary,
+            onSourceSelected: _selectSource,
             onFavoriteToggle: _toggleFavorite,
             onEpisodeTap: widget.onEpisodeTap,
+            mirror: widget.mirror,
           );
         },
       ),
@@ -103,13 +148,27 @@ class _DetailBody extends StatelessWidget {
     required this.detail,
     required this.isFavorite,
     required this.onFavoriteToggle,
+    required this.selectedSource,
+    required this.onSourceSelected,
+    this.sourcesFuture,
     this.onEpisodeTap,
+    this.mirror,
   });
 
   final AnimeDetail detail;
   final bool isFavorite;
   final VoidCallback onFavoriteToggle;
-  final void Function(AnimeDetail detail, AnimeEpisode episode)? onEpisodeTap;
+  final void Function(
+    AnimeSummary source,
+    AnimeDetail detail,
+    AnimeEpisode episode,
+  )?
+  onEpisodeTap;
+
+  final Future<List<AnimeSummary>>? sourcesFuture;
+  final AnimeSummary selectedSource;
+  final ValueChanged<AnimeSummary> onSourceSelected;
+  final AnimeImageMirrorController? mirror;
 
   @override
   Widget build(BuildContext context) {
@@ -130,6 +189,7 @@ class _DetailBody extends StatelessWidget {
                   url: detail.coverUrl,
                   title: detail.title,
                   radius: 20,
+                  mirror: mirror,
                 ),
               ),
               const SizedBox(width: 16),
@@ -195,7 +255,13 @@ class _DetailBody extends StatelessWidget {
             ),
             label: Text(isFavorite ? '已追番' : '追番'),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 16),
+          _SourceSelector(
+            sourcesFuture: sourcesFuture,
+            selected: selectedSource,
+            onSelected: onSourceSelected,
+          ),
+          const SizedBox(height: 16),
           Text('简介', style: textTheme.titleMedium),
           const SizedBox(height: 8),
           Text(
@@ -231,10 +297,85 @@ class _DetailBody extends StatelessWidget {
                 episode: episode,
                 onTap: onEpisodeTap == null
                     ? null
-                    : () => onEpisodeTap!(detail, episode),
+                    : () => onEpisodeTap!(selectedSource, detail, episode),
               ),
         ],
       ),
+    );
+  }
+}
+
+/// 换源选择器：列出所有已装规则里搜到的同一部番，点选即切换播放规则。
+///
+/// [sourcesFuture] 为 null（fixture/单来源）时不渲染任何内容，保持原界面。
+/// 只有一条来源时也不显示，避免无意义的一行。加载中/失败静默跳过，不挡详情。
+class _SourceSelector extends StatelessWidget {
+  const _SourceSelector({
+    required this.sourcesFuture,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  final Future<List<AnimeSummary>>? sourcesFuture;
+  final AnimeSummary selected;
+  final ValueChanged<AnimeSummary> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final future = sourcesFuture;
+    if (future == null) return const SizedBox.shrink();
+    return FutureBuilder<List<AnimeSummary>>(
+      future: future,
+      builder: (context, snapshot) {
+        final sources = snapshot.data;
+        if (sources == null || sources.length < 2) {
+          return const SizedBox.shrink();
+        }
+        final cs = Theme.of(context).colorScheme;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                Icon(
+                  Icons.alt_route_rounded,
+                  size: 16,
+                  color: cs.onSurfaceVariant,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  '选择规则观看（${sources.length} 个来源）',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.labelMedium?.apply(color: cs.onSurfaceVariant),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: <Widget>[
+                  for (final source in sources)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: ChoiceChip(
+                        key: ValueKey<String>(
+                          'source-chip-${source.sourceName ?? ''}-${source.id}',
+                        ),
+                        label: Text(source.sourceName ?? '未知规则'),
+                        selected:
+                            source.sourceName == selected.sourceName &&
+                            source.id == selected.id,
+                        onSelected: (_) => onSelected(source),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }

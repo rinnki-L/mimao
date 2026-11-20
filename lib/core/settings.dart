@@ -27,4 +27,14 @@ class SettingsRepository {
           mode: InsertMode.insertOrReplace,
         );
   }
+
+  /// 便捷布尔读写：统一以字符串 'true'/'false' 落库，缺省走 [fallback]。
+  Future<bool> getBool(String key, {bool fallback = false}) async {
+    final value = await get(key);
+    if (value == null) return fallback;
+    return value.toLowerCase() == 'true';
+  }
+
+  Future<void> setBool(String key, bool value) =>
+      set(key, value ? 'true' : 'false');
 }

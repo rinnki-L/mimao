@@ -48,6 +48,12 @@ class FixtureAnimeDataSource implements AnimeDataSource {
   }
 
   @override
+  Future<List<AnimeSummary>> watchSources(
+    AnimeSummary item, {
+    required String keyword,
+  }) async => <AnimeSummary>[item];
+
+  @override
   Future<List<AnimeScheduleSection>> schedule() async => scheduleSections;
 
   // ── 固定 fixture ────────────────────────────────────────────────

@@ -9,6 +9,7 @@ import 'package:mimao/anime/data/anime_models.dart';
 import 'package:mimao/anime/data/rule_anime_data_source.dart';
 import 'package:mimao/anime/engine/engine.dart';
 import 'package:mimao/anime/history_service.dart';
+import 'package:mimao/anime/pages/anime_image_mirror.dart';
 import 'package:mimao/anime/player/media_kit_playback_engine.dart';
 import 'package:mimao/anime/player/playback_engine.dart';
 import 'package:mimao/comic/collect_service.dart';
@@ -22,6 +23,7 @@ import 'package:mimao/comic/reader/reader_cache.dart';
 import 'package:mimao/comic/search_history_service.dart';
 import 'package:mimao/core/contract.dart';
 import 'package:mimao/core/library.dart';
+import 'package:mimao/core/settings.dart';
 import 'package:mimao/shell/dev/dev_capability.dart';
 import 'package:mimao/shell/dev/dev_databases.dart';
 import 'package:mimao/music/api/kugou_playback_api.dart';
@@ -65,6 +67,10 @@ AnimeDb? _ownedAnimeDb;
 ComicDb? _ownedComicDb;
 MusicDb? _ownedMusicDb;
 
+/// 封面镜像开关控制器：进程内单例，跨 initAppModules 重置保持开关状态；
+/// 设置 tab 拨动后所有封面即时刷新。测试可注入自己的实例。
+AnimeImageMirrorController? _animeImageMirror;
+
 /// 测试可见：registry 自建、reset 时会关闭的 ComicDb（生产路径才有值）。
 /// CI 没有 path_provider 插件，用这条缝验证 owned-DB 的关闭语义（closure-02
 /// 验收 A：reset 后 registry 拥有的 ComicDb 已关闭）。
@@ -88,6 +94,9 @@ Future<void> initAppModules({
   RuleStore? ruleStore,
   AnimeDataSource? animeDataSource,
   PlaybackEngine Function()? playbackEngineFactory,
+
+  /// 测试注入的镜像开关控制器；生产复用进程内单例并从设置库读初值。
+  AnimeImageMirrorController? animeImageMirror,
 
   // ── 漫画（closure-02）──
   ComicDb? comicDb,
@@ -166,22 +175,36 @@ Future<void> initAppModules({
     final store = ruleStore ?? await RuleStore.openDefault();
     // 启动时读一次规则仓库：目录不可读就走失败分支并给出原因，
     // 不让用户点进番剧才发现规则全坏。
-    final loadedRules = await store.loadAll();
+    var loadedRules = await store.loadAll();
     final dataSource = animeDataSource ?? RuleAnimeDataSource.fromStore(store);
     final importer = RuleImporter();
     final collect = AnimeCollectService(db, library);
     final history = AnimeHistoryService(db, library);
 
+    // 封面镜像开关：进程内单例 + 从 core 设置库读初值；读失败走默认。
+    final mirror =
+        animeImageMirror ??
+        (_animeImageMirror ??= AnimeImageMirrorController(
+          settings: SettingsRepository(library.db),
+        ));
+    await mirror.load();
+
     // 规则级 UA/Referer 提供者：播放入口拿不到 AnimeRule，这里按 sourceName
     // 查规则仓库，用引擎同款 playTarget 语义组装 header。启动时已 loadAll，
     // 这里做同步查表；默认空 map 不改既有行为（Kazumi 原生规则无
-    // userAgent/referer 时不会凭空造头）。
+    // userAgent/referer 时不会凭空造头）。导入新规则后 onRulesChanged 重读一次。
     final playHeaderEngine = AnimeRuleEngine();
-    final rulesBySource = <String, AnimeRule>{};
-    for (final rule in loadedRules) {
-      rulesBySource[rule.name] = rule;
-      rulesBySource[rule.name.toLowerCase()] = rule;
+    var rulesBySource = <String, AnimeRule>{};
+    void indexRules(Iterable<AnimeRule> rules) {
+      final map = <String, AnimeRule>{};
+      for (final rule in rules) {
+        map[rule.name] = rule;
+        map[rule.name.toLowerCase()] = rule;
+      }
+      rulesBySource = map;
     }
+
+    indexRules(loadedRules);
     Map<String, String> animeHeadersFor(AnimeSummary item) {
       final source = item.sourceName;
       if (source == null || source.isEmpty) return const <String, String>{};
@@ -212,7 +235,18 @@ Future<void> initAppModules({
       playbackEngineFactory:
           playbackEngineFactory ?? MediaKitPlaybackEngine.new,
       headersFor: animeHeadersFor,
+      imageMirror: mirror,
     );
+    // 设置页导入/删除规则后：刷新播放头索引（换源要用新规则的 UA/Referer）。
+    // AnimeModule 自己不认识 registry，这里是唯一的装配接缝。
+    module.onRulesReloaded = () async {
+      try {
+        loadedRules = await store.loadAll();
+        indexRules(loadedRules);
+      } on Object {
+        // 重读失败保留旧索引，不冒泡。
+      }
+    };
     appModules[MediaType.anime] = module;
   } catch (error) {
     errors.add('番剧模块初始化失败：$error');

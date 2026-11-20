@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:mimao/anime/data/anime_data_source.dart';
 import 'package:mimao/anime/data/anime_models.dart';
 import 'package:mimao/anime/pages/anime_detail_page.dart';
+import 'package:mimao/anime/pages/anime_image_mirror.dart';
 import 'package:mimao/anime/pages/anime_schedule_page.dart';
 import 'package:mimao/anime/pages/anime_search_page.dart';
 
@@ -23,6 +24,7 @@ class AnimeModulePage extends StatefulWidget {
     this.isFavorite,
     this.onFavoriteChanged,
     this.onEpisodeTap,
+    this.mirror,
   });
 
   final AnimeDataSource dataSource;
@@ -43,13 +45,18 @@ class AnimeModulePage extends StatefulWidget {
   /// 追番切换；模块层把条目一起包进回调，详情页无需认识 AnimeSummary。
   final void Function(AnimeSummary item, bool favorite)? onFavoriteChanged;
 
-  /// 点剧集；模块层把条目与完整详情一起交给播放器装配方。
+  /// 点剧集；模块层把列表项、选中的播放源与完整详情一起交给播放器装配方。
+  /// 换源后 [source] 是与初始 [item] 不同的来源，播放器据此解析规则与请求头。
   final void Function(
     AnimeSummary item,
+    AnimeSummary source,
     AnimeDetail detail,
     AnimeEpisode episode,
   )?
   onEpisodeTap;
+
+  /// 封面镜像开关控制器；null 时封面不走代理（保持既有行为）。
+  final AnimeImageMirrorController? mirror;
 
   @override
   State<AnimeModulePage> createState() => _AnimeModulePageState();
@@ -78,8 +85,9 @@ class _AnimeModulePageState extends State<AnimeModulePage> {
           summary: item,
           initiallyFavorite: favorite,
           onFavoriteChanged: (v) => widget.onFavoriteChanged?.call(item, v),
-          onEpisodeTap: (detail, ep) =>
-              widget.onEpisodeTap?.call(item, detail, ep),
+          onEpisodeTap: (source, detail, ep) =>
+              widget.onEpisodeTap?.call(item, source, detail, ep),
+          mirror: widget.mirror,
         ),
       ),
     );
@@ -117,11 +125,13 @@ class _AnimeModulePageState extends State<AnimeModulePage> {
             dataSource: widget.dataSource,
             showAppBar: !widget.embedded,
             onOpenDetail: _openDetail,
+            mirror: widget.mirror,
           ),
           AnimeSchedulePage(
             dataSource: widget.dataSource,
             showAppBar: !widget.embedded,
             onOpenDetail: _openDetail,
+            mirror: widget.mirror,
           ),
           if (settingsTab != null)
             SafeArea(child: SingleChildScrollView(child: settingsTab)),

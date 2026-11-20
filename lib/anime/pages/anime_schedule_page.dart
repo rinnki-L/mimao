@@ -5,6 +5,7 @@ import 'package:mimao/anime/data/anime_data_source.dart';
 import 'package:mimao/anime/data/anime_models.dart';
 import 'package:mimao/anime/pages/anime_cover.dart';
 import 'package:mimao/anime/pages/anime_error_state.dart';
+import 'package:mimao/anime/pages/anime_image_mirror.dart';
 import 'package:mimao/core/theme.dart';
 
 /// 番剧时间表：按星期分组列出当周更新。
@@ -17,6 +18,7 @@ class AnimeSchedulePage extends StatefulWidget {
     required this.dataSource,
     this.showAppBar = true,
     this.onOpenDetail,
+    this.mirror,
   });
 
   final AnimeDataSource dataSource;
@@ -25,6 +27,9 @@ class AnimeSchedulePage extends StatefulWidget {
   final bool showAppBar;
 
   final ValueChanged<AnimeSummary>? onOpenDetail;
+
+  /// 封面镜像开关控制器；null 时封面不走代理（保持既有行为）。
+  final AnimeImageMirrorController? mirror;
 
   @override
   State<AnimeSchedulePage> createState() => _AnimeSchedulePageState();
@@ -80,6 +85,7 @@ class _AnimeSchedulePageState extends State<AnimeSchedulePage> {
           return _ScheduleBody(
             sections: sections,
             onOpenDetail: widget.onOpenDetail,
+            mirror: widget.mirror,
           );
         },
       ),
@@ -88,10 +94,11 @@ class _AnimeSchedulePageState extends State<AnimeSchedulePage> {
 }
 
 class _ScheduleBody extends StatelessWidget {
-  const _ScheduleBody({required this.sections, this.onOpenDetail});
+  const _ScheduleBody({required this.sections, this.onOpenDetail, this.mirror});
 
   final List<AnimeScheduleSection> sections;
   final ValueChanged<AnimeSummary>? onOpenDetail;
+  final AnimeImageMirrorController? mirror;
 
   @override
   Widget build(BuildContext context) {
@@ -119,7 +126,11 @@ class _ScheduleBody extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           for (final section in sections)
-            _ScheduleSectionView(section: section, onOpenDetail: onOpenDetail),
+            _ScheduleSectionView(
+              section: section,
+              onOpenDetail: onOpenDetail,
+              mirror: mirror,
+            ),
         ],
       ),
     );
@@ -127,10 +138,15 @@ class _ScheduleBody extends StatelessWidget {
 }
 
 class _ScheduleSectionView extends StatelessWidget {
-  const _ScheduleSectionView({required this.section, this.onOpenDetail});
+  const _ScheduleSectionView({
+    required this.section,
+    this.onOpenDetail,
+    this.mirror,
+  });
 
   final AnimeScheduleSection section;
   final ValueChanged<AnimeSummary>? onOpenDetail;
+  final AnimeImageMirrorController? mirror;
 
   @override
   Widget build(BuildContext context) {
@@ -187,6 +203,7 @@ class _ScheduleSectionView extends StatelessWidget {
                       'schedule-item-${section.items[i].id}',
                     ),
                     item: section.items[i],
+                    mirror: mirror,
                     onTap: onOpenDetail == null
                         ? null
                         : () => onOpenDetail!(section.items[i]),
@@ -202,10 +219,11 @@ class _ScheduleSectionView extends StatelessWidget {
 }
 
 class _ScheduleRow extends StatelessWidget {
-  const _ScheduleRow({super.key, required this.item, this.onTap});
+  const _ScheduleRow({super.key, required this.item, this.onTap, this.mirror});
 
   final AnimeSummary item;
   final VoidCallback? onTap;
+  final AnimeImageMirrorController? mirror;
 
   @override
   Widget build(BuildContext context) {
@@ -224,6 +242,7 @@ class _ScheduleRow extends StatelessWidget {
                 url: item.coverUrl,
                 title: item.title,
                 radius: 10,
+                mirror: mirror,
               ),
             ),
             const SizedBox(width: 12),

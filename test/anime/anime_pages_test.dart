@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mimao/anime/data/anime_models.dart';
 import 'package:mimao/anime/data/fixture_anime_data_source.dart';
+import 'package:mimao/anime/pages/anime_cover.dart';
 import 'package:mimao/anime/pages/anime_detail_page.dart';
+import 'package:mimao/anime/pages/anime_image_mirror.dart';
 import 'package:mimao/anime/pages/anime_module_page.dart';
 import 'package:mimao/anime/pages/anime_schedule_page.dart';
 import 'package:mimao/anime/pages/anime_search_page.dart';
@@ -297,4 +299,173 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   });
+
+  group('换源（选择规则观看）', () {
+    /// 三条规则都提供同一部番的详情，剧集 URL 带各自规则名，便于断言换源生效。
+    late _MultiSourceDataSource multi;
+
+    setUp(() {
+      multi = _MultiSourceDataSource();
+    });
+
+    testWidgets('多规则时显示来源 chips，点选后剧集改为新规则的地址', (tester) async {
+      _usePhoneSize(tester);
+      AnimeSummary? tappedSource;
+      await tester.pumpWidget(
+        _app(
+          AnimeDetailPage(
+            dataSource: multi,
+            summary: multi.sources.first,
+            onEpisodeTap: (source, detail, episode) => tappedSource = source,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // 三个来源 chips 都在，默认选中第一个规则。
+      for (final source in multi.sources) {
+        expect(
+          find.byKey(
+            ValueKey<String>('source-chip-${source.sourceName}-${source.id}'),
+          ),
+          findsOneWidget,
+        );
+      }
+      expect(find.text('选择规则观看（3 个来源）'), findsOneWidget);
+      expect(find.text('共 5 集'), findsOneWidget);
+
+      // 点「乙站」→ 详情重抓，剧集 URL 切换为乙站。
+      final yiSource = multi.sources.firstWhere((s) => s.sourceName == '乙站');
+      await tester.tap(
+        find.byKey(ValueKey<String>('source-chip-乙站-${yiSource.id}')),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey<String>('episode-1')));
+      expect(tappedSource?.sourceName, '乙站');
+      expect(multi.lastDetailSource, '乙站');
+    });
+
+    testWidgets('单来源时不渲染换源选择器', (tester) async {
+      _usePhoneSize(tester);
+      await tester.pumpWidget(
+        _app(
+          AnimeDetailPage(
+            dataSource: fixture,
+            summary: FixtureAnimeDataSource.xinghai,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('选择规则观看'), findsNothing);
+    });
+  });
+
+  group('封面镜像', () {
+    testWidgets('开关拨动后网络封面 URL 被改写为代理地址', (tester) async {
+      _usePhoneSize(tester);
+      final controller = AnimeImageMirrorController();
+      await controller.set(false);
+      const url = 'https://site.example/cover.jpg';
+      final source = FixtureAnimeDataSource(
+        searchResults: <AnimeSummary>[
+          AnimeSummary(
+            id: 'mirror-test',
+            title: '镜像测试番',
+            coverUrl: url,
+            detailUrl: 'https://site.example/a',
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        _app(AnimeSearchPage(dataSource: source, mirror: controller)),
+      );
+      await tester.pumpAndSettle();
+
+      // 关闭时封面是原始地址。
+      Image closedImage = tester.widget<Image>(
+        find.descendant(
+          of: find.byType(AnimeCover),
+          matching: find.byType(Image),
+        ),
+      );
+      expect((closedImage.image as NetworkImage).url, url);
+
+      // 打开镜像（不经过 UI，直接拨 controller；UI 监听即时重建）。
+      await controller.set(true);
+      await tester.pumpAndSettle();
+
+      Image openedImage = tester.widget<Image>(
+        find.descendant(
+          of: find.byType(AnimeCover),
+          matching: find.byType(Image),
+        ),
+      );
+      final mirroredUrl = (openedImage.image as NetworkImage).url;
+      expect(mirroredUrl, isNot(url));
+      expect(mirroredUrl, contains(Uri.encodeComponent(url)));
+    });
+  });
+}
+
+/// 三规则换源假数据源：每条规则的详情都给出 5 集，URL 带规则名。
+class _MultiSourceDataSource extends FixtureAnimeDataSource {
+  _MultiSourceDataSource() : lastDetailSource = _sources.first.sourceName ?? '';
+
+  String lastDetailSource;
+
+  static const List<AnimeSummary> _sources = <AnimeSummary>[
+    AnimeSummary(
+      id: 'https://a.test/anime/1',
+      title: '同一部番',
+      coverUrl: '',
+      detailUrl: 'https://a.test/anime/1',
+      sourceName: '甲站',
+    ),
+    AnimeSummary(
+      id: 'https://b.test/anime/1',
+      title: '同一部番',
+      coverUrl: '',
+      detailUrl: 'https://b.test/anime/1',
+      sourceName: '乙站',
+    ),
+    AnimeSummary(
+      id: 'https://c.test/anime/1',
+      title: '同一部番',
+      coverUrl: '',
+      detailUrl: 'https://c.test/anime/1',
+      sourceName: '丙站',
+    ),
+  ];
+
+  List<AnimeSummary> get sources => _sources;
+
+  @override
+  Future<List<AnimeSummary>> watchSources(
+    AnimeSummary item, {
+    required String keyword,
+  }) async => sources;
+
+  @override
+  Future<AnimeDetail> detail(AnimeSummary item) async {
+    lastDetailSource = item.sourceName ?? '';
+    final host = item.sourceName == '甲站'
+        ? 'a.test'
+        : item.sourceName == '乙站'
+        ? 'b.test'
+        : 'c.test';
+    return AnimeDetail(
+      title: item.title,
+      coverUrl: '',
+      detailUrl: item.detailUrl,
+      description: '',
+      sourceName: item.sourceName,
+      episodes: <AnimeEpisode>[
+        for (var i = 1; i <= 5; i++)
+          AnimeEpisode(number: i, title: '第$i集', url: 'https://$host/play/$i'),
+      ],
+    );
+  }
 }

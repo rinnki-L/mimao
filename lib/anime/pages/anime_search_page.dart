@@ -5,6 +5,7 @@ import 'package:mimao/anime/data/anime_data_source.dart';
 import 'package:mimao/anime/data/anime_models.dart';
 import 'package:mimao/anime/pages/anime_cover.dart';
 import 'package:mimao/anime/pages/anime_error_state.dart';
+import 'package:mimao/anime/pages/anime_image_mirror.dart';
 
 /// 番剧搜索页：搜索框 + 结果网格。
 ///
@@ -16,6 +17,7 @@ class AnimeSearchPage extends StatefulWidget {
     required this.dataSource,
     this.showAppBar = true,
     this.onOpenDetail,
+    this.mirror,
   });
 
   final AnimeDataSource dataSource;
@@ -25,6 +27,9 @@ class AnimeSearchPage extends StatefulWidget {
 
   /// 点结果卡片时回调；由模块层决定如何钻进详情页。
   final ValueChanged<AnimeSummary>? onOpenDetail;
+
+  /// 封面镜像开关控制器；null 时封面不走代理（保持既有行为）。
+  final AnimeImageMirrorController? mirror;
 
   @override
   State<AnimeSearchPage> createState() => _AnimeSearchPageState();
@@ -142,6 +147,7 @@ class _AnimeSearchPageState extends State<AnimeSearchPage> {
                   return _AnimePosterCard(
                     key: ValueKey<String>('search-result-${item.id}'),
                     item: item,
+                    mirror: widget.mirror,
                     onTap: widget.onOpenDetail == null
                         ? null
                         : () => widget.onOpenDetail!(item),
@@ -158,10 +164,16 @@ class _AnimeSearchPageState extends State<AnimeSearchPage> {
 
 /// 搜索结果卡片：封面 + 标题 + 状态行。
 class _AnimePosterCard extends StatelessWidget {
-  const _AnimePosterCard({super.key, required this.item, this.onTap});
+  const _AnimePosterCard({
+    super.key,
+    required this.item,
+    this.onTap,
+    this.mirror,
+  });
 
   final AnimeSummary item;
   final VoidCallback? onTap;
+  final AnimeImageMirrorController? mirror;
 
   @override
   Widget build(BuildContext context) {
@@ -177,7 +189,11 @@ class _AnimePosterCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
             Expanded(
-              child: AnimeCover(url: item.coverUrl, title: item.title),
+              child: AnimeCover(
+                url: item.coverUrl,
+                title: item.title,
+                mirror: mirror,
+              ),
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),

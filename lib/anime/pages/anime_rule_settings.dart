@@ -2,6 +2,7 @@
 // 但 Kazumi/Venera 上游镜像全部用它；为保持类型一致与 patch 可重放，M1 继续用。
 import 'package:flutter/material.dart';
 import 'package:mimao/anime/engine/engine.dart';
+import 'package:mimao/anime/pages/anime_image_mirror.dart';
 
 /// 番剧规则管理面板——番剧模块主页底部导航最右侧「设置」tab 的内容。
 ///
@@ -17,6 +18,7 @@ class AnimeRuleSettings extends StatefulWidget {
     required this.store,
     required this.importer,
     this.onRulesChanged,
+    this.mirror,
   });
 
   final RuleStore store;
@@ -24,6 +26,9 @@ class AnimeRuleSettings extends StatefulWidget {
 
   /// 规则列表变动（导入/删除成功）后回调，便于数据源下次搜索即生效。
   final VoidCallback? onRulesChanged;
+
+  /// 封面镜像开关控制器；注入后设置页顶部显示开关并即时生效。
+  final AnimeImageMirrorController? mirror;
 
   @override
   State<AnimeRuleSettings> createState() => _AnimeRuleSettingsState();
@@ -340,6 +345,10 @@ class _AnimeRuleSettingsState extends State<AnimeRuleSettings> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
+          if (widget.mirror != null) ...<Widget>[
+            _buildMirrorSection(theme),
+            const Divider(height: 24),
+          ],
           _buildRepositorySection(theme),
           const Divider(height: 24),
           TextField(
@@ -383,6 +392,27 @@ class _AnimeRuleSettingsState extends State<AnimeRuleSettings> {
           _buildRuleList(theme),
         ],
       ),
+    );
+  }
+
+  /// 封面镜像开关：开启后搜索/详情封面走公共图片代理，绕过站点防盗链。
+  Widget _buildMirrorSection(ThemeData theme) {
+    final mirror = widget.mirror!;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        ValueListenableBuilder<bool>(
+          valueListenable: mirror,
+          builder: (context, enabled, _) => SwitchListTile(
+            key: const Key('anime-image-mirror-switch'),
+            title: const Text('封面镜像（图片代理）'),
+            subtitle: const Text('开启后通过图片代理加载封面，解决部分站点图片不显示'),
+            value: enabled,
+            onChanged: (value) => mirror.set(value),
+          ),
+        ),
+      ],
     );
   }
 

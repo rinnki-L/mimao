@@ -9,6 +9,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mimao/anime/engine/engine.dart';
+import 'package:mimao/anime/pages/anime_image_mirror.dart';
 import 'package:mimao/anime/pages/anime_rule_settings.dart';
 
 import '../fixtures.dart';
@@ -355,5 +356,32 @@ void main() {
 
     expect(find.byKey(const Key('anime-repo-empty')), findsOneWidget);
     expect(find.byKey(const Key('anime-repo-import-selected')), findsNothing);
+  });
+
+  testWidgets('封面镜像开关：注入控制器后显示并可切换', (tester) async {
+    final mirror = AnimeImageMirrorController();
+    await mirror.set(false);
+    await tester.pumpWidget(
+      _app(
+        AnimeRuleSettings(
+          store: store,
+          importer: RuleImporter(client: _FakeClient()),
+          mirror: mirror,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('anime-image-mirror-switch')), findsOneWidget);
+    expect(find.text('封面镜像（图片代理）'), findsOneWidget);
+    expect(mirror.value, isFalse);
+
+    // 拨动开关 → 控制器内存态翻转（设置页通过 controller.set 落库/广播）。
+    final switchWidget = tester.widget<SwitchListTile>(
+      find.byKey(const Key('anime-image-mirror-switch')),
+    );
+    switchWidget.onChanged!(true);
+    await tester.pumpAndSettle();
+    expect(mirror.value, isTrue);
   });
 }

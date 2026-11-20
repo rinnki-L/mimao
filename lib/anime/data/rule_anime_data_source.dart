@@ -233,6 +233,76 @@ class RuleAnimeDataSource implements AnimeDataSource {
     );
   }
 
+  /// 列出同一部番剧在所有规则下可观看的条目（详情页「换源/选规则」用）。
+  ///
+  /// 对每个已装规则按 [keyword] 再搜一次，取「标题最相近」的一条命中：
+  /// 先精确去空格大小写匹配标题，再退到包含关系，最后才取该规则第一条结果
+  /// （规则站点搜索通常把最相关项排在前面）。本条目所在规则始终纳入，
+  /// 且排在首位；每条规则至多贡献一个来源，避免换源列表爆长。
+  @override
+  Future<List<AnimeSummary>> watchSources(
+    AnimeSummary item, {
+    required String keyword,
+  }) async {
+    _resetDiagnostics();
+    final List<AnimeRule> rules;
+    try {
+      rules = await loadRules();
+    } on Object {
+      return <AnimeSummary>[item];
+    }
+    if (rules.isEmpty) return <AnimeSummary>[item];
+
+    final parts = await Future.wait(
+      rules.map((rule) => _watchSourceOne(rule, keyword)),
+    );
+
+    final sources = <AnimeSummary>[];
+    // 当前条目所在规则一定在列且排首位。
+    sources.add(item);
+    final current = (item.sourceName ?? '').toLowerCase();
+    for (final part in parts) {
+      if (part == null) continue;
+      final name = (part.sourceName ?? '').toLowerCase();
+      if (name == current) continue;
+      // 同一 sourceName 只保留一个来源。
+      if (sources.any((s) => (s.sourceName ?? '').toLowerCase() == name)) {
+        continue;
+      }
+      sources.add(part);
+    }
+    return sources;
+  }
+
+  /// 单规则里挑出与标题最相近的一条命中；无命中返回 null。
+  Future<AnimeSummary?> _watchSourceOne(AnimeRule rule, String keyword) async {
+    final RuleParseResult<RuleSearchResult> parsed;
+    try {
+      parsed = await engine.search(rule, keyword);
+    } on Object {
+      return null;
+    }
+    final mapped = <AnimeSummary>[];
+    for (final hit in parsed.items) {
+      final summary = summaryFromRule(rule, hit);
+      if (summary != null) mapped.add(summary);
+    }
+    if (mapped.isEmpty) return null;
+
+    final needle = keyword.trim().toLowerCase();
+    if (needle.isEmpty) return mapped.first;
+    for (final summary in mapped) {
+      if (summary.title.trim().toLowerCase() == needle) return summary;
+    }
+    for (final summary in mapped) {
+      if (summary.title.toLowerCase().contains(needle) ||
+          needle.contains(summary.title.toLowerCase())) {
+        return summary;
+      }
+    }
+    return mapped.first;
+  }
+
   @override
   Future<List<AnimeScheduleSection>> schedule() async {
     _resetDiagnostics();

@@ -490,6 +490,110 @@ void main() {
     });
   });
 
+  group('D2 · 换源（watchSources）', () {
+    test('多规则各贡献一条，当前规则排首位且去重', () async {
+      final client = _FakeClient();
+      // 纯 ASCII 关键词，避免 Uri.encodeQueryComponent 造成 fake URL 不匹配。
+      client.responses['https://a.test/search?q=x'] = AnimeHttpResponse(
+        statusCode: 200,
+        body: listPage([
+          itemHtml('other', '/a/other', img: '/img/o.jpg'),
+          itemHtml('same', '/a/1001', img: '/img/a.jpg'),
+        ]),
+      );
+      client.responses['https://b.test/search?q=x'] = AnimeHttpResponse(
+        statusCode: 200,
+        body: listPage([itemHtml('same', '/b/2002')]),
+      );
+      client.responses['https://c.test/search?q=x'] = AnimeHttpResponse(
+        statusCode: 200,
+        body: listPage([itemHtml('same', '/c/3003')]),
+      );
+
+      final source = RuleAnimeDataSource(
+        engine: AnimeRuleEngine(client: client),
+        loadRules: () async => <AnimeRule>[
+          rule('乙站', 'b.test'),
+          rule('甲站', 'a.test'), // 当前来源
+          rule('丙站', 'c.test'),
+        ],
+      );
+      final current = AnimeSummary(
+        id: 'https://a.test/anime/1001',
+        title: 'same',
+        coverUrl: '',
+        detailUrl: 'https://a.test/anime/1001',
+        sourceName: '甲站',
+      );
+
+      final sources = await source.watchSources(current, keyword: 'x');
+
+      expect(sources, hasLength(3));
+      expect(sources.first.sourceName, '甲站'); // 当前规则排首位
+      expect(sources.first.id, current.id); // 且复用原条目
+      expect(sources.map((e) => e.sourceName).toSet(), <String>{
+        '甲站',
+        '乙站',
+        '丙站',
+      });
+      expect(sources.firstWhere((e) => e.sourceName == '甲站').id, current.id);
+      expect(
+        sources.firstWhere((e) => e.sourceName == '乙站').detailUrl,
+        'https://b.test/b/2002',
+      );
+    });
+
+    test('某规则按标题精确匹配：优先精确标题而非首条', () async {
+      final client = _FakeClient();
+      client.responses['https://d.test/search?q=x'] = AnimeHttpResponse(
+        statusCode: 200,
+        body: listPage([itemHtml('other', '/d/0'), itemHtml('same', '/d/1')]),
+      );
+      final source = RuleAnimeDataSource(
+        engine: AnimeRuleEngine(client: client),
+        loadRules: () async => <AnimeRule>[rule('丁站', 'd.test')],
+      );
+      final current = AnimeSummary(
+        id: 'x',
+        title: 'same',
+        coverUrl: '',
+        detailUrl: 'x',
+        sourceName: '丁站',
+      );
+
+      final sources = await source.watchSources(current, keyword: 'x');
+      // 当前规则已纳入且按 sourceName 去重，不会再额外贡献第二条。
+      expect(sources, hasLength(1));
+      expect(sources.single.id, 'x');
+    });
+
+    test('搜索抛异常的规则被跳过，其它来源照常', () async {
+      final client = _FakeClient();
+      client.responses['https://b.test/search?q=x'] = AnimeHttpResponse(
+        statusCode: 200,
+        body: listPage([itemHtml('标题', '/b/1')]),
+      );
+      final source = RuleAnimeDataSource(
+        engine: _SelectiveThrowingEngine(client, '炸站'),
+        loadRules: () async => <AnimeRule>[
+          rule('炸站', 'a.test'),
+          rule('好站', 'b.test'),
+        ],
+      );
+      final current = AnimeSummary(
+        id: 'x',
+        title: '标题',
+        coverUrl: '',
+        detailUrl: 'x',
+        sourceName: '好站',
+      );
+
+      final sources = await source.watchSources(current, keyword: 'x');
+      expect(sources, hasLength(1));
+      expect(sources.single.sourceName, '好站');
+    });
+  });
+
   group('D · 时间表与边界', () {
     test('schedule 返回空列表，不发起网络请求', () async {
       final client = _FakeClient();
