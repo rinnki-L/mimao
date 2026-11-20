@@ -50,12 +50,13 @@ void main() {
     return LibraryScope(repository: env.library, child: const MimaoApp());
   }
 
-  testWidgets('入口页展示标题与三个媒体入口，无番剧入口', (tester) async {
+  testWidgets('入口页展示三个媒体入口，无品牌标题、无番剧入口', (tester) async {
     await tester.pumpWidget(pumpApp());
     await tester.pumpAndSettle();
 
-    expect(find.text('mimao'), findsOneWidget);
-    expect(find.text('漫画 · 小说 · 音乐，一站聚合'), findsOneWidget);
+    // 品牌标题块（logo + mimao + 副标题）已去掉，不是商业软件不带门面。
+    expect(find.text('mimao'), findsNothing);
+    expect(find.text('漫画 · 小说 · 音乐，一站聚合'), findsNothing);
     for (final type in entryTypes) {
       expect(find.text(type.label), findsWidgets);
     }
@@ -63,18 +64,25 @@ void main() {
     expect(find.text('番剧'), findsNothing);
   });
 
-  testWidgets('点入口卡片钻进模块层，返回后回到入口页', (tester) async {
+  testWidgets('点叠牌提到最前，再点置顶卡钻进模块，返回后回到入口页', (tester) async {
     await tester.pumpWidget(pumpApp());
     await tester.pumpAndSettle();
 
-    // 未注册时模块层显示占位；用漫画验证导航。
+    // 默认音乐置顶：第一次点漫画只把它提到最前，不进模块。
+    await tester.tap(find.text(MediaType.comic.label).first);
+    await tester.pumpAndSettle();
+    expect(find.text('${MediaType.comic.label}模块尚未接入'), findsNothing);
+
+    // 再点一次（此刻漫画已置顶）才进模块。
     await tester.tap(find.text(MediaType.comic.label).first);
     await tester.pumpAndSettle();
     expect(find.text('${MediaType.comic.label}模块尚未接入'), findsOneWidget);
 
     await tester.tap(find.byTooltip('返回'));
     await tester.pumpAndSettle();
-    expect(find.text('mimao'), findsOneWidget);
+    // 返回后品牌标题不会回来，用功能按钮做锚点。
+    expect(find.byTooltip('统一书架'), findsOneWidget);
+    expect(find.byTooltip('设置'), findsOneWidget);
   });
 
   testWidgets('统一书架入口显示空态', (tester) async {
@@ -97,7 +105,7 @@ void main() {
 
     await tester.tap(find.byTooltip('返回'));
     await tester.pumpAndSettle();
-    expect(find.text('mimao'), findsOneWidget);
+    expect(find.byTooltip('统一书架'), findsOneWidget);
   });
 
   testWidgets('设置抽屉可打开，只剩通用分组（外观/存储），无模块分组', (tester) async {
@@ -140,6 +148,9 @@ void main() {
       await tester.pumpWidget(pumpApp());
       await tester.pumpAndSettle();
 
+      // 叠牌默认音乐置顶：先点漫画提到最前，再点一次才进模块。
+      await tester.tap(find.text(MediaType.comic.label).first);
+      await tester.pumpAndSettle();
       await tester.tap(find.text(MediaType.comic.label).first);
       await tester.pumpAndSettle();
 
@@ -150,7 +161,7 @@ void main() {
 
       await tester.tap(find.byTooltip('返回'));
       await tester.pumpAndSettle();
-      expect(find.text('mimao'), findsOneWidget);
+      expect(find.byTooltip('统一书架'), findsOneWidget);
     });
 
     testWidgets('漫画设置收进模块页底部导航最右「设置」tab', (tester) async {
@@ -158,6 +169,9 @@ void main() {
       await tester.pumpWidget(pumpApp());
       await tester.pumpAndSettle();
 
+      // 先提卡再进入模块。
+      await tester.tap(find.text(MediaType.comic.label).first);
+      await tester.pumpAndSettle();
       await tester.tap(find.text(MediaType.comic.label).first);
       await tester.pumpAndSettle();
       // 底部导航最右一枚是「设置」；点它切到模块设置面板。
@@ -180,6 +194,9 @@ void main() {
       await resetAppModulesForTest();
 
       await tester.pumpWidget(pumpApp());
+      await tester.pumpAndSettle();
+      // 先提卡再进入模块。
+      await tester.tap(find.text(MediaType.comic.label).first);
       await tester.pumpAndSettle();
       await tester.tap(find.text(MediaType.comic.label).first);
       await tester.pumpAndSettle();
