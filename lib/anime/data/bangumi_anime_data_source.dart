@@ -8,8 +8,10 @@
 /// - [detail]：委托规则数据源（Bangumi 条目本身没有剧集，必须先选源）；
 /// - [schedule]：规则站点没有周时间表数据，恒空（与现状一致）。
 ///
-/// 空关键词返回空列表（不在启动即打 Bangumi）；Bangumi 失败/无结果时回退到
-/// 规则数据源的 search，避免网络异常时功能全废。
+/// 空关键词返回空列表（不在启动即打 Bangumi）。搜索**只走 Bangumi**——
+/// 绝不在 Bangumi 无结果/失败时回退规则站点搜索，否则结果会混入规则站点的
+/// 模糊匹配垃圾，破坏「统一搜索逻辑」（用户实测反馈）。规则站点只在详情页
+/// 选源观看时用（watchSources / detail），不参与搜索结果生成。
 library;
 
 import 'package:mimao/anime/data/anime_data_source.dart';
@@ -45,32 +47,31 @@ class BangumiAnimeDataSource implements AnimeDataSource {
         baseUrl: baseUrlFor(),
         limit: 20,
       );
-      if (response.isSuccessful && response.subjects.isNotEmpty) {
-        return <AnimeSummary>[
-          for (final subject in response.subjects)
-            if (subject.displayName.trim().isNotEmpty)
-              AnimeSummary(
-                // Bangumi id 作为稳定主键：同一部番跨规则来源共享详情页身份。
-                id: 'bgm://${subject.id}',
-                title: subject.displayName,
-                coverUrl: subject.coverUrl,
-                // Bangumi 条目没有 detailUrl；留空，detail/watchSources 用标题定位。
-                detailUrl: '',
-                subtitle: subject.airDate.isEmpty
-                    ? null
-                    : '首播 ${subject.airDate}',
-                bangumiId: subject.id,
-                description: subject.summary,
-                rating: subject.rating,
-                airDate: subject.airDate,
-                tags: subject.tags,
-              ),
-        ];
-      }
+      if (!response.isSuccessful) return const <AnimeSummary>[];
+      return <AnimeSummary>[
+        for (final subject in response.subjects)
+          if (subject.displayName.trim().isNotEmpty)
+            AnimeSummary(
+              // Bangumi id 作为稳定主键：同一部番跨规则来源共享详情页身份。
+              id: 'bgm://${subject.id}',
+              title: subject.displayName,
+              coverUrl: subject.coverUrl,
+              // Bangumi 条目没有 detailUrl；留空，detail/watchSources 用标题定位。
+              detailUrl: '',
+              subtitle: subject.airDate.isEmpty
+                  ? null
+                  : '首播 ${subject.airDate}',
+              bangumiId: subject.id,
+              description: subject.summary,
+              rating: subject.rating,
+              airDate: subject.airDate,
+              tags: subject.tags,
+            ),
+      ];
     } on Object {
-      // Bangumi 失败回退规则搜索，保证网络异常时仍能出结果。
+      // 搜索失败统一返回空（不回退规则站点，保证来源逻辑一致）；详情页会给出空态。
+      return const <AnimeSummary>[];
     }
-    return ruleSource.search(keyword);
   }
 
   @override

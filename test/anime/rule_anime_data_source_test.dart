@@ -773,7 +773,7 @@ void main() {
       expect(bangumi.keywords, isEmpty);
     });
 
-    test('Bangumi 失败时回退规则搜索', () async {
+    test('Bangumi 失败/无结果时返回空，绝不回退规则搜索（统一搜索逻辑）', () async {
       final bangumi = _FakeBangumiClient([], fail: true);
       final ruleSource = _FakeRuleSource();
       final ds = BangumiAnimeDataSource(
@@ -781,9 +781,20 @@ void main() {
         ruleSource: ruleSource,
         baseUrlFor: () => BangumiEndpoints.mirror,
       );
-      final results = await ds.search('x');
-      expect(results.single.title, '规则兜底');
-      expect(ruleSource.searchCalls, 1);
+      expect(await ds.search('x'), isEmpty);
+      // 关键：失败时也不碰规则站点，否则结果会混入无关条目。
+      expect(ruleSource.searchCalls, 0);
+
+      final emptyBangumi = _FakeBangumiClient([
+        BangumiSearchResponse(subjects: const <BangumiSubject>[]),
+      ]);
+      final ds2 = BangumiAnimeDataSource(
+        bangumi: emptyBangumi,
+        ruleSource: ruleSource,
+        baseUrlFor: () => BangumiEndpoints.mirror,
+      );
+      expect(await ds2.search('没有这部番'), isEmpty);
+      expect(ruleSource.searchCalls, 0);
     });
 
     test('watchSources 用标题委托规则层；detail/schedule 也委托', () async {
