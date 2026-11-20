@@ -136,5 +136,28 @@ void main() {
         throwsA(predicate((Object e) => '$e'.contains('authentication'))),
       );
     });
+
+    test('errcode 别名下的 20018 不映射 authentication（上游只认 error_code）', () {
+      final envelope = decodeEnvelopeWithFields(
+        Uint8List.fromList(
+          utf8.encode('{"status":1,"errcode":20018,"data":{}}'),
+        ),
+        errorCodeKey: 'errcode',
+      );
+      expect(envelope.errorCode, 20018);
+      expect(
+        () => ensureBusinessSuccess(envelope.status, envelope.errorCode),
+        throwsA(predicate((Object e) => '$e'.contains('business'))),
+      );
+    });
+
+    test('msg 含「登录已过期」→ authentication（即使没有 error_code）', () {
+      expect(
+        () => decodeEnvelopeWithFields(
+          Uint8List.fromList(utf8.encode('{"status":1,"msg":"用户登录已过期，请重新登录"}')),
+        ),
+        throwsA(predicate((Object e) => '$e'.contains('authentication'))),
+      );
+    });
   });
 }
