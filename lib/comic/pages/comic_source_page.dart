@@ -345,7 +345,6 @@ class _ComicSourcePageState extends State<ComicSourcePage> {
                 '源仓库',
                 style: theme.textTheme.titleSmall?.apply(
                   color: theme.colorScheme.onTertiaryContainer,
-                  fontWeightDelta: 1,
                 ),
               ),
             ],
@@ -568,7 +567,6 @@ class _ImportEntry extends StatelessWidget {
                 '从 URL 导入源',
                 style: Theme.of(context).textTheme.titleSmall?.apply(
                   color: cs.onSecondaryContainer,
-                  fontWeightDelta: 1,
                 ),
               ),
             ],

@@ -26,6 +26,35 @@ abstract final class MimaoShapes {
   static final BorderRadius pill = BorderRadius.circular(MimaoRadii.pill);
 }
 
+/// mimao 的统一字重阶梯。字号 / 行高 / 字距全部沿用 M3 基线
+/// （Typography.material2023），这里只收口字重，避免各页面忽细忽粗：
+///   标题类（display / headline / title）= w700 bold
+///   正文类（body）                      = w500 medium
+///   标签 / 按钮 / chip（label）         = w600 semiBold
+///
+/// 只在主题层设一次，页面一律读 Theme.of(context).textTheme.*，不得再各自
+/// fontWeightDelta 加粗——那正是「一会细一会粗」的来源。
+TextTheme _buildMimaoTextTheme(ColorScheme scheme) {
+  final m3 = Typography.material2021(colorScheme: scheme).black;
+  return m3.copyWith(
+    displayLarge: m3.displayLarge?.copyWith(fontWeight: FontWeight.w700),
+    displayMedium: m3.displayMedium?.copyWith(fontWeight: FontWeight.w700),
+    displaySmall: m3.displaySmall?.copyWith(fontWeight: FontWeight.w700),
+    headlineLarge: m3.headlineLarge?.copyWith(fontWeight: FontWeight.w700),
+    headlineMedium: m3.headlineMedium?.copyWith(fontWeight: FontWeight.w700),
+    headlineSmall: m3.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+    titleLarge: m3.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+    titleMedium: m3.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+    titleSmall: m3.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+    bodyLarge: m3.bodyLarge?.copyWith(fontWeight: FontWeight.w500),
+    bodyMedium: m3.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
+    bodySmall: m3.bodySmall?.copyWith(fontWeight: FontWeight.w500),
+    labelLarge: m3.labelLarge?.copyWith(fontWeight: FontWeight.w600),
+    labelMedium: m3.labelMedium?.copyWith(fontWeight: FontWeight.w600),
+    labelSmall: m3.labelSmall?.copyWith(fontWeight: FontWeight.w600),
+  );
+}
+
 /// 构建 mimao 的 MD3 主题。种子色来自设置（基础色板 / 系统强调色 / 动态取色），
 /// 亮度由主题模式（跟随系统 / 浅色 / 深色）决定——app.dart 据此组装
 /// theme / darkTheme 两套。
@@ -51,6 +80,8 @@ ThemeData buildMimaoTheme({
   return ThemeData(
     useMaterial3: true,
     colorScheme: scheme,
+    // 统一字重阶梯：标题 w700 / 正文 w500 / 标签按钮 w600，字号行高留 M3 基线。
+    textTheme: _buildMimaoTextTheme(scheme),
     // ── 容器 ──────────────────────────────────────────────────────
     cardTheme: CardThemeData(
       elevation: 0,

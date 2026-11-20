@@ -100,7 +100,6 @@ class _ComicCoverPlaceholder extends StatelessWidget {
                         style: Theme.of(context).textTheme.headlineMedium
                             ?.apply(
                               color: cs.onSurface.withValues(alpha: .72),
-                              fontWeightDelta: 2,
                             ),
                       ),
                     ],
