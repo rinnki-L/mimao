@@ -242,6 +242,62 @@ void main() {
     );
     slowPool.disposeAll();
   });
+
+  test('挑战验证期间暂停执行超时，验证结束后恢复计时', () async {
+    final slowPool = SourceExecutionPool(
+      hostFactory: () => _DelayHost(const Duration(milliseconds: 400)),
+      timeout: const Duration(milliseconds: 150),
+    );
+    addTearDown(slowPool.disposeAll);
+    await slowPool.register('slow', fixtureSourceScript);
+
+    // 闸门打开：400ms 的调用超过 150ms 上限也不应超时。
+    ComicChallengeGate.begin();
+    try {
+      final result = await slowPool.execute(
+        'slow',
+        'source.search.load("x",[],1)',
+      );
+      expect(result.isOk, isTrue, reason: result.error);
+    } finally {
+      ComicChallengeGate.end();
+    }
+  });
+
+  test('没有挑战时慢执行仍按池超时收敛', () async {
+    final slowPool = SourceExecutionPool(
+      hostFactory: () => _DelayHost(const Duration(milliseconds: 400)),
+      timeout: const Duration(milliseconds: 150),
+    );
+    addTearDown(slowPool.disposeAll);
+    await slowPool.register('slow', fixtureSourceScript);
+    final result = await slowPool.execute(
+      'slow',
+      'source.search.load("x",[],1)',
+    );
+    expect(result.isOk, isFalse);
+    expect(result.error, contains('超时'));
+  });
+}
+
+/// 方法调用固定延迟的宿主（超时/闸门测试用）。
+class _DelayHost implements JsHost {
+  _DelayHost(this.delay);
+
+  final Duration delay;
+
+  @override
+  Future<void> loadScript(String script) async {}
+
+  @override
+  Future<Object?> evaluate(String expression) async {
+    if (!expression.startsWith('source.search.load')) return null;
+    await Future<void>.delayed(delay);
+    return null;
+  }
+
+  @override
+  void close() {}
 }
 
 /// 执行阶段永远不完成的宿主——专门用来触发 SourceExecutionPool 超时保护。

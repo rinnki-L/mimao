@@ -262,4 +262,145 @@ void main() {
       await expectLater(client.fetch('/relative'), throwsArgumentError);
     });
   });
+
+  group('Cloudflare 挑战', () {
+    test('识别 cf-mitigated 与挑战页特征，普通 403 不误判', () {
+      expect(
+        isCloudflareChallenge(
+          const ComicHttpResponse(
+            statusCode: 403,
+            body: '',
+            headers: <String, List<String>>{
+              'cf-mitigated': <String>['challenge'],
+            },
+          ),
+        ),
+        isTrue,
+      );
+      expect(
+        isCloudflareChallenge(
+          const ComicHttpResponse(
+            statusCode: 403,
+            body: '<html>_cf_chl_opt</html>',
+            headers: <String, List<String>>{
+              'server': <String>['cloudflare'],
+            },
+          ),
+        ),
+        isTrue,
+      );
+      expect(
+        isCloudflareChallenge(
+          const ComicHttpResponse(
+            statusCode: 403,
+            body: 'forbidden',
+            headers: <String, List<String>>{
+              'server': <String>['nginx'],
+            },
+          ),
+        ),
+        isFalse,
+      );
+      expect(
+        isCloudflareChallenge(
+          const ComicHttpResponse(statusCode: 200, body: 'Just a moment'),
+        ),
+        isFalse,
+      );
+    });
+
+    test('挑战通过后用 cf_clearance + WebView UA 重试一次', () async {
+      final adapter = _ChallengeAdapter();
+      final solver = _FakeChallengeSolver();
+      final client = ComicWebClient(
+        dio: Dio()..httpClientAdapter = adapter,
+        cookieJar: ComicCookieJar(),
+        challengeSolver: solver,
+      );
+
+      final response = await client.fetch('https://site.test/search?q=海贼王');
+
+      expect(response.statusCode, 200);
+      expect(response.body, contains('ok'));
+      expect(adapter.calls, 2);
+      expect(solver.calls, 1);
+      final retried = adapter.seenOptions.last;
+      expect(retried.headers['Cookie'], contains('cf_clearance=token'));
+      expect(retried.headers['User-Agent'], 'WebViewUA/1.0');
+    });
+
+    test('用户取消挑战：保留原 403，不无限重试', () async {
+      final adapter = _ChallengeAdapter();
+      final client = ComicWebClient(
+        dio: Dio()..httpClientAdapter = adapter,
+        cookieJar: ComicCookieJar(),
+        challengeSolver: _FakeChallengeSolver(cancel: true),
+      );
+
+      final response = await client.fetch('https://site.test/search');
+
+      expect(response.statusCode, 403);
+      expect(adapter.calls, 1);
+    });
+  });
+}
+
+/// 第一次 403 + `cf-mitigated: challenge`，之后返回 200。
+class _ChallengeAdapter implements HttpClientAdapter {
+  int calls = 0;
+  final List<RequestOptions> seenOptions = <RequestOptions>[];
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    calls++;
+    seenOptions.add(options);
+    if (calls == 1) {
+      return ResponseBody.fromString(
+        '<html>Just a moment</html>',
+        403,
+        headers: <String, List<String>>{
+          Headers.contentTypeHeader: <String>['text/html; charset=utf-8'],
+          'cf-mitigated': <String>['challenge'],
+          'server': <String>['cloudflare'],
+        },
+      );
+    }
+    return ResponseBody.fromString(
+      '<html>ok</html>',
+      200,
+      headers: <String, List<String>>{
+        Headers.contentTypeHeader: <String>['text/html; charset=utf-8'],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
+class _FakeChallengeSolver implements ComicChallengeSolver {
+  _FakeChallengeSolver({this.cancel = false});
+
+  final bool cancel;
+  int calls = 0;
+
+  @override
+  Future<ComicChallengePass?> solve(Uri url) async {
+    calls++;
+    if (cancel) return null;
+    return const ComicChallengePass(
+      cookies: <ComicChallengeCookie>[
+        ComicChallengeCookie(
+          name: 'cf_clearance',
+          value: 'token',
+          domain: 'site.test',
+        ),
+      ],
+      userAgent: 'WebViewUA/1.0',
+    );
+  }
 }

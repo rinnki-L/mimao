@@ -4,6 +4,7 @@ import 'package:mimao/comic/collect_service.dart';
 import 'package:mimao/comic/comic_db.dart';
 import 'package:mimao/comic/comic_entry.dart';
 import 'package:mimao/comic/comic_models.dart';
+import 'package:mimao/comic/pages/cloudflare_verify_page.dart';
 import 'package:mimao/comic/data/engine_comic_data_source.dart';
 import 'package:mimao/comic/engine/engine.dart';
 import 'package:mimao/comic/history_service.dart';
@@ -11,6 +12,7 @@ import 'package:mimao/comic/reader/reader_cache.dart';
 import 'package:mimao/comic/search_history_service.dart';
 import 'package:mimao/core/contract.dart';
 import 'package:mimao/core/library.dart';
+import 'package:mimao/shell/app.dart';
 import 'package:mimao/shell/dev/dev_capability.dart';
 import 'package:mimao/shell/dev/dev_databases.dart';
 import 'package:mimao/music/api/kugou_playback_api.dart';
@@ -391,7 +393,12 @@ Future<void> resetAppModulesForTest() async {
 /// 测试一律注入 `comicHttpClient`，不会走到 path_provider。
 Future<ComicWebClient> _createDefaultComicClient() async {
   final jar = await ComicCookieJar.openDefault();
-  final client = ComicWebClient(cookieJar: jar);
+  final client = ComicWebClient(
+    cookieJar: jar,
+    challengeSolver: CloudflareWebViewSolver(
+      navigatorProvider: () => MimaoApp.navigatorKey.currentState,
+    ),
+  );
   await client.ready();
   return client;
 }

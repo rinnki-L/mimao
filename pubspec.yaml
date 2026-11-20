@@ -44,6 +44,9 @@ dependencies:
       url: https://github.com/CyrilPeng/flutter_qjs
       ref: f5a1f20d08c33b0a6b3e38eda2a7b27705420620
   cookie_jar: ^4.0.9
+  # 漫画 C 线 · Cloudflare 挑战通行证：内嵌 WebView 让用户过一次挑战，
+  # 取 cf_clearance + WebView UA（Windows 走 WebView2，Android 走系统 WebView）。
+  flutter_inappwebview: ^6.1.5
   html: ^0.15.7
   crypto: ^3.0.8
 

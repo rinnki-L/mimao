@@ -10,6 +10,7 @@ import 'dart:async';
 
 import 'package:flutter_qjs/flutter_qjs.dart';
 
+import '../request/challenge.dart';
 import 'init_js.dart';
 import 'js_bridge.dart';
 
@@ -198,17 +199,60 @@ class SourceExecutionPool {
   ///
   /// 源未注册、脚本抛错、Promise reject 都收敛为 [SourceExecutionResult]，
   /// 不向上抛——上层逐源容错。
-  Future<SourceExecutionResult> execute(String key, String expression) async {
+  ///
+  /// [timeout] 可覆盖池默认值。Cloudflare WebView 等用户操作的时间由
+  /// [ComicChallengeGate] 排除在计时之外，所以这里不需要为挑战放大超时。
+  Future<SourceExecutionResult> execute(
+    String key,
+    String expression, {
+    Duration? timeout,
+  }) async {
     final pooled = _sources[key];
     if (pooled == null) {
       return SourceExecutionResult.error('源未注册：$key');
     }
     try {
-      final value = await pooled.host.evaluate(expression).timeout(timeout);
+      final value = await _withIdleTimeout(
+        pooled.host.evaluate(expression),
+        timeout ?? this.timeout,
+      );
       return SourceExecutionResult(value: value);
     } catch (error) {
       return SourceExecutionResult.error(error.toString());
     }
+  }
+
+  /// 带「空闲计时」的超时：挑战验证页打开期间（[ComicChallengeGate.active]）
+  /// 暂停累计，用户操作多久都不算超时；其余时间照常按 [limit] 计时。
+  Future<T> _withIdleTimeout<T>(Future<T> future, Duration limit) {
+    final completer = Completer<T>();
+    var waited = Duration.zero;
+    const tick = Duration(milliseconds: 250);
+    late final Timer timer;
+    void finish(void Function() complete) {
+      if (completer.isCompleted) return;
+      timer.cancel();
+      complete();
+    }
+
+    timer = Timer.periodic(tick, (_) {
+      if (completer.isCompleted) {
+        timer.cancel();
+        return;
+      }
+      if (ComicChallengeGate.active) return;
+      waited += tick;
+      if (waited >= limit) {
+        timer.cancel();
+        completer.completeError(TimeoutException('源执行超时（timeout $limit）'));
+      }
+    });
+    future.then(
+      (value) => finish(() => completer.complete(value)),
+      onError: (Object error, StackTrace stack) =>
+          finish(() => completer.completeError(error, stack)),
+    );
+    return completer.future;
   }
 
   /// 释放一个源；返回是否确实释放了。

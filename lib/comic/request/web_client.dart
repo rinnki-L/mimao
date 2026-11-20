@@ -10,6 +10,7 @@ import 'dart:convert';
 import 'package:cookie_jar/cookie_jar.dart';
 import 'package:dio/dio.dart';
 
+import 'challenge.dart';
 import 'cookie_store.dart';
 
 /// 默认 UA：桌面 Chrome。多数漫画站对空 UA / Dart 默认 UA 直接 403。
@@ -113,11 +114,37 @@ abstract interface class ComicHttpClient {
   Future<void> deleteCookies(String url);
 }
 
+/// 判断响应是否是 Cloudflare 托管挑战（需要 WebView 过一次验证）。
+///
+/// 首选信号是 `cf-mitigated: challenge`（ykmh 实测有）；老部署可能没有该头，
+/// 再用 `server: cloudflare` + 挑战页特征兜底。
+bool isCloudflareChallenge(ComicHttpResponse response) {
+  if (response.statusCode != 403) return false;
+  final mitigated = _headerValue(response.headers, 'cf-mitigated');
+  if (mitigated != null && mitigated.toLowerCase().contains('challenge')) {
+    return true;
+  }
+  final server = _headerValue(response.headers, 'server')?.toLowerCase() ?? '';
+  if (!server.contains('cloudflare')) return false;
+  final body = response.body;
+  return body.contains('Just a moment') ||
+      body.contains('_cf_chl_opt') ||
+      body.contains('challenge-platform');
+}
+
+String? _headerValue(Map<String, List<String>> headers, String name) {
+  for (final entry in headers.entries) {
+    if (entry.key.toLowerCase() == name) return entry.value.join(', ');
+  }
+  return null;
+}
+
 /// 基于 dio + cookie_jar 的实现。
 class ComicWebClient implements ComicHttpClient {
   ComicWebClient({
     Dio? dio,
     CookieJar? cookieJar,
+    this.challengeSolver,
     this.defaultUserAgent = defaultComicUserAgent,
     this.timeout = const Duration(seconds: 20),
   }) : _dio = dio ?? Dio(),
@@ -125,6 +152,7 @@ class ComicWebClient implements ComicHttpClient {
 
   final Dio _dio;
   final CookieJar _cookieJar;
+  final ComicChallengeSolver? challengeSolver;
   final String defaultUserAgent;
   final Duration timeout;
 
@@ -186,8 +214,23 @@ class ComicWebClient implements ComicHttpClient {
       throw ArgumentError.value(url, 'url', '必须是绝对 URL');
     }
 
+    var response = await _send(uri, options);
+    // Cloudflare 托管挑战：打开内嵌 WebView 过一次验证，拿 cf_clearance 后
+    // 用同一请求重试一次。没装求解器/用户取消时保持原 403，交给源脚本报错。
+    final solver = challengeSolver;
+    if (solver == null || !isCloudflareChallenge(response)) return response;
+    final pass = await solver.solve(uri);
+    if (pass == null) return response;
+    await _applyChallengePass(uri, pass);
+    response = await _send(uri, options);
+    return response;
+  }
+
+  /// 真正发一次请求（不含挑战重试）。
+  Future<ComicHttpResponse> _send(Uri uri, ComicFetchOptions options) async {
     final headers = options.toHeaders(defaultUserAgent: defaultUserAgent);
     _normalizeAcceptEncoding(headers);
+    _applyChallengeUserAgent(uri, headers);
     if (options.useCookieJar) {
       final cookies = await _loadCookies(uri);
       if (cookies.isNotEmpty) {
@@ -225,6 +268,50 @@ class ComicWebClient implements ComicHttpClient {
       url: response.realUri.toString(),
       headers: response.headers.map,
     );
+  }
+
+  /// 过挑战的浏览器 UA：`cf_clearance` 与 UA 绑定，源脚本自带的 UA 会被
+  /// 覆盖，否则重试必然继续 403（对齐 Venera 的 CloudflareInterceptor）。
+  void _applyChallengeUserAgent(Uri uri, Map<String, String> headers) {
+    final jar = _cookieJar;
+    if (jar is! ComicCookieJar) return;
+    final userAgent = jar.userAgentFor(uri.host);
+    if (userAgent == null || userAgent.isEmpty) return;
+    headers.removeWhere((key, _) => key.toLowerCase() == 'user-agent');
+    headers['User-Agent'] = userAgent;
+  }
+
+  /// 把挑战凭证写进 Cookie 库（落盘）并记录 UA。
+  Future<void> _applyChallengePass(Uri uri, ComicChallengePass pass) async {
+    final cookies = <Cookie>[];
+    for (final raw in pass.cookies) {
+      try {
+        final cookie = Cookie(raw.name, raw.value)
+          ..path = raw.path
+          ..secure = raw.secure
+          ..httpOnly = raw.httpOnly;
+        final domain = raw.domain;
+        if (domain != null && domain.isNotEmpty) cookie.domain = domain;
+        final expires = raw.expires;
+        if (expires != null) cookie.expires = expires;
+        cookies.add(cookie);
+      } on Object {
+        // 单条非法 Cookie 跳过，不影响其余凭证。
+      }
+    }
+    if (cookies.isNotEmpty) {
+      try {
+        await _cookieJar.saveFromResponse(uri, cookies);
+      } on Object {
+        // 写 jar 失败仍尝试重试；下次请求会重新触发挑战。
+      }
+      _rememberCookies(uri, cookies);
+    }
+    final userAgent = pass.userAgent;
+    final jar = _cookieJar;
+    if (userAgent != null && userAgent.isNotEmpty && jar is ComicCookieJar) {
+      await jar.setUserAgentFor(uri.host, userAgent);
+    }
   }
 
   /// 源脚本常照浏览器广告 `gzip, deflate, br, zstd`，但 dart:io 只会自动
