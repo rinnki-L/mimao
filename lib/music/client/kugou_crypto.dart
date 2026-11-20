@@ -433,6 +433,46 @@ class KugouPlaylistEnvelope {
   }
 }
 
+/// 云歌单写请求的时间键（cloudlist.rs `keyed_time`）。
+String kugouCloudListKeyedTime(int seconds) => md5
+    .convert(utf8.encode('3116LnT6xpN3khm36zse0QzvmgTZ3waWdRSA11440$seconds'))
+    .toString();
+
+/// 图片上传的本地日期校验和（util/image_upload.rs `checksum`）。
+///
+/// [date] 为 `yyyyMMdd`；非法日期 → input（上游同样在本地拒绝）。
+String kugouImageChecksum(String date) {
+  if (date.length != 8 || !RegExp(r'^\d{8}$').hasMatch(date)) {
+    throw const KugouApiException('input', '图片上传日期无效');
+  }
+  final year = int.parse(date.substring(0, 4));
+  final month = int.parse(date.substring(4, 6));
+  final day = int.parse(date.substring(6, 8));
+  final leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+  final days = <int>[
+    31,
+    leap ? 29 : 28,
+    31,
+    30,
+    31,
+    30,
+    31,
+    31,
+    30,
+    31,
+    30,
+    31,
+  ];
+  if (year == 0 ||
+      month < 1 ||
+      month > 12 ||
+      day == 0 ||
+      day > days[month - 1]) {
+    throw const KugouApiException('input', '图片上传日期无效');
+  }
+  return md5.convert(utf8.encode('${date}hewry678WEK23D')).toString();
+}
+
 BigInt _bytesToBigInt(List<int> bytes) {
   var value = BigInt.zero;
   for (final byte in bytes) {

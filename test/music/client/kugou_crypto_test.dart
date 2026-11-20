@@ -202,4 +202,26 @@ void main() {
       '{"listid":123,"type":0}',
     );
   });
+
+  test('云歌单时间键与上游 cloudlist 向量一致', () {
+    expect(
+      kugouCloudListKeyedTime(1700000000),
+      'bad0ee207bf429bd91402b77fc8f7a5b',
+    );
+  });
+
+  test('图片校验和：合法日期 32 位 hex，非法日期 → input', () {
+    expect(
+      RegExp(r'^[0-9a-f]{32}$').hasMatch(kugouImageChecksum('20261121')),
+      isTrue,
+    );
+    for (final invalid in <String>['2026-1-1', '20261301', '20260230', '']) {
+      expect(
+        () => kugouImageChecksum(invalid),
+        throwsA(
+          predicate((Object e) => e is Exception && '$e'.contains('input')),
+        ),
+      );
+    }
+  });
 }

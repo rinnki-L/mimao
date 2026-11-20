@@ -236,14 +236,50 @@ class KugouClient {
       queryParameters: query,
     );
     final statusCode = response.statusCode ?? 0;
-    if (statusCode < 200 || statusCode >= 300) {
-      // 只保留状态码与类别，不带响应体（可能含凭证/隐私）。
-      throw KugouApiException('http', '音乐服务 HTTP 状态异常：$statusCode');
-    }
+    _ensureSuccess(statusCode);
     return KugouHttpResponse(
       bytes: Uint8List.fromList(response.data ?? <int>[]),
       statusCode: statusCode,
     );
+  }
+
+  /// 裸传输（无身份默认参数、无签名注入）——只给固定主机的特殊端点用：
+  /// CSCC 上报（`http://d.kugou.com`）、头像/歌单封面上传、动态封面。
+  ///
+  /// 对应 request.rs 的 `request_cscc` / `upload_avatar` /
+  /// `upload_playlist_png` / `album_dynamic_cover`：URL、参数、头、body 全部
+  /// 由调用方按上游逐字提供；仍然复用非 2xx → http 的统一语义。
+  Future<KugouHttpResponse> sendRaw({
+    required String url,
+    String method = 'GET',
+    Map<String, String> params = const <String, String>{},
+    List<int> body = const <int>[],
+    Map<String, String> headers = const <String, String>{},
+  }) async {
+    final response = await _dio.request<List<int>>(
+      url,
+      data: body.isEmpty ? null : Uint8List.fromList(body),
+      options: Options(
+        method: method,
+        headers: headers,
+        responseType: ResponseType.bytes,
+        validateStatus: (int? status) => true,
+      ),
+      queryParameters: params,
+    );
+    final statusCode = response.statusCode ?? 0;
+    _ensureSuccess(statusCode);
+    return KugouHttpResponse(
+      bytes: Uint8List.fromList(response.data ?? <int>[]),
+      statusCode: statusCode,
+    );
+  }
+
+  void _ensureSuccess(int statusCode) {
+    if (statusCode < 200 || statusCode >= 300) {
+      // 只保留状态码与类别，不带响应体（可能含凭证/隐私）。
+      throw KugouApiException('http', '音乐服务 HTTP 状态异常：$statusCode');
+    }
   }
 
   /// registration 端点用固定顺序（defaults→端点参数→signature 最后），
