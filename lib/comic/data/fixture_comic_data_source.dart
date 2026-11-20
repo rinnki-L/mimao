@@ -36,6 +36,8 @@ class FixtureComicDataSource implements ComicDataSource {
 
   @override
   List<String> availableSourceKeys() => const <String>[];
+  @override
+  Future<List<String>> recentSearchTerms() async => const <String>[];
 
   @override
   Future<ComicDetail> detail(ComicSummary item) async {

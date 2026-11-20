@@ -56,7 +56,7 @@ void main() {
     );
   }
 
-  test('分件注入后漫画注册（type/label/icon 正确），小说仍占位', () async {
+  test('分件注入后漫画注册（type/label/icon 正确），音乐与小说也注册', () async {
     module = await buildModule();
     await initAppModules(
       library: env.library,
@@ -72,9 +72,9 @@ void main() {
     expect(registered!.type, MediaType.comic);
     expect(registered.label, '漫画');
     expect(registered.icon, MediaType.comic.icon);
-    // M4 骨架：音乐生产装配不碰插件（身份仓库惰性解析），无注入也注册。
+    // 音乐/小说生产装配都不碰插件（惰性连接/无探针），无注入也注册。
     expect(moduleFor(MediaType.music), isNotNull);
-    expect(moduleFor(MediaType.novel), isNull);
+    expect(moduleFor(MediaType.novel), isNotNull);
     expect(appModulesError, isNull);
   });
 

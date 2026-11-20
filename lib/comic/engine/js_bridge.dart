@@ -39,14 +39,30 @@ class ComicJsLog {
 class ComicJsBridge {
   ComicJsBridge({ComicHttpClient? client, HtmlDomBridge? dom})
     : _client = client ?? ComicWebClient(),
-      _dom = dom ?? HtmlDomBridge();
+      _dom = dom ?? HtmlDomBridge() {
+    // 源脚本 KV 存储默认实现：进程内按 (key, dataKey) 隔离。
+    // Venera 社区源用 saveData/loadData 记阅读进度、Cookie、分页游标等；
+    // 未注入自定义回调时，这些 API 原先恒返回 null/false（静默失效）。
+    // 内存实现保证同一会话内读写闭环；跨进程持久化可由集成方覆盖回调接入。
+    loadData = (key, dataKey) => _store[_storeKey(key, dataKey)];
+    saveData = (key, dataKey, data) => _store[_storeKey(key, dataKey)] = data;
+    deleteData = (key, dataKey) => _store.remove(_storeKey(key, dataKey));
+    loadSetting = (key, settingKey) =>
+        _store[_storeKey('$key.setting', settingKey)];
+  }
+
+  /// KV 存储后端（内存）。key 含分隔符，用于存储键拼接。
+  final Map<String, Object?> _store = <String, Object?>{};
+
+  static String _storeKey(String key, String dataKey) => '$key\u0000$dataKey';
 
   final ComicHttpClient _client;
   final HtmlDomBridge _dom;
   final List<ComicJsLog> _logs = <ComicJsLog>[];
 
   /// 源脚本 `loadData` / `saveData` / `loadSetting` / `isLogged` 的存储回调。
-  /// 未设置时返回 null / false；集成方（C′ 存储线）注入真实实现。
+  /// 默认指向进程内内存存储（见构造函数）；集成方可覆盖为持久化实现。
+  /// isLogged 无登录态来源，保持 null（dispatch 取 false）。
   Object? Function(String key, String dataKey)? loadData;
   void Function(String key, String dataKey, Object? data)? saveData;
   void Function(String key, String dataKey)? deleteData;

@@ -565,9 +565,9 @@ class _ImportEntry extends StatelessWidget {
               const SizedBox(width: 8),
               Text(
                 '从 URL 导入源',
-                style: Theme.of(context).textTheme.titleSmall?.apply(
-                  color: cs.onSecondaryContainer,
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleSmall?.apply(color: cs.onSecondaryContainer),
               ),
             ],
           ),

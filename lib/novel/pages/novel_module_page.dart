@@ -1,14 +1,16 @@
 // ignore_for_file: deprecated_member_use — Flutter 3.50 弃用整个 material.dart，
 // 与其他三个模块的页面同款说明。
-/// 小说模块主页（导航骨架，对齐 legado-with-MD3 的一壳 + typed 路由结构）。
+/// 小说模块主页（一壳 + typed 路由结构，对齐 legado-with-MD3）。
 ///
 /// 底部 NavigationBar 五 tab：书架 / 发现 / 搜索 / 书源 / 设置。设置放最右，
-/// 内容由 NovelModule.buildSettings 注入；各 tab 与详情页本阶段为统一占位屏，
-/// 真实抓取/解析/阅读随后续切片接入，外壳与路由契约不变。
+/// 内容由 NovelModule.buildSettings 注入。书架/搜索/设置已接本地数据层三服务
+/// （收藏/历史/搜索历史真实读写并投影统一书架）；发现/书源管理/搜索结果/
+/// 阅读页仍是占位——抓取流水线（书源引擎）尚无实现，属能力边界而非假联通。
 /// 模块对壳无感知（不 import shell/）。
 library;
 
 import 'package:flutter/material.dart';
+import 'package:mimao/novel/library_api.dart';
 import 'package:mimao/novel/pages/novel_placeholder.dart';
 import 'package:mimao/novel/pages/novel_routes.dart';
 
@@ -18,6 +20,9 @@ class NovelModulePage extends StatefulWidget {
     this.embedded = false,
     this.settingsTab,
     this.onOpenRoute,
+    this.collect,
+    this.history,
+    this.searchHistory,
   });
 
   /// true 时由壳提供顶部「返回 + 标题」，本页不画自己的 AppBar。
@@ -30,6 +35,12 @@ class NovelModulePage extends StatefulWidget {
   /// 页面内部打开 typed 路由的回调；由 NovelModule 出口接到 Navigator。
   /// null 时退化为页面内 Navigator.push（独立 widget 测试也能导航）。
   final NovelRouteOpener? onOpenRoute;
+
+  /// 本地数据层三服务（由 NovelModule 注入）。null 时对应 tab 显示空态占位，
+  /// 保证无依赖的骨架测试与"未接线"场景不崩。
+  final NovelCollectApi? collect;
+  final NovelHistoryApi? history;
+  final NovelSearchHistoryApi? searchHistory;
 
   @override
   State<NovelModulePage> createState() => _NovelModulePageState();
@@ -83,10 +94,13 @@ class _NovelModulePageState extends State<NovelModulePage> {
     pushNovelRoute<void>(context, route, args: args);
   }
 
-  void _submitSearch() {
+  Future<void> _submitSearch() async {
     final keyword = _controller.text.trim();
     if (keyword.isEmpty) return;
-    // 搜索页骨架：提交后打开 typed 搜索路由占位屏，参数按契约透传。
+    // 搜索词真实落本地库（搜索历史），结果页仍是 typed 路由占位——
+    // 书源引擎无实现，不假装能搜到书。
+    await widget.searchHistory?.record(keyword);
+    if (!mounted) return;
     _openRoute(NovelRoute.search, args: <String, Object?>{'keyword': keyword});
   }
 
@@ -94,11 +108,7 @@ class _NovelModulePageState extends State<NovelModulePage> {
   Widget build(BuildContext context) {
     final settings = widget.settingsTab ?? const NovelSettingsPlaceholder();
     final tabs = <Widget>[
-      const NovelPlaceholderScreen(
-        title: '书架',
-        icon: Icons.local_library,
-        description: '已收藏的书籍将在这里列出。\n书架与本地缓存随数据层切片接入。',
-      ),
+      _buildShelfTab(),
       const NovelPlaceholderScreen(
         title: '发现',
         icon: Icons.explore,
@@ -130,7 +140,87 @@ class _NovelModulePageState extends State<NovelModulePage> {
     );
   }
 
+  /// 书架：真实读收藏表 + 阅读历史表（两者都经投影进统一书架）。
+  Widget _buildShelfTab() {
+    final collect = widget.collect;
+    final history = widget.history;
+    if (collect == null && history == null) {
+      return const NovelPlaceholderScreen(
+        title: '书架',
+        icon: Icons.local_library,
+        description: '已收藏的书籍将在这里列出。\n书架与本地缓存随数据层切片接入。',
+      );
+    }
+    return FutureBuilder<_ShelfData>(
+      future: _loadShelf(collect, history),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final data = snapshot.data ?? const _ShelfData();
+        if (data.isEmpty) {
+          return const NovelPlaceholderScreen(
+            title: '书架',
+            icon: Icons.local_library,
+            description: '还没有收藏或阅读记录。\n收藏书籍、开始阅读后会出现在这里。',
+          );
+        }
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
+          children: <Widget>[
+            if (data.recent.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4, top: 4),
+                child: Text(
+                  '继续阅读',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+            for (final item in data.recent)
+              _BookTile(
+                title: item.book.title,
+                subtitle: item.chapterCount > 0
+                    ? '看到第 ${item.chapterIndex} 章 · 共 ${item.chapterCount} 章'
+                    : '已打开',
+                icon: Icons.history_edu_outlined,
+              ),
+            if (data.collects.isNotEmpty && data.recent.isNotEmpty)
+              const SizedBox(height: 12),
+            if (data.collects.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(
+                  '我的收藏',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+            for (final item in data.collects)
+              _BookTile(
+                title: item.title,
+                subtitle: item.authorText,
+                icon: Icons.bookmark_border,
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<_ShelfData> _loadShelf(
+    NovelCollectApi? collect,
+    NovelHistoryApi? history,
+  ) async {
+    final collects = collect == null
+        ? const <NovelCollectItem>[]
+        : await collect.list();
+    final recent = history == null
+        ? const <NovelHistoryItem>[]
+        : await history.recent(limit: 20);
+    return _ShelfData(collects: collects, recent: recent);
+  }
+
   Widget _buildSearchTab() {
+    final searchHistory = widget.searchHistory;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
@@ -151,18 +241,96 @@ class _NovelModulePageState extends State<NovelModulePage> {
             onSubmitted: (_) => _submitSearch(),
           ),
         ),
-        const Expanded(
-          child: NovelPlaceholderScreen(
-            title: '搜索',
-            icon: Icons.search,
-            description:
-                '输入关键词并搜索，结果列表与详情将在这里展示。\n'
-                '搜索解析随书源引擎切片接入。',
-          ),
+        Expanded(
+          child: searchHistory == null
+              ? const NovelPlaceholderScreen(
+                  title: '搜索',
+                  icon: Icons.search,
+                  description:
+                      '输入关键词并搜索，结果列表与详情将在这里展示。\n'
+                      '搜索解析随书源引擎切片接入。',
+                )
+              : _buildSearchHistory(searchHistory),
         ),
       ],
     );
   }
+
+  /// 搜索历史：真实读本地库，点条目回填搜索框。
+  Widget _buildSearchHistory(NovelSearchHistoryApi api) {
+    return FutureBuilder<List<String>>(
+      future: api.recent(),
+      builder: (context, snapshot) {
+        final terms = snapshot.data ?? const <String>[];
+        if (snapshot.connectionState == ConnectionState.done && terms.isEmpty) {
+          return const NovelPlaceholderScreen(
+            title: '搜索',
+            icon: Icons.search,
+            description: '还没有搜索记录。\n输入关键词后，历史会保存在这里。',
+          );
+        }
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+          children: <Widget>[
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Text(
+                '搜索历史',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
+            Wrap(
+              spacing: 8,
+              children: [
+                for (final term in terms)
+                  InputChip(
+                    label: Text(term),
+                    onPressed: () => _controller.text = term,
+                  ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            Text(
+              '搜索结果需书源引擎支持，当前仅记录历史。',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// 书架列表的一行（本地数据，不带网络图——封面留给阅读页）。
+class _BookTile extends StatelessWidget {
+  const _BookTile({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: Icon(icon),
+      title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
+      subtitle: Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
+    );
+  }
+}
+
+/// 书架页聚合的本地数据快照。
+class _ShelfData {
+  const _ShelfData({this.collects = const [], this.recent = const []});
+
+  final List<NovelCollectItem> collects;
+  final List<NovelHistoryItem> recent;
+
+  bool get isEmpty => collects.isEmpty && recent.isEmpty;
 }
 
 /// 默认设置占位（buildSettings 未注入真实内容时显示）。

@@ -178,7 +178,6 @@ void main() {
       expect(shell['showLibrary'], false);
 
       expect((body['modules']! as Map<String, Object?>).keys, [
-        'anime',
         'comic',
         'novel',
         'music',

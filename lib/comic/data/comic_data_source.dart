@@ -38,6 +38,10 @@ abstract interface class ComicDataSource {
   /// 可用于按来源筛选的源 key 列表（有序）。默认空 → UI 隐藏筛选器，
   /// 退化为单源（聚合）搜索行为，与引入本能力前一致。
   List<String> availableSourceKeys() => const <String>[];
+
+  /// 最近搜索词（真实写库时由搜索历史服务提供）。默认空——fixture/fake
+  /// 无需改动；真实引擎 override 后搜索页展示可点回填的历史 chips。
+  Future<List<String>> recentSearchTerms() async => const <String>[];
 }
 
 /// 源管理页的数据入口（抽象）。

@@ -112,7 +112,7 @@ void main() {
     expect(mapped.mediaType, MediaType.comic);
   });
 
-  test('映射转换器对未知枚举名抛出（契约：库里只存四种类型）', () {
+  test('映射转换器对未知枚举名抛出（契约：库里只存现有类型）', () {
     const converter = MediaTypeConverter();
     for (final type in MediaType.values) {
       expect(converter.fromSql(type.name), type);

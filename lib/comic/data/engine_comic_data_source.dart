@@ -283,6 +283,10 @@ class EngineComicDataSource
 
   @override
   Future<List<ComicSummary>> searchSource(String key, String keyword) async {
+    // 与 search 同口径：每次搜索清空搜索期诊断缓冲，且失败原因要上达 UI。
+    // 原先只写 _diagnostics（源管理/详情诊断），搜索页取不到，单源失败被
+    // 显示成"没有找到"——这里补齐，避免"错误被吞成空结果"。
+    _searchDiagnostics.clear();
     final query = keyword.trim();
     if (query.isNotEmpty) {
       try {
@@ -295,7 +299,14 @@ class EngineComicDataSource
     if (query.isEmpty) return const <ComicSummary>[];
 
     final result = await engine.search(key, query);
-    _addDiagnostics(result.diagnostics.map((d) => '$key：$d'));
+    final prefixed = result.diagnostics.map((d) => '$key：$d').toList();
+    _addDiagnostics(prefixed);
+    for (final message in prefixed) {
+      _addSearchDiagnostic(message);
+    }
+    if (result.items.isEmpty && prefixed.isEmpty) {
+      _addSearchDiagnostic('$key：搜索无结果且未返回原因');
+    }
     return List<ComicSummary>.unmodifiable(
       result.items.map((item) => _mapSummary(item, key)),
     );
@@ -305,6 +316,10 @@ class EngineComicDataSource
   List<String> availableSourceKeys() => List<String>.unmodifiable(
     _sources.where((s) => s.enabled).map((s) => s.key).toList()..sort(),
   );
+
+  @override
+  Future<List<String>> recentSearchTerms() async =>
+      (await _searchHistory?.recent()) ?? const <String>[];
 
   @override
   Future<ComicDetail> detail(ComicSummary item) async {

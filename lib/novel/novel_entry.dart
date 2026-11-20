@@ -37,17 +37,55 @@ class NovelModule implements AppModule {
 
   @override
   Widget buildHome(BuildContext context) {
-    // 导航骨架：五 tab + typed 路由占位屏。不依赖任何注入字段、不崩；
-    // 真实抓取/解析/阅读随后续切片接入后，只需在模块内替换 tab 内容。
+    // 数据层三服务已接线：书架/继续阅读/搜索历史真实读本地库并投影统一书架。
+    // 抓取流水线（engine/dataSource/源仓库）仍是纯接口零实现，搜索结果页与
+    // 阅读页保持占位——这是能力边界，不再假装"搜索已联通"。
     return NovelModulePage(
       embedded: true,
       settingsTab: buildSettings(context),
+      collect: collect,
+      history: history,
+      searchHistory: searchHistory,
       onOpenRoute: (route, {args = const <String, Object?>{}}) =>
           pushNovelRoute<void>(context, route, args: args),
     );
   }
 
   @override
-  Widget buildSettings(BuildContext context) =>
-      const NovelSettingsPlaceholder();
+  Widget buildSettings(BuildContext context) => searchHistory == null
+      ? const NovelSettingsPlaceholder()
+      : _NovelSettingsWithData(searchHistory: searchHistory!);
+}
+
+/// 设置页（接线版）：提供真实可操作的"清除搜索历史"。
+/// 搜索历史服务由 NovelModule 注入，清理由服务落本地库。
+class _NovelSettingsWithData extends StatelessWidget {
+  const _NovelSettingsWithData({required this.searchHistory});
+
+  final NovelSearchHistoryApi searchHistory;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        ListTile(
+          leading: const Icon(Icons.delete_sweep_outlined),
+          title: const Text('清除搜索历史'),
+          subtitle: const Text('删除本地保存的搜索关键词'),
+          onTap: () async {
+            await searchHistory.clear();
+            if (!context.mounted) return;
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(const SnackBar(content: Text('搜索历史已清除')));
+          },
+        ),
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Text('阅读器与书源设置随书源引擎切片接入。', style: TextStyle(fontSize: 12)),
+        ),
+      ],
+    );
+  }
 }

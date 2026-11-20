@@ -67,9 +67,9 @@ void main() {
   test('按类型筛选', () async {
     await seed(type: MediaType.comic);
     await seed(
-      id: 'venera:1',
-      type: MediaType.comic,
-      source: 'Demo漫画源',
+      id: 'legado:1',
+      type: MediaType.novel,
+      source: 'Demo小说源',
       title: '尖帽子的魔法工坊',
     );
     final comic = await repo.timeline(type: MediaType.comic);

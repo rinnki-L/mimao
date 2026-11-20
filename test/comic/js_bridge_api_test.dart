@@ -248,6 +248,56 @@ void main() {
         isTrue,
       );
     });
+
+    test('默认内存 KV：saveData/loadData/deleteData 同会话闭环，未注入也可用', () {
+      final bridge = ComicJsBridge(client: _RecordingClient());
+      Object? sync(Map<dynamic, dynamic> m) => bridge._sync(m);
+
+      expect(
+        sync(<dynamic, dynamic>{
+          'method': 'load_data',
+          'key': 'src',
+          'data_key': 'p',
+        }),
+        isNull,
+      );
+      sync({
+        'method': 'save_data',
+        'key': 'src',
+        'data_key': 'p',
+        'data': 'chapter-12',
+      });
+      expect(
+        sync(<dynamic, dynamic>{
+          'method': 'load_data',
+          'key': 'src',
+          'data_key': 'p',
+        }),
+        'chapter-12',
+      );
+      // 不同 key/dataKey 隔离。
+      expect(
+        sync(<dynamic, dynamic>{
+          'method': 'load_data',
+          'key': 'src',
+          'data_key': 'q',
+        }),
+        isNull,
+      );
+      sync(<dynamic, dynamic>{
+        'method': 'delete_data',
+        'key': 'src',
+        'data_key': 'p',
+      });
+      expect(
+        sync(<dynamic, dynamic>{
+          'method': 'load_data',
+          'key': 'src',
+          'data_key': 'p',
+        }),
+        isNull,
+      );
+    });
   });
 }
 

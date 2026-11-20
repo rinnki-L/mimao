@@ -34,6 +34,8 @@ class _MinimalComicDataSource implements ComicDataSource {
 
   @override
   List<String> availableSourceKeys() => const <String>[];
+  @override
+  Future<List<String>> recentSearchTerms() async => const <String>[];
 
   // interface 默认体不被 implements 继承，补一行等价空实现（A 线诊断方法）。
   @override
@@ -65,6 +67,8 @@ class _SelectableComicDataSource implements ComicDataSource {
 
   @override
   List<String> availableSourceKeys() => sourceKeys;
+  @override
+  Future<List<String>> recentSearchTerms() async => const <String>[];
 
   // interface 默认体不被 implements 继承，补一行等价空实现（A 线诊断方法）。
   @override
@@ -100,6 +104,8 @@ class _NoSourceComicDataSource implements ComicDataSource {
 
   @override
   List<String> availableSourceKeys() => const <String>[];
+  @override
+  Future<List<String>> recentSearchTerms() async => const <String>[];
 
   // interface 默认体不被 implements 继承，补一行等价空实现（A 线诊断方法）。
   @override

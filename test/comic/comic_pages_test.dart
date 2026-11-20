@@ -55,6 +55,8 @@ class _FlakyComicDataSource implements ComicDataSource {
 
   @override
   List<String> availableSourceKeys() => const <String>[];
+  @override
+  Future<List<String>> recentSearchTerms() async => const <String>[];
 }
 
 Widget _app(Widget home) => MaterialApp(

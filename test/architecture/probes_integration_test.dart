@@ -39,6 +39,8 @@ class _ACoexistDataSource implements ComicDataSource {
 
   @override
   List<String> availableSourceKeys() => const <String>['源A', '源B'];
+  @override
+  Future<List<String>> recentSearchTerms() async => const <String>[];
 }
 
 Widget _app(Widget home) => MaterialApp(

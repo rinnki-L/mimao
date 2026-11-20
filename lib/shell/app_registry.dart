@@ -32,7 +32,12 @@ import 'package:mimao/music/player/player_progress.dart';
 import 'package:mimao/music/player/player_ui.dart';
 import 'package:mimao/music/player/player_ui_impl.dart';
 import 'package:mimao/music/search_history_service.dart';
+import 'package:mimao/novel/collect_service.dart';
+import 'package:mimao/novel/history_service.dart';
+import 'package:mimao/novel/library_api.dart';
+import 'package:mimao/novel/novel_db.dart';
 import 'package:mimao/novel/novel_entry.dart';
+import 'package:mimao/novel/search_history_service.dart';
 
 /// 全库**唯一**允许 import 三个模块目录（`comic/`、`music/`、
 /// `novel/`）的文件——第四条铁律的载体（docs/architecture.md §2）。
@@ -53,6 +58,7 @@ String? appModulesError;
 /// 由 registry 自己创建（而非测试注入）的 DB——只有它们需要 reset 时关闭。
 ComicDb? _ownedComicDb;
 MusicDb? _ownedMusicDb;
+NovelDb? _ownedNovelDb;
 
 /// 测试可见：registry 自建、reset 时会关闭的 ComicDb（生产路径才有值）。
 /// CI 没有 path_provider 插件，用这条缝验证 owned-DB 的关闭语义（closure-02
@@ -123,9 +129,17 @@ Future<void> initAppModules({
   /// 「我的」页构造器（C 线实现后注入；null 时不出底部导航）。
   MusicLibraryBuilder? musicLibraryBuilder,
 
-  // ── 小说（M5 导航骨架）──
+  // ── 小说（M5：数据层接线）──
   /// 测试注入整模块（依赖自含），跳过默认装配直接注册。
   NovelModule? novelModule,
+
+  /// 小说内部权威库；生产走惰性连接（LazyDatabase，构造不碰 path_provider）。
+  NovelDb? novelDb,
+
+  /// 小说三服务注入缝；生产在下方装配段构造真实现，测试可注入 fake。
+  NovelCollectApi? novelCollect,
+  NovelHistoryApi? novelHistory,
+  NovelSearchHistoryApi? novelSearchHistory,
 }) async {
   // 每次装配都是一次干净开始；避免旧的已关闭 DB 残留在表里。
   await _resetOwnedDb();
@@ -133,6 +147,7 @@ Future<void> initAppModules({
   appModulesError = null;
   _ownedComicDb = null;
   _ownedMusicDb = null;
+  _ownedNovelDb = null;
 
   final errors = <String>[];
 
@@ -304,14 +319,43 @@ Future<void> initAppModules({
     }
   }
 
-  // ── 小说装配（M5 导航骨架）──
-  // 骨架期零依赖：模块只渲染五 tab + typed 路由占位屏，不碰任何库/网络/插件，
-  // 启动探针与失败分支都无需——真实书源/数据层随后续切片接入时再在此补装配。
+  // ── 小说装配（M5：数据层接线）──
+  // 数据层三服务（收藏/历史/搜索历史）是真实现：写内部库时自动投影 core
+  // media_entries，因此书架/继续阅读/搜索历史能真实落库并聚合。抓取流水线
+  // （engine/dataSource/js/analyzer/cache）目前仍是纯接口零实现，故不注入，
+  // 搜索/阅读页保持占位——这是能力边界，不是假联通。
   try {
-    appModules[MediaType.novel] = novelModule ?? NovelModule();
+    if (novelModule != null) {
+      // 测试整模块注入：依赖自含，直接注册。
+      appModules[MediaType.novel] = novelModule;
+    } else {
+      final db = novelDb ?? NovelDb();
+      if (novelDb == null) {
+        _ownedNovelDb = db;
+        if (kDebugMode) devRegisterDatabase('novel', db);
+      }
+      final collectApi = novelCollect ?? NovelCollectService(db, library);
+      final historyApi = novelHistory ?? NovelHistoryService(db, library);
+      final searchHistoryApi =
+          novelSearchHistory ?? NovelSearchHistoryService(db);
+      appModules[MediaType.novel] = NovelModule(
+        collect: collectApi,
+        history: historyApi,
+        searchHistory: searchHistoryApi,
+      );
+    }
   } catch (error) {
     errors.add('小说模块初始化失败：$error');
     appModules.remove(MediaType.novel);
+    final owned = _ownedNovelDb;
+    _ownedNovelDb = null;
+    if (owned != null) {
+      try {
+        await owned.close();
+      } catch (_) {
+        // 与漫画/音乐失败分支同款收尾。
+      }
+    }
   }
 
   appModulesError = errors.isEmpty ? null : errors.join('\n');
@@ -360,6 +404,16 @@ Future<void> _resetOwnedDb() async {
   if (musicDb != null) {
     try {
       await musicDb.close();
+    } catch (_) {
+      // 同上；惰性连接从未打开时 close 是空操作。
+    }
+  }
+  devUnregisterDatabase('novel');
+  final novelDb = _ownedNovelDb;
+  _ownedNovelDb = null;
+  if (novelDb != null) {
+    try {
+      await novelDb.close();
     } catch (_) {
       // 同上；惰性连接从未打开时 close 是空操作。
     }

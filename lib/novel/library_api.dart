@@ -13,6 +13,29 @@ import 'package:mimao/novel/models/novel_models.dart';
 NovelRef novelRefOf(NovelSummary book) =>
     NovelRef(id: book.id, sourceName: book.sourceName);
 
+/// 一条收藏（权威行 + 可重建的书籍快照）。
+class NovelCollectItem {
+  const NovelCollectItem({
+    required this.ref,
+    required this.title,
+    required this.coverUrl,
+    required this.book,
+    required this.collectedAt,
+  });
+
+  final NovelRef ref;
+  final String title;
+  final String? coverUrl;
+
+  /// 收藏时落底的书籍 JSON 反序列化结果；旧数据/坏数据为 null。
+  final NovelSummary? book;
+
+  final DateTime collectedAt;
+
+  /// 「我的」页展示用作者名（无书籍快照时为空串）。
+  String get authorText => book?.author ?? '';
+}
+
 /// 收藏门面（权威库 `novel_collect`，写后投影 core）。
 abstract interface class NovelCollectApi {
   Future<void> collect(NovelSummary book);
@@ -23,6 +46,9 @@ abstract interface class NovelCollectApi {
 
   /// 批量判断（列表一次性预载，避免逐行查询）。
   Future<Set<String>> collectedIds();
+
+  /// 收藏列表，按收藏时间倒序（书架页消费）。
+  Future<List<NovelCollectItem>> list();
 }
 
 /// 一条阅读历史（含可重建的书籍快照）。

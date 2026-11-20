@@ -53,7 +53,9 @@ TextTheme _buildMimaoTextTheme(ColorScheme scheme) {
     displayMedium: themed.displayMedium?.copyWith(fontWeight: MimaoFonts.bold),
     displaySmall: themed.displaySmall?.copyWith(fontWeight: MimaoFonts.bold),
     headlineLarge: themed.headlineLarge?.copyWith(fontWeight: MimaoFonts.bold),
-    headlineMedium: themed.headlineMedium?.copyWith(fontWeight: MimaoFonts.bold),
+    headlineMedium: themed.headlineMedium?.copyWith(
+      fontWeight: MimaoFonts.bold,
+    ),
     headlineSmall: themed.headlineSmall?.copyWith(fontWeight: MimaoFonts.bold),
     titleLarge: themed.titleLarge?.copyWith(fontWeight: MimaoFonts.bold),
     titleMedium: themed.titleMedium?.copyWith(fontWeight: MimaoFonts.bold),
@@ -168,9 +170,7 @@ ThemeData buildMimaoTheme({
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       // hint / 输入文字显式走统一字体族与字重，避免 SearchBar/TextField 的
       // 默认 hintStyle 绕过 textTheme、回落到系统 fallback 导致个别字变粗。
-      hintStyle: textTheme.bodyMedium?.copyWith(
-        color: scheme.onSurfaceVariant,
-      ),
+      hintStyle: textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
       border: OutlineInputBorder(
         borderRadius: MimaoShapes.sm,
         borderSide: BorderSide.none,

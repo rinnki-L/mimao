@@ -8,29 +8,6 @@ import 'package:mimao/novel/models/novel_models.dart';
 import 'package:mimao/novel/novel_db.dart';
 import 'package:mimao/novel/novel_projection.dart';
 
-/// 一条收藏（权威行 + 可重建的书籍快照）。
-class NovelCollectItem {
-  const NovelCollectItem({
-    required this.ref,
-    required this.title,
-    required this.coverUrl,
-    required this.book,
-    required this.collectedAt,
-  });
-
-  final NovelRef ref;
-  final String title;
-  final String? coverUrl;
-
-  /// 收藏时落底的书籍 JSON 反序列化结果；旧数据/坏数据为 null。
-  final NovelSummary? book;
-
-  final DateTime collectedAt;
-
-  /// 「我的」页展示用作者名（无书籍快照时为空串）。
-  String get authorText => book?.author ?? '';
-}
-
 /// 小说收藏服务（实现 [NovelCollectApi] 的接口缝）。
 ///
 /// 双记账：`novel_collect` 是权威；每次写内部表后立即经
@@ -110,6 +87,7 @@ class NovelCollectService extends ChangeNotifier implements NovelCollectApi {
   }
 
   /// 收藏列表，按收藏时间倒序。
+  @override
   Future<List<NovelCollectItem>> list() async {
     final rows = await (db.select(
       db.novelCollectEntries,

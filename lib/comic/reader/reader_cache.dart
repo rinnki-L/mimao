@@ -32,6 +32,15 @@ String cacheKey(String url) {
 
 /// 默认字节加载器：本地路径/`file://` 走 [File]，http(s) 走 [HttpClient]。
 /// 只在真正需要取图时调用，命中缓存时不会触达它。
+///
+/// 图片 URL 来自 Venera 源的 `images: string[]`（纯直链，无 per-image headers），
+/// 但不少站点对空 UA / 非同源 Referer 的图片请求直接 403。这里补一个桌面
+/// Chrome UA，并以图片 URL 同源作为 Referer——轻量兜底，不改 ComicImageRef/
+/// ImageByteLoader 契约（headers 字段在 Venera 契约下恒为空）。
+const String _imageDefaultUserAgent =
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+    '(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+
 Future<Uint8List> defaultImageByteLoader(String url) async {
   final uri = Uri.tryParse(url);
   if (uri != null &&
@@ -40,6 +49,8 @@ Future<Uint8List> defaultImageByteLoader(String url) async {
     final client = HttpClient();
     try {
       final request = await client.getUrl(uri);
+      request.headers.set('User-Agent', _imageDefaultUserAgent);
+      request.headers.set('Referer', '${uri.scheme}://${uri.authority}/');
       final response = await request.close();
       if (response.statusCode != 200) {
         throw HttpException('HTTP ${response.statusCode}', uri: uri);

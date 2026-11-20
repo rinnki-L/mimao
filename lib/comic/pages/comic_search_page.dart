@@ -50,6 +50,9 @@ class _ComicSearchPageState extends State<ComicSearchPage> {
   /// 数据源提供的可选来源；空表示数据源未暴露来源（退化为全源搜索）。
   late List<String> _sourceKeys;
 
+  /// 搜索历史：每次搜索后重建，FutureBuilder 从数据源读取真实历史词。
+  late Future<List<String>> _historyFuture;
+
   /// 当前选中的来源；null = 全部来源（默认聚合搜索语义不变）。
   String? _selectedSource;
 
@@ -57,6 +60,7 @@ class _ComicSearchPageState extends State<ComicSearchPage> {
   void initState() {
     super.initState();
     _sourceKeys = widget.dataSource.availableSourceKeys();
+    _historyFuture = widget.dataSource.recentSearchTerms();
     _future = _runQuery(_query);
   }
 
@@ -96,6 +100,8 @@ class _ComicSearchPageState extends State<ComicSearchPage> {
     setState(() {
       _query = query;
       _future = _runQuery(query);
+      // 搜索经数据源落库后刷新历史 chips（真实读回最近词）。
+      _historyFuture = widget.dataSource.recentSearchTerms();
     });
   }
 
@@ -137,7 +143,9 @@ class _ComicSearchPageState extends State<ComicSearchPage> {
                 const SizedBox(height: 8),
                 _buildSourceFilter(cs),
               ],
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
+              _buildSearchHistory(cs),
+              const SizedBox(height: 8),
               Expanded(child: _buildResults(context, cs)),
             ],
           ),
@@ -168,6 +176,35 @@ class _ComicSearchPageState extends State<ComicSearchPage> {
             ),
         ],
       ),
+    );
+  }
+
+  /// 搜索历史行：真实读回最近关键词，点 chip 回填搜索框。数据源未实现
+  /// （fixture/fake）时 recentSearchTerms 默认空 → 整行隐藏，零副作用。
+  Widget _buildSearchHistory(ColorScheme cs) {
+    return FutureBuilder<List<String>>(
+      future: _historyFuture,
+      builder: (context, snapshot) {
+        final terms = snapshot.data ?? const <String>[];
+        if (terms.isEmpty) return const SizedBox.shrink();
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: <Widget>[
+              Icon(Icons.history, size: 16, color: cs.onSurfaceVariant),
+              const SizedBox(width: 6),
+              for (final term in terms.take(10))
+                Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: ActionChip(
+                    label: Text(term),
+                    onPressed: () => _runSearch(term),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
 
