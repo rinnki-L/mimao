@@ -96,6 +96,8 @@ class ComicModule implements AppModule {
       sourceRepository: sourceRepository,
       sourceCatalog: sourceCatalog,
       embedded: true,
+      // 各入口的设置放进各入口：模块设置面板作为最右侧「设置」tab。
+      settingsTab: buildSettings(context),
       onOpenDetail: (item) => history.open(refOf(item)),
       isFavorite: (item) => collect.isCollected(refOf(item)),
       onFavoriteChanged: (item, favorite) =>

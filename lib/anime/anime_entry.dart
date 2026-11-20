@@ -60,6 +60,8 @@ class AnimeModule implements AppModule {
     return AnimeModulePage(
       dataSource: dataSource,
       embedded: true,
+      // 各入口的设置放进各入口：规则面板作为模块页最右侧「设置」tab。
+      settingsTab: buildSettings(context),
       onOpenDetail: (item) => history.open(refOf(item)),
       isFavorite: (item) => collect.isCollected(refOf(item)),
       onFavoriteChanged: (item, favorite) =>

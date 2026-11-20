@@ -3,7 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:mimao/anime/engine/engine.dart';
 
-/// 番剧规则管理面板——全局设置抽屉里"番剧"分组的内容。
+/// 番剧规则管理面板——番剧模块主页底部导航最右侧「设置」tab 的内容。
 ///
 /// 只依赖规则引擎的存储/导入器与 Flutter：不认识壳、播放器、收藏或 core 服务，
 /// 由 [AnimeModule.buildSettings] 注入依赖（docs/prompts/closure-01 §5）。

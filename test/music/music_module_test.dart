@@ -147,9 +147,11 @@ void main() {
     expect(settings, isA<MusicModuleSettings>());
 
     // buildHome 的出口直接进壳层的模块层也能跑：搜索交互可用。
+    // 模块页现在带底部导航（搜索/我的/设置），导航项的 tooltip 也叫「搜索」，
+    // 用提交按钮专属的箭头图标定位，避免 byTooltip('搜索') 歧义。
     await tester.pumpWidget(MaterialApp(home: home));
     await tester.enterText(find.byType(TextField), '出口');
-    await tester.tap(find.byTooltip('搜索'));
+    await tester.tap(find.byIcon(Icons.arrow_forward_rounded));
     await tester.pumpAndSettle();
     expect(find.text('出口 之一'), findsOneWidget);
   });

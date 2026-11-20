@@ -1,6 +1,6 @@
 // ignore_for_file: deprecated_member_use — Flutter 3.50 弃用整个 material.dart，
 // 与 comic 页面同款说明。
-/// 音乐模块在全局设置抽屉里的分组（M4 骨架 + M4-L 扫码登录）。
+/// 音乐模块主页「设置」tab 的内容（M4 骨架 + M4-L 扫码登录）。
 ///
 /// 只读展示设备身份（不触发联网注册）；账号区由 [account] 驱动：
 /// - null：保留契约占位（L 线未接线时既有测试锚点不变）；

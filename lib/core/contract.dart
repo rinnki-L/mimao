@@ -52,6 +52,9 @@ abstract class AppModule {
   /// 模块主页——钻进入口卡片后看到的那一层。
   Widget buildHome(BuildContext context);
 
-  /// 模块在全局设置抽屉里的分组内容（选择 C + 全局一个设置）。
+  /// 模块自己的设置内容——作为模块主页底部导航最右侧「设置」tab 的页面。
+  ///
+  /// 全局抽屉只保留通用设置（外观/存储）；各模块设置由自己的 buildHome
+  /// 收进模块页，用户拍板「各入口的设置放到各入口里面去」。
   Widget buildSettings(BuildContext context);
 }

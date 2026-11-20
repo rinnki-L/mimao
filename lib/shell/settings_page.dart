@@ -3,16 +3,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:mimao/core/contract.dart';
 import 'package:mimao/shell/app.dart';
-import 'package:mimao/shell/app_registry.dart';
 import 'package:mimao/shell/shell_store.dart';
 
-/// 全局设置抽屉——选择 C 拼贴 + **全局一个设置**（用户拍板）。
+/// 全局设置抽屉——只放**通用**设置（外观 / 存储）。
 ///
-/// 一个总入口（仅入口页顶栏一枚齿轮，模块页不再放）；抽屉按
-/// 「外观 / 存储 / 番剧 / 漫画 / 小说 / 音乐」分组，四个模块头首屏可见、
-/// 可折叠。模块自己的设置内容等 M2 起由 app_registry 注册的 AppModule 提供。
+/// 用户拍板：总设置与各入口设置分开——各入口的设置放进各模块主页，
+/// 作为底部导航最右侧「设置」tab（见各 AppModule.buildSettings）；
+/// 本抽屉不再出现四个模块的分组，只有入口页顶栏一枚齿轮打开它。
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
 
@@ -29,11 +27,6 @@ class SettingsPage extends StatelessWidget {
           const _AppearanceGroup(),
           const Divider(),
           const _StorageGroup(),
-          const Divider(),
-          _ModuleGroup(type: MediaType.anime),
-          _ModuleGroup(type: MediaType.comic),
-          _ModuleGroup(type: MediaType.novel),
-          _ModuleGroup(type: MediaType.music),
           const SizedBox(height: 24),
         ],
       ),
@@ -226,33 +219,5 @@ class _StorageGroup extends StatelessWidget {
     } catch (e) {
       return '不可用：$e';
     }
-  }
-}
-
-class _ModuleGroup extends StatelessWidget {
-  final MediaType type;
-
-  const _ModuleGroup({required this.type});
-
-  @override
-  Widget build(BuildContext context) {
-    final module = moduleFor(type);
-    return ExpansionTile(
-      leading: Icon(type.outlinedIcon),
-      title: Text(type.label),
-      children: <Widget>[
-        if (module != null)
-          module.buildSettings(context)
-        else
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
-            child: Text(
-              '${type.tagline} · 该模块设置将在接入后开放',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ),
-        const SizedBox(height: 8),
-      ],
-    );
   }
 }

@@ -96,19 +96,20 @@ void main() {
     expect(find.text('mimao'), findsOneWidget);
   });
 
-  testWidgets('设置抽屉可打开，四个模块分组齐全', (tester) async {
+  testWidgets('设置抽屉可打开，只剩通用分组（外观/存储），无模块分组', (tester) async {
     await tester.pumpWidget(pumpApp());
     await tester.pumpAndSettle();
 
     await tester.tap(find.byTooltip('设置'));
     await tester.pumpAndSettle();
     expect(find.text('设置'), findsWidgets);
-    // 全局抽屉按「外观 / 存储 / 四模块」分组（用户拍板的 C + 全局一个设置）
+    // 用户拍板：总设置与各入口设置分开——抽屉只留外观/存储。
     expect(find.text('外观'), findsOneWidget);
     expect(find.text('存储'), findsOneWidget);
     for (final type in MediaType.values) {
-      expect(find.text(type.label), findsWidgets);
+      expect(find.widgetWithText(ExpansionTile, type.label), findsNothing);
     }
+    expect(find.textContaining('该模块设置将在接入后开放'), findsNothing);
   });
 
   // 番剧（closure-01）与漫画（closure-02）都分件注入：番剧用 fixture 数据源
@@ -172,37 +173,21 @@ void main() {
       expect(find.text('共 4 部'), findsOneWidget);
     });
 
-    testWidgets('设置抽屉展开番剧分组显示规则面板', (tester) async {
+    testWidgets('番剧设置收进模块页底部导航最右「设置」tab', (tester) async {
       await initModules();
       await tester.pumpWidget(pumpApp());
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byTooltip('设置'));
+      await tester.tap(find.text(MediaType.anime.label).first);
       await tester.pumpAndSettle();
-      // 打开番剧分组（ ExpansionTile 在抽屉里，标签与入口卡同文，取抽屉内的）。
-      // 外观组展开后较高，番剧分组常在首屏之下：先把抽屉滚出来再点。
-      // （skipOffstage 的 finder 会跳过视口外仍在缓存区的 tile——非「懒」问题，
-      // scrollUntilVisible 是滚动容器的正解。）
-      final animeTile = find.widgetWithText(ExpansionTile, '番剧');
-      await tester.scrollUntilVisible(
-        animeTile,
-        100,
-        scrollable: find.descendant(
-          of: find.byType(Drawer),
-          matching: find.byType(Scrollable),
-        ).last,
-      );
-      // scrollUntilVisible 在 tile 进入「缓存区」即停（可能仍在视口下方），
-      // ensureVisible 把它真正滚进屏幕再点。
-      await tester.ensureVisible(animeTile.first);
-      await tester.pumpAndSettle();
-      await tester.tap(animeTile.first);
+      // 底部导航最右一枚是「设置」；点它切到规则面板。
+      expect(find.text('设置'), findsOneWidget);
+      await tester.tap(find.text('设置'));
       await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('anime-rule-url')), findsOneWidget);
       expect(find.byKey(const Key('anime-rule-import')), findsOneWidget);
       expect(find.text('还没有规则，先从 KazumiRules 导入'), findsOneWidget);
-      expect(find.textContaining('该模块设置将在接入后开放'), findsNothing);
     });
   });
 
@@ -225,27 +210,16 @@ void main() {
       expect(find.text('mimao'), findsOneWidget);
     });
 
-    testWidgets('设置抽屉展开漫画分组显示模块设置面板', (tester) async {
+    testWidgets('漫画设置收进模块页底部导航最右「设置」tab', (tester) async {
       await initModules();
       await tester.pumpWidget(pumpApp());
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byTooltip('设置'));
+      await tester.tap(find.text(MediaType.comic.label).first);
       await tester.pumpAndSettle();
-      // 同 closure-01：漫画分组在首屏之下时先滚出来再点。
-      final comicTile = find.widgetWithText(ExpansionTile, '漫画');
-      await tester.scrollUntilVisible(
-        comicTile,
-        100,
-        scrollable: find.descendant(
-          of: find.byType(Drawer),
-          matching: find.byType(Scrollable),
-        ).last,
-      );
-      // 同 closure-01：缓存区 ≠ 可见，ensureVisible 后再点。
-      await tester.ensureVisible(comicTile.first);
-      await tester.pumpAndSettle();
-      await tester.tap(comicTile.first);
+      // 底部导航最右一枚是「设置」；点它切到模块设置面板。
+      expect(find.text('设置'), findsOneWidget);
+      await tester.tap(find.text('设置'));
       await tester.pumpAndSettle();
 
       expect(
@@ -256,7 +230,6 @@ void main() {
         find.byKey(const Key('comic-settings-clear-history')),
         findsOneWidget,
       );
-      expect(find.textContaining('该模块设置将在接入后开放'), findsNothing);
     });
 
     testWidgets('resetAppModulesForTest 后漫画恢复占位', (tester) async {

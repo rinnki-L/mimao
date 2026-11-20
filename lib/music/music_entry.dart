@@ -44,7 +44,7 @@ class MusicModule implements AppModule {
 
   final MusicApi _api;
 
-  /// 模块生命周期内唯一的 store（壳在入口卡片与设置抽屉间切换时，
+  /// 模块生命周期内唯一的 store（在搜索/我的/设置各 tab 间切换时，
   /// 搜索结果等状态保持）。
   final MusicStore store;
 
@@ -109,6 +109,8 @@ class MusicModule implements AppModule {
       collect: collect,
       searchHistory: searchHistory,
       libraryTab: libraryTab,
+      // 各入口的设置放进各入口：账号/设备设置作为最右侧「设置」tab。
+      settingsTab: buildSettings(context),
     );
   }
 

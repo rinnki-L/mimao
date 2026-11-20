@@ -7,11 +7,12 @@ import 'package:mimao/comic/pages/comic_detail_page.dart';
 import 'package:mimao/comic/pages/comic_search_page.dart';
 import 'package:mimao/comic/pages/comic_source_page.dart';
 
-/// 漫画模块层（壳钻进漫画入口后看到的那一层，对应「C 拼贴 + 全局设置」）。
+/// 漫画模块层（壳钻进漫画入口后看到的那一层，设置收在本页最右 tab）。
 ///
-/// 模块内部导航：底部 NavigationBar 在「搜索 / 源管理」间切换；
+/// 模块内部导航：底部 NavigationBar 在「搜索 / 源管理 / 设置」间切换；
 /// 点任一漫画条目 → push 详情页 → 返回。模块对壳无感知（不 import shell/）。
 /// 另三个入口（番剧/小说/音乐）在壳层随模块激活自动消失，本模块不处理它们。
+/// 「设置」tab 放最右，内容由 ComicModule.buildSettings 注入；null 时不显示。
 class ComicModulePage extends StatefulWidget {
   const ComicModulePage({
     super.key,
@@ -19,6 +20,7 @@ class ComicModulePage extends StatefulWidget {
     required this.sourceRepository,
     this.sourceCatalog,
     this.embedded = false,
+    this.settingsTab,
     this.onOpenDetail,
     this.isFavorite,
     this.onFavoriteChanged,
@@ -35,6 +37,9 @@ class ComicModulePage extends StatefulWidget {
 
   /// true 时由壳提供顶部"返回 + 标题"，搜索/源管理页不再画自己的 AppBar。
   final bool embedded;
+
+  /// 最右侧「设置」tab 的内容；由模块出口 buildSettings 注入。
+  final Widget? settingsTab;
 
   /// 即将打开详情（导航前的最后一个异步点）：模块层在此接
   /// ComicHistoryService.open 做打开点校正；抛错不挡导航。
@@ -94,6 +99,28 @@ class _ComicModulePageState extends State<ComicModulePage> {
 
   @override
   Widget build(BuildContext context) {
+    final settingsTab = widget.settingsTab;
+    final destinations = <NavigationDestination>[
+      const NavigationDestination(
+        icon: Icon(Icons.search_outlined),
+        selectedIcon: Icon(Icons.search),
+        label: '搜索',
+      ),
+      const NavigationDestination(
+        icon: Icon(Icons.source_outlined),
+        selectedIcon: Icon(Icons.source),
+        label: '源管理',
+      ),
+    ];
+    if (settingsTab != null) {
+      destinations.add(
+        const NavigationDestination(
+          icon: Icon(Icons.settings_outlined),
+          selectedIcon: Icon(Icons.settings),
+          label: '设置',
+        ),
+      );
+    }
     return Scaffold(
       body: IndexedStack(
         index: _index,
@@ -110,23 +137,14 @@ class _ComicModulePageState extends State<ComicModulePage> {
             onImport: widget.onImportSource,
             onDelete: widget.onDeleteSource,
           ),
+          if (settingsTab != null)
+            SafeArea(child: SingleChildScrollView(child: settingsTab)),
         ],
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
         onDestinationSelected: (index) => setState(() => _index = index),
-        destinations: const <NavigationDestination>[
-          NavigationDestination(
-            icon: Icon(Icons.search_outlined),
-            selectedIcon: Icon(Icons.search),
-            label: '搜索',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.source_outlined),
-            selectedIcon: Icon(Icons.source),
-            label: '源管理',
-          ),
-        ],
+        destinations: destinations,
       ),
     );
   }

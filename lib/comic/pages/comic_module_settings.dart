@@ -6,7 +6,7 @@ import 'package:mimao/comic/engine/engine.dart' show ComicSourceCatalog;
 import 'package:mimao/comic/pages/comic_source_page.dart';
 import 'package:mimao/comic/search_history_service.dart';
 
-/// 漫画模块在设置抽屉里的最小可用面板（closure-02 §5）：
+/// 漫画模块主页「设置」tab 的最小可用面板（closure-02 §5）：
 /// 打开源管理 + 清除搜索历史。不过度设计，只依赖注入的仓库/服务。
 class ComicModuleSettings extends StatefulWidget {
   const ComicModuleSettings({

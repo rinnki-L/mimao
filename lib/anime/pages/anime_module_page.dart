@@ -9,13 +9,16 @@ import 'package:mimao/anime/pages/anime_search_page.dart';
 
 /// 番剧模块层（壳钻进番剧入口后看到的那一层）。
 ///
-/// 模块内部导航：底部 NavigationBar 在「搜索 / 时间表」间切换；
+/// 模块内部导航：底部 NavigationBar 在「搜索 / 时间表 / 设置」间切换；
 /// 点任一番剧条目 → push 详情页 → 返回。模块对壳无感知（不 import shell/）。
+/// 「设置」tab 放最右，内容由 AnimeModule.buildSettings 注入；null 时不显示
+/// （模块级 widget 测试未注入设置时保持原有两 tab 行为）。
 class AnimeModulePage extends StatefulWidget {
   const AnimeModulePage({
     super.key,
     required this.dataSource,
     this.embedded = false,
+    this.settingsTab,
     this.onOpenDetail,
     this.isFavorite,
     this.onFavoriteChanged,
@@ -26,6 +29,9 @@ class AnimeModulePage extends StatefulWidget {
 
   /// true 时由壳提供顶部"返回 + 标题"，搜索/时间表页不再画自己的 AppBar。
   final bool embedded;
+
+  /// 最右侧「设置」tab 的内容；由模块出口 buildSettings 注入。
+  final Widget? settingsTab;
 
   /// 即将打开详情（导航前的最后一个异步点）：模块层在此接
   /// AnimeHistoryService.open 做打开点校正；抛错不挡导航。
@@ -81,6 +87,28 @@ class _AnimeModulePageState extends State<AnimeModulePage> {
 
   @override
   Widget build(BuildContext context) {
+    final settingsTab = widget.settingsTab;
+    final destinations = <NavigationDestination>[
+      const NavigationDestination(
+        icon: Icon(Icons.search_outlined),
+        selectedIcon: Icon(Icons.search),
+        label: '搜索',
+      ),
+      const NavigationDestination(
+        icon: Icon(Icons.calendar_view_week_outlined),
+        selectedIcon: Icon(Icons.calendar_view_week),
+        label: '时间表',
+      ),
+    ];
+    if (settingsTab != null) {
+      destinations.add(
+        const NavigationDestination(
+          icon: Icon(Icons.settings_outlined),
+          selectedIcon: Icon(Icons.settings),
+          label: '设置',
+        ),
+      );
+    }
     return Scaffold(
       body: IndexedStack(
         index: _index,
@@ -95,23 +123,14 @@ class _AnimeModulePageState extends State<AnimeModulePage> {
             showAppBar: !widget.embedded,
             onOpenDetail: _openDetail,
           ),
+          if (settingsTab != null)
+            SafeArea(child: SingleChildScrollView(child: settingsTab)),
         ],
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
         onDestinationSelected: (index) => setState(() => _index = index),
-        destinations: const <NavigationDestination>[
-          NavigationDestination(
-            icon: Icon(Icons.search_outlined),
-            selectedIcon: Icon(Icons.search),
-            label: '搜索',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.calendar_view_week_outlined),
-            selectedIcon: Icon(Icons.calendar_view_week),
-            label: '时间表',
-          ),
-        ],
+        destinations: destinations,
       ),
     );
   }

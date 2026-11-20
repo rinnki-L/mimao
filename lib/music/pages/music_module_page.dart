@@ -25,6 +25,7 @@ class MusicModulePage extends StatefulWidget {
     this.collect,
     this.searchHistory,
     this.libraryTab,
+    this.settingsTab,
   });
 
   final MusicStore store;
@@ -41,8 +42,12 @@ class MusicModulePage extends StatefulWidget {
   /// C 线搜索历史；null 时搜索不做记录。
   final MusicSearchHistoryApi? searchHistory;
 
-  /// C 线「我的」页；null 时只有搜索页（不出底部导航）。
+  /// C 线「我的」页；null 时不显示「我的」tab。
   final Widget? libraryTab;
+
+  /// 最右侧「设置」tab 的内容；由模块出口 buildSettings 注入。
+  /// 与 libraryTab 都为 null 时不出底部导航（保持未接线时的行为）。
+  final Widget? settingsTab;
 
   @override
   State<MusicModulePage> createState() => _MusicModulePageState();
@@ -181,13 +186,43 @@ class _MusicModulePageState extends State<MusicModulePage> {
     );
 
     final libraryTab = widget.libraryTab;
-    final content = libraryTab == null
-        ? searchBody
-        : IndexedStack(
-            index: _index,
-            children: <Widget>[searchBody, libraryTab],
-          );
-    // 迷你播放条住两页共用区：切「我的」时播放控制不消失（集成收口修正）。
+    final settingsTab = widget.settingsTab;
+
+    // tab 列表：搜索恒在；「我的」「设置」按注入与否出现，设置永远最右。
+    final destinations = <NavigationDestination>[
+      const NavigationDestination(
+        icon: Icon(Icons.search_outlined),
+        selectedIcon: Icon(Icons.search),
+        label: '搜索',
+      ),
+    ];
+    final tabs = <Widget>[searchBody];
+    if (libraryTab != null) {
+      tabs.add(libraryTab);
+      destinations.add(
+        const NavigationDestination(
+          icon: Icon(Icons.library_music_outlined),
+          selectedIcon: Icon(Icons.library_music),
+          label: '我的',
+        ),
+      );
+    }
+    if (settingsTab != null) {
+      tabs.add(SafeArea(child: SingleChildScrollView(child: settingsTab)));
+      destinations.add(
+        const NavigationDestination(
+          icon: Icon(Icons.settings_outlined),
+          selectedIcon: Icon(Icons.settings),
+          label: '设置',
+        ),
+      );
+    }
+    // 索引防御：libraryTab/settingsTab 在两次 build 之间变化时夹紧，避免越界。
+    if (_index >= tabs.length) _index = tabs.length - 1;
+    final content = tabs.length == 1
+        ? tabs.first
+        : IndexedStack(index: _index, children: tabs);
+    // 迷你播放条住各页共用区：切「我的」/「设置」时播放控制不消失（集成收口修正）。
     // Observer 包住调用：buildMiniPlayer 返回 null 时不渲染，队列变化
     // （点歌入队）由 MobX 驱动重建，不需要页面自己 setState。
     final body = Column(
@@ -202,29 +237,17 @@ class _MusicModulePageState extends State<MusicModulePage> {
       ],
     );
 
-    final scaffold = Scaffold(
+    return Scaffold(
       appBar: widget.embedded ? null : AppBar(title: const Text('音乐')),
       body: body,
-      bottomNavigationBar: libraryTab == null
+      bottomNavigationBar: tabs.length == 1
           ? null
           : NavigationBar(
               selectedIndex: _index,
               onDestinationSelected: (index) => setState(() => _index = index),
-              destinations: const <NavigationDestination>[
-                NavigationDestination(
-                  icon: Icon(Icons.search_outlined),
-                  selectedIcon: Icon(Icons.search),
-                  label: '搜索',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.library_music_outlined),
-                  selectedIcon: Icon(Icons.library_music),
-                  label: '我的',
-                ),
-              ],
+              destinations: destinations,
             ),
     );
-    return scaffold;
   }
 
   Widget _buildBody(BuildContext context) {
