@@ -20,22 +20,26 @@ import 'package:mimao/music/models/auth_models.dart';
 const String _kDecodeCookie = 'Set-Cookie 头无效';
 const String _kDecodeSession = '授权页缺少跳转地址';
 
-/// 收集响应的 set-cookie 到会话 jar（login_qq_qr_create.rs `cookies`）：
-/// 取 `;` 前的 name=value；无 `=` → decode；空 name 跳过。
-///
-/// 注意：共享层 `KugouHttpResponse.headers` 对同名多值响应头只保留第一个，
-/// 多条 Set-Cookie 的完整采集需要共享层扩展（见交付报告）。
-void kugouCollectCookies(Map<String, String> headers, Map<String, String> jar) {
-  for (final entry in headers.entries) {
+/// 收集响应的 set-cookie 到会话 jar（login_qq_qr_create.rs `cookies`，对应
+/// reqwest `headers.get_all("set-cookie")` 的全量语义）：遍历
+/// [KugouHttpResponse.headerValues] 里 set-cookie 的**全部**值（键不区分大小
+/// 写），各取 `;` 前的 name=value；无 `=` → decode；空 name 跳过。
+void kugouCollectCookies(
+  Map<String, List<String>> headerValues,
+  Map<String, String> jar,
+) {
+  for (final entry in headerValues.entries) {
     if (entry.key.toLowerCase() != 'set-cookie') continue;
-    final pair = entry.value.split(';').first;
-    final separator = pair.indexOf('=');
-    if (separator < 0) {
-      throw const KugouApiException('decode', _kDecodeCookie);
-    }
-    final name = pair.substring(0, separator);
-    if (name.isNotEmpty) {
-      jar[name] = pair.substring(separator + 1);
+    for (final header in entry.value) {
+      final pair = header.split(';').first;
+      final separator = pair.indexOf('=');
+      if (separator < 0) {
+        throw const KugouApiException('decode', _kDecodeCookie);
+      }
+      final name = pair.substring(0, separator);
+      if (name.isNotEmpty) {
+        jar[name] = pair.substring(separator + 1);
+      }
     }
   }
 }
@@ -159,7 +163,7 @@ Future<MusicQqQrSession> fetchLoginQqQrCreate(
     headers: headers,
   );
   final jar = <String, String>{};
-  kugouCollectCookies(xloginResponse.headers, jar);
+  kugouCollectCookies(xloginResponse.headerValues, jar);
   final sig = jar['pt_login_sig'];
   if (sig == null || sig.isEmpty) {
     throw const KugouApiException('decode', '授权会话缺少 pt_login_sig');
@@ -185,7 +189,7 @@ Future<MusicQqQrSession> fetchLoginQqQrCreate(
       'Cookie': cookie,
     },
   );
-  kugouCollectCookies(qr.headers, jar);
+  kugouCollectCookies(qr.headerValues, jar);
   final qrsig = jar['qrsig'];
   if (qrsig == null || qrsig.isEmpty) {
     throw const KugouApiException('decode', '二维码会话缺少 qrsig');

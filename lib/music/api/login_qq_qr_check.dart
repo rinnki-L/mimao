@@ -220,7 +220,7 @@ Future<MusicProviderAuthorization> _authorize(
   KugouClient client,
   MusicQqQrSession qrSession,
   String initial,
-  Map<String, String> pollHeaders,
+  Map<String, List<String>> pollHeaderValues,
 ) async {
   const allowedHosts = <String>{
     'xui.ptlogin2.qq.com',
@@ -239,7 +239,7 @@ Future<MusicProviderAuthorization> _authorize(
       jar[trimmed.substring(0, separator)] = trimmed.substring(separator + 1);
     }
   }
-  kugouCollectCookies(pollHeaders, jar);
+  kugouCollectCookies(pollHeaderValues, jar);
   var urlText = initial;
   if (!urlText.startsWith('http') && !urlText.startsWith('auth:')) {
     urlText = 'https://$urlText';
@@ -270,7 +270,7 @@ Future<MusicProviderAuthorization> _authorize(
         'Accept-Language': 'zh-CN,zh;q=0.9',
       },
     );
-    kugouCollectCookies(response.headers, jar);
+    kugouCollectCookies(response.headerValues, jar);
     final location = kugouHeaderValue(response.headers, 'location');
     if (location != null) {
       url = url.resolve(location);
@@ -348,7 +348,7 @@ Future<MusicQqQrCheckResult> fetchLoginQqQrCheck(
       session.client,
       qrSession,
       redirect,
-      response.headers,
+      response.headerValues,
     );
     return MusicQqQrCheckResult(state: state, authorization: authorization);
   }

@@ -202,9 +202,10 @@ void main() {
         200,
         "ptuiCB('0','0','ssl.ptlogin2.qq.com/check_sig?x=1','0','ok','');",
       )
-      ..enqueue(200, '<html>redirecting</html>', <String, String>{
-        'location': 'https://graph.qq.com/oauth2.0/me',
-        'set-cookie': 'new_cookie=NC',
+      ..enqueueValues(200, '<html>redirecting</html>', <String, List<String>>{
+        'location': <String>['https://graph.qq.com/oauth2.0/me'],
+        // 同一响应两条 Set-Cookie：授权 jar 必须全收（多值语义）。
+        'set-cookie': <String>['new_cookie=NC', 'another=AC'],
       })
       ..enqueue(
         200,
@@ -224,8 +225,8 @@ void main() {
     expect(third.path, 'https://graph.qq.com/oauth2.0/me');
     expect(
       third.headers['Cookie'],
-      'new_cookie=NC; pt_login_sig=SIG1; qrsig=QRSIG1',
-      reason: '轮询响应的 set-cookie 并入 jar（BTreeMap 键序）',
+      'another=AC; new_cookie=NC; pt_login_sig=SIG1; qrsig=QRSIG1',
+      reason: '轮询响应的两条 set-cookie 并入 jar（BTreeMap 键序）',
     );
     expect(result.authorization!.openid, 'OID-HTML');
     expect(result.authorization!.accessToken, 'AT-HTML');

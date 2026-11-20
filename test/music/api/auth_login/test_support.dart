@@ -112,13 +112,10 @@ class ProviderStubAdapter implements HttpClientAdapter {
   void clear() => _responses.clear();
 
   void enqueue(int statusCode, Object body, [Map<String, String>? headers]) {
-    _responses.add(
-      _StubResponse(
-        statusCode,
-        Uint8List.fromList(utf8.encode(body is String ? body : '$body')),
-        headers ?? const <String, String>{},
-      ),
-    );
+    enqueueValues(statusCode, body, <String, List<String>>{
+      if (headers != null)
+        for (final entry in headers.entries) entry.key: <String>[entry.value],
+    });
   }
 
   void enqueueBytes(
@@ -126,13 +123,27 @@ class ProviderStubAdapter implements HttpClientAdapter {
     List<int> bytes, [
     Map<String, String>? headers,
   ]) {
-    _responses.add(
-      _StubResponse(
-        statusCode,
-        Uint8List.fromList(bytes),
-        headers ?? const <String, String>{},
-      ),
-    );
+    enqueueValues(statusCode, bytes, <String, List<String>>{
+      if (headers != null)
+        for (final entry in headers.entries) entry.key: <String>[entry.value],
+    });
+  }
+
+  /// 配置**多值响应头**（多条 Set-Cookie 等；键大小写由测试控制）。
+  void enqueueValues(
+    int statusCode,
+    Object body,
+    Map<String, List<String>> headers,
+  ) {
+    final Uint8List bytes;
+    if (body is Uint8List) {
+      bytes = body;
+    } else if (body is List<int>) {
+      bytes = Uint8List.fromList(body);
+    } else {
+      bytes = Uint8List.fromList(utf8.encode(body is String ? body : '$body'));
+    }
+    _responses.add(_StubResponse(statusCode, bytes, headers));
   }
 
   @override
@@ -157,10 +168,7 @@ class ProviderStubAdapter implements HttpClientAdapter {
     return ResponseBody.fromBytes(
       response.bytes,
       response.statusCode,
-      headers: <String, List<String>>{
-        for (final entry in response.headers.entries)
-          entry.key: <String>[entry.value],
-      },
+      headers: response.headers,
     );
   }
 
@@ -173,7 +181,7 @@ class _StubResponse {
 
   final int statusCode;
   final Uint8List bytes;
-  final Map<String, String> headers;
+  final Map<String, List<String>> headers;
 }
 
 /// 响应头快捷构造（capture_adapter 的 jsonBytes 只配字节）。
