@@ -8,6 +8,7 @@ import 'package:mimao/comic/pages/challenge_verify_page.dart';
 import 'package:mimao/comic/data/engine_comic_data_source.dart';
 import 'package:mimao/comic/engine/engine.dart';
 import 'package:mimao/comic/history_service.dart';
+import 'package:mimao/comic/local_comic_service.dart';
 import 'package:mimao/comic/reader/reader_cache.dart';
 import 'package:mimao/comic/search_history_service.dart';
 import 'package:mimao/core/contract.dart';
@@ -16,6 +17,7 @@ import 'package:mimao/shell/app.dart';
 import 'package:mimao/shell/dev/dev_capability.dart';
 import 'package:mimao/shell/network_settings.dart';
 import 'package:mimao/shell/dev/dev_databases.dart';
+import 'package:mimao/shell/shell_store.dart';
 import 'package:mimao/music/api/kugou_playback_api.dart';
 import 'package:mimao/music/api/music_account_api.dart';
 import 'package:mimao/music/api/music_api.dart';
@@ -214,7 +216,12 @@ Future<void> initAppModules({
         sourceCatalog: sourceCatalog,
         collect: ComicCollectService(db, library),
         history: ComicHistoryService(db, library),
+        // 本地漫画（主页「本地漫画」区块）：导入走 C′ 的 ComicLocalService，
+        // 当前没有下载器/文件夹导入 UI，区块为空但不崩。
+        localService: ComicLocalService(db, library),
         searchHistory: searchHistory,
+        // 主页快捷入口「统一书架」：壳级导航，模块只拿一个回调。
+        onOpenLibrary: shellStore.openLibrary,
         loadChapterImages: adapter.loadImagesForChapter,
         imageCacheFactory: comicImageCacheFactory ?? defaultComicImageCache,
       );

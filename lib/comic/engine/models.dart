@@ -160,6 +160,69 @@ class ComicImageRef {
   String toString() => 'ComicImageRef($url)';
 }
 
+/// 发现页的一组漫画（源 `explore` 的一个分区，或分页结果）。
+class ComicExploreGroup {
+  const ComicExploreGroup({
+    required this.title,
+    this.comics = const <ComicSummary>[],
+    this.index = -1,
+    this.page = 1,
+    this.maxPage,
+    this.diagnostics = const <String>[],
+  });
+
+  final String title;
+  final List<ComicSummary> comics;
+
+  /// 源 `explore` 数组下标；-1 表示非探索分区。
+  final int index;
+  final int page;
+  final int? maxPage;
+  final List<String> diagnostics;
+
+  bool get isEmpty => comics.isEmpty;
+  bool get hasMore => maxPage != null && page < maxPage!;
+}
+
+/// 分类树里的一个分类（`category.parts[i]` 的一项）。
+class ComicCategoryItem {
+  const ComicCategoryItem({required this.name, this.param});
+
+  final String name;
+
+  /// `categoryComics.load(category, param, …)` 的第二个参数。
+  final String? param;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ComicCategoryItem && other.name == name && other.param == param;
+
+  @override
+  int get hashCode => Object.hash(name, param);
+
+  @override
+  String toString() => 'ComicCategoryItem($name, $param)';
+}
+
+/// 分类树的一个分组（`category.parts` 的一项）。
+class ComicCategoryPart {
+  const ComicCategoryPart({required this.name, this.items = const []});
+
+  final String name;
+  final List<ComicCategoryItem> items;
+}
+
+/// 源的分类树（`source.category`）。
+class ComicCategory {
+  const ComicCategory({this.title = '', this.parts = const []});
+
+  final String title;
+  final List<ComicCategoryPart> parts;
+
+  bool get isEmpty => parts.every((part) => part.items.isEmpty);
+}
+
 /// 一次解析 / 执行的结果：数据 + 诊断信息。
 ///
 /// 源脚本报错、超时、语法错都不会抛异常给上层，而是返回空 [items] 并在

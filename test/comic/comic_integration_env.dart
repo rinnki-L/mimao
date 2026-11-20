@@ -156,6 +156,37 @@ class FakeSourceHost implements JsHost {
       }
       return integrationImagesResponse;
     }
+    // 发现 / 分类：引擎的表达式都是 IIFE，按特征串回放（顺序重要：
+    // 先匹配全分区 Promise.all，再匹配单分区下标）。
+    if (expression.contains('source.explore') &&
+        expression.contains('Promise.all')) {
+      return integrationExploreResponse;
+    }
+    if (expression.contains('source.explore[')) {
+      final index = int.tryParse(
+        RegExp(r'source\.explore\[(\d+)\]').firstMatch(expression)!.group(1)!,
+      );
+      return <String, Object?>{
+        'index': index,
+        'title': '推荐',
+        'data': integrationExploreResponse.first['data'],
+      };
+    }
+    if (expression.contains('source.category;')) {
+      return integrationCategoryResponse;
+    }
+    if (expression.contains('source.categoryComics')) {
+      return <String, Object?>{
+        'comics': <Object?>[
+          <String, Object?>{
+            'id': 'cat-1',
+            'title': '分类漫画',
+            'cover': 'https://img.test/cat1.jpg',
+          },
+        ],
+        'maxPage': 2,
+      };
+    }
     return null;
   }
 
@@ -203,6 +234,37 @@ const Map<String, Object?> integrationImagesResponse = <String, Object?>{
     'https://img.test/p1.jpg',
     'https://img.test/p2.jpg',
     'https://img.test/p3.jpg',
+  ],
+};
+
+/// `source.explore` 全分区（引擎 exploreGroups）的回放结果：
+/// 一个分区、multiPartPage 形状（`{分区标题: 漫画数组}`）。
+const List<Map<String, Object?>> integrationExploreResponse =
+    <Map<String, Object?>>[
+      <String, Object?>{
+        'index': 0,
+        'title': '推荐',
+        'data': <String, Object?>{
+          '热门': <Object?>[
+            <String, Object?>{
+              'id': 'ex-1',
+              'title': '探索漫画',
+              'cover': 'https://img.test/ex1.jpg',
+            },
+          ],
+        },
+      },
+    ];
+
+/// `source.category` 的回放结果：一个分组、两个分类。
+const Map<String, Object?> integrationCategoryResponse = <String, Object?>{
+  'title': '测试分类',
+  'parts': <Object?>[
+    <String, Object?>{
+      'name': '题材',
+      'categories': <Object?>['科幻', '武侠'],
+      'categoryParams': <Object?>['scifi', 'wuxia'],
+    },
   ],
 };
 

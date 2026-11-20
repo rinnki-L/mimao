@@ -108,7 +108,11 @@ String deriveSourceKeyFromUrl(String url) {
 /// 不拖垮其它源，原因记入 [takeDiagnostics]）。源清单缓存在内存里，写操作
 /// （导入/启删）后刷新。
 class EngineComicDataSource
-    implements ComicDataSource, ComicSourceRepository, ComicSourcePoolSync {
+    implements
+        ComicDataSource,
+        ComicSourceRepository,
+        ComicSourcePoolSync,
+        ComicBrowseSource {
   EngineComicDataSource._({
     required this.store,
     required this.engine,
@@ -410,6 +414,134 @@ class EngineComicDataSource
     }
     return loadEpImages(key: key, comicId: ep.comicId, episodeId: ep.episodeId);
   }
+
+  // ── ComicBrowseSource（发现 / 分类）──────────────────────────────
+
+  @override
+  Future<List<ComicBrowseSourceInfo>> browseSources() async => [
+    for (final source in _sources.where((s) => s.enabled))
+      ComicBrowseSourceInfo(
+        key: source.key,
+        name: source.name.isEmpty ? source.key : source.name,
+      ),
+  ];
+
+  @override
+  Future<List<ComicBrowseGroup>> exploreGroups(
+    String key, {
+    int page = 1,
+  }) async {
+    _searchDiagnostics.clear();
+    final result = await engine.exploreGroups(key, page: page);
+    _absorbBrowseDiagnostics(key, result.diagnostics);
+    return [
+      for (final group in result.items)
+        ComicBrowseGroup(
+          title: group.title,
+          comics: _mapSummaries(group.comics, key),
+          exploreIndex: group.index,
+          page: group.page,
+          maxPage: group.maxPage,
+          diagnostics: group.diagnostics,
+        ),
+    ];
+  }
+
+  @override
+  Future<ComicBrowseGroup> exploreSection(
+    String key,
+    int index, {
+    int page = 1,
+  }) async {
+    _searchDiagnostics.clear();
+    final result = await engine.exploreSection(key, index, page: page);
+    _absorbBrowseDiagnostics(key, result.diagnostics);
+    if (result.items.isEmpty) {
+      return ComicBrowseGroup(
+        title: '推荐',
+        exploreIndex: index,
+        page: page,
+        diagnostics: result.diagnostics,
+      );
+    }
+    final group = result.items.first;
+    return ComicBrowseGroup(
+      title: group.title,
+      comics: _mapSummaries(group.comics, key),
+      exploreIndex: index,
+      page: group.page,
+      maxPage: group.maxPage,
+      diagnostics: group.diagnostics,
+    );
+  }
+
+  @override
+  Future<ComicCategoryTree?> categoryTree(String key) async {
+    _searchDiagnostics.clear();
+    final category = await engine.category(key);
+    _takeInitError(key);
+    if (category == null || category.isEmpty) return null;
+    return ComicCategoryTree(
+      title: category.title,
+      groups: [
+        for (final part in category.parts)
+          ComicCategoryGroup(
+            name: part.name,
+            nodes: [
+              for (final item in part.items)
+                ComicCategoryNode(name: item.name, param: item.param),
+            ],
+          ),
+      ],
+    );
+  }
+
+  @override
+  Future<ComicBrowseGroup> categoryComics(
+    String key,
+    ComicCategoryNode node, {
+    int page = 1,
+  }) async {
+    _searchDiagnostics.clear();
+    final result = await engine.categoryComics(
+      key,
+      source_engine.ComicCategoryItem(name: node.name, param: node.param),
+      page: page,
+    );
+    _absorbBrowseDiagnostics(key, result.diagnostics);
+    if (result.items.isEmpty) {
+      return ComicBrowseGroup(
+        title: node.name,
+        page: page,
+        diagnostics: result.diagnostics,
+      );
+    }
+    final group = result.items.first;
+    return ComicBrowseGroup(
+      title: node.name,
+      comics: _mapSummaries(group.comics, key),
+      exploreIndex: -1,
+      page: group.page,
+      maxPage: group.maxPage,
+      diagnostics: group.diagnostics,
+    );
+  }
+
+  /// 浏览期诊断并入长期缓冲与搜索期缓冲（发现/分类页与搜索页共用同一
+  /// 「取走即清」的诊断出口，失败原因不会静默）。
+  void _absorbBrowseDiagnostics(String key, List<String> diagnostics) {
+    if (diagnostics.isEmpty) return;
+    final prefixed = [for (final d in diagnostics) '$key：$d'];
+    _addDiagnostics(prefixed);
+    for (final message in prefixed) {
+      _addSearchDiagnostic(message);
+    }
+  }
+
+  List<ComicSummary> _mapSummaries(
+    List<source_engine.ComicSummary> items,
+    String key,
+  ) => [for (final item in items) _mapSummary(item, key)];
 
   // ── 字段映射（决策④：sourceName = 注册 key）────────────────────
 

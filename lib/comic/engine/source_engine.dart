@@ -100,6 +100,326 @@ class ComicSourceEngine {
     return parseComicList(execution.value, null);
   }
 
+  // ── 发现（explore）/ 分类（category）──────────────────────────────
+  //
+  // 社区源这两块的形状差异很大（Venera 模板允许 multiPartPage /
+  // multiPageComicList / mixed / singlePageWithMultiPart；分类还可能是
+  // dynamic loader），所以解析全部走「宽松 + 逐分区容错」：任何一段解析不出
+  // 就只丢这一段并记诊断，不让整页失败。
+
+  /// 一次执行取某源 `explore` 的**全部分区**（分区内失败只影响该分区）。
+  ///
+  /// 表达式在 JS 侧 `Promise.all` 逐分区 catch：一个分区抛错不会让整次
+  /// 调用 reject（与搜索「单源失败不拖垮其它源」同一口径）。
+  Future<ComicSourceResult<ComicExploreGroup>> exploreGroups(
+    String key, {
+    int page = 1,
+  }) async {
+    final execution = await _pool.execute(key, _exploreAllExpression(page));
+    if (!execution.isOk) {
+      return ComicSourceResult(diagnostics: <String>[execution.error!]);
+    }
+    final raw = execution.value;
+    if (raw is! List) {
+      return const ComicSourceResult(
+        diagnostics: <String>['探索结果无法解析（源未提供 explore）'],
+      );
+    }
+    final groups = <ComicExploreGroup>[];
+    final diagnostics = <String>[];
+    for (var i = 0; i < raw.length; i++) {
+      final entry = _asMap(raw[i]);
+      if (entry == null) continue;
+      final title = _string(entry['title']);
+      final index = _int(entry['index']) ?? i;
+      final error = _string(entry['error']);
+      if (error.isNotEmpty) {
+        // 失败分区也保留成一个「空数据 + 诊断」的分区：上层据此把真实
+        // 原因显示出来（否则分区凭空消失，用户只看到少了一栏）。
+        final sectionTitle = title.isEmpty ? '分区 $index' : title;
+        diagnostics.add('$sectionTitle：$error');
+        groups.add(
+          ComicExploreGroup(
+            title: sectionTitle,
+            index: index,
+            page: page,
+            diagnostics: <String>[error],
+          ),
+        );
+        continue;
+      }
+      final parsed = parseExplorePayload(
+        entry['data'],
+        title: title,
+        index: index,
+        page: page,
+      );
+      groups.addAll(parsed.groups);
+      diagnostics.addAll(parsed.diagnostics);
+    }
+    return ComicSourceResult(items: groups, diagnostics: diagnostics);
+  }
+
+  /// 取某源 `explore[index]` 一个分区（翻页用；也用于只加载单栏的场景）。
+  Future<ComicSourceResult<ComicExploreGroup>> exploreSection(
+    String key,
+    int index, {
+    int page = 1,
+  }) async {
+    final execution = await _pool.execute(
+      key,
+      _exploreOneExpression(index, page),
+    );
+    if (!execution.isOk) {
+      return ComicSourceResult(diagnostics: <String>[execution.error!]);
+    }
+    final map = _asMap(execution.value);
+    if (map == null) {
+      return const ComicSourceResult(diagnostics: <String>['探索结果无法解析']);
+    }
+    final title = _string(map['title']);
+    final error = _string(map['error']);
+    if (error.isNotEmpty) {
+      final sectionTitle = title.isEmpty ? '分区 $index' : title;
+      return ComicSourceResult(
+        items: <ComicExploreGroup>[
+          ComicExploreGroup(
+            title: sectionTitle,
+            index: index,
+            page: page,
+            diagnostics: <String>[error],
+          ),
+        ],
+        diagnostics: <String>['$sectionTitle：$error'],
+      );
+    }
+    final parsed = parseExplorePayload(
+      map['data'],
+      title: title,
+      index: index,
+      page: page,
+    );
+    return ComicSourceResult(
+      items: parsed.groups,
+      diagnostics: parsed.diagnostics,
+    );
+  }
+
+  /// 源分类树；null 表示源没有 `category`（UI 回退到探索分栏）。
+  Future<ComicCategory?> category(String key) async {
+    final execution = await _pool.execute(key, _categoryExpression);
+    if (!execution.isOk) return null;
+    final map = _asMap(execution.value);
+    if (map == null) return null;
+    final parts = <ComicCategoryPart>[];
+    final rawParts = map['parts'];
+    if (rawParts is List) {
+      for (final rawPart in rawParts) {
+        final part = _asMap(rawPart);
+        if (part == null) continue;
+        final items = <ComicCategoryItem>[];
+        // 静态分类：`categories`（字符串或 {label,target}）+ 平行 `categoryParams`。
+        final categories = part['categories'];
+        final params = part['categoryParams'] ?? part['params'];
+        if (categories is List) {
+          for (var i = 0; i < categories.length; i++) {
+            final entry = categories[i];
+            final param = _stringAt(params, i);
+            if (entry is Map) {
+              final label = _string(
+                entry['label'],
+                fallback: entry['name'] ?? entry['title'],
+              );
+              if (label.isEmpty) continue;
+              items.add(
+                ComicCategoryItem(
+                  name: label,
+                  param: _string(entry['target']).isEmpty
+                      ? (param.isEmpty ? null : param)
+                      : _string(entry['target']),
+                ),
+              );
+            } else {
+              final label = entry?.toString().trim() ?? '';
+              if (label.isEmpty) continue;
+              items.add(
+                ComicCategoryItem(
+                  name: label,
+                  param: param.isEmpty ? null : param,
+                ),
+              );
+            }
+          }
+        } else if (categories is Map) {
+          // 少数源写成 {显示名: param} 的映射。
+          for (final e in categories.entries) {
+            final label = e.key?.toString().trim() ?? '';
+            if (label.isEmpty) continue;
+            final param = e.value?.toString() ?? '';
+            items.add(
+              ComicCategoryItem(
+                name: label,
+                param: param.isEmpty ? null : param,
+              ),
+            );
+          }
+        }
+        final name = _string(part['name']);
+        if (items.isEmpty && name.isEmpty) continue;
+        parts.add(ComicCategoryPart(name: name, items: items));
+      }
+    }
+    if (parts.isEmpty || parts.every((part) => part.items.isEmpty)) {
+      // 只有空分组（如全部是 dynamic loader、需要用户先选分类）等价于没有
+      // 可点的分类项——返回 null，让 UI 回退到探索分栏而不是画空页。
+      return null;
+    }
+    return ComicCategory(title: _string(map['title']), parts: parts);
+  }
+
+  /// 分类漫画列表：`categoryComics.load(category, param, options, page)`。
+  ///
+  /// 只实现 `loadNext` 的源回退到 `loadNext(category, param, options, null)`，
+  /// 与搜索的 load/loadNext 回退同口径。
+  Future<ComicSourceResult<ComicExploreGroup>> categoryComics(
+    String key,
+    ComicCategoryItem item, {
+    int page = 1,
+  }) async {
+    final execution = await _pool.execute(
+      key,
+      _categoryComicsExpression(item, page),
+    );
+    if (!execution.isOk) {
+      return ComicSourceResult(diagnostics: <String>[execution.error!]);
+    }
+    // 源没有 categoryComics：表达式返回 {comics: [], maxPage: null}，与
+    // 「分类下确实没有漫画」同形，都是空结果——不额外记诊断（不是错误）。
+    final parsed = parseExplorePayload(
+      execution.value,
+      title: item.name,
+      index: -1,
+      page: page,
+    );
+    return ComicSourceResult(
+      items: parsed.groups,
+      diagnostics: parsed.diagnostics,
+    );
+  }
+
+  /// 把一次 explore / categoryComics 的原始返回收敛成若干分区。
+  ///
+  /// 支持的形状（对齐 Venera 模板）：
+  /// - `{comics, maxPage?}` → 单分区（multiPageComicList）；
+  /// - `{data: …, maxPage?}` → 递归解析 data（mixed，maxPage 逐层下传）；
+  /// - `{标题: 漫画数组 | {comics}}` → 每键一个分区（multiPartPage）；
+  /// - `[{title, comics}]` → 每项一个分区；
+  /// - `[Comic…]` → 单分区（用源给的分区标题兜底）。
+  ({List<ComicExploreGroup> groups, List<String> diagnostics})
+  parseExplorePayload(
+    Object? raw, {
+    required String title,
+    required int index,
+    required int page,
+  }) {
+    final groups = <ComicExploreGroup>[];
+    final diagnostics = <String>[];
+    final fallbackTitle = title.isEmpty ? '推荐' : title;
+
+    void addFlat(Object? value, String groupTitle, {int? maxPage}) {
+      final map = _asMap(value);
+      // mixed：外层 `{data, maxPage}` 只做包装，maxPage 传给内层。
+      // 必须「除 data/maxPage 外没有别的键」才算包装——否则源里恰好有个
+      // 名叫 "data" 的分区时，其它分区会被整片吞掉。
+      if (map != null &&
+          map['data'] != null &&
+          map.keys.every((k) => k == 'data' || k == 'maxPage')) {
+        addFlat(
+          map['data'],
+          groupTitle,
+          maxPage: _int(map['maxPage']) ?? maxPage,
+        );
+        return;
+      }
+      final list = value is List ? value : map?['comics'];
+      if (list is List) {
+        final comics = <ComicSummary>[];
+        for (var i = 0; i < list.length; i++) {
+          final comic = parseComic(list[i]);
+          if (comic == null) {
+            diagnostics.add('$groupTitle：第 ${i + 1} 个漫画无法解析');
+          } else {
+            comics.add(comic);
+          }
+        }
+        groups.add(
+          ComicExploreGroup(
+            title: groupTitle,
+            comics: comics,
+            index: index,
+            page: page,
+            maxPage: maxPage ?? _int(map?['maxPage']),
+          ),
+        );
+        return;
+      }
+      // 多分区映射 `{分区标题: 漫画数组}`（multiPartPage 的 data）。
+      if (map != null && map.isNotEmpty) {
+        var emitted = false;
+        for (final entry in map.entries) {
+          if (entry.key == 'maxPage') continue;
+          final child = entry.value;
+          if (child is! List && child is! Map) continue;
+          final sectionTitle = entry.key?.toString().trim() ?? '';
+          addFlat(
+            child,
+            sectionTitle.isEmpty ? groupTitle : sectionTitle,
+            maxPage: maxPage,
+          );
+          emitted = true;
+        }
+        if (emitted) return;
+      }
+      diagnostics.add('$groupTitle：结果缺少 comics 数组');
+    }
+
+    if (raw is List) {
+      // 分区分片：全部元素都是带 comics/data 的 Map 时按分区展开。
+      final isSectionList =
+          raw.isNotEmpty &&
+          raw.every((e) {
+            final map = _asMap(e);
+            return map != null &&
+                (map.containsKey('comics') || map.containsKey('data'));
+          });
+      if (isSectionList) {
+        for (final entry in raw) {
+          final map = _asMap(entry)!;
+          final sectionTitle = _string(
+            map['title'],
+            fallback: map['name'] ?? fallbackTitle,
+          );
+          addFlat(map['data'] ?? map, sectionTitle);
+        }
+      } else {
+        addFlat(raw, fallbackTitle);
+      }
+    } else if (raw is Map) {
+      addFlat(raw, fallbackTitle);
+    } else {
+      diagnostics.add('$fallbackTitle：探索结果无法解析');
+    }
+    return (groups: groups, diagnostics: diagnostics);
+  }
+
+  /// 从并行数组里按下标取字符串（`categoryParams[i]`），越界返回空串。
+  String _stringAt(Object? raw, int index) {
+    if (raw is List && index < raw.length) {
+      return raw[index]?.toString().trim() ?? '';
+    }
+    return '';
+  }
+
   /// `{comics: [...], maxPage?}` / `[...]` → 列表。
   ComicSourceResult<ComicSummary> parseComicList(
     Object? raw,
@@ -239,7 +559,14 @@ class ComicSourceEngine {
     // 源在 total 缺失时这么算 maxPage）；直接 toInt() 会抛
     // "Infinity or NaN toInt"，一个源就能把整次聚合搜索打崩。
     if (raw is num) return raw.isFinite ? raw.toInt() : null;
-    if (raw is String) return int.tryParse(raw.trim());
+    if (raw is String) {
+      final text = raw.trim();
+      final direct = int.tryParse(text);
+      if (direct != null) return direct;
+      // "12.0" / "12.5" 这类字符串（有的源把 maxPage 算成浮点再转串）。
+      final asDouble = double.tryParse(text);
+      return asDouble != null && asDouble.isFinite ? asDouble.toInt() : null;
+    }
     return null;
   }
 
@@ -252,11 +579,141 @@ class ComicSourceEngine {
     return null;
   }
 
-  String _q(String value) =>
-      '"${value.replaceAll(r'\', r'\\').replaceAll('"', r'\"').replaceAll('\n', r'\n')}"';
+  String _q(String value) => '"${_escapeJs(value)}"';
+
+  /// JS 字符串字面量转义。除引号/反斜杠/换行外还处理 CR 与 U+2028/U+2029
+  /// ——它们在 JS 字符串里非法（旧引擎直接 SyntaxError），而源数据
+  /// （关键词、分类名）完全可能带上。
+  static String _escapeJs(String value) => value
+      .replaceAll(r'\', r'\\')
+      .replaceAll('"', r'\"')
+      .replaceAll('\r', r'\r')
+      .replaceAll('\n', r'\n')
+      .replaceAll('\t', r'\t')
+      .replaceAll('\u2028', r'\u2028')
+      .replaceAll('\u2029', r'\u2029');
 
   String _jsonList(List<String?> values) =>
       '[${values.map((v) => v == null ? 'null' : _q(v)).join(',')}]';
+
+  /// 一次执行取全部分区：逐分区 `Promise.all` + 单个 catch，返回
+  /// `[{index, title, data} | {index, title, error}]`。
+  ///
+  /// `loadNext` 回退与 Venera 一致：没有 `load` 的分区用 `loadNext(page)`。
+  String _exploreAllExpression(int page) =>
+      '''
+(() => {
+  const list = source.explore;
+  if (!Array.isArray(list)) return Promise.resolve([]);
+  return Promise.all(list.map((item, i) => {
+    if (!item || typeof item !== 'object') {
+      return { index: i, title: '', error: '分区定义无效' };
+    }
+    const title = item.title === undefined ? '' : String(item.title);
+    let call;
+    try {
+      if (typeof item.load === 'function') {
+        call = item.load($page);
+      } else if (typeof item.loadNext === 'function') {
+        call = item.loadNext($page);
+      } else {
+        return { index: i, title: title, error: '分区没有 load/loadNext' };
+      }
+    } catch (error) {
+      // 同步抛错也会让 Promise.all 整体 reject（丢掉其它分区），单独收敛。
+      return { index: i, title: title, error: String(error) };
+    }
+    return Promise.resolve(call).then(
+      (data) => ({ index: i, title: title, data: data }),
+      (error) => ({ index: i, title: title, error: String(error) })
+    );
+  }));
+})()''';
+
+  /// 单个分区（翻页）：返回 `{index, title, data} | {index, title, error}`。
+  String _exploreOneExpression(int index, int page) =>
+      '''
+(() => {
+  const item = source.explore && source.explore[$index];
+  if (!item || typeof item !== 'object') {
+    return { index: $index, title: '', error: '分区不存在' };
+  }
+  const title = item.title === undefined ? '' : String(item.title);
+  let call;
+  try {
+    if (typeof item.load === 'function') {
+      call = item.load($page);
+    } else if (typeof item.loadNext === 'function') {
+      call = item.loadNext($page);
+    } else {
+      return { index: $index, title: title, error: '分区没有 load/loadNext' };
+    }
+  } catch (error) {
+    return { index: $index, title: title, error: String(error) };
+  }
+  return Promise.resolve(call).then(
+    (data) => ({ index: $index, title: title, data: data }),
+    (error) => ({ index: $index, title: title, error: String(error) })
+  );
+})()''';
+
+  /// 分类树：只取静态可读部分（`title` / `parts[].name` /
+  /// `parts[].categories` / `categoryParams`），不触发 dynamic loader——
+  /// 那需要用户先选分类，由 [categoryComics] 负责。
+  static const String _categoryExpression = '''
+(() => {
+  const category = source.category;
+  if (!category || typeof category !== 'object') return null;
+  const parts = Array.isArray(category.parts) ? category.parts : [];
+  return {
+    title: category.title === undefined ? '' : String(category.title),
+    parts: parts.map((part) => {
+      if (!part || typeof part !== 'object') return { name: '', categories: [] };
+      const name = part.name === undefined ? '' : String(part.name);
+      let categories = part.categories;
+      if (categories === undefined && Array.isArray(part.categoryParams)) {
+        categories = part.categoryParams;
+      }
+      return {
+        name: name,
+        categories: categories === undefined ? [] : categories,
+        categoryParams: Array.isArray(part.categoryParams)
+          ? part.categoryParams : []
+      };
+    })
+  };
+})()''';
+
+  /// 分类漫画：`categoryComics.load(category, param, options, page)`，
+  /// 缺 `load` 时回退 `loadNext(category, param, options, null)`。
+  /// `options` 传空数组：分类页第一版不暴露源的自定义筛选项。
+  String _categoryComicsExpression(ComicCategoryItem item, int page) {
+    final category = _q(item.name);
+    final param = item.param == null ? 'null' : _q(item.param!);
+    return '''
+(() => {
+  const c = source.categoryComics;
+  if (!c || typeof c !== 'object') {
+    return { comics: [], maxPage: null };
+  }
+  let call;
+  try {
+    if (typeof c.load === 'function') {
+      call = c.load($category, $param, [], $page);
+    } else if (typeof c.loadNext === 'function') {
+      call = c.loadNext($category, $param, [], null);
+    } else {
+      return { comics: [], maxPage: null };
+    }
+  } catch (error) {
+    return { comics: [], maxPage: null, error: String(error) };
+  }
+  return Promise.resolve(call).then(
+    (r) => Array.isArray(r) ? { comics: r, maxPage: null }
+                            : (r || { comics: [], maxPage: null })
+  );
+})()''';
+  }
 }
 
 /// 在 JS 侧算默认搜索选项（对齐 Venera `source_search_parser.dart`）：

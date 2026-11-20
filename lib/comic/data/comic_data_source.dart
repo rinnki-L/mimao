@@ -44,6 +44,120 @@ abstract interface class ComicDataSource {
   Future<List<String>> recentSearchTerms() async => const <String>[];
 }
 
+/// 一个可浏览的源（发现/分类页的来源选择器）。
+///
+/// 只描述展示所需字段；分类树与发现流是否真的存在，由
+/// [ComicBrowseSource.categoryTree] / [ComicBrowseSource.exploreGroups]
+/// 在选中该源后按需探测——一次性探测全部源要逐个进 QuickJS runtime，
+/// 打开页面时不可接受。
+class ComicBrowseSourceInfo {
+  const ComicBrowseSourceInfo({
+    required this.key,
+    required this.name,
+    this.enabled = true,
+  });
+
+  /// 源注册 key（与 [ComicSummary.sourceName] 同一取值空间）。
+  final String key;
+
+  /// 展示名（脚本 `name` 字段，空时回退 key）。
+  final String name;
+
+  final bool enabled;
+}
+
+/// 发现/分类里的一组漫画：发现页的一个分区，或分类页的一次查询结果。
+class ComicBrowseGroup {
+  const ComicBrowseGroup({
+    required this.title,
+    this.comics = const <ComicSummary>[],
+    this.exploreIndex = -1,
+    this.page = 1,
+    this.maxPage,
+    this.diagnostics = const <String>[],
+  });
+
+  final String title;
+  final List<ComicSummary> comics;
+
+  /// 来自源 `explore` 数组的下标；-1 表示不是探索分区（如分类结果）。
+  final int exploreIndex;
+
+  /// 本组数据对应的页码（从 1 开始）。
+  final int page;
+
+  /// 源声明的总页数；null 表示未知/不分页。
+  final int? maxPage;
+
+  /// 本组加载期间的失败原因（空 = 无问题）。页面据此把「分区消失」的
+  /// 真实原因显示出来，而不是静默吞掉。
+  final List<String> diagnostics;
+
+  bool get hasMore => maxPage != null && page < maxPage!;
+}
+
+/// 分类树里的一个分类节点。
+class ComicCategoryNode {
+  const ComicCategoryNode({required this.name, this.param});
+
+  /// 展示名（分类标签）。
+  final String name;
+
+  /// 传给源 `categoryComics.load(category, param, …)` 的第二个参数。
+  final String? param;
+
+  @override
+  String toString() => 'ComicCategoryNode($name, $param)';
+}
+
+/// 分类树的一个分组（源脚本 `category.parts` 的一项）。
+class ComicCategoryGroup {
+  const ComicCategoryGroup({required this.name, this.nodes = const []});
+
+  final String name;
+  final List<ComicCategoryNode> nodes;
+}
+
+/// 源的分类树。`groups` 为空表示该源没有 `category`（UI 回退到探索分栏）。
+class ComicCategoryTree {
+  const ComicCategoryTree({this.title = '', this.groups = const []});
+
+  final String title;
+  final List<ComicCategoryGroup> groups;
+
+  bool get isEmpty => groups.every((g) => g.nodes.isEmpty);
+}
+
+/// 源站点的「发现 / 分类」浏览能力（抽象）。
+///
+/// 与 [ComicDataSource] 分开：搜索是用户给定关键词，浏览是源自己提供的
+/// 探索流与分类树。真实实现是 A′ 引擎适配层；fixture 提供离线假实现，
+/// 页面只认本接口。
+abstract interface class ComicBrowseSource {
+  /// 可用于浏览的源（通常只含已启用源）。
+  Future<List<ComicBrowseSourceInfo>> browseSources();
+
+  /// 某源的全部分区（探索流）；单分区失败只跳过该分区。
+  Future<List<ComicBrowseGroup>> exploreGroups(String key, {int page = 1});
+
+  /// 某源探索流里的第 [index] 个分区。
+  Future<ComicBrowseGroup> exploreSection(
+    String key,
+    int index, {
+    int page = 1,
+  });
+
+  /// 某源的分类树；null 表示该源没有 `category` 定义。
+  Future<ComicCategoryTree?> categoryTree(String key);
+
+  /// 按分类取漫画列表。
+  Future<ComicBrowseGroup> categoryComics(
+    String key,
+    ComicCategoryNode node, {
+    int page = 1,
+  });
+}
+
 /// 源管理页的数据入口（抽象）。
 ///
 /// 与 [ComicDataSource] 分开：搜索/详情只读远端内容，源管理读写「已导入

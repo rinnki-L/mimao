@@ -150,16 +150,19 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('${MediaType.comic.label}模块尚未接入'), findsNothing);
-      // 模块层内部导航（搜索/源管理）存在；内存源仓库为空 → 搜索空态兜底。
-      expect(find.text('源管理'), findsOneWidget);
-      expect(find.text('暂时没有可搜索的漫画'), findsOneWidget);
+      // 模块层四个功能分区就位；内存源仓库为空 → 各分区走空态兜底。
+      for (final label in <String>['主页', '收藏', '发现', '分类']) {
+        expect(find.text(label), findsOneWidget, reason: '缺少分区 $label');
+      }
+      expect(find.byKey(const Key('comic-home-search')), findsOneWidget);
+      expect(find.text('还没有阅读记录或本地漫画'), findsOneWidget);
 
       await tester.tap(find.byTooltip('返回'));
       await tester.pumpAndSettle();
       expect(find.byTooltip('统一书架'), findsOneWidget);
     });
 
-    testWidgets('漫画设置收进模块页底部导航最右「设置」tab', (tester) async {
+    testWidgets('漫画设置收在主页右上角按钮里（底部栏留给四个分区）', (tester) async {
       await initModules();
       await tester.pumpWidget(pumpApp());
       await tester.pumpAndSettle();
@@ -167,9 +170,10 @@ void main() {
       // 一步进入模块。
       await tester.tap(find.text(MediaType.comic.label).first);
       await tester.pumpAndSettle();
-      // 底部导航最右一枚是「设置」；点它切到模块设置面板。
+      // 底部四分区不占设置位；设置入口是主页快捷行里的 chip（壳提供顶栏，
+      // 分区页不画 AppBar）。
       expect(find.text('设置'), findsOneWidget);
-      await tester.tap(find.text('设置'));
+      await tester.tap(find.byKey(const Key('comic-home-settings-chip')));
       await tester.pumpAndSettle();
 
       expect(

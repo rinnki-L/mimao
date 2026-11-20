@@ -404,7 +404,7 @@ void main() {
   });
 
   group('模块层内部导航', () {
-    testWidgets('搜索 → 详情 → 返回', (tester) async {
+    testWidgets('主页搜索入口 → 搜索页 → 详情 → 返回', (tester) async {
       _usePhoneSize(tester);
       await tester.pumpWidget(
         _app(
@@ -416,10 +416,16 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(
-        find.byKey(const ValueKey<String>('search-result-xingzhou')),
-        findsOneWidget,
-      );
+      // 底部四分区就位（主页/收藏/发现/分类）。
+      for (final label in <String>['主页', '收藏', '发现', '分类']) {
+        expect(find.text(label), findsOneWidget, reason: '缺少分区 $label');
+      }
+
+      // 主页只有搜索入口；点进完整搜索页。
+      await tester.tap(find.byKey(const Key('comic-home-search')));
+      await tester.pumpAndSettle();
+      expect(find.text('共 4 部'), findsOneWidget);
+
       await tester.tap(find.text('星舟漫游'));
       await tester.pumpAndSettle();
 
@@ -429,16 +435,20 @@ void main() {
 
       await tester.tap(find.byTooltip('返回'));
       await tester.pumpAndSettle();
-
       expect(find.text('漫画详情'), findsNothing);
       expect(
         find.byKey(const ValueKey<String>('search-result-xingzhou')),
         findsOneWidget,
       );
+
+      // 再退一层回主页。
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('comic-home-search')), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('底部导航切到源管理再切回搜索', (tester) async {
+    testWidgets('主页「源管理」入口 push 源管理页', (tester) async {
       _usePhoneSize(tester);
       await tester.pumpWidget(
         _app(
@@ -450,13 +460,35 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('源管理'));
+      await tester.tap(find.byKey(const Key('comic-home-sources')));
       await tester.pumpAndSettle();
       expect(find.text('已导入 3 个来源'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
 
-      await tester.tap(find.text('搜索'));
+    testWidgets('未接线时收藏/发现/分类显示说明而非空屏', (tester) async {
+      _usePhoneSize(tester);
+      await tester.pumpWidget(
+        _app(
+          ComicModulePage(
+            dataSource: comicFixture,
+            sourceRepository: FixtureComicSourceRepository(),
+          ),
+        ),
+      );
       await tester.pumpAndSettle();
-      expect(find.text('共 4 部'), findsOneWidget);
+
+      await tester.tap(find.text('收藏'));
+      await tester.pumpAndSettle();
+      expect(find.text('收藏服务尚未接入。'), findsOneWidget);
+
+      await tester.tap(find.text('发现'));
+      await tester.pumpAndSettle();
+      expect(find.text('源站点浏览能力尚未接入。'), findsOneWidget);
+
+      await tester.tap(find.text('分类'));
+      await tester.pumpAndSettle();
+      expect(find.text('源站点浏览能力尚未接入。'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   });

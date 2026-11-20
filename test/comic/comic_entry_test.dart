@@ -93,18 +93,16 @@ void main() {
   }
 
   /// 搜索 c1 并进入详情页（空关键词下适配器返回空列表，须真实触发搜索）。
+  ///
+  /// 模块主页是「主页」分区（搜索入口 + 历史/本地），搜索是独立一页：
+  /// 先点主页搜索入口，再在搜索页里输入并提交。
   Future<void> openDetail(WidgetTester tester) async {
     await tester.pumpWidget(_app(_HostModule(module: module)));
     await tester.pumpAndSettle();
-    // IndexedStack 同时构建了源管理页（含 URL 输入框），用 SearchBar 后代
-    // 精确定位搜索输入框；提交按钮用唯一图标定位。
-    await tester.enterText(
-      find.descendant(
-        of: find.byType(SearchBar),
-        matching: find.byType(TextField),
-      ),
-      '海贼王',
-    );
+    await tester.tap(find.byKey(const Key('comic-home-search')));
+    await tester.pumpAndSettle();
+    // 搜索页只有一个输入框（主页是只读 SearchBar，已退到下一层路由）。
+    await tester.enterText(find.byType(TextField), '海贼王');
     await tester.tap(find.byIcon(Icons.arrow_forward_rounded));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey<String>('search-result-c1')));

@@ -25,6 +25,8 @@ import 'package:mimao/comic/data/comic_models.dart';
 import 'package:mimao/comic/data/engine_comic_data_source.dart';
 import 'package:mimao/comic/engine/engine.dart' show ComicSourceCatalog;
 import 'package:mimao/comic/history_service.dart';
+import 'package:mimao/comic/library_api_impl.dart';
+import 'package:mimao/comic/local_comic_service.dart';
 import 'package:mimao/comic/pages/comic_module_page.dart';
 import 'package:mimao/comic/pages/comic_module_settings.dart';
 import 'package:mimao/comic/reader/reader_cache.dart' as reader;
@@ -55,12 +57,25 @@ class ComicModule implements AppModule {
     required this.history,
     required this.searchHistory,
     required this.loadChapterImages,
+    this.localService,
+    this.browseSource,
     this.sourceCatalog,
     this.imageCacheFactory,
+    this.onOpenLibrary,
   });
 
   final ComicDataSource dataSource;
   final ComicSourceRepository sourceRepository;
+
+  /// 发现/分类的浏览能力。null 时回退：若 [dataSource] 自身实现了
+  /// [ComicBrowseSource]（生产路径就是 EngineComicDataSource），自动采用它。
+  final ComicBrowseSource? browseSource;
+
+  /// 本地漫画服务（主页「本地漫画」区块）；null 时该区块为空。
+  final ComicLocalService? localService;
+
+  /// 壳层的「统一书架」入口（主页快捷入口）；null 时主页不显示该入口。
+  final VoidCallback? onOpenLibrary;
 
   /// 源仓库目录（浏览 `index.json` 按需导入）。null 时源管理页不显示仓库区块。
   final ComicSourceCatalog? sourceCatalog;
@@ -91,13 +106,27 @@ class ComicModule implements AppModule {
 
   @override
   Widget buildHome(BuildContext context) {
+    // 浏览能力：显式注入优先；否则数据源自身实现时直接采用（生产路径）。
+    final browse =
+        browseSource ??
+        (dataSource is ComicBrowseSource
+            ? dataSource as ComicBrowseSource
+            : null);
     return ComicModulePage(
       dataSource: dataSource,
       sourceRepository: sourceRepository,
+      browseSource: browse,
+      library: ComicLibraryApiImpl(
+        collect: collect,
+        history: history,
+        localService: localService,
+      ),
       sourceCatalog: sourceCatalog,
       embedded: true,
-      // 各入口的设置放进各入口：模块设置面板作为最右侧「设置」tab。
+      // 各入口的设置放进各入口：模块设置面板收在主页右上角按钮里
+      // （底部栏四个位置留给功能分区）。
       settingsTab: buildSettings(context),
+      onOpenLibrary: onOpenLibrary,
       onOpenDetail: (item) => history.open(refOf(item)),
       isFavorite: (item) => collect.isCollected(refOf(item)),
       onFavoriteChanged: (item, favorite) =>

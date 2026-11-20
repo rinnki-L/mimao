@@ -2,7 +2,13 @@
 import 'package:flutter/material.dart';
 import 'package:mimao/comic/data/comic_data_source.dart';
 import 'package:mimao/comic/data/comic_models.dart';
-import 'package:mimao/comic/pages/comic_cover.dart';
+import 'package:mimao/comic/pages/comic_poster_card.dart';
+
+// 卡片与网格已抽到 comic_poster_card.dart（四个分区页共用同一形态）；
+// 这里 re-export，既有 `import 'comic_search_page.dart'` 拿 ComicPosterCard
+// 的调用方零改动。
+export 'package:mimao/comic/pages/comic_poster_card.dart'
+    show ComicPosterCard, ComicPosterGrid;
 
 /// 漫画搜索页：搜索框 + 结果网格 + 空/错误/重试。
 ///
@@ -243,25 +249,10 @@ class _ComicSearchPageState extends State<ComicSearchPage> {
               ),
             ),
             Expanded(
-              child: GridView.builder(
-                padding: const EdgeInsets.only(bottom: 16),
-                gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                  maxCrossAxisExtent: 190,
-                  mainAxisExtent: 296,
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 12,
-                ),
-                itemCount: results.length,
-                itemBuilder: (context, index) {
-                  final item = results[index];
-                  return ComicPosterCard(
-                    key: ValueKey<String>('search-result-${item.id}'),
-                    item: item,
-                    onTap: widget.onOpenDetail == null
-                        ? null
-                        : () => widget.onOpenDetail!(item),
-                  );
-                },
+              child: ComicPosterGrid(
+                items: results,
+                keyPrefix: 'search-result',
+                onOpen: widget.onOpenDetail,
               ),
             ),
           ],
@@ -296,61 +287,6 @@ class _SourceFilterChip extends StatelessWidget {
         selected: selected,
         onSelected: onSelected,
         visualDensity: VisualDensity.compact,
-      ),
-    );
-  }
-}
-
-/// 搜索结果卡片：封面 + 标题 + 状态行。
-class ComicPosterCard extends StatelessWidget {
-  const ComicPosterCard({super.key, required this.item, this.onTap});
-
-  final ComicSummary item;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-    // 形态（无阴影 / surfaceContainerLow / r20）走 cardTheme，页面不再覆写。
-    return Card(
-      margin: EdgeInsets.zero,
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            Expanded(
-              child: ComicCover(url: item.coverUrl, title: item.title),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
-                    item.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: textTheme.titleSmall,
-                  ),
-                  if (item.subtitle != null) ...<Widget>[
-                    const SizedBox(height: 2),
-                    Text(
-                      item.subtitle!,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: textTheme.bodySmall?.apply(
-                        color: cs.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }

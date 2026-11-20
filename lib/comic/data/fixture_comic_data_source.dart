@@ -243,3 +243,112 @@ class FixtureComicSourceRepository implements ComicSourceRepository {
   List<ComicSourceInfo> get snapshot =>
       List<ComicSourceInfo>.unmodifiable(_sources);
 }
+
+/// 离线版「发现 / 分类」浏览源——四个分区页的 widget 测试与未接线降级用。
+///
+/// 两个假源：`fixture` 有分类树，`fixture-plain` 没有分类（验证回退到
+/// explore 分栏）。全部固定数据、零网络。
+class FixtureComicBrowseSource implements ComicBrowseSource {
+  const FixtureComicBrowseSource({
+    this.sources = defaultBrowseSources,
+    this.groups = defaultGroups,
+    this.categories = defaultCategories,
+  });
+
+  final List<ComicBrowseSourceInfo> sources;
+
+  /// 每个源 key → 探索分区。
+  final Map<String, List<ComicBrowseGroup>> groups;
+
+  /// 每个源 key → 分类树；缺失表示该源没有 category（回退到 explore）。
+  final Map<String, ComicCategoryTree> categories;
+
+  static const ComicBrowseSourceInfo fixtureSource = ComicBrowseSourceInfo(
+    key: 'fixture',
+    name: 'Fixture 源',
+  );
+  static const ComicBrowseSourceInfo plainSource = ComicBrowseSourceInfo(
+    key: 'fixture-plain',
+    name: '无分类源',
+  );
+
+  static const List<ComicBrowseSourceInfo> defaultBrowseSources =
+      <ComicBrowseSourceInfo>[fixtureSource, plainSource];
+
+  /// 两个源共用同一批探索分区（内容差异不影响 UI 断言）。
+  static const Map<String, List<ComicBrowseGroup>> defaultGroups =
+      <String, List<ComicBrowseGroup>>{
+        'fixture': <ComicBrowseGroup>[
+          ComicBrowseGroup(
+            title: '推荐',
+            exploreIndex: 0,
+            comics: FixtureComicDataSource.defaultSearchResults,
+          ),
+          ComicBrowseGroup(
+            title: '排行',
+            exploreIndex: 1,
+            comics: <ComicSummary>[
+              FixtureComicDataSource.yeyu,
+              FixtureComicDataSource.mihuan,
+            ],
+          ),
+        ],
+        'fixture-plain': <ComicBrowseGroup>[
+          ComicBrowseGroup(
+            title: '最新',
+            exploreIndex: 0,
+            comics: <ComicSummary>[FixtureComicDataSource.haibian],
+          ),
+        ],
+      };
+
+  static const Map<String, ComicCategoryTree> defaultCategories =
+      <String, ComicCategoryTree>{
+        'fixture': ComicCategoryTree(
+          title: 'Fixture 分类',
+          groups: <ComicCategoryGroup>[
+            ComicCategoryGroup(
+              name: '题材',
+              nodes: <ComicCategoryNode>[
+                ComicCategoryNode(name: '科幻', param: 'scifi'),
+                ComicCategoryNode(name: '武侠', param: 'wuxia'),
+              ],
+            ),
+          ],
+        ),
+      };
+
+  @override
+  Future<List<ComicBrowseSourceInfo>> browseSources() async => sources;
+
+  @override
+  Future<List<ComicBrowseGroup>> exploreGroups(
+    String key, {
+    int page = 1,
+  }) async => groups[key] ?? const <ComicBrowseGroup>[];
+
+  @override
+  Future<ComicBrowseGroup> exploreSection(
+    String key,
+    int index, {
+    int page = 1,
+  }) async {
+    for (final group in groups[key] ?? const <ComicBrowseGroup>[]) {
+      if (group.exploreIndex == index) return group;
+    }
+    return ComicBrowseGroup(title: '分区 $index', exploreIndex: index);
+  }
+
+  @override
+  Future<ComicCategoryTree?> categoryTree(String key) async => categories[key];
+
+  @override
+  Future<ComicBrowseGroup> categoryComics(
+    String key,
+    ComicCategoryNode node, {
+    int page = 1,
+  }) async => ComicBrowseGroup(
+    title: node.name,
+    comics: FixtureComicDataSource.defaultSearchResults,
+  );
+}
