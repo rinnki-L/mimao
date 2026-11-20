@@ -64,16 +64,11 @@ void main() {
     expect(find.text('番剧'), findsNothing);
   });
 
-  testWidgets('点叠牌提到最前，再点置顶卡钻进模块，返回后回到入口页', (tester) async {
+  testWidgets('点斜带钻进模块，返回后回到入口页', (tester) async {
     await tester.pumpWidget(pumpApp());
     await tester.pumpAndSettle();
 
-    // 默认音乐置顶：第一次点漫画只把它提到最前，不进模块。
-    await tester.tap(find.text(MediaType.comic.label).first);
-    await tester.pumpAndSettle();
-    expect(find.text('${MediaType.comic.label}模块尚未接入'), findsNothing);
-
-    // 再点一次（此刻漫画已置顶）才进模块。
+    // 斜切带：点漫画带内的文字 → 一步钻进模块（按点击 y 坐标换算落带）。
     await tester.tap(find.text(MediaType.comic.label).first);
     await tester.pumpAndSettle();
     expect(find.text('${MediaType.comic.label}模块尚未接入'), findsOneWidget);
@@ -148,9 +143,7 @@ void main() {
       await tester.pumpWidget(pumpApp());
       await tester.pumpAndSettle();
 
-      // 叠牌默认音乐置顶：先点漫画提到最前，再点一次才进模块。
-      await tester.tap(find.text(MediaType.comic.label).first);
-      await tester.pumpAndSettle();
+      // 斜切带：点漫画带内文字 → 一步进模块。
       await tester.tap(find.text(MediaType.comic.label).first);
       await tester.pumpAndSettle();
 
@@ -169,9 +162,7 @@ void main() {
       await tester.pumpWidget(pumpApp());
       await tester.pumpAndSettle();
 
-      // 先提卡再进入模块。
-      await tester.tap(find.text(MediaType.comic.label).first);
-      await tester.pumpAndSettle();
+      // 一步进入模块。
       await tester.tap(find.text(MediaType.comic.label).first);
       await tester.pumpAndSettle();
       // 底部导航最右一枚是「设置」；点它切到模块设置面板。
@@ -194,9 +185,6 @@ void main() {
       await resetAppModulesForTest();
 
       await tester.pumpWidget(pumpApp());
-      await tester.pumpAndSettle();
-      // 先提卡再进入模块。
-      await tester.tap(find.text(MediaType.comic.label).first);
       await tester.pumpAndSettle();
       await tester.tap(find.text(MediaType.comic.label).first);
       await tester.pumpAndSettle();

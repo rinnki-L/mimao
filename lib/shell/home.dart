@@ -75,10 +75,11 @@ class _InheritedLibrary extends InheritedWidget {
 }
 
 // ────────────────────────────────────────────────────────────────
-// 入口页：C · 拼贴（用户拍板的方案）
+// 入口页：斜切拼贴（用户拍板，替换掉叠牌式）
 //   用户拍板：番剧入口移除（Bangumi 搜索国内不可用），只保留漫画/小说/音乐。
-//   非对称 bento：宽窗上行漫画(2列)+小说(1列)、下行音乐全宽；
-//   窄窗漫画全宽、小说/音乐并排。点任意卡片 → 钻进该模块层。
+//   三入口用三条平行斜带铺满整屏：没有任何水平分界，手机好看、桌面更舒展。
+//   点某条带 → 按点击的 y 坐标换算落在哪一带 → 一步钻进该模块。
+//   切换进来时三带自上而下依次滑入（easeOutCubic 分级间隔）。
 //   番剧模块代码与注册保留（app_registry 仍注册），仅不再显示入口卡。
 // ────────────────────────────────────────────────────────────────
 
@@ -123,10 +124,9 @@ class _EntryPage extends StatelessWidget {
             const SizedBox(height: 8),
             Expanded(
               child: LayoutBuilder(
-                builder: (context, constraints) => _StackOfCards(
-                  compact: constraints.maxWidth < 720,
-                  maxWidth: constraints.maxWidth,
-                  maxHeight: constraints.maxHeight,
+                builder: (context, constraints) => _DiagonalEntry(
+                  width: constraints.maxWidth,
+                  height: constraints.maxHeight,
                 ),
               ),
             ),
@@ -137,103 +137,109 @@ class _EntryPage extends StatelessWidget {
   }
 }
 
-// 叠牌入口：三张卡像一手扇开的扑克牌，各露一截标题。
-//   点击"被压住"的卡 → 提到最上层；点击已在最上层的卡 → 钻进该模块。
-//   这样既保留"另类错落"的基因，又让每张卡都能被点到（露出的边角可点）。
-class _StackOfCards extends StatefulWidget {
-  final bool compact;
-  final double maxWidth;
-  final double maxHeight;
+// 两条平行分界线：给出左边缘/右边缘处的 y 比例（斜率相同，故平行）。
+const double _b1Left = 0.40;
+const double _b1Right = 0.10;
+const double _b2Left = 0.74;
+const double _b2Right = 0.44;
 
-  const _StackOfCards({
-    required this.compact,
-    required this.maxWidth,
-    required this.maxHeight,
-  });
+class _DiagonalEntry extends StatefulWidget {
+  final double width;
+  final double height;
+
+  const _DiagonalEntry({required this.width, required this.height});
 
   @override
-  State<_StackOfCards> createState() => _StackOfCardsState();
+  State<_DiagonalEntry> createState() => _DiagonalEntryState();
 }
 
-class _StackOfCardsState extends State<_StackOfCards> {
-  // 默认音乐置顶（视觉上它扇在最前）；stack 顺序 comic < novel < music。
-  int _top = 2;
+class _DiagonalEntryState extends State<_DiagonalEntry>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 920),
+  );
 
-  // 从下往上排（z 序），每张卡相对容器中心做偏移与旋转。
-  static const _layouts = [
-    (-0.16, -0.10, -0.14), // 漫画：偏左上、逆时针
-    (0.0, 0.0, 0.02), // 小说：居中、几乎正
-    (0.16, 0.10, 0.14), // 音乐：偏右下、顺时针
-  ];
+  // 三条带自上而下依次滑入：每条用不同 Interval 做分级延迟。
+  late final List<Animation<Offset>> _slides = List.generate(
+    entryTypes.length,
+    (i) =>
+        Tween<Offset>(begin: const Offset(0, -1.15), end: Offset.zero).animate(
+          CurvedAnimation(
+            parent: _ctrl,
+            curve: Interval(
+              i * 0.11,
+              0.58 + i * 0.11,
+              curve: Curves.easeOutCubic,
+            ),
+          ),
+        ),
+  );
 
-  void _bringToFront(int index) {
-    if (_top == index) {
-      // 已在最上层 → 进入模块。
-      shellStore.openModule(entryTypes[index]);
-      return;
-    }
-    setState(() => _top = index);
+  @override
+  void initState() {
+    super.initState();
+    _ctrl.forward();
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  /// 点任意位置 → 把点击 x 代入两条分界线方程，算出该处两条线的 y →
+  /// 判断落在该 x 上的哪一条带 → 一步进对应模块。
+  void _onTapDown(TapDownDetails details) {
+    final w = widget.width;
+    final h = widget.height;
+    final x = details.localPosition.dx;
+    final y = details.localPosition.dy;
+    final b1 = (_b1Left + (_b1Right - _b1Left) * x / w) * h;
+    final b2 = (_b2Left + (_b2Right - _b2Left) * x / w) * h;
+    final index = y < b1 ? 0 : (y < b2 ? 1 : 2);
+    shellStore.openModule(entryTypes[index]);
   }
 
   @override
   Widget build(BuildContext context) {
-    final usableW = widget.maxWidth.isFinite ? widget.maxWidth : 360.0;
-    final usableH = widget.maxHeight.isFinite ? widget.maxHeight : 720.0;
-    // 宽窗时卡片别拉得太宽，保持接近手机上的竖卡比例。
-    final cardW = (widget.compact ? usableW : usableW * 0.42).clamp(
-      200.0,
-      360.0,
-    );
-    final cardH = (usableH * 0.82).clamp(300.0, cardW * 1.5);
-    final baseLeft = (usableW - cardW) / 2;
-    final baseTop = (usableH - cardH) / 2;
-
-    // z 序：非置顶卡先画、置顶卡最后画（Flutter Stack 后画的在上层）。
-    final order = <int>[
-      for (var i = 0; i < entryTypes.length; i++)
-        if (i != _top) i,
-      _top,
-    ];
-
-    return Stack(
-      children: <Widget>[
-        for (final i in order)
-          _StackCard(
-            type: entryTypes[i],
-            left: baseLeft + (i == _top ? 0 : _layouts[i].$1 * cardW),
-            top: baseTop + (i == _top ? 0 : _layouts[i].$2 * cardH),
-            angle: i == _top ? _layouts[i].$3 * 0.3 : _layouts[i].$3,
-            width: cardW,
-            height: cardH,
-            onTap: () => _bringToFront(i),
-            isTop: i == _top,
-          ),
-      ],
+    return GestureDetector(
+      // opaque：斜带之外的透明区域也要能接到点击（否则 deferToChild 会漏）。
+      behavior: HitTestBehavior.opaque,
+      onTapDown: _onTapDown,
+      child: ClipRRect(
+        borderRadius: MimaoShapes.xl,
+        child: Stack(
+          children: <Widget>[
+            for (var i = 0; i < entryTypes.length; i++)
+              _DiagonalBand(
+                index: i,
+                type: entryTypes[i],
+                width: widget.width,
+                height: widget.height,
+                slide: _slides[i],
+              ),
+          ],
+        ),
+      ),
     );
   }
 }
 
-/// 叠牌中的一张卡：色调容器 + 图标 + 标题 + 一句话 + 箭头。
-/// 整卡可点（露出的边角也响应），点击行为由父 [_StackOfCards] 决定。
-class _StackCard extends StatelessWidget {
+/// 一条斜带：带底色的斜切 Path + 叠在带内的文字（文字不进 clip，避免被裁）。
+class _DiagonalBand extends StatelessWidget {
+  final int index;
   final MediaType type;
-  final double left;
-  final double top;
-  final double angle;
   final double width;
   final double height;
-  final bool isTop;
-  final VoidCallback onTap;
+  final Animation<Offset> slide;
 
-  const _StackCard({
+  const _DiagonalBand({
+    required this.index,
     required this.type,
-    required this.left,
-    required this.top,
-    required this.angle,
     required this.width,
     required this.height,
-    required this.isTop,
-    required this.onTap,
+    required this.slide,
   });
 
   @override
@@ -245,67 +251,94 @@ class _StackCard extends StatelessWidget {
       MediaType.novel => (cs.tertiaryContainer, cs.onTertiaryContainer),
       MediaType.music => (cs.surfaceContainerHighest, cs.onSurface),
     };
-    return AnimatedPositioned(
-      left: left,
-      top: top,
-      width: width,
-      height: height,
-      duration: const Duration(milliseconds: 260),
-      curve: Curves.easeOutCubic,
-      child: AnimatedRotation(
-        // 置顶卡略回正，强化"被抽到最前"的感觉。
-        turns: angle / (2 * 3.141592653589793),
-        duration: const Duration(milliseconds: 260),
-        curve: Curves.easeOutCubic,
-        child: Material(
-          color: container,
-          borderRadius: MimaoShapes.xl,
-          clipBehavior: Clip.antiAlias,
-          elevation: isTop ? 10 : 4,
-          shadowColor: cs.shadow.withValues(alpha: .3),
-          child: InkWell(
-            onTap: onTap,
-            child: Padding(
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(type.icon, color: onContainer, size: 28),
-                      const SizedBox(width: 10),
-                      Text(
-                        type.label,
-                        style: Theme.of(
-                          context,
-                        ).textTheme.headlineSmall?.apply(color: onContainer),
+    // 文字放在各带靠左、带高足够的位置（避开右端收窄的尖端）。
+    final textTop = const <double>[0.05, 0.42, 0.76][index] * height;
+
+    return SlideTransition(
+      position: slide,
+      child: Stack(
+        children: <Widget>[
+          ClipPath(
+            clipper: _BandClipper(index: index),
+            child: Container(width: width, height: height, color: container),
+          ),
+          Positioned(
+            left: 28,
+            top: textTop,
+            child: Row(
+              children: [
+                Icon(type.icon, color: onContainer, size: 30),
+                const SizedBox(width: 12),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      type.label,
+                      style: Theme.of(
+                        context,
+                      ).textTheme.titleLarge?.apply(color: onContainer),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      type.tagline,
+                      style: Theme.of(context).textTheme.bodySmall?.apply(
+                        color: onContainer.withValues(alpha: .8),
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    type.tagline,
-                    style: Theme.of(context).textTheme.bodyMedium?.apply(
-                      color: onContainer.withValues(alpha: .8),
                     ),
-                  ),
-                  const Spacer(),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: Icon(
-                      Icons.arrow_forward_rounded,
-                      size: 22,
-                      color: onContainer,
-                    ),
-                  ),
-                ],
-              ),
+                  ],
+                ),
+              ],
             ),
           ),
-        ),
+        ],
       ),
     );
   }
+}
+
+/// 按 index 裁出三条平行斜带之一（其余区域透明）。
+class _BandClipper extends CustomClipper<Path> {
+  final int index;
+
+  const _BandClipper({required this.index});
+
+  @override
+  Path getClip(Size size) {
+    final w = size.width;
+    final h = size.height;
+    final b1l = _b1Left * h;
+    final b1r = _b1Right * h;
+    final b2l = _b2Left * h;
+    final b2r = _b2Right * h;
+    final path = Path();
+    switch (index) {
+      case 0:
+        path
+          ..moveTo(0, 0)
+          ..lineTo(w, 0)
+          ..lineTo(w, b1r)
+          ..lineTo(0, b1l)
+          ..close();
+      case 1:
+        path
+          ..moveTo(0, b1l)
+          ..lineTo(w, b1r)
+          ..lineTo(w, b2r)
+          ..lineTo(0, b2l)
+          ..close();
+      default:
+        path
+          ..moveTo(0, b2l)
+          ..lineTo(w, b2r)
+          ..lineTo(w, h)
+          ..lineTo(0, h)
+          ..close();
+    }
+    return path;
+  }
+
+  @override
+  bool shouldReclip(covariant _BandClipper old) => old.index != index;
 }
 
 // ────────────────────────────────────────────────────────────────
