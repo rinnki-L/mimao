@@ -179,3 +179,82 @@ error_code=20018 在 decode 层统一映射 `authentication`、信封 status/err
 - 端点声明的 clienttime/x-router 头与默认派生值的覆盖优先级未翻译
   （骨架端点不声明这两类头）；
 - search wire 的 `<em>` 高亮标签在展示层剥除，模型保持上游原样。
+
+
+## M4-X 全量端点扩容（2026-11-21）
+
+在骨架/播放/登录/收藏三条线之外，把 EchoMusicNext `crates/echo-api` 里
+**除评论/云盘/MV/社交之外**的端点全部移植，并接入可浏览的 UI。排除清单：
+
+- 评论 `comment_*`（12）
+- 云盘 `user_cloud*`（5）
+- MV/视频 `video_*`、`mv_collect*`、`kmr_audio_mv`、`user_video_collect`、
+  `song_barrage*`
+- 社交 `listen_together_*`、`blacklist*`、`user_follow*`、`user_fans`、
+  `user_friends`、`user_visitors`、`artist_follow`/`artist_unfollow`
+
+### 端点组（12 个域 / 70+ 端点）
+
+| 域 | Dart 门面 | 端点 |
+|---|---|---|
+| 搜索扩展 | `api/search_ext_api.dart` | search Album/Author/Special/Lyric 分支、search_default、search_hot、search_suggest、search_lyric、sidedt |
+| 发现/推荐 | `api/discovery_api.dart` | home_discover、everyday_recommend、everyday_style_recommend、ai_recommend_song、personal_fm、song_climax |
+| 榜单 | `api/rank_api.dart` | rank_list、rank_top、rank_audio、song_ranking、song_ranking_filter、top_album、top_ip、top_playlist、top_song |
+| 专辑 | `api/album_api.dart` | album_detail、album_dycover、album_songs、favorite_count |
+| 歌手 | `api/artist_api.dart` | artist_detail、artist_albums、artist_audios_new、artist_lists |
+| 音效 | `api/effects_api.dart` | effects_artist、effects_brand、effects_brand_detail、effects_match |
+| 歌单读 | `api/playlist_read_api.dart` | playlist_detail、playlist_track_all、playlist_track_all_new、playlist_tags、import_playlist |
+| 歌单写 | `api/playlist_write_api.dart` | playlist_add/del/update/sort、tracks_add/del/sort、pic_upload |
+| 用户资料 | `api/user_profile_api.dart` | user_info、user_detail、user_update、update_avatar、avatar_upload、vip_detail、grade_info、batch_union_vipinfo |
+| 用户库 | `api/user_library_api.dart` | user_history、user_playlist、user_preference(+update)、purchased_albums/songs、verify_user_info |
+| 登录 | `api/auth_login_api.dart` | login、cellphone、token、qq/openplat、qq/wx qr create/check、device、device_kick |
+| 验证/歌词 | `api/verify_api.dart`、`api/lyric_api.dart` | captcha_sent、get_verify_info、lyric |
+| 播放扩展 | `api/playback_ext_api.dart` | audio_match、privilege_lite、get_model、images_audio、krm_audio |
+| 听歌上报 | `api/listen_report_api.dart` | user_listen_report（CSCC 握手 + 事件 + 内存会话缓存） |
+
+共享底座：
+
+- `api/session.dart`：`MusicSession`（客户端 + 身份读写）与
+  `requireMusicAccount`；`KugouMusicApi` 把全部端点组惰性装配进
+  `MusicBrowseApis`（`api/music_browse_apis.dart`）。
+- `client/kugou_client.dart`：新增 `sendRaw`（固定主机裸传输：CSCC、头像/歌单
+  封面、动态封面；保留全部响应头值）。
+- `client/kugou_crypto.dart`：补齐裸 RSA 画像、AES-256、登录/验证/偏好/云歌单
+  信封；关键路径用上游黄金向量对拍。
+- `api/wire.dart`：`optionalBool`/`requiredWireMap`/`coverUrl`/`encodeJsonBody`/
+  `decodeEnvelopeWithFields`；登录过期严格对齐上游（只认 `error_code` + msg
+  文本，`errcode=20018` 是 business）。
+
+### UI 接线
+
+- 音乐主页首 tab：`pages/music_discovery_page.dart`（发现/歌曲/专辑/歌手/歌单/
+  歌词六 tab；默认词/热词/建议、首页发现、每日推荐、AI 畅听、私人 FM）。
+- `pages/music_rank_page.dart` + `music_rank_detail_page.dart`：榜单/新歌/专辑/
+  歌单/IP。
+- `pages/music_album_detail_page.dart`、`music_artist_detail_page.dart`。
+- `pages/music_playlist_list_page.dart`、`music_playlist_detail_page.dart`：
+  云/公开歌单、新建/删除（write 注入时）。
+- `pages/music_account_center_page.dart`：资料/会员/听歌等级/历史/已购/我的歌单。
+- 主页底部 tab：发现（无扩展时回退旧搜索）/ 我的（顶部「我的歌单」入口）/
+  账号 / 设置；迷你播放条与播放页保持原状。
+
+### 验证
+
+- 14 个 API 工作流 + 5 个 UI 工作流均在独立 worktree 中完成，逐组通过
+  `dart format` / `flutter analyze`（0 issue）/ 组内测试后合并。
+- 全仓 `flutter test --coverage`：1280 条用例全绿，行覆盖率 76.4%
+  （CI 口径：lcov 已 import 文件集，阈值 60%）。
+- `dart fix --dry-run`（lib/music、lib/shell、test/music）：无待修项。
+
+### 已知边界（有意保留）
+
+- 歌词端点只下载 base64 文档（krc/lrc/text），不在 Dart 侧解析 KRC 文档；
+  UI 按纯文本展示。
+- 云盘/评论/视频/社交/关注端点按需求排除，不建文件。
+- u64 上限（>2^63-1）在 Dart `int` 下不可表示；真实 id 不会触达。
+- `MusicCatalogRights` 等少数 catalog 共享结构在 album/user_library/
+  playback_ext 三组各有一份（上游同名 util 的独立翻译），字段语义一致；
+  后续可抽取到 `models/catalog_rights_models.dart` 统一。
+- 私人 FM「换一批」未透传 curMark/batchMark（上游翻页语义未验证）。
+- sideDt（安全上报）、everydayStyleRecommend、songClimax 已提供 API，UI 未
+  单独入口；播放页歌词/高潮区间留待播放线后续切片。
