@@ -5,10 +5,27 @@
 /// 测试提供 fake 实现即可跑通页面/MobX 流程。
 library;
 
+import 'package:mimao/music/api/album_api.dart';
+import 'package:mimao/music/api/artist_api.dart';
+import 'package:mimao/music/api/auth_login_api.dart';
+import 'package:mimao/music/api/discovery_api.dart';
+import 'package:mimao/music/api/effects_api.dart';
+import 'package:mimao/music/api/listen_report_api.dart';
+import 'package:mimao/music/api/lyric_api.dart';
+import 'package:mimao/music/api/music_browse_apis.dart';
 import 'package:mimao/music/api/music_identity_api.dart';
+import 'package:mimao/music/api/playback_ext_api.dart';
+import 'package:mimao/music/api/playlist_read_api.dart';
+import 'package:mimao/music/api/playlist_write_api.dart';
+import 'package:mimao/music/api/rank_api.dart';
 import 'package:mimao/music/api/register_dev.dart';
 // 别名导入：本类的实例方法 searchSongs 会遮蔽同名顶层端点函数。
 import 'package:mimao/music/api/search.dart' as search;
+import 'package:mimao/music/api/search_ext_api.dart';
+import 'package:mimao/music/api/session.dart';
+import 'package:mimao/music/api/user_library_api.dart';
+import 'package:mimao/music/api/user_profile_api.dart';
+import 'package:mimao/music/api/verify_api.dart';
 import 'package:mimao/music/client/kugou_client.dart';
 import 'package:mimao/music/client/kugou_identity.dart';
 import 'package:mimao/music/models/music_models.dart';
@@ -43,6 +60,53 @@ class KugouMusicApi implements MusicApi, MusicIdentityApi {
        _register = register ?? registerDevice;
 
   final KugouClient client;
+
+  /// 端点组共享会话：与 [ensureDevice] / [_loadIdentity] / [_saveIdentity]
+  /// 共用同一份身份缓存（登录后下一搜自动带 token）。
+  late final MusicSession session = MusicSession(
+    client: client,
+    ensureDevice: ensureDevice,
+    loadIdentity: _loadIdentity,
+    saveIdentity: _saveIdentity,
+  );
+
+  // ── 扩容端点组（惰性；首次访问才构造，不联网/不碰插件）──
+  late final MusicSearchExtApi searchExt = KugouSearchExtApi(session);
+  late final MusicDiscoveryApi discovery = KugouDiscoveryApi(session);
+  late final MusicRankApi rank = KugouRankApi(session);
+  late final MusicAlbumApi album = KugouAlbumApi(session);
+  late final MusicArtistApi artist = KugouArtistApi(session);
+  late final MusicEffectsApi effects = KugouEffectsApi(session);
+  late final MusicPlaylistReadApi playlistRead = KugouPlaylistReadApi(session);
+  late final MusicPlaylistWriteApi playlistWrite = KugouPlaylistWriteApi(
+    session,
+  );
+  late final MusicUserProfileApi userProfile = KugouUserProfileApi(session);
+  late final MusicUserLibraryApi userLibrary = KugouUserLibraryApi(session);
+  late final MusicAuthApi auth = KugouAuthApi(session);
+  late final MusicVerifyApi verify = KugouVerifyApi(session);
+  late final MusicLyricApi lyric = KugouLyricApi(session);
+  late final MusicPlaybackExtApi playbackExt = KugouPlaybackExtApi(session);
+  late final MusicListenReportApi listenReport = KugouListenReportApi(session);
+
+  /// 传给 `MusicModule`/UI 的能力包。
+  MusicBrowseApis get browseApis => MusicBrowseApis(
+    searchExt: searchExt,
+    discovery: discovery,
+    rank: rank,
+    album: album,
+    artist: artist,
+    effects: effects,
+    playlistRead: playlistRead,
+    playlistWrite: playlistWrite,
+    userProfile: userProfile,
+    userLibrary: userLibrary,
+    auth: auth,
+    verify: verify,
+    lyric: lyric,
+    playbackExt: playbackExt,
+    listenReport: listenReport,
+  );
   final Future<KugouIdentityStore> Function() _identityStoreFactory;
 
   /// 可注入的注册函数（测试替换，避免真网络）。
