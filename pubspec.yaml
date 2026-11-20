@@ -46,7 +46,8 @@ dependencies:
   cookie_jar: ^4.0.9
   # 漫画 C 线 · Cloudflare 挑战通行证：内嵌 WebView 让用户过一次挑战，
   # 取 cf_clearance + WebView UA（Windows 走 WebView2，Android 走系统 WebView）。
-  flutter_inappwebview: ^6.1.5
+  # 6.2 beta 3：Android 端已改用 proguard-android-optimize（AGP 9 兼容）。
+  flutter_inappwebview: 6.2.0-beta.3
   html: ^0.15.7
   crypto: ^3.0.8
 

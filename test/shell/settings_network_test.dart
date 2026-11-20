@@ -1,3 +1,4 @@
+// ignore_for_file: deprecated_member_use — Flutter 3.50 弃用 material.dart，与其它测试同款。
 /// 设置抽屉的「网络」分组：代理模式切换与自定义代理输入。
 library;
 
