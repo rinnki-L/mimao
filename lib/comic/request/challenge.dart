@@ -36,9 +36,26 @@ class ComicChallengePass {
   final String? userAgent;
 }
 
+/// 挑战类型：决定验证页等哪个 Cookie 出现算通过。
+enum ComicChallengeKind {
+  /// Cloudflare 托管挑战，凭证是 `cf_clearance`。
+  cloudflare,
+
+  /// 站方自建 gatekeeper（如 baozi），凭证名形如 `__Host-gk_clearance_*`。
+  gatekeeper,
+}
+
+/// 一次待处理的挑战：打开 [url]，等对应类型的凭证。
+class ComicChallenge {
+  const ComicChallenge({required this.url, required this.kind});
+
+  final Uri url;
+  final ComicChallengeKind kind;
+}
+
 /// 挑战求解器：打开验证界面，返回通过后的凭证；用户取消/超时返回 null。
 abstract interface class ComicChallengeSolver {
-  Future<ComicChallengePass?> solve(Uri url);
+  Future<ComicChallengePass?> solve(ComicChallenge challenge);
 }
 
 /// 交互式挑战的活动闸门。

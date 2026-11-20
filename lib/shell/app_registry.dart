@@ -4,7 +4,7 @@ import 'package:mimao/comic/collect_service.dart';
 import 'package:mimao/comic/comic_db.dart';
 import 'package:mimao/comic/comic_entry.dart';
 import 'package:mimao/comic/comic_models.dart';
-import 'package:mimao/comic/pages/cloudflare_verify_page.dart';
+import 'package:mimao/comic/pages/challenge_verify_page.dart';
 import 'package:mimao/comic/data/engine_comic_data_source.dart';
 import 'package:mimao/comic/engine/engine.dart';
 import 'package:mimao/comic/history_service.dart';
@@ -396,7 +396,7 @@ Future<ComicWebClient> _createDefaultComicClient() async {
   final jar = await ComicCookieJar.openDefault();
   final client = ComicWebClient(
     cookieJar: jar,
-    challengeSolver: CloudflareWebViewSolver(
+    challengeSolver: ComicChallengeWebViewSolver(
       navigatorProvider: () => MimaoApp.navigatorKey.currentState,
     ),
     proxyRule: networkSettings.findProxy,

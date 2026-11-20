@@ -263,10 +263,10 @@ void main() {
     });
   });
 
-  group('Cloudflare 挑战', () {
-    test('识别 cf-mitigated 与挑战页特征，普通 403 不误判', () {
+  group('浏览器挑战', () {
+    test('识别 Cloudflare 与 gatekeeper，普通 403 不误判', () {
       expect(
-        isCloudflareChallenge(
+        detectComicChallenge(
           const ComicHttpResponse(
             statusCode: 403,
             body: '',
@@ -275,10 +275,10 @@ void main() {
             },
           ),
         ),
-        isTrue,
+        ComicChallengeKind.cloudflare,
       );
       expect(
-        isCloudflareChallenge(
+        detectComicChallenge(
           const ComicHttpResponse(
             statusCode: 403,
             body: '<html>_cf_chl_opt</html>',
@@ -287,10 +287,10 @@ void main() {
             },
           ),
         ),
-        isTrue,
+        ComicChallengeKind.cloudflare,
       );
       expect(
-        isCloudflareChallenge(
+        detectComicChallenge(
           const ComicHttpResponse(
             statusCode: 403,
             body: 'forbidden',
@@ -299,13 +299,39 @@ void main() {
             },
           ),
         ),
-        isFalse,
+        isNull,
       );
       expect(
-        isCloudflareChallenge(
+        detectComicChallenge(
           const ComicHttpResponse(statusCode: 200, body: 'Just a moment'),
         ),
-        isFalse,
+        isNull,
+      );
+    });
+
+    test('gatekeeper 403 JSON 识别为 gatekeeper', () {
+      expect(
+        detectComicChallenge(
+          const ComicHttpResponse(
+            statusCode: 403,
+            body:
+                '{"challenge_url":"/__gatekeeper_challenge/start","error":"challenge_required"}',
+          ),
+        ),
+        ComicChallengeKind.gatekeeper,
+      );
+    });
+
+    test('gatekeeper HTML 验证页也识别为 gatekeeper', () {
+      expect(
+        detectComicChallenge(
+          const ComicHttpResponse(
+            statusCode: 403,
+            body:
+                '<html><title>正在验证浏览器</title><script src="/__gatekeeper_challenge/assets/challenge.js"></script></html>',
+          ),
+        ),
+        ComicChallengeKind.gatekeeper,
       );
     });
 
@@ -326,6 +352,25 @@ void main() {
       expect(solver.calls, 1);
       final retried = adapter.seenOptions.last;
       expect(retried.headers['Cookie'], contains('cf_clearance=token'));
+      expect(retried.headers['User-Agent'], 'WebViewUA/1.0');
+    });
+
+    test('gatekeeper 挑战：拿到 gk clearance 后重试', () async {
+      final adapter = _GatekeeperAdapter();
+      final solver = _FakeChallengeSolver();
+      final client = ComicWebClient(
+        dio: Dio()..httpClientAdapter = adapter,
+        cookieJar: ComicCookieJar(),
+        challengeSolver: solver,
+      );
+
+      final response = await client.fetch('https://site.test/search');
+
+      expect(response.statusCode, 200);
+      expect(adapter.calls, 2);
+      expect(solver.kindSeen, ComicChallengeKind.gatekeeper);
+      final retried = adapter.seenOptions.last;
+      expect(retried.headers['Cookie'], contains('gk_clearance_test=token'));
       expect(retried.headers['User-Agent'], 'WebViewUA/1.0');
     });
 
@@ -382,20 +427,59 @@ class _ChallengeAdapter implements HttpClientAdapter {
   void close({bool force = false}) {}
 }
 
+/// 第一次 403 gatekeeper JSON，之后返回 200。
+class _GatekeeperAdapter implements HttpClientAdapter {
+  int calls = 0;
+  final List<RequestOptions> seenOptions = <RequestOptions>[];
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    calls++;
+    seenOptions.add(options);
+    if (calls == 1) {
+      return ResponseBody.fromString(
+        '{"challenge_url":"/__gatekeeper_challenge/start","error":"challenge_required"}',
+        403,
+        headers: <String, List<String>>{
+          Headers.contentTypeHeader: <String>['application/json'],
+        },
+      );
+    }
+    return ResponseBody.fromString(
+      '<html>ok</html>',
+      200,
+      headers: <String, List<String>>{
+        Headers.contentTypeHeader: <String>['text/html; charset=utf-8'],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
 class _FakeChallengeSolver implements ComicChallengeSolver {
   _FakeChallengeSolver({this.cancel = false});
 
   final bool cancel;
   int calls = 0;
+  ComicChallengeKind? kindSeen;
 
   @override
-  Future<ComicChallengePass?> solve(Uri url) async {
+  Future<ComicChallengePass?> solve(ComicChallenge challenge) async {
     calls++;
+    kindSeen = challenge.kind;
     if (cancel) return null;
-    return const ComicChallengePass(
+    return ComicChallengePass(
       cookies: <ComicChallengeCookie>[
         ComicChallengeCookie(
-          name: 'cf_clearance',
+          name: challenge.kind == ComicChallengeKind.gatekeeper
+              ? 'gk_clearance_test'
+              : 'cf_clearance',
           value: 'token',
           domain: 'site.test',
         ),

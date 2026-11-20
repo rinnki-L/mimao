@@ -1,9 +1,10 @@
 // ignore_for_file: deprecated_member_use — 与 shell/漫画各页同款说明（Flutter 3.50 弃用整个 material.dart）。
-/// Cloudflare 挑战的内嵌 WebView 实现。
+/// 浏览器验证（Cloudflare / 站方 gatekeeper）的内嵌 WebView 实现。
 ///
-/// 流程与 Venera 的 `passCloudflare` 一致：把被拦的 URL 交给 WebView，
-/// 等页面自己下发 `cf_clearance`，然后把该 URL 的全部 Cookie + WebView UA
-/// 交给 [ComicWebClient] 重试。用户取消/超时返回 null，调用方保留原 403。
+/// 把被拦的 URL 交给 WebView，等站点自己下发通过凭证（Cloudflare 是
+/// `cf_clearance`，gatekeeper 是 `__Host-gk_clearance_*`），然后把该 URL 的
+/// 全部 Cookie + WebView UA 交给 [ComicWebClient] 重试。用户取消/超时返回
+/// null，调用方保留原 403。
 ///
 /// 读 Cookie 的方式按平台分：
 /// - Windows 走当前 WebView 的 DevTools `Network.getCookies`（HttpOnly 也能读到，
@@ -20,13 +21,13 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import '../request/challenge.dart';
 
 /// 用 `NavigatorState` 打开验证页；navigator 为 null（壳未就绪）时放弃。
-class CloudflareWebViewSolver implements ComicChallengeSolver {
-  CloudflareWebViewSolver({required this.navigatorProvider});
+class ComicChallengeWebViewSolver implements ComicChallengeSolver {
+  ComicChallengeWebViewSolver({required this.navigatorProvider});
 
   final NavigatorState? Function() navigatorProvider;
 
   @override
-  Future<ComicChallengePass?> solve(Uri url) async {
+  Future<ComicChallengePass?> solve(ComicChallenge challenge) async {
     final navigator = navigatorProvider();
     if (navigator == null) return null;
     // 验证期间暂停源执行超时；求解器自身有 2 分钟上限，finally 一定释放。
@@ -35,7 +36,7 @@ class CloudflareWebViewSolver implements ComicChallengeSolver {
       return await navigator.push<ComicChallengePass>(
         MaterialPageRoute<ComicChallengePass>(
           fullscreenDialog: true,
-          builder: (_) => _CloudflareVerifyPage(url: url),
+          builder: (_) => _ChallengeVerifyPage(challenge: challenge),
         ),
       );
     } finally {
@@ -44,16 +45,16 @@ class CloudflareWebViewSolver implements ComicChallengeSolver {
   }
 }
 
-class _CloudflareVerifyPage extends StatefulWidget {
-  const _CloudflareVerifyPage({required this.url});
+class _ChallengeVerifyPage extends StatefulWidget {
+  const _ChallengeVerifyPage({required this.challenge});
 
-  final Uri url;
+  final ComicChallenge challenge;
 
   @override
-  State<_CloudflareVerifyPage> createState() => _CloudflareVerifyPageState();
+  State<_ChallengeVerifyPage> createState() => _ChallengeVerifyPageState();
 }
 
-class _CloudflareVerifyPageState extends State<_CloudflareVerifyPage> {
+class _ChallengeVerifyPageState extends State<_ChallengeVerifyPage> {
   /// 轮询 Cookie 的间隔：挑战通过后 cookie 由 WebView 进程写入，只能轮询。
   static const Duration _pollInterval = Duration(milliseconds: 700);
 
@@ -91,10 +92,7 @@ class _CloudflareVerifyPageState extends State<_CloudflareVerifyPage> {
     _checking = true;
     try {
       final cookies = await _readCookies();
-      final clearance = cookies.where(
-        (c) => c.name == 'cf_clearance' && c.value.isNotEmpty,
-      );
-      if (clearance.isEmpty) return;
+      if (!cookies.any(_isPassedCookie)) return;
       if (!mounted || _finished) return;
       _finished = true;
       _poll?.cancel();
@@ -110,7 +108,19 @@ class _CloudflareVerifyPageState extends State<_CloudflareVerifyPage> {
     }
   }
 
-  /// 读当前 WebView 对 [widget.url] 可见的全部 Cookie。
+  /// 该类型的通过凭证是否已出现。
+  bool _isPassedCookie(ComicChallengeCookie cookie) {
+    if (cookie.value.isEmpty) return false;
+    switch (widget.challenge.kind) {
+      case ComicChallengeKind.cloudflare:
+        return cookie.name == 'cf_clearance';
+      case ComicChallengeKind.gatekeeper:
+        // baozi 等站方 gatekeeper：`__Host-gk_clearance_<hash>`。
+        return cookie.name.contains('gk_clearance');
+    }
+  }
+
+  /// 读当前 WebView 对 [widget.challenge.url] 可见的全部 Cookie。
   Future<List<ComicChallengeCookie>> _readCookies() async {
     final controller = _controller;
     if (controller == null) return const <ComicChallengeCookie>[];
@@ -119,7 +129,7 @@ class _CloudflareVerifyPageState extends State<_CloudflareVerifyPage> {
       final result = await controller.callDevToolsProtocolMethod(
         methodName: 'Network.getCookies',
         parameters: <String, dynamic>{
-          'urls': <String>[widget.url.toString()],
+          'urls': <String>[widget.challenge.url.toString()],
         },
       );
       final raw = result is Map ? result['cookies'] : null;
@@ -132,7 +142,7 @@ class _CloudflareVerifyPageState extends State<_CloudflareVerifyPage> {
       return cookies;
     }
     final cookies = await CookieManager.instance().getCookies(
-      url: WebUri(widget.url.toString()),
+      url: WebUri(widget.challenge.url.toString()),
       webViewController: controller,
     );
     return <ComicChallengeCookie>[
@@ -195,7 +205,7 @@ class _CloudflareVerifyPageState extends State<_CloudflareVerifyPage> {
     final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('通过 Cloudflare 验证'),
+        title: const Text('通过安全验证'),
         leading: IconButton(
           icon: const Icon(Icons.close),
           tooltip: '取消',
@@ -226,7 +236,9 @@ class _CloudflareVerifyPageState extends State<_CloudflareVerifyPage> {
             ),
           Expanded(
             child: InAppWebView(
-              initialUrlRequest: URLRequest(url: WebUri(widget.url.toString())),
+              initialUrlRequest: URLRequest(
+                url: WebUri(widget.challenge.url.toString()),
+              ),
               initialSettings: InAppWebViewSettings(
                 // 挑战页通常需要第三方 Cookie 与 JS；默认值在 Android 上够用，
                 // 这里显式打开对 Cloudflare 更稳。

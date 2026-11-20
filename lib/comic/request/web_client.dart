@@ -116,22 +116,33 @@ abstract interface class ComicHttpClient {
   Future<void> deleteCookies(String url);
 }
 
-/// 判断响应是否是 Cloudflare 托管挑战（需要 WebView 过一次验证）。
+/// 判断响应需要过哪种浏览器验证；不需要返回 null。
 ///
-/// 首选信号是 `cf-mitigated: challenge`（ykmh 实测有）；老部署可能没有该头，
-/// 再用 `server: cloudflare` + 挑战页特征兜底。
-bool isCloudflareChallenge(ComicHttpResponse response) {
-  if (response.statusCode != 403) return false;
+/// - Cloudflare：首选 `cf-mitigated: challenge`（ykmh 实测有）；老部署没有该头
+///   时用 `server: cloudflare` + 挑战页特征兜底。
+/// - 站方 gatekeeper（baozi）：403 JSON `{"challenge_required":...,
+///   "challenge_url":...}`；验证页由站点 JS 自动完成。
+ComicChallengeKind? detectComicChallenge(ComicHttpResponse response) {
+  if (response.statusCode != 403) return null;
   final mitigated = _headerValue(response.headers, 'cf-mitigated');
   if (mitigated != null && mitigated.toLowerCase().contains('challenge')) {
-    return true;
+    return ComicChallengeKind.cloudflare;
   }
   final server = _headerValue(response.headers, 'server')?.toLowerCase() ?? '';
-  if (!server.contains('cloudflare')) return false;
   final body = response.body;
-  return body.contains('Just a moment') ||
-      body.contains('_cf_chl_opt') ||
-      body.contains('challenge-platform');
+  if (server.contains('cloudflare') &&
+      (body.contains('Just a moment') ||
+          body.contains('_cf_chl_opt') ||
+          body.contains('challenge-platform'))) {
+    return ComicChallengeKind.cloudflare;
+  }
+  // gatekeeper 有两种形态：首次是 JSON（带 challenge_url），带浏览器 Cookie
+  // 后直接回「正在验证浏览器」HTML 页。两者都要进 WebView 跑验证。
+  if (body.contains('__gatekeeper_challenge') ||
+      (body.contains('challenge_required') && body.contains('challenge_url'))) {
+    return ComicChallengeKind.gatekeeper;
+  }
+  return null;
 }
 
 String? _headerValue(Map<String, List<String>> headers, String name) {
@@ -239,8 +250,9 @@ class ComicWebClient implements ComicHttpClient {
     // Cloudflare 托管挑战：打开内嵌 WebView 过一次验证，拿 cf_clearance 后
     // 用同一请求重试一次。没装求解器/用户取消时保持原 403，交给源脚本报错。
     final solver = challengeSolver;
-    if (solver == null || !isCloudflareChallenge(response)) return response;
-    final pass = await solver.solve(uri);
+    final kind = detectComicChallenge(response);
+    if (solver == null || kind == null) return response;
+    final pass = await solver.solve(ComicChallenge(url: uri, kind: kind));
     if (pass == null) return response;
     await _applyChallengePass(uri, pass);
     response = await _send(uri, options);
