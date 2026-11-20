@@ -1,5 +1,7 @@
 // ignore_for_file: deprecated_member_use — Flutter 3.50 弃用整个 material.dart，
 // 但 Kazumi/Venera 上游镜像全部用它；为保持类型一致与 patch 可重放，M1 继续用。
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:mimao/core/contract.dart';
@@ -12,13 +14,128 @@ import 'package:mimao/shell/shell_store.dart';
 
 /// 壳的导航与承载。M1 只有三个视图：入口拼贴页 / 模块层 / 统一时间线。
 /// 壳不含任何业务——模块层的内容由 app_registry 查表得到（未接入则占位）。
-class HomeShell extends StatelessWidget {
+class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
 
   @override
+  State<HomeShell> createState() => _HomeShellState();
+}
+
+class _HomeShellState extends State<HomeShell>
+    with SingleTickerProviderStateMixin {
+  /// 入口色系铺开动画控制器。点击某入口时：从触点画一个该入口色系的圆
+  /// 铺满全屏（遮盖入口页）→ 底下 AnimatedSwitcher 已切到模块层 → 圆淡出。
+  late final AnimationController _transition = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 420),
+  );
+
+  /// 铺开动画是否进行中——驱动覆盖层的挂载/卸载。
+  bool _revealing = false;
+
+  /// 铺开动画期间显示的圆参数：中心/半径/色系。
+  Offset _revealCenter = Offset.zero;
+  double _revealMaxRadius = 0;
+  Color _revealColor = Colors.transparent;
+  Color _revealOnColor = Colors.transparent;
+  IconData _revealIcon = Icons.zoom_in;
+  String _revealLabel = '';
+
+  @override
+  void initState() {
+    super.initState();
+    // 动画结束/被反向重置时卸载覆盖层（视觉已透明，这一步只为清场）。
+    _transition.addStatusListener((status) {
+      if (status == AnimationStatus.completed && mounted && _revealing) {
+        setState(() => _revealing = false);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _transition.dispose();
+    super.dispose();
+  }
+
+  /// 由入口页点击回调：记下触点/目标色系，起铺开动画。
+  /// 业务状态（activeModule）已由入口页的 onTapDown 同步切好，这里只管视觉。
+  void _startReveal(MediaType type, Offset globalCenter) {
+    // 圆要覆盖整个屏幕：取触点到四个角的最大距离。
+    final screen = MediaQuery.of(context).size;
+    var radius = 0.0;
+    for (final corner in <Offset>[
+      Offset.zero,
+      Offset(screen.width, 0),
+      Offset(0, screen.height),
+      Offset(screen.width, screen.height),
+    ]) {
+      radius = math.max(radius, (globalCenter - corner).distance);
+    }
+
+    final cs = Theme.of(context).colorScheme;
+    final (color, onColor) = switch (type) {
+      MediaType.comic => (cs.secondary, cs.onSecondary),
+      MediaType.novel => (cs.tertiary, cs.onTertiary),
+      MediaType.music => (cs.primary, cs.onPrimary),
+    };
+
+    setState(() {
+      _revealing = true;
+      _revealCenter = globalCenter;
+      _revealMaxRadius = radius;
+      _revealColor = color;
+      _revealOnColor = onColor;
+      _revealIcon = type.icon;
+      _revealLabel = type.label;
+    });
+    _transition.forward(from: 0);
+  }
+
+  /// 圆形覆盖层：0→0.62 铺满全屏，0.62→1 淡出露出底下的模块层。
+  Widget _revealOverlay() {
+    return AnimatedBuilder(
+      animation: _transition,
+      builder: (context, _) {
+        final t = _transition.value;
+        final radius = (t / 0.62).clamp(0.0, 1.0) * _revealMaxRadius;
+        final opacity = t < 0.62 ? 1.0 : 1.0 - (t - 0.62) / 0.38;
+        return IgnorePointer(
+          child: Opacity(
+            opacity: opacity.clamp(0.0, 1.0),
+            child: ClipPath(
+              clipper: _CircleRevealClipper(
+                center: _revealCenter,
+                radius: radius,
+              ),
+              child: Container(
+                color: _revealColor,
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(_revealIcon, size: 72, color: _revealOnColor),
+                      const SizedBox(height: 12),
+                      Text(
+                        _revealLabel,
+                        style: Theme.of(context).textTheme.headlineMedium
+                            ?.apply(color: _revealOnColor),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
-    // LibraryRepository 由 main.dart 经 LibraryScope 注入；壳只读 core 的 facade。
     final library = _InheritedLibrary.of(context);
+
     return Scaffold(
       body: Observer(
         builder: (_) {
@@ -28,12 +145,14 @@ class HomeShell extends StatelessWidget {
           )) {
             (final MediaType type, false) => _ModuleLayer(type: type),
             (null, true) => _LibraryLayer(repository: library),
-            _ => const _EntryPage(),
+            _ => _EntryPage(onEntryTap: _startReveal),
           };
-          return AnimatedSwitcher(
+          final normal = AnimatedSwitcher(
             duration: const Duration(milliseconds: 260),
             child: view,
           );
+          // 动画运行时叠一层圆形色系铺开，盖住切换过程；结束即移除。
+          return Stack(children: [normal, if (_revealing) _revealOverlay()]);
         },
       ),
       endDrawer: const SettingsPage(),
@@ -42,6 +161,22 @@ class HomeShell extends StatelessWidget {
       },
     );
   }
+}
+
+/// 以触点为中心、给定半径裁一个圆（铺开动画用）。
+class _CircleRevealClipper extends CustomClipper<Path> {
+  final Offset center;
+  final double radius;
+
+  const _CircleRevealClipper({required this.center, required this.radius});
+
+  @override
+  Path getClip(Size size) =>
+      Path()..addOval(Rect.fromCircle(center: center, radius: radius));
+
+  @override
+  bool shouldReclip(_CircleRevealClipper old) =>
+      old.center != center || old.radius != radius;
 }
 
 /// 把 LibraryRepository 从 main.dart 传到壳（壳不自己 new DB，便于测试替换）。
@@ -90,7 +225,10 @@ const List<MediaType> entryTypes = <MediaType>[
 ];
 
 class _EntryPage extends StatelessWidget {
-  const _EntryPage();
+  /// 点击入口时回调：传入目标类型与屏幕全局触点，供壳层起铺开动画。
+  final void Function(MediaType type, Offset globalCenter)? onEntryTap;
+
+  const _EntryPage({this.onEntryTap});
 
   @override
   Widget build(BuildContext context) {
@@ -126,6 +264,7 @@ class _EntryPage extends StatelessWidget {
                 builder: (context, constraints) => _DiagonalEntry(
                   width: constraints.maxWidth,
                   height: constraints.maxHeight,
+                  onEntryTap: onEntryTap,
                 ),
               ),
             ),
@@ -145,8 +284,13 @@ const double _b2Right = 0.44;
 class _DiagonalEntry extends StatefulWidget {
   final double width;
   final double height;
+  final void Function(MediaType type, Offset globalCenter)? onEntryTap;
 
-  const _DiagonalEntry({required this.width, required this.height});
+  const _DiagonalEntry({
+    required this.width,
+    required this.height,
+    this.onEntryTap,
+  });
 
   @override
   State<_DiagonalEntry> createState() => _DiagonalEntryState();
@@ -197,7 +341,13 @@ class _DiagonalEntryState extends State<_DiagonalEntry>
     final b1 = (_b1Left + (_b1Right - _b1Left) * x / w) * h;
     final b2 = (_b2Left + (_b2Right - _b2Left) * x / w) * h;
     final index = y < b1 ? 0 : (y < b2 ? 1 : 2);
-    shellStore.openModule(entryTypes[index]);
+    final type = entryTypes[index];
+    // 先同步业务状态（NavigationObserver/dev route 等依赖它），再起色系铺开动画。
+    shellStore.openModule(type);
+    final onTap = widget.onEntryTap;
+    if (onTap != null) {
+      onTap(type, details.globalPosition);
+    }
   }
 
   @override
