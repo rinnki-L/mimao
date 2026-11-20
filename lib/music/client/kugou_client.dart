@@ -114,6 +114,7 @@ class KugouHttpResponse {
     required this.bytes,
     required this.statusCode,
     this.headers = const <String, String>{},
+    this.headerValues = const <String, List<String>>{},
   });
 
   final Uint8List bytes;
@@ -121,6 +122,9 @@ class KugouHttpResponse {
 
   /// 响应头（同名多值取第一个；第三方登录轮询需要读取跳转头）。
   final Map<String, String> headers;
+
+  /// 响应头的全部值（set-cookie 常随多条一起下发；第三方登录 jar 必须全收）。
+  final Map<String, List<String>> headerValues;
 }
 
 /// 网关客户端。无状态：身份（[KugouIdentity]）每次调用显式传入，
@@ -248,6 +252,7 @@ class KugouClient {
       bytes: Uint8List.fromList(response.data ?? <int>[]),
       statusCode: statusCode,
       headers: _responseHeaders(response),
+      headerValues: _responseHeaderValues(response),
     );
   }
 
@@ -282,7 +287,18 @@ class KugouClient {
       bytes: Uint8List.fromList(response.data ?? <int>[]),
       statusCode: statusCode,
       headers: _responseHeaders(response),
+      headerValues: _responseHeaderValues(response),
     );
+  }
+
+  Map<String, List<String>> _responseHeaderValues(
+    Response<List<int>> response,
+  ) {
+    final output = <String, List<String>>{};
+    response.headers.forEach((name, values) {
+      if (values.isNotEmpty) output[name] = List<String>.unmodifiable(values);
+    });
+    return output;
   }
 
   Map<String, String> _responseHeaders(Response<List<int>> response) {
