@@ -26,32 +26,44 @@ abstract final class MimaoShapes {
   static final BorderRadius pill = BorderRadius.circular(MimaoRadii.pill);
 }
 
-/// mimao 的统一字重阶梯。字号 / 行高 / 字距全部沿用 M3 基线
-/// （Typography.material2023），这里只收口字重，避免各页面忽细忽粗：
-///   标题类（display / headline / title）= w700 bold
-///   正文类（body）                      = w500 medium
-///   标签 / 按钮 / chip（label）         = w600 semiBold
+/// mimao 的全局字体与字重阶梯。
 ///
-/// 只在主题层设一次，页面一律读 Theme.of(context).textTheme.*，不得再各自
-/// fontWeightDelta 加粗——那正是「一会细一会粗」的来源。
+/// 字体族显式锁定为 Microsoft YaHei（Windows 系统自带、DirectWrite 可按名加载，
+/// 且拉丁与中文字形齐全）。此前不设 fontFamily，Flutter 在 Windows 用
+/// {Segoe UI, Arial} 作默认族——两者都无中文字形，中文全部走系统 fallback，
+/// 再叠加雅黑的离散字重（Regular 400 / Bold 700 / Light 290 是三个独立文件），
+/// 500/600 这类中间字重会被就近乱配到不同文件，造成同一句里个别字（如「剧」）
+/// 忽然变粗/变细、刺眼。锁定家族 + 只用真实存在的两档字重即可根治。
+///
+/// 字号 / 行高 / 字距沿用 M3 基线（Typography.material2021），只收口字重：
+///   标题类（display / headline / title）= w700 bold   → msyhbd.ttc
+///   正文 / 标签 / 按钮 / chip（body / label）= w400   → msyh.ttc
+abstract final class MimaoFonts {
+  static const String family = 'Microsoft YaHei';
+  static const FontWeight regular = FontWeight.w400;
+  static const FontWeight bold = FontWeight.w700;
+}
+
 TextTheme _buildMimaoTextTheme(ColorScheme scheme) {
   final m3 = Typography.material2021(colorScheme: scheme).black;
-  return m3.copyWith(
-    displayLarge: m3.displayLarge?.copyWith(fontWeight: FontWeight.w700),
-    displayMedium: m3.displayMedium?.copyWith(fontWeight: FontWeight.w700),
-    displaySmall: m3.displaySmall?.copyWith(fontWeight: FontWeight.w700),
-    headlineLarge: m3.headlineLarge?.copyWith(fontWeight: FontWeight.w700),
-    headlineMedium: m3.headlineMedium?.copyWith(fontWeight: FontWeight.w700),
-    headlineSmall: m3.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
-    titleLarge: m3.titleLarge?.copyWith(fontWeight: FontWeight.w700),
-    titleMedium: m3.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-    titleSmall: m3.titleSmall?.copyWith(fontWeight: FontWeight.w700),
-    bodyLarge: m3.bodyLarge?.copyWith(fontWeight: FontWeight.w500),
-    bodyMedium: m3.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
-    bodySmall: m3.bodySmall?.copyWith(fontWeight: FontWeight.w500),
-    labelLarge: m3.labelLarge?.copyWith(fontWeight: FontWeight.w600),
-    labelMedium: m3.labelMedium?.copyWith(fontWeight: FontWeight.w600),
-    labelSmall: m3.labelSmall?.copyWith(fontWeight: FontWeight.w600),
+  // 先在整份 TextTheme 上锁定字体族，再逐档收口字重到真实存在的两档。
+  final themed = m3.apply(fontFamily: MimaoFonts.family);
+  return themed.copyWith(
+    displayLarge: themed.displayLarge?.copyWith(fontWeight: MimaoFonts.bold),
+    displayMedium: themed.displayMedium?.copyWith(fontWeight: MimaoFonts.bold),
+    displaySmall: themed.displaySmall?.copyWith(fontWeight: MimaoFonts.bold),
+    headlineLarge: themed.headlineLarge?.copyWith(fontWeight: MimaoFonts.bold),
+    headlineMedium: themed.headlineMedium?.copyWith(fontWeight: MimaoFonts.bold),
+    headlineSmall: themed.headlineSmall?.copyWith(fontWeight: MimaoFonts.bold),
+    titleLarge: themed.titleLarge?.copyWith(fontWeight: MimaoFonts.bold),
+    titleMedium: themed.titleMedium?.copyWith(fontWeight: MimaoFonts.bold),
+    titleSmall: themed.titleSmall?.copyWith(fontWeight: MimaoFonts.bold),
+    bodyLarge: themed.bodyLarge?.copyWith(fontWeight: MimaoFonts.regular),
+    bodyMedium: themed.bodyMedium?.copyWith(fontWeight: MimaoFonts.regular),
+    bodySmall: themed.bodySmall?.copyWith(fontWeight: MimaoFonts.regular),
+    labelLarge: themed.labelLarge?.copyWith(fontWeight: MimaoFonts.regular),
+    labelMedium: themed.labelMedium?.copyWith(fontWeight: MimaoFonts.regular),
+    labelSmall: themed.labelSmall?.copyWith(fontWeight: MimaoFonts.regular),
   );
 }
 
@@ -77,11 +89,12 @@ ThemeData buildMimaoTheme({
     brightness: brightness,
   );
   final hairline = BorderSide(color: scheme.outlineVariant);
+  final textTheme = _buildMimaoTextTheme(scheme);
   return ThemeData(
     useMaterial3: true,
     colorScheme: scheme,
-    // 统一字重阶梯：标题 w700 / 正文 w500 / 标签按钮 w600，字号行高留 M3 基线。
-    textTheme: _buildMimaoTextTheme(scheme),
+    // 统一字体族 + 两档字重（标题 w700 / 正文标签 w400），字号行高留 M3 基线。
+    textTheme: textTheme,
     // ── 容器 ──────────────────────────────────────────────────────
     cardTheme: CardThemeData(
       elevation: 0,
@@ -153,6 +166,11 @@ ThemeData buildMimaoTheme({
       filled: true,
       fillColor: scheme.surfaceContainerHigh,
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      // hint / 输入文字显式走统一字体族与字重，避免 SearchBar/TextField 的
+      // 默认 hintStyle 绕过 textTheme、回落到系统 fallback 导致个别字变粗。
+      hintStyle: textTheme.bodyMedium?.copyWith(
+        color: scheme.onSurfaceVariant,
+      ),
       border: OutlineInputBorder(
         borderRadius: MimaoShapes.sm,
         borderSide: BorderSide.none,
@@ -172,6 +190,10 @@ ThemeData buildMimaoTheme({
       side: WidgetStatePropertyAll(hairline),
       shape: WidgetStatePropertyAll(
         RoundedRectangleBorder(borderRadius: MimaoShapes.xl),
+      ),
+      textStyle: WidgetStatePropertyAll(textTheme.bodyMedium),
+      hintStyle: WidgetStatePropertyAll(
+        textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
       ),
     ),
     // ── 按钮 / chip ───────────────────────────────────────────────
