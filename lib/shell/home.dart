@@ -160,16 +160,16 @@ class _DiagonalEntryState extends State<_DiagonalEntry>
     duration: const Duration(milliseconds: 920),
   );
 
-  /// 点击后「三带全部染成选中入口色系」的控制器。tint 0→1 时，每条带
-  /// 从自己的原色 lerp 到选中的色；铺满后再切模块。
+  /// 点击后「三带依次染成选中入口色系」的控制器。每条带用不同 Interval
+  /// 分级延迟：从点击带开始，按距离向外逐带蔓延（渐进染色，而非齐刷刷同时变）。
   late final AnimationController _tintCtrl = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 360),
+    duration: const Duration(milliseconds: 760),
   );
-  late final Animation<double> _tint = CurvedAnimation(
-    parent: _tintCtrl,
-    curve: Curves.easeInOutCubic,
-  );
+
+  /// 每条带各自的染色动画，点击时按「离选中带的距离」分配错开的 Interval。
+  /// null = 尚未点击（各带保持原色）。
+  List<Animation<double>>? _bandTints;
 
   /// 被点中的入口；null = 尚未点击（显示三带各自色）。
   MediaType? _selected;
@@ -210,7 +210,7 @@ class _DiagonalEntryState extends State<_DiagonalEntry>
   }
 
   /// 点任意位置 → 把点击 x 代入两条分界线方程，算出该处两条线的 y →
-  /// 判断落在该 x 上的哪一条带 → 三带染成该带色系，铺满后进对应模块。
+  /// 判断落在该 x 上的哪一条带 → 从该带起按距离向外渐进染色，铺满后进模块。
   void _onTapDown(TapDownDetails details) {
     if (_selected != null) return; // 染色中忽略连点，避免重复进模块。
     final w = widget.width;
@@ -220,7 +220,26 @@ class _DiagonalEntryState extends State<_DiagonalEntry>
     final b1 = (_b1Left + (_b1Right - _b1Left) * x / w) * h;
     final b2 = (_b2Left + (_b2Right - _b2Left) * x / w) * h;
     final index = y < b1 ? 0 : (y < b2 ? 1 : 2);
-    setState(() => _selected = entryTypes[index]);
+
+    // 每条带按「离点击带的距离」错开起点：点击带先染，相邻带稍后，最远带最后。
+    // 每条占 0.44 的进度窗，间隔 0.28，最后一条结束点 <= 1。
+    final tints = List<Animation<double>>.generate(entryTypes.length, (i) {
+      final distance = (i - index).abs();
+      final begin = distance * 0.28;
+      return CurvedAnimation(
+        parent: _tintCtrl,
+        curve: Interval(
+          begin,
+          (begin + 0.44).clamp(0.0, 1.0),
+          curve: Curves.easeInOutCubic,
+        ),
+      );
+    });
+
+    setState(() {
+      _selected = entryTypes[index];
+      _bandTints = tints;
+    });
     _tintCtrl.forward(from: 0);
   }
 
@@ -241,7 +260,7 @@ class _DiagonalEntryState extends State<_DiagonalEntry>
                 width: widget.width,
                 height: widget.height,
                 slide: _slides[i],
-                tint: _tint,
+                tint: _bandTints?[i],
                 selected: _selected,
               ),
           ],
@@ -267,7 +286,7 @@ class _DiagonalBand extends StatelessWidget {
   final double width;
   final double height;
   final Animation<Offset> slide;
-  final Animation<double> tint;
+  final Animation<double>? tint;
   final MediaType? selected;
 
   const _DiagonalBand({
@@ -293,9 +312,9 @@ class _DiagonalBand extends StatelessWidget {
     return SlideTransition(
       position: slide,
       child: AnimatedBuilder(
-        animation: tint,
+        animation: tint ?? const AlwaysStoppedAnimation(0),
         builder: (context, _) {
-          final t = tint.value;
+          final t = tint?.value ?? 0;
           final color = Color.lerp(ownContainer, target, t)!;
           final onColor = Color.lerp(ownOn, targetOn, t)!;
           // 未选中带的文字在染色铺开时淡出，选中带保持不透明。
