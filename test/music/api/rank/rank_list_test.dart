@@ -80,23 +80,32 @@ void main() {
     );
   });
 
-  test('errcode 失败 → business 带码；errcode=20018 → authentication', () async {
-    fixture.adapter.bytes = jsonBytes('{"status":0,"errcode":152,"data":{}}');
-    await expectLater(
-      fetchRankList(fixture.session),
-      throwsA(
-        predicate(
-          (Object e) => '$e'.contains('business') && '$e'.contains('/152'),
+  test(
+    'errcode 失败 → business 带码；errcode=20018 仍是 business（上游只认 error_code）',
+    () async {
+      fixture.adapter.bytes = jsonBytes('{"status":0,"errcode":152,"data":{}}');
+      await expectLater(
+        fetchRankList(fixture.session),
+        throwsA(
+          predicate(
+            (Object e) => '$e'.contains('business') && '$e'.contains('/152'),
+          ),
         ),
-      ),
-    );
+      );
 
-    fixture.adapter.bytes = jsonBytes('{"status":1,"errcode":20018,"data":{}}');
-    await expectLater(
-      fetchRankList(fixture.session),
-      throwsA(predicate((Object e) => '$e'.contains('authentication'))),
-    );
-  });
+      fixture.adapter.bytes = jsonBytes(
+        '{"status":1,"errcode":20018,"data":{}}',
+      );
+      await expectLater(
+        fetchRankList(fixture.session),
+        throwsA(
+          predicate(
+            (Object e) => '$e'.contains('business') && '$e'.contains('/20018'),
+          ),
+        ),
+      );
+    },
+  );
 
   test('data 缺失/非 object → decode（上游 from_value 不吞）', () async {
     for (final body in <String>[
