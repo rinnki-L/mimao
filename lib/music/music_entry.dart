@@ -286,6 +286,9 @@ class MusicModule implements AppModule {
           title: playlist.title,
           coverUrl: playlist.coverUrl,
           write: browse?.playlistWrite,
+          // 账号中心「我的歌单」行直接进详情：同样透传可编辑事实，否则
+          // 只有列表页入口能写、这里会静默变成只读。
+          editable: playlist.editable == true,
           // 写端点需要的版本/归属/简介事实从列表条目透传；missing 时页面
           // 自己隐藏写入口（不臆造版本号）。
           revision: playlist.revision,
