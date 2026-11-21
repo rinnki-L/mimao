@@ -270,7 +270,14 @@ class _MusicDiscoveryListPageState extends State<MusicDiscoveryListPage> {
         }
         final song = _songs[index];
         return MusicSongCard(
-          child: DiscoverySongTile(song: song, onTap: () => _openSong(song)),
+          child: DiscoverySongTile(
+            song: song,
+            onTap: () => _openSong(song),
+            onDoubleTap: () => widget.player.playList(
+              List<MusicSong>.of(_songs),
+              startIndex: index,
+            ),
+          ),
         );
       },
     );
@@ -282,43 +289,54 @@ class _MusicDiscoveryListPageState extends State<MusicDiscoveryListPage> {
 /// 长条歌曲行：44 封面 + 歌名 + 歌手 + 时长 + 播放图标；发现 tab 每日推荐、
 /// 长条列表页与风格推荐页共用，点行走统一播放链路。
 class DiscoverySongTile extends StatelessWidget {
-  const DiscoverySongTile({super.key, required this.song, required this.onTap});
+  const DiscoverySongTile({
+    super.key,
+    required this.song,
+    required this.onTap,
+    this.onDoubleTap,
+  });
 
   final MusicSong song;
   final VoidCallback onTap;
+
+  /// 双击 → 当前长条列表整列表替换播放队列；与 [onTap] 同一个 InkWell。
+  final VoidCallback? onDoubleTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final duration = formatDuration(song.durationMs);
-    return ListTile(
-      leading: DiscoverySquareCover(url: song.coverUrl, size: 44),
-      title: Text(
-        displayTitle(song.title),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      subtitle: Text(
-        song.artistText,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          if (duration.isNotEmpty) ...<Widget>[
-            Text(
-              duration,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(width: 4),
-          ],
-          const Icon(Icons.play_circle_outline),
-        ],
-      ),
+    return InkWell(
       onTap: onTap,
+      onDoubleTap: onDoubleTap,
+      child: ListTile(
+        leading: DiscoverySquareCover(url: song.coverUrl, size: 44),
+        title: Text(
+          displayTitle(song.title),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        subtitle: Text(
+          song.artistText,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            if (duration.isNotEmpty) ...<Widget>[
+              Text(
+                duration,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(width: 4),
+            ],
+            const Icon(Icons.play_circle_outline),
+          ],
+        ),
+      ),
     );
   }
 }

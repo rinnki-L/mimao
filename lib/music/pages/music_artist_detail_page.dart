@@ -269,6 +269,14 @@ class _MusicArtistDetailPageState extends State<MusicArtistDetailPage> {
     );
   }
 
+  /// 双击：已加载的歌手歌曲整列表替换播放队列，并从 [index] 起播。
+  void _playList(int index) {
+    if (_songs.isEmpty) return;
+    widget.player.playList(<MusicSong>[
+      for (final item in _songs) artistSongToMusicSong(item),
+    ], startIndex: index);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -501,6 +509,7 @@ class _MusicArtistDetailPageState extends State<MusicArtistDetailPage> {
             index: index + 1,
             song: item,
             onTap: () => _playSong(item),
+            onDoubleTap: () => _playList(index),
           ),
         ),
       );
@@ -945,11 +954,15 @@ class _ArtistSongTile extends StatelessWidget {
     required this.index,
     required this.song,
     required this.onTap,
+    this.onDoubleTap,
   });
 
   final int index;
   final MusicArtistSong song;
   final VoidCallback onTap;
+
+  /// 双击 → 歌手歌曲整列表替换播放队列；与 [onTap] 同一个 InkWell。
+  final VoidCallback? onDoubleTap;
 
   @override
   Widget build(BuildContext context) {
@@ -961,44 +974,47 @@ class _ArtistSongTile extends StatelessWidget {
       if (artist.isNotEmpty) artist,
       if (album != null && album.isNotEmpty) album,
     ];
-    return ListTile(
-      leading: _ThumbCover(url: song.coverUrl),
-      title: Row(
-        children: <Widget>[
-          SizedBox(
-            width: 24,
-            child: Text(
-              '$index',
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: scheme.onSurfaceVariant,
+    return InkWell(
+      onTap: onTap,
+      onDoubleTap: onDoubleTap,
+      child: ListTile(
+        leading: _ThumbCover(url: song.coverUrl),
+        title: Row(
+          children: <Widget>[
+            SizedBox(
+              width: 24,
+              child: Text(
+                '$index',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: 4),
-          Expanded(
-            child: Text(
-              song.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+            const SizedBox(width: 4),
+            Expanded(
+              child: Text(
+                song.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
+          ],
+        ),
+        subtitle: parts.isEmpty
+            ? null
+            : Text(
+                parts.join(' · '),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+        trailing: Text(
+          formatMusicDuration(song.durationMs),
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: scheme.onSurfaceVariant,
           ),
-        ],
-      ),
-      subtitle: parts.isEmpty
-          ? null
-          : Text(
-              parts.join(' · '),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-      trailing: Text(
-        formatMusicDuration(song.durationMs),
-        style: theme.textTheme.bodySmall?.copyWith(
-          color: scheme.onSurfaceVariant,
         ),
       ),
-      onTap: onTap,
     );
   }
 }

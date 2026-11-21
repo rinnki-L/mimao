@@ -18,6 +18,7 @@ import 'package:mimao/music/lyric/lyric_view.dart';
 import 'package:mimao/music/models/discovery_models.dart';
 import 'package:mimao/music/models/music_models.dart';
 import 'package:mimao/music/pages/music_song_info_sheet.dart';
+import 'package:mimao/music/player/pages/music_mode_card.dart';
 import 'package:mimao/music/player/pages/music_queue_sheet.dart';
 import 'package:mimao/music/player/pages/music_wavy_progress.dart';
 import 'package:mimao/music/player/player_store.dart';
@@ -203,6 +204,32 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
                 );
               },
             ),
+          // 播放模式与迷你条同款入口：点开上方（空间不足时下方）小卡片；
+          // Observer 让 AppBar 图标跟随当前模式即时变化。
+          Observer(
+            builder: (observerContext) {
+              // 在 Observer 的 builder 里读取，图标才会随模式变化重建。
+              final mode = player.playMode;
+              return Builder(
+                builder: (buttonContext) => IconButton(
+                  tooltip: '播放模式',
+                  icon: Icon(playModeIcon(mode)),
+                  onPressed: () async {
+                    final box = buttonContext.findRenderObject() as RenderBox?;
+                    final anchor = box == null
+                        ? Offset.zero
+                        : box.localToGlobal(Offset(box.size.width / 2, 0));
+                    final selected = await showPlayModeCard(
+                      observerContext,
+                      anchor,
+                      mode,
+                    );
+                    if (selected != null) player.setPlayMode(selected);
+                  },
+                ),
+              );
+            },
+          ),
           IconButton(
             tooltip: '播放队列',
             icon: const Icon(Icons.queue_music),

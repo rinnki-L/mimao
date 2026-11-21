@@ -136,6 +136,8 @@ void main() {
     await tester.tap(find.text('新歌'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('新歌一'));
+    // 单击与双击并存：单击要等双击判定超时（约 300ms）后才触发。
+    await tester.pump(const Duration(milliseconds: 300));
     await tester.pumpAndSettle();
 
     expect(player.played, hasLength(1));

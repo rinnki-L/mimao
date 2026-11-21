@@ -1,113 +1,154 @@
 // ignore_for_file: deprecated_member_use — 见同目录 playback_engine.dart 说明。
-/// 「歌曲列表 / 播放模式」共享弹窗（迷你播放条与播放页共用）。
+/// 「播放队列」右侧抽屉（迷你播放条与播放页共用）。
 ///
-/// 顶部是播放模式单选（随机 / 单曲循环 / 列表循环），下方是当前队列，
-/// 点任意一行切到该曲并关闭弹窗。队列与模式都来自 [MusicPlayerStore]，
-/// 用 [Observer] 包裹以跟随 MobX 变化实时刷新。
+/// 只承载队列：点任意一行切到该曲并关闭抽屉。模式选择已拆到独立的
+/// 模式小卡片（music_mode_card.dart），这里不再出现模式控件。
+///
+/// 用 [showGeneralDialog] 自行滑入，而不是 `Drawer`/`endDrawer`：迷你条同时
+/// 寄宿在模块页与播放页两个 Scaffold 上，Overlay 路由不依赖宿主 Scaffold，
+/// 更稳。动画固定 250ms（有限），测试里 `pumpAndSettle` 可收敛。
 library;
+
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
-import 'package:mimao/music/player/play_mode.dart';
+import 'package:mimao/music/models/music_models.dart';
 import 'package:mimao/music/player/player_store.dart';
 
-/// 打开歌曲列表弹窗（模式选择 + 队列切歌）。
+/// 从屏幕右侧滑出播放队列抽屉。
 Future<void> showMusicQueueSheet(
   BuildContext context,
   MusicPlayerStore player,
 ) {
-  return showModalBottomSheet<void>(
+  // 宽屏封顶 360，窄屏最多占 86%，给左侧留出遮罩以便点击关闭。
+  final drawerWidth = math.min(360.0, MediaQuery.sizeOf(context).width * 0.86);
+  return showGeneralDialog<void>(
     context: context,
-    isScrollControlled: true,
-    showDragHandle: true,
-    builder: (sheetContext) => SafeArea(
-      child: Observer(
-        builder: (context) {
-          final theme = Theme.of(context);
-          return ConstrainedBox(
-            // 队列可能很长：弹窗最多占 70% 高，列表在内部滚动。
-            constraints: BoxConstraints(
-              maxHeight: MediaQuery.sizeOf(context).height * 0.7,
-            ),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: <Widget>[
-                  Text('播放模式', style: theme.textTheme.titleMedium),
-                  const SizedBox(height: 8),
-                  SegmentedButton<PlayMode>(
-                    key: const Key('music-queue-play-mode'),
-                    showSelectedIcon: false,
-                    expandedInsets: EdgeInsets.zero,
-                    segments: const <ButtonSegment<PlayMode>>[
-                      ButtonSegment<PlayMode>(
-                        value: PlayMode.shuffle,
-                        label: Text('随机'),
+    barrierDismissible: true,
+    barrierLabel: '关闭播放队列',
+    barrierColor: Colors.black54,
+    transitionDuration: const Duration(milliseconds: 250),
+    pageBuilder: (dialogContext, animation, secondaryAnimation) {
+      final theme = Theme.of(dialogContext);
+      return Align(
+        alignment: Alignment.centerRight,
+        child: Material(
+          key: const Key('music-queue-drawer'),
+          color: theme.colorScheme.surface,
+          elevation: 8,
+          child: SizedBox(
+            width: drawerWidth,
+            height: double.infinity,
+            child: SafeArea(
+              // 抽屉贴右边，右侧安全区由内部 padding 处理即可。
+              left: false,
+              child: Observer(
+                builder: (context) {
+                  final queue = player.queue;
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: <Widget>[
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 8, 8, 4),
+                        child: Row(
+                          children: <Widget>[
+                            Expanded(
+                              child: Text(
+                                '播放队列',
+                                style: theme.textTheme.titleMedium,
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: '关闭',
+                              icon: const Icon(Icons.close),
+                              onPressed: () =>
+                                  Navigator.of(dialogContext).pop(),
+                            ),
+                          ],
+                        ),
                       ),
-                      ButtonSegment<PlayMode>(
-                        value: PlayMode.repeatOne,
-                        label: Text('单曲循环'),
-                      ),
-                      ButtonSegment<PlayMode>(
-                        value: PlayMode.listLoop,
-                        label: Text('列表循环'),
+                      Expanded(
+                        child: queue.isEmpty
+                            ? const Center(child: Text('播放队列为空'))
+                            : ListView.builder(
+                                key: const Key('music-queue-list'),
+                                padding: const EdgeInsets.only(bottom: 8),
+                                itemCount: queue.length,
+                                itemBuilder: (context, index) {
+                                  final song = queue[index];
+                                  final current = index == player.index;
+                                  return _QueueTile(
+                                    song: song,
+                                    current: current,
+                                    onTap: () {
+                                      player.playAt(index);
+                                      Navigator.of(dialogContext).pop();
+                                    },
+                                  );
+                                },
+                              ),
                       ),
                     ],
-                    selected: <PlayMode>{player.playMode},
-                    onSelectionChanged: (selection) =>
-                        player.setPlayMode(selection.first),
-                  ),
-                  const SizedBox(height: 16),
-                  Text('当前播放队列', style: theme.textTheme.titleMedium),
-                  const SizedBox(height: 4),
-                  if (player.queue.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 24),
-                      child: Text('播放队列为空', textAlign: TextAlign.center),
-                    )
-                  else
-                    Flexible(
-                      child: ListView.builder(
-                        shrinkWrap: true,
-                        itemCount: player.queue.length,
-                        itemBuilder: (context, index) {
-                          final song = player.queue[index];
-                          final current = index == player.index;
-                          return ListTile(
-                            selected: current,
-                            contentPadding: EdgeInsets.zero,
-                            leading: Icon(
-                              current ? Icons.volume_up : Icons.music_note,
-                              color: current ? theme.colorScheme.primary : null,
-                            ),
-                            title: Text(
-                              _displayTitle(song.title),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            subtitle: Text(
-                              song.artistText,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            onTap: () {
-                              player.playAt(index);
-                              Navigator.of(sheetContext).pop();
-                            },
-                          );
-                        },
-                      ),
-                    ),
-                ],
+                  );
+                },
               ),
             ),
-          );
-        },
-      ),
-    ),
+          ),
+        ),
+      );
+    },
+    transitionBuilder: (dialogContext, animation, secondaryAnimation, child) {
+      final curved = CurvedAnimation(
+        parent: animation,
+        curve: Curves.easeOutCubic,
+        reverseCurve: Curves.easeInCubic,
+      );
+      return SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(1, 0),
+          end: Offset.zero,
+        ).animate(curved),
+        child: child,
+      );
+    },
   );
+}
+
+class _QueueTile extends StatelessWidget {
+  const _QueueTile({
+    required this.song,
+    required this.current,
+    required this.onTap,
+  });
+
+  final MusicSong song;
+  final bool current;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return ListTile(
+      selected: current,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+      leading: Icon(
+        current ? Icons.volume_up : Icons.music_note,
+        color: current ? theme.colorScheme.primary : null,
+      ),
+      title: Text(
+        _displayTitle(song.title),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      subtitle: Text(
+        song.artistText,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      onTap: onTap,
+    );
+  }
 }
 
 /// wire 的 SongName 可能带 `<em>` 高亮标签（复杂搜索命中高亮），展示层剥掉。

@@ -95,6 +95,8 @@ void main() {
     expect(opened, <int>[10, 11]);
 
     await tester.tap(find.text('热门歌'));
+    // 单击与双击并存：单击要等双击判定超时（约 300ms）后才触发。
+    await tester.pump(const Duration(milliseconds: 300));
     await tester.pumpAndSettle();
 
     expect(player.played.map((song) => song.title), <String>['热门歌']);

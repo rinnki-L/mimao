@@ -331,6 +331,14 @@ class _MusicPlaylistDetailPageState extends State<MusicPlaylistDetailPage> {
     );
   }
 
+  /// 双击：已加载的整个歌单替换播放队列，并从 [index] 起播（不跳播放页）。
+  void _playList(int index) {
+    if (_tracks.isEmpty) return;
+    widget.player.playList(<MusicSong>[
+      for (final track in _tracks) track.song,
+    ], startIndex: index);
+  }
+
   Future<void> _confirmDelete() async {
     final write = widget.write;
     final cloudListId = widget.cloudListId;
@@ -1024,6 +1032,8 @@ class _MusicPlaylistDetailPageState extends State<MusicPlaylistDetailPage> {
           _play(track);
         }
       },
+      // 多选管理下双击无意义（单击用于勾选），禁用整列表播放。
+      onDoubleTap: _selectionMode ? null : () => _playList(index),
       child: row,
     );
   }

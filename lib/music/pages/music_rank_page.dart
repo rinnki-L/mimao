@@ -41,6 +41,11 @@ class _MusicRankPageState extends State<MusicRankPage> {
     );
   }
 
+  /// 双击新歌行：整个新歌榜替换播放队列，并从 [startIndex] 起播。
+  void _openSongList(List<MusicSong> songs, int startIndex) {
+    widget.player.playList(songs, startIndex: startIndex);
+  }
+
   void _openRank(MusicRank rank) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -75,7 +80,11 @@ class _MusicRankPageState extends State<MusicRankPage> {
         body: TabBarView(
           children: <Widget>[
             _RankCatalogTab(api: widget.api, onOpenRank: _openRank),
-            _NewSongsTab(api: widget.api, onOpenSong: _openSong),
+            _NewSongsTab(
+              api: widget.api,
+              onOpenSong: _openSong,
+              onOpenSongList: _openSongList,
+            ),
             _TopAlbumsTab(api: widget.api),
             _TopPlaylistsTab(api: widget.api),
             _TopIpsTab(api: widget.api),
@@ -277,10 +286,17 @@ class _RankCard extends StatelessWidget {
 // ── tab 2：新歌首发（topSongs，固定新歌榜）────────────────────────────────
 
 class _NewSongsTab extends StatefulWidget {
-  const _NewSongsTab({required this.api, required this.onOpenSong});
+  const _NewSongsTab({
+    required this.api,
+    required this.onOpenSong,
+    required this.onOpenSongList,
+  });
 
   final MusicRankApi api;
   final ValueChanged<MusicSong> onOpenSong;
+
+  /// 双击某行：整张新歌列表 + 起始下标（总页接到 player.playList）。
+  final void Function(List<MusicSong> songs, int startIndex) onOpenSongList;
 
   @override
   State<_NewSongsTab> createState() => _NewSongsTabState();
@@ -306,6 +322,7 @@ class _NewSongsTabState extends _RankTabBase<_NewSongsTab> {
     if (_songs.isEmpty) {
       return const _EmptyState(text: '暂无新歌数据');
     }
+    final songs = <MusicSong>[for (final entry in _songs) entry.song];
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(8, 4, 8, 24),
       itemCount: _songs.length,
@@ -318,6 +335,7 @@ class _NewSongsTabState extends _RankTabBase<_NewSongsTab> {
             // 榜内位置优先取 chart；缺省退回列表序号。
             position: entry.metadata.chart.position ?? index + 1,
             onTap: () => widget.onOpenSong(entry.song),
+            onDoubleTap: () => widget.onOpenSongList(songs, index),
           ),
         );
       },
@@ -600,11 +618,15 @@ class _RankSongRow extends StatelessWidget {
     required this.song,
     required this.position,
     required this.onTap,
+    this.onDoubleTap,
   });
 
   final MusicSong song;
   final int position;
   final VoidCallback onTap;
+
+  /// 双击 → 整张新歌列表替换播放队列；与 [onTap] 同一个 InkWell。
+  final VoidCallback? onDoubleTap;
 
   @override
   Widget build(BuildContext context) {
@@ -615,6 +637,7 @@ class _RankSongRow extends StatelessWidget {
         : '${song.artistText} · ${song.albumTitle}';
     return InkWell(
       onTap: onTap,
+      onDoubleTap: onDoubleTap,
       borderRadius: MimaoShapes.md,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),

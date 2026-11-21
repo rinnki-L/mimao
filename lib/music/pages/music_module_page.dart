@@ -169,6 +169,18 @@ class _MusicModulePageState extends State<MusicModulePage> {
     );
   }
 
+  /// 双击：当前搜索结果整列表替换播放队列，并从 [startIndex] 起播。
+  void _openSongList(List<MusicSong> songs, int startIndex) {
+    final player = widget.playerUi;
+    if (player == null) {
+      ScaffoldMessenger.maybeOf(
+        context,
+      )?.showSnackBar(const SnackBar(content: Text('播放功能随播放器切片接入')));
+      return;
+    }
+    player.playList(songs, startIndex: startIndex);
+  }
+
   @override
   Widget build(BuildContext context) {
     final searchBody = Column(
@@ -332,6 +344,8 @@ class _MusicModulePageState extends State<MusicModulePage> {
                 ? null
                 : () => _toggleCollect(song),
             onTap: () => _openSong(song),
+            onDoubleTap: () =>
+                _openSongList(List<MusicSong>.of(store.results), index),
           ),
         );
       },
@@ -345,12 +359,16 @@ class _SongTile extends StatelessWidget {
     required this.song,
     required this.isCollected,
     required this.onTap,
+    this.onDoubleTap,
     this.onToggleCollect,
   });
 
   final MusicSong song;
   final bool isCollected;
   final VoidCallback onTap;
+
+  /// 双击 → 当前搜索结果整列表替换播放队列；与 [onTap] 同一个 InkWell。
+  final VoidCallback? onDoubleTap;
 
   /// null 表示收藏功能未接线（不显示按钮）。
   final VoidCallback? onToggleCollect;
@@ -359,35 +377,38 @@ class _SongTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    return ListTile(
-      leading: _SongCover(url: song.coverUrl),
-      title: Text(
-        _displayTitle(song.title),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      subtitle: Text(
-        '${song.artistText}${song.albumTitle.isEmpty ? '' : ' · ${song.albumTitle}'}',
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      // 收藏按钮用 filledTonal 的选中态：未收藏描边心形，已收藏
-      // tonal 实底红心——MD3 的 IconButton 选中形态，一眼可辨。
-      trailing: onToggleCollect != null
-          ? IconButton.filledTonal(
-              tooltip: isCollected ? '取消收藏' : '收藏',
-              isSelected: isCollected,
-              selectedIcon: const Icon(Icons.favorite),
-              icon: const Icon(Icons.favorite_border),
-              onPressed: onToggleCollect,
-            )
-          : Text(
-              _formatDuration(song.durationMs),
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: cs.onSurfaceVariant,
-              ),
-            ),
+    return InkWell(
       onTap: onTap,
+      onDoubleTap: onDoubleTap,
+      child: ListTile(
+        leading: _SongCover(url: song.coverUrl),
+        title: Text(
+          _displayTitle(song.title),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        subtitle: Text(
+          '${song.artistText}${song.albumTitle.isEmpty ? '' : ' · ${song.albumTitle}'}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        // 收藏按钮用 filledTonal 的选中态：未收藏描边心形，已收藏
+        // tonal 实底红心——MD3 的 IconButton 选中形态，一眼可辨。
+        trailing: onToggleCollect != null
+            ? IconButton.filledTonal(
+                tooltip: isCollected ? '取消收藏' : '收藏',
+                isSelected: isCollected,
+                selectedIcon: const Icon(Icons.favorite),
+                icon: const Icon(Icons.favorite_border),
+                onPressed: onToggleCollect,
+              )
+            : Text(
+                _formatDuration(song.durationMs),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: cs.onSurfaceVariant,
+                ),
+              ),
+      ),
     );
   }
 }

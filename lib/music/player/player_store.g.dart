@@ -135,6 +135,22 @@ mixin _$MusicPlayerStore on _MusicPlayerStore, Store {
     return _$playAtAsyncAction.run(() => super.playAt(target));
   }
 
+  late final _$playListAsyncAction = AsyncAction(
+    '_MusicPlayerStore.playList',
+    context: context,
+  );
+
+  @override
+  Future<void> playList(
+    List<MusicSong> songs, {
+    int startIndex = 0,
+    Duration startAt = Duration.zero,
+  }) {
+    return _$playListAsyncAction.run(
+      () => super.playList(songs, startIndex: startIndex, startAt: startAt),
+    );
+  }
+
   late final _$nextAsyncAction = AsyncAction(
     '_MusicPlayerStore.next',
     context: context,

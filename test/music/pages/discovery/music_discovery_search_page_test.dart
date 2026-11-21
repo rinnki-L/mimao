@@ -161,6 +161,8 @@ void main() {
     await tester.tap(find.text('晴天 之一'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
+    // 单击回调在双击判定超时后才触发，再等路由动画完成。
+    await tester.pumpAndSettle();
 
     expect(fixture.player.played, hasLength(1));
     expect(fixture.player.played.first.id, '101');
@@ -177,7 +179,9 @@ void main() {
 
     await tester.tap(find.byIcon(Icons.favorite_border));
     await tester.pump();
-    await tester.pump();
+    // 行内收藏按钮与整行双击共用祖先手势，单击会在双击判定超时后触发。
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pumpAndSettle();
 
     expect(collect.collected, hasLength(1));
     expect(collect.collected.single.id, '102');

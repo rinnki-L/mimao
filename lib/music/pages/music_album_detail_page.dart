@@ -206,6 +206,14 @@ class _MusicAlbumDetailPageState extends State<MusicAlbumDetailPage> {
     );
   }
 
+  /// 双击：已加载的整张专辑替换播放队列，并从 [index] 起播（不跳播放页）。
+  void _playList(int index) {
+    if (_tracks.isEmpty) return;
+    widget.player.playList(<MusicSong>[
+      for (final track in _tracks) track.song,
+    ], startIndex: index);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -331,6 +339,7 @@ class _MusicAlbumDetailPageState extends State<MusicAlbumDetailPage> {
             index: index + 1,
             track: track,
             onTap: () => _playTrack(track.song),
+            onDoubleTap: () => _playList(index),
             // 播放补全接口未接线时长按不响应（资料面板需要它）。
             onLongPress: widget.playbackExt == null
                 ? null
@@ -546,12 +555,17 @@ class _TrackTile extends StatelessWidget {
     required this.index,
     required this.track,
     required this.onTap,
+    this.onDoubleTap,
     this.onLongPress,
   });
 
   final int index;
   final MusicAlbumTrack track;
   final VoidCallback onTap;
+
+  /// 双击 → 整张专辑替换播放队列。与 [onTap] 挂在同一个 InkWell 上，
+  /// 否则双击会被 ListTile 的单击手势吞掉。
+  final VoidCallback? onDoubleTap;
 
   /// 长按曲目 → 歌曲资料面板；未接线播放补全接口时为 null。
   final VoidCallback? onLongPress;
@@ -562,41 +576,44 @@ class _TrackTile extends StatelessWidget {
     final scheme = theme.colorScheme;
     final song = track.song;
     final subtitle = song.artistText;
-    return ListTile(
-      leading: _SongCover(url: song.coverUrl),
-      title: Row(
-        children: <Widget>[
-          SizedBox(
-            width: 24,
-            child: Text(
-              '$index',
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: scheme.onSurfaceVariant,
+    return InkWell(
+      onTap: onTap,
+      onDoubleTap: onDoubleTap,
+      child: ListTile(
+        leading: _SongCover(url: song.coverUrl),
+        title: Row(
+          children: <Widget>[
+            SizedBox(
+              width: 24,
+              child: Text(
+                '$index',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: 4),
-          Expanded(
-            child: Text(
-              song.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+            const SizedBox(width: 4),
+            Expanded(
+              child: Text(
+                song.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
-          ),
-        ],
-      ),
-      subtitle: subtitle.isEmpty
-          ? null
-          : Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
-      trailing: Text(
-        formatMusicDuration(song.durationMs),
-        style: theme.textTheme.bodySmall?.copyWith(
-          color: scheme.onSurfaceVariant,
+          ],
         ),
+        subtitle: subtitle.isEmpty
+            ? null
+            : Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
+        trailing: Text(
+          formatMusicDuration(song.durationMs),
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: scheme.onSurfaceVariant,
+          ),
+        ),
+        onLongPress: onLongPress,
       ),
-      onTap: onTap,
-      onLongPress: onLongPress,
     );
   }
 }

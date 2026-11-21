@@ -166,6 +166,8 @@ void main() {
 
     await tester.tap(find.widgetWithText(ListTile, '稻香'));
     await tester.pump();
+    // 单击与双击并存：单击要等双击判定超时（约 300ms）后才触发。
+    await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('播放功能随播放器切片接入'), findsOneWidget);
   });
 

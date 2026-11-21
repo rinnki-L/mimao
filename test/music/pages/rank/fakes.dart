@@ -303,9 +303,12 @@ class FakeRankApi implements MusicRankApi {
   }
 }
 
-/// fake 播放 UI：记录 playSong 的曲目与播放页构建次数。
+/// fake 播放 UI：记录 playSong/playList 的曲目与播放页构建次数。
 class FakePlayerUi implements MusicPlayerUi {
   final List<MusicSong> played = <MusicSong>[];
+  final List<List<MusicSong>> playedLists = <List<MusicSong>>[];
+  final List<int> playedListStartIndexes = <int>[];
+  final List<Duration> playedListStartAts = <Duration>[];
   int playerPageBuilds = 0;
 
   @override
@@ -323,6 +326,17 @@ class FakePlayerUi implements MusicPlayerUi {
     Duration startAt = Duration.zero,
   }) async {
     played.add(song);
+  }
+
+  @override
+  Future<void> playList(
+    List<MusicSong> songs, {
+    int startIndex = 0,
+    Duration startAt = Duration.zero,
+  }) async {
+    playedLists.add(songs);
+    playedListStartIndexes.add(startIndex);
+    playedListStartAts.add(startAt);
   }
 
   @override

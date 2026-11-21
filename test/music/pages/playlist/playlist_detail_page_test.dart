@@ -8,6 +8,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mimao/music/client/kugou_error.dart';
+import 'package:mimao/music/models/music_models.dart';
 import 'package:mimao/music/models/playlist_models.dart';
 import 'package:mimao/music/pages/music_playlist_detail_page.dart';
 
@@ -132,10 +133,33 @@ void main() {
 
     await _pumpDetail(tester, read, player, cloudListId: 77, title: '云单');
     await tester.tap(find.text('可播曲目'));
+    // 单击与双击并存：单击要等双击判定超时（约 300ms）后才触发。
+    await tester.pump(const Duration(milliseconds: 300));
     await tester.pumpAndSettle();
 
     expect(player.played.single.id, '1');
     expect(find.text('播放页测试锚点'), findsOneWidget);
+  });
+
+  testWidgets('双击曲目：整列表替换播放队列并从该首起播', (tester) async {
+    read.trackAllNewPages = <List<MusicPlaylistTrack>>[
+      <MusicPlaylistTrack>[
+        testTrack(id: '1', title: '曲目一'),
+        testTrack(id: '2', title: '曲目二'),
+      ],
+    ];
+    final recorder = _RecordingPlayerUi();
+
+    await _pumpDetail(tester, read, recorder, cloudListId: 77, title: '云单');
+    final row = find.text('曲目二');
+    await tester.tap(row);
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.tap(row);
+    await tester.pumpAndSettle();
+
+    expect(recorder.lists.single.map((song) => song.id), <String>['1', '2']);
+    expect(recorder.startIndexes.single, 1);
+    expect(recorder.played, isEmpty, reason: '双击不应再走单击的单曲播放');
   });
 
   testWidgets('云歌单分页「加载更多」追加', (tester) async {
@@ -277,4 +301,20 @@ void main() {
     await _pumpDetail(tester, read, player, cloudListId: 77, title: '云单');
     expect(find.byIcon(Icons.delete_outline), findsNothing);
   });
+}
+
+/// 在 [FakePlayerUi] 基础上记录整列表播放调用（列表 + 起始下标）。
+class _RecordingPlayerUi extends FakePlayerUi {
+  final List<List<MusicSong>> lists = <List<MusicSong>>[];
+  final List<int> startIndexes = <int>[];
+
+  @override
+  Future<void> playList(
+    List<MusicSong> songs, {
+    int startIndex = 0,
+    Duration startAt = Duration.zero,
+  }) async {
+    lists.add(List<MusicSong>.of(songs));
+    startIndexes.add(startIndex);
+  }
 }

@@ -495,10 +495,13 @@ class FakeUserLibraryApi implements MusicUserLibraryApi {
   ) => throw UnimplementedError();
 }
 
-/// 播放 UI 替身：只记录 playSong 的入参，不渲染。
+/// 播放 UI 替身：只记录 playSong/playList 的入参，不渲染。
 class FakePlayerUi implements MusicPlayerUi {
   final List<MusicSong> played = <MusicSong>[];
   final List<Duration> startAts = <Duration>[];
+  final List<List<MusicSong>> playedLists = <List<MusicSong>>[];
+  final List<int> playedListStartIndexes = <int>[];
+  final List<Duration> playedListStartAts = <Duration>[];
 
   @override
   Future<void> playSong(
@@ -507,6 +510,17 @@ class FakePlayerUi implements MusicPlayerUi {
   }) async {
     played.add(song);
     startAts.add(startAt);
+  }
+
+  @override
+  Future<void> playList(
+    List<MusicSong> songs, {
+    int startIndex = 0,
+    Duration startAt = Duration.zero,
+  }) async {
+    playedLists.add(songs);
+    playedListStartIndexes.add(startIndex);
+    playedListStartAts.add(startAt);
   }
 
   @override

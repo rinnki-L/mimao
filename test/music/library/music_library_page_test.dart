@@ -118,6 +118,8 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey<String>('library-history-h1')));
     await tester.pump();
+    // 单击与双击并存：单击结果要等双击判定超时（约 300ms）后才触发。
+    await tester.pump(const Duration(milliseconds: 300));
 
     expect(played!.id, 'h1');
     expect(played!.title, '历史一');
@@ -148,6 +150,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey<String>('library-history-end')));
     await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
 
     expect(startAt, Duration.zero, reason: '历史位置≈总时长时从头重播');
   });
@@ -163,6 +166,7 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey<String>('library-history-h2')));
     await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.text('播放功能未接线'), findsOneWidget);
     expect(tester.takeException(), isNull);

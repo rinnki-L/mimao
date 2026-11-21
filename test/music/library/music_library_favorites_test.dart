@@ -76,6 +76,47 @@ void main() {
     expect(find.byKey(const Key('library-favorites-more')), findsNothing);
   });
 
+  testWidgets('双击账号「我喜欢」歌曲：整个列表替换播放队列并从该首起播', (tester) async {
+    final library = libraryWithFavorites();
+    final read = FakePlaylistReadApi()
+      ..trackAllNewPages = <List<MusicPlaylistTrack>>[
+        <MusicPlaylistTrack>[
+          testTrack(id: 'f1', title: '账号收藏一'),
+          testTrack(id: 'f2', title: '账号收藏二'),
+        ],
+      ];
+    List<MusicSong>? playlist;
+    final indexes = <int>[];
+    MusicSong? playedSingle;
+
+    await tester.pumpWidget(
+      _app(
+        MusicLibraryPage(
+          collect: env.collect,
+          history: env.history,
+          userLibrary: library,
+          playlistRead: read,
+          onPlaySong: (song, at) => playedSingle = song,
+          onPlayList: (songs, {startIndex = 0}) {
+            playlist = songs;
+            indexes.add(startIndex);
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final row = find.byKey(const ValueKey<String>('library-favorite-f2'));
+    await tester.tap(row);
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.tap(row);
+    await tester.pumpAndSettle();
+
+    expect(playlist!.map((song) => song.id), <String>['f1', 'f2']);
+    expect(indexes.single, 1);
+    expect(playedSingle, isNull, reason: '双击不应再走单击的跳播放页逻辑');
+  });
+
   testWidgets('本地收藏仍在账号收藏下方显示', (tester) async {
     await env.collect.collectRef(
       const MusicRef(id: 'local1'),

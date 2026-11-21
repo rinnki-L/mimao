@@ -11,6 +11,7 @@ import 'package:mimao/core/theme.dart';
 import 'package:mimao/music/api/playback_ext_api.dart';
 import 'package:mimao/music/lyric/lyric_models.dart';
 import 'package:mimao/music/models/discovery_models.dart';
+import 'package:mimao/music/player/pages/music_mode_card.dart';
 import 'package:mimao/music/player/pages/music_player_page.dart';
 import 'package:mimao/music/player/pages/music_queue_sheet.dart';
 import 'package:mimao/music/player/pages/music_wavy_progress.dart';
@@ -50,6 +51,8 @@ class MusicMiniPlayer extends StatelessWidget {
       builder: (context) {
         final song = player.currentSong;
         if (song == null) return const SizedBox.shrink();
+        // 在 Observer 的 builder 里读取：Builder 子树的读取不在追踪范围内。
+        final playMode = player.playMode;
         // 圆角悬浮卡（r14 + 细描边），不再通栏贴底——MD3 的浮动播放条形态。
         return Padding(
           padding: const EdgeInsets.fromLTRB(6, 4, 6, 8),
@@ -165,18 +168,54 @@ class MusicMiniPlayer extends StatelessWidget {
                                   ],
                                 ),
                         ),
-                        // 右：歌曲列表（播放模式 + 队列弹窗）。
+                        // 右：播放模式（上方弹小卡片）+ 歌曲列表（右侧抽屉）。
+                        // 两个独立按钮仍在同一个固定宽度的 Expanded 里，
+                        // 不参与中段 108 的居中计算。
                         Expanded(
                           child: Align(
                             alignment: Alignment.centerRight,
-                            child: IconButton(
-                              key: const Key('mini-queue'),
-                              tooltip: '播放列表',
-                              iconSize: 22,
-                              style: _miniIconButtonStyle,
-                              icon: const Icon(Icons.queue_music),
-                              onPressed: () =>
-                                  showMusicQueueSheet(context, player),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: <Widget>[
+                                Builder(
+                                  builder: (buttonContext) => IconButton(
+                                    key: const Key('mini-play-mode'),
+                                    tooltip: '播放模式',
+                                    iconSize: 22,
+                                    style: _miniIconButtonStyle,
+                                    icon: Icon(playModeIcon(playMode)),
+                                    onPressed: () async {
+                                      // 以按钮顶部中点作为卡片锚点，卡片在
+                                      // 按钮上方弹出（Overlay 不惧迷你条裁剪）。
+                                      final box =
+                                          buttonContext.findRenderObject()
+                                              as RenderBox?;
+                                      final anchor = box == null
+                                          ? Offset.zero
+                                          : box.localToGlobal(
+                                              Offset(box.size.width / 2, 0),
+                                            );
+                                      final mode = await showPlayModeCard(
+                                        context,
+                                        anchor,
+                                        playMode,
+                                      );
+                                      if (mode != null) {
+                                        player.setPlayMode(mode);
+                                      }
+                                    },
+                                  ),
+                                ),
+                                IconButton(
+                                  key: const Key('mini-queue'),
+                                  tooltip: '播放列表',
+                                  iconSize: 22,
+                                  style: _miniIconButtonStyle,
+                                  icon: const Icon(Icons.queue_music),
+                                  onPressed: () =>
+                                      showMusicQueueSheet(context, player),
+                                ),
+                              ],
                             ),
                           ),
                         ),

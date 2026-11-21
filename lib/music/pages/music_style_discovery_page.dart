@@ -182,6 +182,9 @@ class _MusicStyleDiscoveryPageState extends State<MusicStyleDiscoveryPage> {
     if (!hasChips && !hasSongs) {
       return const DiscoveryEmptyState(message: '暂无风格推荐');
     }
+    final songs = <MusicSong>[
+      for (final item in data.songs) discoverySongToMusicSong(item.song),
+    ];
     return ListView(
       key: const Key('style-discovery'),
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
@@ -189,7 +192,8 @@ class _MusicStyleDiscoveryPageState extends State<MusicStyleDiscoveryPage> {
         for (final group in data.groups)
           if (group.child.isNotEmpty) _buildGroupChips(group),
         if (hasChips && hasSongs) const SizedBox(height: 8),
-        for (final song in data.songs) MusicSongCard(child: _songTile(song)),
+        for (final (index, _) in data.songs.indexed)
+          MusicSongCard(child: _songTile(songs, index)),
       ],
     );
   }
@@ -238,10 +242,14 @@ class _MusicStyleDiscoveryPageState extends State<MusicStyleDiscoveryPage> {
     ],
   );
 
-  /// 命中歌曲长条：点行走统一播放链路。
-  DiscoverySongTile _songTile(MusicDiscoverySong item) {
-    final song = discoverySongToMusicSong(item.song);
-    return DiscoverySongTile(song: song, onTap: () => _openSong(song));
+  /// 命中歌曲长条：点行走统一播放链路；双击整段替换播放队列。
+  DiscoverySongTile _songTile(List<MusicSong> songs, int index) {
+    final song = songs[index];
+    return DiscoverySongTile(
+      song: song,
+      onTap: () => _openSong(song),
+      onDoubleTap: () => widget.player.playList(songs, startIndex: index),
+    );
   }
 }
 

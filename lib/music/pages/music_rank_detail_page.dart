@@ -91,6 +91,14 @@ class _MusicRankDetailPageState extends State<MusicRankDetailPage> {
     );
   }
 
+  /// 双击：整个榜单替换播放队列，并从 [index] 起播（不跳播放页）。
+  void _playList(int index) {
+    if (_songs.isEmpty) return;
+    widget.player.playList(<MusicSong>[
+      for (final entry in _songs) entry.song,
+    ], startIndex: index);
+  }
+
   @override
   Widget build(BuildContext context) {
     final rank = widget.rank;
@@ -141,6 +149,7 @@ class _MusicRankDetailPageState extends State<MusicRankDetailPage> {
             position: entry.metadata.ranking?.position ?? index + 1,
             remark: _remarkOf(entry),
             onTap: () => _openSong(entry),
+            onDoubleTap: () => _playList(index),
           ),
         );
       },
@@ -207,12 +216,16 @@ class _DetailSongRow extends StatelessWidget {
     required this.position,
     required this.remark,
     required this.onTap,
+    this.onDoubleTap,
   });
 
   final MusicSong song;
   final int position;
   final String remark;
   final VoidCallback onTap;
+
+  /// 双击 → 整个榜单替换播放队列；与 [onTap] 同一个 InkWell。
+  final VoidCallback? onDoubleTap;
 
   @override
   Widget build(BuildContext context) {
@@ -227,6 +240,7 @@ class _DetailSongRow extends StatelessWidget {
     ];
     return InkWell(
       onTap: onTap,
+      onDoubleTap: onDoubleTap,
       borderRadius: MimaoShapes.md,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),

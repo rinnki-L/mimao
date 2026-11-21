@@ -55,6 +55,8 @@ void main() {
 
     expect(find.byTooltip('收藏'), findsOneWidget);
     await tester.tap(find.byTooltip('收藏'));
+    // 行内收藏按钮与整行双击共用祖先手势，单击在双击判定超时后触发。
+    await tester.pump(const Duration(milliseconds: 300));
     await tester.pumpAndSettle();
 
     expect(find.byTooltip('取消收藏'), findsOneWidget);
@@ -63,6 +65,7 @@ void main() {
     expect((await env.library.timeline()).single.starred, isTrue);
 
     await tester.tap(find.byTooltip('取消收藏'));
+    await tester.pump(const Duration(milliseconds: 300));
     await tester.pumpAndSettle();
     expect(await env.collect.isCollected('7301'), isFalse);
   });

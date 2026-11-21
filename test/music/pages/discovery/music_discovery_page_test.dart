@@ -332,6 +332,8 @@ void main() {
     await tester.tap(find.text('每日之歌A'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
+    // 单击回调在双击判定超时后才触发，再等路由动画完成。
+    await tester.pumpAndSettle();
 
     expect(fixture.player.played, hasLength(1));
     expect(fixture.player.played.single.id, '20');

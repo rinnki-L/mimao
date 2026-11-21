@@ -79,6 +79,8 @@ void main() {
     await tester.tap(find.text('列表之歌A'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
+    // 单击回调在双击判定超时后才触发，再等路由动画完成。
+    await tester.pumpAndSettle();
 
     expect(player.played, hasLength(1));
     expect(player.played.single.id, '101');

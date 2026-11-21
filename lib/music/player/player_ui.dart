@@ -41,6 +41,14 @@ abstract interface class MusicPlayerUi {
   /// 不要向调用方抛未捕获异常。
   Future<void> playSong(MusicSong song, {Duration startAt = Duration.zero});
 
+  /// 用整个列表替换播放队列，并从 [startIndex] 首开始播。
+  /// 空列表不做事；startIndex 越界时 clamp 到有效范围。
+  Future<void> playList(
+    List<MusicSong> songs, {
+    int startIndex = 0,
+    Duration startAt = Duration.zero,
+  });
+
   /// 释放 engine/订阅；模块销毁时调用。
   void dispose();
 }

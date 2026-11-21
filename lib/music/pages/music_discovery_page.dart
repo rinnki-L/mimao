@@ -712,20 +712,30 @@ class _MusicDiscoveryPageState extends State<MusicDiscoveryPage> {
         section: section,
         loading: const _ListPlaceholder(),
         empty: const SizedBox.shrink(),
-        content: () => Column(
-          children: <Widget>[
+        content: () {
+          final songs = <MusicSong>[
             for (final item in section.items)
-              MusicSongCard(child: _dailyTile(item)),
-          ],
-        ),
+              discoverySongToMusicSong(item.song),
+          ];
+          return Column(
+            children: <Widget>[
+              for (final (index, _) in section.items.indexed)
+                MusicSongCard(child: _dailyTile(songs, index)),
+            ],
+          );
+        },
         onRetry: _loadDailySongs,
       ),
     );
   }
 
-  DiscoverySongTile _dailyTile(MusicDiscoverySong item) {
-    final song = discoverySongToMusicSong(item.song);
-    return DiscoverySongTile(song: song, onTap: () => _openSong(song));
+  DiscoverySongTile _dailyTile(List<MusicSong> songs, int index) {
+    final song = songs[index];
+    return DiscoverySongTile(
+      song: song,
+      onTap: () => _openSong(song),
+      onDoubleTap: () => widget.player.playList(songs, startIndex: index),
+    );
   }
 
   /// section 是否值得渲染：loading/有错误/有数据三种都要占位；

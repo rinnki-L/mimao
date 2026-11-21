@@ -453,6 +453,8 @@ MusicLibraryBuilder _defaultMusicLibraryBuilder({
       collect: collectService,
       history: historyService,
       onPlaySong: (song, startAt) => playerUi.playSong(song, startAt: startAt),
+      onPlayList: (songs, {startIndex = 0}) =>
+          playerUi.playList(songs, startIndex: startIndex),
       userLibrary: userLibrary,
       playlistRead: playlistRead,
       authEpoch: authEpoch,

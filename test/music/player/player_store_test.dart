@@ -7,6 +7,7 @@ import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mimao/music/client/kugou_error.dart';
+import 'package:mimao/music/models/music_models.dart';
 import 'package:mimao/music/music_settings.dart';
 import 'package:mimao/music/player/play_mode.dart';
 import 'package:mimao/music/player/playback_engine.dart';
@@ -183,6 +184,80 @@ void main() {
     await store.previous();
     expect(store.index, isNot(afterNext));
     expect(store.index, inInclusiveRange(0, 3));
+  });
+
+  test('playList：整表替换队列并从 startIndex 起播', () async {
+    final store = buildStore();
+    await store.playSong(fakeSong(id: 'old'));
+    api.resolvedSongs.clear();
+
+    await store.playList(
+      <MusicSong>[fakeSong(id: '11'), fakeSong(id: '12'), fakeSong(id: '13')],
+      startIndex: 1,
+      startAt: const Duration(seconds: 7),
+    );
+
+    expect(store.queue.map((song) => song.id), <String>['11', '12', '13']);
+    expect(store.index, 1);
+    expect(store.currentSong!.id, '12');
+    expect(api.resolvedSongs.map((song) => song.id), <String>['12']);
+    expect(engine.openedUrl, 'https://cdn.example/12.mp3');
+    expect(engine.openedStartAt, const Duration(seconds: 7));
+  });
+
+  test('playList：startIndex 越界 clamp 到有效范围', () async {
+    final store = buildStore();
+    final songs = <MusicSong>[fakeSong(id: '1'), fakeSong(id: '2')];
+
+    await store.playList(songs, startIndex: 99);
+    expect(store.index, 1);
+    expect(store.currentSong!.id, '2');
+
+    await store.playList(songs, startIndex: -5);
+    expect(store.index, 0);
+    expect(store.currentSong!.id, '1');
+  });
+
+  test('playList：空列表不改变队列与索引', () async {
+    final store = buildStore();
+    await store.playSong(fakeSong(id: '1'));
+    final queueBefore = store.queue;
+    final indexBefore = store.index;
+
+    await store.playList(const <MusicSong>[]);
+
+    expect(store.queue, same(queueBefore));
+    expect(store.index, indexBefore);
+    expect(store.currentSong!.id, '1');
+  });
+
+  test('playList：替换队列前先结算旧歌进度（不写到新歌上）', () async {
+    final store = buildStore();
+    await store.playSong(fakeSong(id: 'old'));
+    engine.emit(
+      const MusicPlaybackSnapshot(
+        position: Duration(seconds: 30),
+        duration: Duration(seconds: 180),
+        playing: true,
+      ),
+    );
+    await pumpEventQueue();
+    sink.writes.clear();
+
+    await store.playList(<MusicSong>[fakeSong(id: 'new')]);
+
+    expect(sink.writes, hasLength(1));
+    expect(sink.writes.single.$1, 'old');
+    expect(sink.writes.single.$2, const Duration(seconds: 30));
+    expect(store.currentSong!.id, 'new');
+  });
+
+  test('playList：无引擎只报「播放未配置」且不动队列', () async {
+    final store = buildStore(withEngine: false);
+    await store.playList(<MusicSong>[fakeSong()]);
+    expect(store.error, '播放未配置');
+    expect(store.queue, isEmpty);
+    expect(api.resolvedSongs, isEmpty);
   });
 
   test('setPlayMode：立即更新状态并写入 settings', () async {

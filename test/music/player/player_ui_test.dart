@@ -68,6 +68,9 @@ void main() {
     await tester.tap(find.byTooltip('搜索'));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(ListTile, '稻香'));
+    // 歌曲行改成 onTap + onDoubleTap 共存：单击要等双击判定窗口（约
+    // 300ms）过期才触发，pumpAndSettle 只推进动画帧、不推进这个 Timer。
+    await tester.pump(const Duration(milliseconds: 300));
     await tester.pumpAndSettle();
   }
 
@@ -178,7 +181,7 @@ void main() {
     expect(find.byType(MusicPlayerPage), findsOneWidget);
   });
 
-  group('迷你条传输控件与歌曲列表弹窗', () {
+  group('迷你条传输控件 / 模式卡片 / 队列抽屉', () {
     const secondHash = 'bbcdef0123456789abcdef0123456789';
 
     /// 两首歌：[fakeSong] 在 index 0，晴天在 index 1。
@@ -194,10 +197,16 @@ void main() {
       return store;
     }
 
+    /// 迷你条放在屏幕底部，与生产布局一致（模式卡片的「上方」才有空间）。
     Future<void> pumpMini(WidgetTester tester, MusicPlayerStore store) async {
       await tester.pumpWidget(
         MaterialApp(
-          home: Scaffold(body: MusicMiniPlayer(player: store)),
+          home: Scaffold(
+            body: Align(
+              alignment: Alignment.bottomCenter,
+              child: MusicMiniPlayer(player: store),
+            ),
+          ),
         ),
       );
       await tester.pumpAndSettle();
@@ -222,33 +231,74 @@ void main() {
       expect(engine.openedUrl, 'https://cdn.example/7301.mp3');
     });
 
-    testWidgets('歌曲列表弹窗：队列切歌 + 三种播放模式单选', (tester) async {
+    testWidgets('模式按钮：卡片只列另外两种模式，弹在按钮上方，点选生效', (tester) async {
+      final store = await seedTwoSongs();
+      await pumpMini(tester, store);
+
+      expect(find.byKey(const Key('mini-play-mode')), findsOneWidget);
+      expect(store.playMode, PlayMode.listLoop);
+      expect(find.byIcon(Icons.repeat), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('mini-play-mode')));
+      await tester.pumpAndSettle();
+
+      final card = find.byKey(const Key('music-mode-card'));
+      expect(card, findsOneWidget);
+      // 只列另外两种：当前模式（列表循环）不出现在卡片里。
+      expect(find.text('随机'), findsOneWidget);
+      expect(find.text('单曲循环'), findsOneWidget);
+      expect(find.text('列表循环'), findsNothing);
+      expect(find.byKey(const Key('music-mode-option-listLoop')), findsNothing);
+      // 卡片整体在模式按钮上方。
+      expect(
+        tester.getRect(card).bottom,
+        lessThanOrEqualTo(
+          tester.getRect(find.byKey(const Key('mini-play-mode'))).top,
+        ),
+      );
+
+      await tester.tap(find.text('随机'));
+      await tester.pumpAndSettle();
+
+      expect(store.playMode, PlayMode.shuffle);
+      expect(find.byKey(const Key('music-mode-card')), findsNothing);
+      // setPlayMode 在弹窗 pop 完成后的微任务里执行，补一帧让 Observer 重建。
+      await tester.pump();
+      expect(find.byIcon(Icons.shuffle), findsOneWidget);
+
+      // 再打开：当前是随机，卡片只列单曲循环 / 列表循环。
+      await tester.tap(find.byKey(const Key('mini-play-mode')));
+      await tester.pumpAndSettle();
+      expect(find.text('随机'), findsNothing);
+      expect(find.text('单曲循环'), findsOneWidget);
+      expect(find.text('列表循环'), findsOneWidget);
+
+      await tester.tap(find.text('列表循环'));
+      await tester.pumpAndSettle();
+      expect(store.playMode, PlayMode.listLoop);
+      expect(find.byKey(const Key('music-mode-card')), findsNothing);
+    });
+
+    testWidgets('列表按钮：右侧抽屉只含队列，点行切歌并关闭', (tester) async {
       final store = await seedTwoSongs();
       await pumpMini(tester, store);
 
       await tester.tap(find.byKey(const Key('mini-queue')));
       await tester.pumpAndSettle();
 
-      expect(find.byKey(const Key('music-queue-play-mode')), findsOneWidget);
-      expect(find.text('播放模式'), findsOneWidget);
+      expect(find.byKey(const Key('music-queue-drawer')), findsOneWidget);
+      expect(find.byKey(const Key('music-queue-list')), findsOneWidget);
+      // 模式选择已迁到独立卡片，抽屉里不再有模式控件。
+      expect(find.byKey(const Key('music-queue-play-mode')), findsNothing);
+      expect(find.text('播放模式'), findsNothing);
       expect(find.widgetWithText(ListTile, '稻香'), findsOneWidget);
       expect(find.widgetWithText(ListTile, '晴天'), findsOneWidget);
 
-      // 点队列里的非当前曲目：切歌并关闭弹窗。
       await tester.tap(find.widgetWithText(ListTile, '晴天'));
       await tester.pumpAndSettle();
       expect(store.index, 1);
       expect(engine.openedUrl, 'https://cdn.example/7302.mp3');
-      expect(find.byKey(const Key('music-queue-play-mode')), findsNothing);
-
-      // 再次打开：默认列表循环，切到随机。
-      expect(store.playMode, PlayMode.listLoop);
-      await tester.tap(find.byKey(const Key('mini-queue')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('随机'));
-      await tester.pumpAndSettle();
-      expect(store.playMode, PlayMode.shuffle);
-      expect(find.byKey(const Key('music-queue-play-mode')), findsOneWidget);
+      expect(find.byKey(const Key('music-queue-list')), findsNothing);
     });
   });
 

@@ -126,6 +126,42 @@ abstract class _MusicPlayerStore with Store {
     await _start(queue[target], targetIndex: target);
   }
 
+  /// 用整个列表替换播放队列，并从 [startIndex] 首开始播。
+  /// 空列表不做事；startIndex 越界时 clamp 到有效范围。
+  @action
+  Future<void> playList(
+    List<MusicSong> songs, {
+    int startIndex = 0,
+    Duration startAt = Duration.zero,
+  }) async {
+    if (_disposed || songs.isEmpty) return;
+    // 与 playSong 一致：无引擎只报错，不动现有队列。
+    if (_ensureEngine() == null) {
+      error = '播放未配置';
+      return;
+    }
+
+    // 先结算上一首：此刻 queue/index 仍是旧值，进度与上报都落在旧歌上。
+    if (currentSong != null) {
+      _finishReportSession(completed: snapshot.completed);
+      await _writeCurrentProgress();
+      if (_disposed) return;
+    }
+
+    // 再整体换队列、落索引，最后按新索引起播（不重复结算上一首）。
+    final target = startIndex < 0
+        ? 0
+        : (startIndex >= songs.length ? songs.length - 1 : startIndex);
+    queue = ObservableList<MusicSong>.of(songs);
+    index = target;
+    await _start(
+      songs[target],
+      startAt: startAt,
+      targetIndex: target,
+      recordOutgoing: false,
+    );
+  }
+
   /// 切换播放模式：立即生效并尽力落盘（失败不影响本次会话）。
   @action
   void setPlayMode(PlayMode mode) {

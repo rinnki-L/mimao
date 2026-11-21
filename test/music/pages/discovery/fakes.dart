@@ -552,9 +552,12 @@ class FakeLyricApi implements MusicLyricApi {
   }
 }
 
-/// 播放 UI 替身：记录 playSong；播放页给一个可查找的占位。
+/// 播放 UI 替身：记录 playSong/playList；播放页给一个可查找的占位。
 class FakePlayerUi implements MusicPlayerUi {
   final List<MusicSong> played = <MusicSong>[];
+  final List<List<MusicSong>> playedLists = <List<MusicSong>>[];
+  final List<int> playedListStartIndexes = <int>[];
+  final List<Duration> playedListStartAts = <Duration>[];
 
   @override
   Widget? buildMiniPlayer(BuildContext context) => null;
@@ -569,6 +572,17 @@ class FakePlayerUi implements MusicPlayerUi {
     Duration startAt = Duration.zero,
   }) async {
     played.add(song);
+  }
+
+  @override
+  Future<void> playList(
+    List<MusicSong> songs, {
+    int startIndex = 0,
+    Duration startAt = Duration.zero,
+  }) async {
+    playedLists.add(songs);
+    playedListStartIndexes.add(startIndex);
+    playedListStartAts.add(startAt);
   }
 
   @override

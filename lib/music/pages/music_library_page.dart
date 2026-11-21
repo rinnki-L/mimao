@@ -33,6 +33,11 @@ import 'package:mimao/music/widgets/music_song_card.dart';
 typedef MusicLibraryPlayHandler =
     void Function(MusicSong song, Duration startAt);
 
+/// 双击歌曲行的整列表播放入口（集成方接线到 `playerUi.playList`）：
+/// 用整个列表替换播放队列，并从 [startIndex] 开始播放。
+typedef MusicLibraryPlayListHandler =
+    void Function(List<MusicSong> songs, {int startIndex});
+
 /// 「我的」页。`onPlaySong` 为空时，点击只提示「播放功能未接线」。
 ///
 /// [userLibrary] / [playlistRead] 非空时，收藏段顶部内联账号「我喜欢」歌曲；
@@ -43,6 +48,7 @@ class MusicLibraryPage extends StatefulWidget {
     required this.collect,
     required this.history,
     this.onPlaySong,
+    this.onPlayList,
     this.userLibrary,
     this.playlistRead,
     this.authEpoch,
@@ -51,6 +57,9 @@ class MusicLibraryPage extends StatefulWidget {
   final MusicCollectService collect;
   final MusicHistoryService history;
   final MusicLibraryPlayHandler? onPlaySong;
+
+  /// 双击歌曲行：整个当前列表替换为播放队列；为空时提示未接线。
+  final MusicLibraryPlayListHandler? onPlayList;
 
   /// 用户库接口（user_playlist：定位「我喜欢」云歌单）。
   final MusicUserLibraryApi? userLibrary;
@@ -229,6 +238,19 @@ class _MusicLibraryPageState extends State<MusicLibraryPage> {
     )?.showSnackBar(const SnackBar(content: Text('播放功能未接线')));
   }
 
+  /// 双击：整列表替换播放队列并从 [startIndex] 起播（不跳播放页）。
+  void _playListAt(List<MusicSong> songs, int startIndex) {
+    if (songs.isEmpty) return;
+    final handler = widget.onPlayList;
+    if (handler != null) {
+      handler(songs, startIndex: startIndex);
+      return;
+    }
+    ScaffoldMessenger.maybeOf(
+      context,
+    )?.showSnackBar(const SnackBar(content: Text('播放功能未接线')));
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -304,6 +326,7 @@ class _MusicLibraryPageState extends State<MusicLibraryPage> {
     if (!_accountFavoritesEnabled) {
       return _buildLocalCollected(local);
     }
+    final playable = _playableSongs(local);
     return ListView(
       key: const Key('library-collected-scroll'),
       children: <Widget>[
@@ -319,10 +342,16 @@ class _MusicLibraryPageState extends State<MusicLibraryPage> {
             child: Text('还没有本地收藏的歌曲（搜索页点心形收藏）'),
           )
         else
-          ...local.map(_localCollectTile),
+          ...local.map((item) => _localCollectTile(item, playable)),
       ],
     );
   }
+
+  /// 本地收藏中带曲目快照的条目（旧/坏数据没有 song，不进入播放队列）。
+  List<MusicSong> _playableSongs(List<MusicCollectItem> items) => <MusicSong>[
+    for (final item in items)
+      if (item.song != null) item.song!,
+  ];
 
   /// 账号收藏段：定位「我喜欢」云歌单后内联曲目；登录后自动出现。
   List<Widget> _accountFavoriteChildren() {
@@ -358,28 +387,34 @@ class _MusicLibraryPageState extends State<MusicLibraryPage> {
       );
       return children;
     }
-    for (final track in _favoriteTracks) {
+    final favoriteSongs = <MusicSong>[
+      for (final track in _favoriteTracks) track.song,
+    ];
+    for (final (index, track) in _favoriteTracks.indexed) {
       final song = track.song;
       children.add(
         MusicSongCard(
           horizontalMargin: 16,
-          child: ListTile(
-            key: ValueKey<String>('library-favorite-${song.id}'),
-            leading: _CoverThumb(
-              url: song.coverUrl.isEmpty ? null : song.coverUrl,
-            ),
-            title: Text(
-              song.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            subtitle: Text(
-              song.artistText,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            trailing: const Icon(Icons.play_circle_outline),
+          child: InkWell(
             onTap: () => _play(song, Duration.zero),
+            onDoubleTap: () => _playListAt(favoriteSongs, index),
+            child: ListTile(
+              key: ValueKey<String>('library-favorite-${song.id}'),
+              leading: _CoverThumb(
+                url: song.coverUrl.isEmpty ? null : song.coverUrl,
+              ),
+              title: Text(
+                song.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              subtitle: Text(
+                song.artistText,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              trailing: const Icon(Icons.play_circle_outline),
+            ),
           ),
         ),
       );
@@ -387,21 +422,29 @@ class _MusicLibraryPageState extends State<MusicLibraryPage> {
     return children;
   }
 
-  Widget _localCollectTile(MusicCollectItem item) {
+  Widget _localCollectTile(MusicCollectItem item, List<MusicSong> playable) {
     final song = item.song;
+    final startIndex = song == null
+        ? -1
+        : playable.indexWhere((candidate) => candidate.id == song.id);
     return MusicSongCard(
       horizontalMargin: 16,
-      child: ListTile(
-        key: ValueKey<String>('library-collect-${item.ref.id}'),
-        leading: _CoverThumb(url: item.coverUrl),
-        title: Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-        subtitle: Text(
-          item.artistText.isEmpty ? '已收藏' : item.artistText,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        trailing: const Icon(Icons.play_circle_outline),
+      child: InkWell(
         onTap: song == null ? null : () => _play(song, Duration.zero),
+        onDoubleTap: startIndex < 0
+            ? null
+            : () => _playListAt(playable, startIndex),
+        child: ListTile(
+          key: ValueKey<String>('library-collect-${item.ref.id}'),
+          leading: _CoverThumb(url: item.coverUrl),
+          title: Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+          subtitle: Text(
+            item.artistText.isEmpty ? '已收藏' : item.artistText,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          trailing: const Icon(Icons.play_circle_outline),
+        ),
       ),
     );
   }
@@ -410,9 +453,11 @@ class _MusicLibraryPageState extends State<MusicLibraryPage> {
     if (items.isEmpty) {
       return const _EmptyHint(text: '还没有收藏的歌曲');
     }
+    final playable = _playableSongs(items);
     return ListView.builder(
       itemCount: items.length,
-      itemBuilder: (context, index) => _localCollectTile(items[index]),
+      itemBuilder: (context, index) =>
+          _localCollectTile(items[index], playable),
     );
   }
 
@@ -421,6 +466,7 @@ class _MusicLibraryPageState extends State<MusicLibraryPage> {
     if (items.isEmpty) {
       return const _EmptyHint(text: '还没有播放记录');
     }
+    final playable = <MusicSong>[for (final item in items) item.song];
     return ListView.builder(
       itemCount: items.length,
       itemBuilder: (context, index) {
@@ -433,23 +479,26 @@ class _MusicLibraryPageState extends State<MusicLibraryPage> {
         final artist = song.artistText;
         return MusicSongCard(
           horizontalMargin: 16,
-          child: ListTile(
-            key: ValueKey<String>('library-history-${song.id}'),
-            leading: _CoverThumb(
-              url: song.coverUrl.isEmpty ? null : song.coverUrl,
-            ),
-            title: Text(
-              song.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            subtitle: Text(
-              artist.isEmpty ? progress : '$artist · $progress',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            trailing: const Icon(Icons.play_circle_outline),
+          child: InkWell(
             onTap: () => _play(song, item.position),
+            onDoubleTap: () => _playListAt(playable, index),
+            child: ListTile(
+              key: ValueKey<String>('library-history-${song.id}'),
+              leading: _CoverThumb(
+                url: song.coverUrl.isEmpty ? null : song.coverUrl,
+              ),
+              title: Text(
+                song.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              subtitle: Text(
+                artist.isEmpty ? progress : '$artist · $progress',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              trailing: const Icon(Icons.play_circle_outline),
+            ),
           ),
         );
       },

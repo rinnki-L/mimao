@@ -71,6 +71,8 @@ void main() {
     expect(player.played, isEmpty);
 
     await tester.tap(find.text('曲目一'));
+    // 单击与双击并存：单击要等双击判定超时（约 300ms）后才触发。
+    await tester.pump(const Duration(milliseconds: 300));
     await tester.pumpAndSettle();
 
     expect(player.played.map((song) => song.title), <String>['曲目一']);

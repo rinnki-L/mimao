@@ -420,6 +420,10 @@ class _MusicDiscoverySearchPageState extends State<MusicDiscoverySearchPage> {
                     ? null
                     : () => _toggleCollect(song),
                 onTap: () => _openSong(song),
+                onDoubleTap: () => widget.player.playList(
+                  List<MusicSong>.of(results),
+                  startIndex: index,
+                ),
               ),
             );
           },
@@ -455,12 +459,16 @@ class _SongTile extends StatelessWidget {
     required this.song,
     required this.isCollected,
     required this.onTap,
+    this.onDoubleTap,
     this.onToggleCollect,
   });
 
   final MusicSong song;
   final bool isCollected;
   final VoidCallback onTap;
+
+  /// 双击 → 当前搜索结果整列表替换播放队列；与 [onTap] 同一个 InkWell。
+  final VoidCallback? onDoubleTap;
 
   /// null 表示收藏功能未接线（不显示按钮）。
   final VoidCallback? onToggleCollect;
@@ -470,42 +478,45 @@ class _SongTile extends StatelessWidget {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final duration = formatDuration(song.durationMs);
-    return ListTile(
-      key: Key('discovery-search-result-${_id(song)}'),
-      leading: DiscoverySquareCover(url: song.coverUrl, size: 44),
-      title: Text(
-        displayTitle(song.title),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      subtitle: Text(
-        '${song.artistText}${song.albumTitle.isEmpty ? '' : ' · ${song.albumTitle}'}',
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          if (duration.isNotEmpty)
-            Text(
-              duration,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: cs.onSurfaceVariant,
-              ),
-            ),
-          if (onToggleCollect != null) ...<Widget>[
-            const SizedBox(width: 4),
-            IconButton.filledTonal(
-              tooltip: isCollected ? '取消收藏' : '收藏',
-              isSelected: isCollected,
-              selectedIcon: const Icon(Icons.favorite),
-              icon: const Icon(Icons.favorite_border),
-              onPressed: onToggleCollect,
-            ),
-          ],
-        ],
-      ),
+    return InkWell(
       onTap: onTap,
+      onDoubleTap: onDoubleTap,
+      child: ListTile(
+        key: Key('discovery-search-result-${_id(song)}'),
+        leading: DiscoverySquareCover(url: song.coverUrl, size: 44),
+        title: Text(
+          displayTitle(song.title),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        subtitle: Text(
+          '${song.artistText}${song.albumTitle.isEmpty ? '' : ' · ${song.albumTitle}'}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            if (duration.isNotEmpty)
+              Text(
+                duration,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: cs.onSurfaceVariant,
+                ),
+              ),
+            if (onToggleCollect != null) ...<Widget>[
+              const SizedBox(width: 4),
+              IconButton.filledTonal(
+                tooltip: isCollected ? '取消收藏' : '收藏',
+                isSelected: isCollected,
+                selectedIcon: const Icon(Icons.favorite),
+                icon: const Icon(Icons.favorite_border),
+                onPressed: onToggleCollect,
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 

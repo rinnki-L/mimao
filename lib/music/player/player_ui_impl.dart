@@ -66,6 +66,13 @@ class MusicPlayerUiImpl implements MusicPlayerUi {
       store.playSong(song, startAt: startAt);
 
   @override
+  Future<void> playList(
+    List<MusicSong> songs, {
+    int startIndex = 0,
+    Duration startAt = Duration.zero,
+  }) => store.playList(songs, startIndex: startIndex, startAt: startAt);
+
+  @override
   void dispose() => store.dispose();
 }
 
