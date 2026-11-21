@@ -180,6 +180,25 @@ MusicSearchPromotion fakePromotion({String title = '默认词A'}) =>
       encodedDestination: '',
     );
 
+/// 风格标签工厂（wire 键 `default` → selected 的 0/1 码）。
+MusicStyleTag fakeStyleTag({
+  required String id,
+  required String name,
+  int selected = 0,
+}) => MusicStyleTag(id: id, name: name, selected: selected);
+
+/// 风格标签组工厂。
+MusicStyleTagGroup fakeStyleGroup({
+  String name = '风格',
+  List<MusicStyleTag> tags = const <MusicStyleTag>[],
+}) => MusicStyleTagGroup(name: name, child: tags);
+
+/// 风格推荐响应工厂（标签目录 + 命中歌曲）。
+MusicStyleRecommendations fakeStyleRecommendations({
+  List<MusicStyleTagGroup> groups = const <MusicStyleTagGroup>[],
+  List<MusicDiscoverySong> songs = const <MusicDiscoverySong>[],
+}) => MusicStyleRecommendations(songs: songs, groups: groups);
+
 MusicHotSearchGroup fakeHotGroup({
   String title = '飙升榜',
   String keyword = '热词B',
@@ -345,7 +364,7 @@ class FakeSearchExtApi implements MusicSearchExtApi {
       const MusicSideDtAcknowledgement(acknowledged: false);
 }
 
-/// 发现组替身：发现 sections + FM 批次队列。
+/// 发现组替身：发现 sections + FM 批次队列 + 风格推荐批次。
 class FakeDiscoveryApi implements MusicDiscoveryApi {
   FakeDiscoveryApi({
     List<MusicDiscoverItem> homeItems = const <MusicDiscoverItem>[],
@@ -353,31 +372,40 @@ class FakeDiscoveryApi implements MusicDiscoveryApi {
     List<MusicDiscoverySong> aiSongs = const <MusicDiscoverySong>[],
     List<List<MusicPersonalFmSong>> fmBatches =
         const <List<MusicPersonalFmSong>>[],
+    List<MusicStyleRecommendations> styleBatches =
+        const <MusicStyleRecommendations>[],
     this.homeFailuresLeft = 0,
     this.dailyFailuresLeft = 0,
     this.aiFailuresLeft = 0,
     this.fmFailuresLeft = 0,
+    this.styleFailuresLeft = 0,
   }) : _homeItems = homeItems,
        _dailySongs = dailySongs,
        _aiSongs = aiSongs,
-       _fmBatches = fmBatches;
+       _fmBatches = fmBatches,
+       _styleBatches = styleBatches;
 
   final List<MusicDiscoverItem> _homeItems;
   final List<MusicDiscoverySong> _dailySongs;
   final List<MusicDiscoverySong> _aiSongs;
   final List<List<MusicPersonalFmSong>> _fmBatches;
+  final List<MusicStyleRecommendations> _styleBatches;
 
   int homeFailuresLeft;
   int dailyFailuresLeft;
   int aiFailuresLeft;
   int fmFailuresLeft;
+  int styleFailuresLeft;
 
   int homeDiscoverCalls = 0;
   int dailyCalls = 0;
   int aiCalls = 0;
   int fmCalls = 0;
+  int styleCalls = 0;
   int _fmCursor = 0;
+  int _styleCursor = 0;
   MusicPersonalFmQuery? lastFmQuery;
+  EverydayStyleRecommendQuery? lastStyleQuery;
 
   @override
   Future<MusicDiscoverRecommendations> homeDiscover(
@@ -411,10 +439,27 @@ class FakeDiscoveryApi implements MusicDiscoveryApi {
   @override
   Future<MusicStyleRecommendations> everydayStyleRecommend(
     EverydayStyleRecommendQuery query,
-  ) async => const MusicStyleRecommendations(
-    songs: <MusicDiscoverySong>[],
-    groups: <MusicStyleTagGroup>[],
-  );
+  ) async {
+    styleCalls++;
+    lastStyleQuery = query;
+    if (styleFailuresLeft > 0) {
+      styleFailuresLeft--;
+      throw StateError('风格推荐挂了');
+    }
+    if (_styleBatches.isEmpty) {
+      return const MusicStyleRecommendations(
+        songs: <MusicDiscoverySong>[],
+        groups: <MusicStyleTagGroup>[],
+      );
+    }
+    // 每次调用推进一批（首载 → 选标签重取）；越界后停在最后一批，
+    // 覆盖「重取回显同一份标签目录」的常见场景。
+    final index = _styleCursor < _styleBatches.length
+        ? _styleCursor
+        : _styleBatches.length - 1;
+    _styleCursor++;
+    return _styleBatches[index];
+  }
 
   @override
   Future<MusicFreeListenSongs> aiRecommendSongs() async {
