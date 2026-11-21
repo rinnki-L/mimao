@@ -85,6 +85,7 @@ class MimaoApp extends StatelessWidget {
             brightness: Brightness.dark,
           ),
           themeMode: shellStore.themeMode,
+          scrollBehavior: const MimaoScrollBehavior(),
           navigatorObservers:
               navigatorObserversProvider?.call() ?? const <NavigatorObserver>[],
           home: const HomeShell(),

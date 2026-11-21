@@ -1,5 +1,6 @@
 // ignore_for_file: deprecated_member_use — Flutter 3.50 弃用整个 material.dart，
 // 与 shell 各页同款说明：Kazumi/Venera 上游镜像全部用它，保持类型一致。
+import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 
 /// mimao 的圆角阶梯（MD3 shape scale 收紧版）。页面不再手搓半径数字，
@@ -204,4 +205,17 @@ ThemeData buildMimaoTheme({
       shape: RoundedRectangleBorder(borderRadius: MimaoShapes.pill),
     ),
   );
+}
+
+/// 全局滚动手势：桌面端默认 [ScrollBehavior] 的拖动设备不含鼠标，横向滚动区
+/// （搜索来源筛选行、发现/分类的源 chip 行、海报行）在 Windows 上「鼠标拖不动」，
+/// 排序靠后的源够不着。把 mouse 加入 dragDevices，所有滚动区与触屏同款可拖。
+class MimaoScrollBehavior extends MaterialScrollBehavior {
+  const MimaoScrollBehavior();
+
+  @override
+  Set<PointerDeviceKind> get dragDevices => <PointerDeviceKind>{
+    ...super.dragDevices,
+    PointerDeviceKind.mouse,
+  };
 }
