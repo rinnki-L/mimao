@@ -236,13 +236,16 @@ error_code=20018 在 decode 层统一映射 `authentication`、信封 status/err
   云/公开歌单、新建/删除/分享链接导入；云歌单可编辑（信息/封面/曲目
   多选删除与排序/加歌，`write` + 版本信息注入时）。
 - `pages/music_account_center_page.dart`：资料/会员/听歌等级/历史/已购/我的歌单；
-  资料编辑/头像上传/音乐偏好入口（登录态）。
+  资料编辑/头像上传/音乐偏好入口（登录态）。登录/切号由 `MusicAuthEvents`
+  （`KugouMusicApi.authEpoch`）驱动自动重拉，不需要手动重试。
+- 「我的」页收藏段：本地收藏（drift）+ **账号收藏**（云歌单「我喜欢」，
+  `is_def == 2`；登录后自动出现，支持分页加载）。
 - `pages/music_effects_page.dart`、`music_effects_brand_page.dart`：音效商城
   （`getModel`）/ 耳机品牌与型号 / 设备匹配；`pages/music_audio_match_page.dart`
   听歌识曲（麦克风采集 → `audio_match`）。
 - `pages/music_login_methods_page.dart`：手机号验证码 / QQ 扫码 / 微信扫码 /
-  登录设备管理；`pages/music_security_verify_page.dart`：验证挑战查询 + sideDt
-  提交。
+  登录设备管理；登录闸门首屏与扫码同屏提供「手机号 / QQ / 微信登录」入口。
+  `pages/music_security_verify_page.dart`：验证挑战查询 + sideDt 提交。
 - `pages/music_song_info_sheet.dart`：歌曲权益（privilege_lite）/ 资料
   （krm_audio）/ 歌手图片（images_audio）；专辑曲目长按、歌手页写真、播放页
   「歌曲资料」入口共用。
@@ -270,6 +273,9 @@ error_code=20018 在 decode 层统一映射 `authentication`、信封 status/err
   playback_ext 三组各有一份（上游同名 util 的独立翻译），字段语义一致；
   后续可抽取到 `models/catalog_rights_models.dart` 统一。
 - 私人 FM「换一批」未透传 curMark/batchMark（上游翻页语义未验证）。
+- 「收藏」分两层：本地收藏（本机 drift）与账号收藏（云歌单「我喜欢」）。
+  账号收藏按 `is_def == 2` 定位（实测 `is_def == 1` 是空的「默认收藏」），
+  缺失时按标题「我喜欢」兜底；两者不合并计数。
 - 歌单导入只做分享链接（`import_playlist` 的 Link 动作）；截图导入的
   `taskSn` 与链接导入回执里的数字任务 id 对不上，未臆造两阶段流程。
 - 听歌识曲依赖麦克风（`record`，Windows 走 MediaFoundation、Android 需
