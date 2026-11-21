@@ -34,12 +34,15 @@ import 'package:mimao/music/player/player_ui.dart';
 // ── 模型工厂 ──────────────────────────────────────────────────────────────
 
 /// 曲目工厂：默认空封面（避免测试碰 Image.network 的真实网络层）。
+/// 需要封面预取测试时传 [coverUrl]（Image.network 会给 errorBuilder，测试无
+/// 网络也不崩）。
 MusicSong fakeSong({
   String id = '1',
   String hash = 'h1',
   String title = '歌曲',
   String artist = '歌手',
   String album = '专辑',
+  String coverUrl = '',
 }) => MusicSong(
   id: id,
   hash: hash,
@@ -48,7 +51,7 @@ MusicSong fakeSong({
   albumId: '9',
   albumTitle: album,
   durationMs: 181000,
-  coverUrl: '',
+  coverUrl: coverUrl,
   privilege: 0,
 );
 
@@ -59,6 +62,7 @@ MusicDiscoverySong fakeDiscoverySong({
   required String title,
   String artist = '推荐歌手',
   String album = '推荐专辑',
+  String coverUrl = '',
 }) => MusicDiscoverySong(
   song: MusicDiscoverySongSummary(
     id: id,
@@ -68,7 +72,7 @@ MusicDiscoverySong fakeDiscoverySong({
     albumId: '9',
     albumTitle: album,
     durationMs: 200000,
-    coverUrl: '',
+    coverUrl: coverUrl,
     privilege: 0,
   ),
   metadata: const MusicDiscoverySongMetadata(
@@ -94,8 +98,15 @@ MusicPersonalFmSong fakeFmSong({
   required String id,
   required String hash,
   required String title,
+  String coverUrl = '',
 }) => MusicPersonalFmSong(
-  song: fakeDiscoverySong(id: id, hash: hash, title: title, artist: 'FM 歌手'),
+  song: fakeDiscoverySong(
+    id: id,
+    hash: hash,
+    title: title,
+    artist: 'FM 歌手',
+    coverUrl: coverUrl,
+  ),
   personalFm: const MusicPersonalFmMetadata(
     mark: 'mark',
     similarity: '0.9',
@@ -111,11 +122,12 @@ MusicDiscoverItem fakeHomeItem({
   required String id,
   required String hash,
   required String title,
+  String coverUrl = '',
 }) => MusicDiscoverItem(
   itemId: 'item-$id',
   algPath: 'test',
   startTime: null,
-  song: fakeDiscoverySong(id: id, hash: hash, title: title),
+  song: fakeDiscoverySong(id: id, hash: hash, title: title, coverUrl: coverUrl),
 );
 
 MusicAlbumSummary fakeAlbum({int? id, String title = '测试专辑'}) =>
@@ -368,6 +380,8 @@ class FakeSearchExtApi implements MusicSearchExtApi {
 class FakeDiscoveryApi implements MusicDiscoveryApi {
   FakeDiscoveryApi({
     List<MusicDiscoverItem> homeItems = const <MusicDiscoverItem>[],
+    List<List<MusicDiscoverItem>> homeBatches =
+        const <List<MusicDiscoverItem>>[],
     List<MusicDiscoverySong> dailySongs = const <MusicDiscoverySong>[],
     List<MusicDiscoverySong> aiSongs = const <MusicDiscoverySong>[],
     List<List<MusicPersonalFmSong>> fmBatches =
@@ -380,12 +394,17 @@ class FakeDiscoveryApi implements MusicDiscoveryApi {
     this.fmFailuresLeft = 0,
     this.styleFailuresLeft = 0,
   }) : _homeItems = homeItems,
+       _homeBatches = homeBatches,
        _dailySongs = dailySongs,
        _aiSongs = aiSongs,
        _fmBatches = fmBatches,
        _styleBatches = styleBatches;
 
   final List<MusicDiscoverItem> _homeItems;
+
+  /// 可选：多批首页发现数据（每次调用推进一批，模拟重复调用返回不同新歌）；
+  /// 为空时退回 [_homeItems]（每次返回同一批）。
+  final List<List<MusicDiscoverItem>> _homeBatches;
   final List<MusicDiscoverySong> _dailySongs;
   final List<MusicDiscoverySong> _aiSongs;
   final List<List<MusicPersonalFmSong>> _fmBatches;
@@ -402,8 +421,10 @@ class FakeDiscoveryApi implements MusicDiscoveryApi {
   int aiCalls = 0;
   int fmCalls = 0;
   int styleCalls = 0;
+  int _homeCursor = 0;
   int _fmCursor = 0;
   int _styleCursor = 0;
+  HomeDiscoverQuery? lastHomeQuery;
   MusicPersonalFmQuery? lastFmQuery;
   EverydayStyleRecommendQuery? lastStyleQuery;
 
@@ -412,12 +433,19 @@ class FakeDiscoveryApi implements MusicDiscoveryApi {
     HomeDiscoverQuery query,
   ) async {
     homeDiscoverCalls++;
+    lastHomeQuery = query;
     if (homeFailuresLeft > 0) {
       homeFailuresLeft--;
       throw StateError('首页发现挂了');
     }
+    final items = _homeBatches.isEmpty
+        ? _homeItems
+        : _homeBatches[_homeCursor < _homeBatches.length
+              ? _homeCursor
+              : _homeBatches.length - 1];
+    if (_homeBatches.isNotEmpty) _homeCursor++;
     return MusicDiscoverRecommendations(
-      items: _homeItems,
+      items: items,
       unmappedItems: const <Object?>[],
     );
   }

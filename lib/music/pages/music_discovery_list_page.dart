@@ -3,11 +3,19 @@
 /// 通用「长条歌曲列表」页 + 发现切片共用的小组件。
 ///
 /// [MusicDiscoveryListPage] 是发现页入口网格的通用落位（首页发现 / AI 免费
-/// 畅听 / 私人 FM）：只依赖注入的 [MusicPlayerUi] 与 `loader`
-/// （`Future<List<MusicSong>> Function()`），不感知具体端点——调用方在 push
-/// 前把端点结果映射成骨架 [MusicSong]（见 `music_discovery_mappers.dart`）。
-/// 发现 tab 的每日推荐与风格推荐页也复用本文件导出的 [DiscoverySongTile]，
-/// 形态与收藏页的歌曲行一致（44 封面 + 歌名 + 歌手 + 时长 + 播放图标）。
+/// 畅听 / 私人 FM）：只依赖注入的 [MusicPlayerUi] 与歌曲装载回调，不感知具体
+/// 端点——调用方在 push 前把端点结果映射成骨架 [MusicSong]（见
+/// `music_discovery_mappers.dart`）。发现 tab 的每日推荐与风格推荐页也复用本
+/// 文件导出的 [DiscoverySongTile]，形态与收藏页的歌曲行一致（44 封面 + 歌名
+/// + 歌手 + 时长 + 播放图标）。
+///
+/// 两种装载模式：
+/// - 分批模式（传入 [initialSongs]）：预览批次先立即显示（与入口卡封面同源），
+///   后台反复调用 [loadMore] 按 id/hash 去重追加，直到达到 [targetCount] 或
+///   用完 [maxBatches] 批；追加期间列表底部显示小 spinner。失败静默，不挡已
+///   有的数据。「换一批」/登录态变化会清空后重新拉满。
+/// - 整页模式（未传 [initialSongs]）：保持原来的 `loader` 整页 loading/error/
+///   retry 行为，适合一次性返回全部数据的端点。
 library;
 
 import 'package:flutter/foundation.dart' show ValueListenable;
@@ -23,7 +31,11 @@ class MusicDiscoveryListPage extends StatefulWidget {
     super.key,
     required this.title,
     required this.player,
-    required this.loader,
+    this.loader,
+    this.loadMore,
+    this.initialSongs,
+    this.targetCount,
+    this.maxBatches = 8,
     this.refreshLabel,
     this.authEpoch,
   });
@@ -34,9 +46,22 @@ class MusicDiscoveryListPage extends StatefulWidget {
   /// 播放 UI：点歌后 playSong 并 push 播放页。
   final MusicPlayerUi player;
 
-  /// 歌曲装载器（首载 / 重试 / 刷新按钮 / 登录重拉共用）；每次调用都要重新
-  /// 请求端点——私人 FM 的「换一批」依赖这一点。
-  final Future<List<MusicSong>> Function() loader;
+  /// 整页装载器（整页模式使用）：一次返回整页数据。首载 / 重试 / 刷新按钮 /
+  /// 登录重拉共用；每次调用都要重新请求端点。
+  final Future<List<MusicSong>> Function()? loader;
+
+  /// 分批装载器（分批模式使用）：每次返回一批，由页面内部去重、追加、计数。
+  final Future<List<MusicSong>> Function()? loadMore;
+
+  /// 预览批次（可选）：非空时进入分批模式，立即显示这批歌曲，并在后台继续
+  /// 拉满到 [targetCount]；传空列表表示「预览失败但仍按分批模式加载」。
+  final List<MusicSong>? initialSongs;
+
+  /// 分批模式的目标数量；达到即停（ AI 预览已 30 首时传 30 → 不再追加）。
+  final int? targetCount;
+
+  /// 分批模式最多请求多少批（防御服务端重复返回导致死循环）。
+  final int maxBatches;
 
   /// 非空时 AppBar 显示刷新按钮（tooltip 同文案；私人 FM 用「换一批」）。
   final String? refreshLabel;
@@ -50,43 +75,138 @@ class MusicDiscoveryListPage extends StatefulWidget {
 
 class _MusicDiscoveryListPageState extends State<MusicDiscoveryListPage> {
   bool _loading = true;
+  bool _loadingMore = false;
   Object? _error;
   List<MusicSong> _songs = const <MusicSong>[];
+
+  /// 去重键：id / hash 分别维护，任一命中即视为重复（id 优先、hash 兜底）。
+  final Set<String> _seenIds = <String>{};
+  final Set<String> _seenHashes = <String>{};
+
+  /// 装载代次：换一批 / 登录重拉时递增，丢弃旧循环的迟到响应。
+  int _generation = 0;
+
+  /// 是否分批模式（以预览批次是否传入为准）。
+  bool get _batched => widget.initialSongs != null;
 
   @override
   void initState() {
     super.initState();
-    widget.authEpoch?.addListener(_reload);
-    _reload();
+    widget.authEpoch?.addListener(_refresh);
+    if (_batched) {
+      // 预览批次直接作为初始数据：不发整页 loading，第一首与入口卡封面同源。
+      _loading = false;
+      _resetWith(widget.initialSongs!);
+      _appendUntilTarget();
+    } else {
+      _reload();
+    }
   }
 
   @override
   void dispose() {
-    widget.authEpoch?.removeListener(_reload);
+    widget.authEpoch?.removeListener(_refresh);
     super.dispose();
   }
 
-  /// 装载：独立 loading/error；失败清空列表（长条页只有这一份数据）。
+  // ── 数据装载 ──────────────────────────────────────────────────────────
+
+  /// 清空既有数据后装入一批，内部按 id/hash 去重。
+  void _resetWith(Iterable<MusicSong> songs) {
+    _songs = <MusicSong>[];
+    _seenIds.clear();
+    _seenHashes.clear();
+    _addSongs(songs);
+  }
+
+  /// 追加一批；返回真正新增的条数。
+  int _addSongs(Iterable<MusicSong> songs) {
+    var added = 0;
+    for (final song in songs) {
+      final id = song.id.trim();
+      final hash = song.hash.trim();
+      if (id.isNotEmpty && _seenIds.contains(id)) continue;
+      if (hash.isNotEmpty && _seenHashes.contains(hash)) continue;
+      if (id.isNotEmpty) _seenIds.add(id);
+      if (hash.isNotEmpty) _seenHashes.add(hash);
+      _songs.add(song);
+      added++;
+    }
+    return added;
+  }
+
+  /// 整页模式：独立 loading/error；失败清空列表（长条页只有这一份数据）。
   Future<void> _reload() async {
+    final gen = ++_generation;
+    final fetch = widget.loader ?? widget.loadMore;
+    if (fetch == null) {
+      if (mounted) setState(() => _loading = false);
+      return;
+    }
     setState(() {
       _loading = true;
+      _loadingMore = false;
       _error = null;
     });
     try {
-      final songs = await widget.loader();
-      if (!mounted) return;
+      final songs = await fetch();
+      if (!mounted || gen != _generation) return;
       setState(() {
-        _songs = songs;
+        _resetWith(songs);
         _loading = false;
       });
     } on Object catch (error) {
-      if (!mounted) return;
+      if (!mounted || gen != _generation) return;
       setState(() {
         _songs = const <MusicSong>[];
         _error = error;
         _loading = false;
       });
     }
+  }
+
+  /// 分批模式：后台拉到目标数量或批数上限；每批之间留一帧给 spinner 呈现，
+  /// 失败静默（保留已有歌曲），不把整页打成错误态。
+  Future<void> _appendUntilTarget() async {
+    final gen = ++_generation;
+    final fetch = widget.loadMore;
+    if (fetch == null) return;
+    if (mounted) setState(() => _loadingMore = true);
+    final target = widget.targetCount ?? 0;
+    var batches = 0;
+    while (gen == _generation &&
+        mounted &&
+        batches < widget.maxBatches &&
+        (target <= 0 || _songs.length < target)) {
+      batches++;
+      try {
+        final batch = await fetch();
+        if (!mounted || gen != _generation) return;
+        if (batch.isEmpty) break;
+        _addSongs(batch);
+        if (mounted) setState(() {});
+      } on Object {
+        // 追加失败静默：已有列表照常展示，只停止继续追加。
+        break;
+      }
+    }
+    if (gen == _generation && mounted) {
+      setState(() => _loadingMore = false);
+    }
+  }
+
+  /// 换一批 / 登录态变化：清空后重新拉满（整页模式退回 _reload）。
+  void _refresh() {
+    if (!_batched) {
+      _reload();
+      return;
+    }
+    _generation++;
+    setState(() {
+      _error = null;
+      _resetWith(const <MusicSong>[]);
+    });
+    _appendUntilTarget();
   }
 
   /// 点歌：先起播（地址异步解析）再打开播放页——与发现页同一链路。
@@ -110,7 +230,7 @@ class _MusicDiscoveryListPageState extends State<MusicDiscoveryListPage> {
             IconButton(
               tooltip: widget.refreshLabel!,
               icon: const Icon(Icons.refresh),
-              onPressed: _reload,
+              onPressed: _refresh,
             ),
         ],
       ),
@@ -126,13 +246,27 @@ class _MusicDiscoveryListPageState extends State<MusicDiscoveryListPage> {
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }
-    if (_songs.isEmpty) {
+    if (_songs.isEmpty && !_loadingMore) {
       return const DiscoveryEmptyState(message: '暂无歌曲');
     }
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
-      itemCount: _songs.length,
+      itemCount: _songs.length + (_loadingMore ? 1 : 0),
       itemBuilder: (context, index) {
+        if (index == _songs.length) {
+          // 追加中的底部小 spinner；稳定 key 供测试定位。
+          return const Padding(
+            key: Key('discover-list-loading-more'),
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Center(
+              child: SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+          );
+        }
         final song = _songs[index];
         return DiscoverySongTile(song: song, onTap: () => _openSong(song));
       },
