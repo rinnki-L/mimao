@@ -244,16 +244,10 @@ void main() {
           title: '星舟漫游',
           subtitle: '第 1 章 · 看到第 3 页',
         ),
-        ComicLibraryEntry(
-          id: 'yeyu',
-          sourceName: 'fixture',
-          title: '夜雨剑歌',
-        ),
+        ComicLibraryEntry(id: 'yeyu', sourceName: 'fixture', title: '夜雨剑歌'),
       ]);
       await tester.pumpWidget(
-        _app(
-          ComicHomePage(dataSource: comicFixture, library: library),
-        ),
+        _app(ComicHomePage(dataSource: comicFixture, library: library)),
       );
       await tester.pumpAndSettle();
       expect(
@@ -285,16 +279,10 @@ void main() {
     testWidgets('长按取消不删除；点清空 → 确认 → 阅读历史区消失并出空态', (tester) async {
       _usePhoneSize(tester);
       final library = _MutableHistoryLibrary(const <ComicLibraryEntry>[
-        ComicLibraryEntry(
-          id: 'xingzhou',
-          sourceName: 'fixture',
-          title: '星舟漫游',
-        ),
+        ComicLibraryEntry(id: 'xingzhou', sourceName: 'fixture', title: '星舟漫游'),
       ]);
       await tester.pumpWidget(
-        _app(
-          ComicHomePage(dataSource: comicFixture, library: library),
-        ),
+        _app(ComicHomePage(dataSource: comicFixture, library: library)),
       );
       await tester.pumpAndSettle();
 
@@ -320,6 +308,115 @@ void main() {
       expect(library.cleared, 1);
       expect(find.text('阅读历史'), findsNothing);
       expect(find.text('还没有阅读记录或本地漫画'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('源管理卡片：有源时显示前几个源名与启用统计', (tester) async {
+      _usePhoneSize(tester);
+      await tester.pumpWidget(
+        _app(
+          ComicHomePage(
+            dataSource: comicFixture,
+            library: _FakeLibrary(),
+            onOpenSources: () {},
+            sourceLister: () async => const <ComicSourceInfo>[
+              ComicSourceInfo(id: 'a', name: '漫画DB', url: 'u1', enabled: true),
+              ComicSourceInfo(id: 'b', name: '酷漫屋', url: 'u2', enabled: false),
+              ComicSourceInfo(id: 'c', name: '第三源', url: 'u3', enabled: true),
+            ],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('comic-home-source-card')), findsOneWidget);
+      expect(find.text('源管理'), findsOneWidget);
+      expect(find.text('已启用 2 / 共 3 个源'), findsOneWidget);
+      expect(find.text('漫画DB'), findsOneWidget);
+      expect(find.text('酷漫屋'), findsOneWidget);
+      expect(find.text('第三源'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('源管理卡片：最多显示 5 个且启用优先；无源显示导入提示', (tester) async {
+      _usePhoneSize(tester);
+      // 7 个源，2 个禁用——只显示启用优先的前 5 个。
+      await tester.pumpWidget(
+        _app(
+          ComicHomePage(
+            dataSource: comicFixture,
+            library: _FakeLibrary(),
+            sourceLister: () async => <ComicSourceInfo>[
+              for (var i = 0; i < 7; i++)
+                ComicSourceInfo(
+                  id: 's$i',
+                  name: '源$i',
+                  url: 'u$i',
+                  enabled: i >= 2,
+                ),
+            ],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('已启用 5 / 共 7 个源'), findsOneWidget);
+      // 两个禁用源（源0/源1）被挤掉，显示的是启用的源2..源6 共 5 个。
+      expect(find.text('源2'), findsOneWidget);
+      expect(find.text('源6'), findsOneWidget);
+      expect(find.text('源0'), findsNothing);
+      expect(find.text('源1'), findsNothing);
+
+      // 无源：降级为导入提示，不崩。
+      await tester.pumpWidget(
+        _app(
+          ComicHomePage(
+            dataSource: comicFixture,
+            library: _EmptyLibrary(),
+            sourceLister: () async => const <ComicSourceInfo>[],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('还没有导入来源，点击导入'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('源管理卡片：无 sourceLister 时降级显示导入提示不崩', (tester) async {
+      _usePhoneSize(tester);
+      await tester.pumpWidget(
+        _app(
+          ComicHomePage(dataSource: comicFixture, library: _FakeLibrary()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('comic-home-source-card')), findsOneWidget);
+      expect(find.text('还没有导入来源，点击导入'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('点源管理卡片触发 onOpenSources', (tester) async {
+      _usePhoneSize(tester);
+      var opened = 0;
+      await tester.pumpWidget(
+        _app(
+          ComicHomePage(
+            dataSource: comicFixture,
+            library: _FakeLibrary(),
+            onOpenSources: () => opened++,
+            sourceLister: () async => const <ComicSourceInfo>[
+              ComicSourceInfo(id: 'a', name: '漫画DB', url: 'u1'),
+            ],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('comic-home-source-card-tap')));
+      await tester.pumpAndSettle();
+
+      expect(opened, 1);
       expect(tester.takeException(), isNull);
     });
 
@@ -652,6 +749,58 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    testWidgets('点主页源管理卡片进入源管理页（模块层导航）', (tester) async {
+      _usePhoneSize(tester);
+      await tester.pumpWidget(
+        _app(
+          ComicModulePage(
+            dataSource: comicFixture,
+            sourceRepository: FixtureComicSourceRepository(),
+            library: _FakeLibrary(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // 卡片渲染了 fixture 仓库的源（漫画DB 等）。
+      expect(find.text('漫画DB'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('comic-home-source-card-tap')));
+      await tester.pumpAndSettle();
+
+      // 已进入源管理页：出现该页特有的导入入口。
+      expect(find.text('从 URL 导入源'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('从源管理页返回后主页源管理卡片重读', (tester) async {
+      _usePhoneSize(tester);
+      final repo = _CountingSourceRepository();
+      await tester.pumpWidget(
+        _app(
+          ComicModulePage(
+            dataSource: comicFixture,
+            sourceRepository: repo,
+            library: _FakeLibrary(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      // 主页初次读一次（卡片）+ 源管理页 push 时再读，返回后应多一次。
+      final before = repo.listCalls;
+      expect(before, greaterThan(0));
+
+      await tester.tap(find.byKey(const Key('comic-home-source-card-tap')));
+      await tester.pumpAndSettle();
+      expect(find.text('从 URL 导入源'), findsOneWidget);
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      expect(repo.listCalls, greaterThan(before));
+      expect(find.byKey(const Key('comic-home-source-card')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('设置面板从主页按钮弹出（不占底部 tab）', (tester) async {
       _usePhoneSize(tester);
       await tester.pumpWidget(
@@ -743,5 +892,19 @@ class _MutableHistoryLibrary implements ComicLibraryApi {
   Future<void> clearHistory() async {
     cleared++;
     _history = const <ComicLibraryEntry>[];
+  }
+}
+
+
+/// 记录 listSources 调用的假仓库：验证从源管理页返回后卡片重读。
+class _CountingSourceRepository extends FixtureComicSourceRepository {
+  _CountingSourceRepository() : super(sources: const <ComicSourceInfo>[]);
+
+  int listCalls = 0;
+
+  @override
+  Future<List<ComicSourceInfo>> listSources() async {
+    listCalls++;
+    return const <ComicSourceInfo>[];
   }
 }

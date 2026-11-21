@@ -128,13 +128,17 @@ class _ComicModulePageState extends State<ComicModulePage> {
   }
 
   /// 打开源管理页：模块层默认 push 内置源管理页；壳/模块出口可覆盖。
-  void _openSources() {
+  ///
+  /// 返回后自增 [_libraryRevision]：主页源管理卡片据此重读源清单——否则在
+  /// 源管理页导入/启用/删除后回到主页，卡片仍显示旧统计（与详情页返回后
+  /// 重读收藏/历史的做法一致）。
+  Future<void> _openSources() async {
     final override = widget.onOpenSources;
     if (override != null) {
       override();
       return;
     }
-    Navigator.of(context).push<void>(
+    await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
         settings: const RouteSettings(name: 'comic/sources'),
         builder: (_) => ComicSourcePage(
@@ -145,6 +149,7 @@ class _ComicModulePageState extends State<ComicModulePage> {
         ),
       ),
     );
+    if (mounted) setState(() => _libraryRevision++);
   }
 
   /// 模块设置面板（底部弹出）：把原来占一个 tab 的设置内容收进来。
@@ -180,6 +185,8 @@ class _ComicModulePageState extends State<ComicModulePage> {
             showAppBar: !widget.embedded,
             onOpenDetail: _openDetail,
             onOpenSources: _openSources,
+            // 源管理卡片读同一仓库；返回后随 _libraryRevision 重读。
+            sourceLister: widget.sourceRepository.listSources,
             onOpenSettings: hasSettings ? _openSettings : null,
             // 与收藏页同一刷新信号：从详情/阅读器返回后重读历史与本地。
             refreshKey: _libraryRevision,

@@ -116,12 +116,13 @@ class LibraryRepository {
     String? sourceName,
   }) async {
     await (db.delete(db.mediaEntries)..where((t) {
-      var expression = t.id.equals(id) & t.mediaType.equals(type.name);
-      if (sourceName != null) {
-        expression = expression & t.sourceName.equals(sourceName);
-      }
-      return expression;
-    })).go();
+          var expression = t.id.equals(id) & t.mediaType.equals(type.name);
+          if (sourceName != null) {
+            expression = expression & t.sourceName.equals(sourceName);
+          }
+          return expression;
+        }))
+        .go();
   }
 
   /// 收藏切换（全局设置/`我的`页都用得到）。

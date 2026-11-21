@@ -121,10 +121,7 @@ void main() {
     expect(await history.recent(), isEmpty);
     // 删历史是删除点：没有收藏/本地兜底时 core 行一起删，不留幽灵条目。
     expect(await env.library.timeline(), isEmpty);
-    expect(
-      await (env.appDb.select(env.appDb.mediaEntries)).get(),
-      isEmpty,
-    );
+    expect(await (env.appDb.select(env.appDb.mediaEntries)).get(), isEmpty);
   });
 
   test('remove：还有收藏行时重投影，进度回「尚未阅读」但 starred 保留', () async {

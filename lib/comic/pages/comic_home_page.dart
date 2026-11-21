@@ -15,6 +15,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:mimao/comic/data/comic_data_source.dart';
 import 'package:mimao/comic/data/comic_models.dart';
+import 'package:mimao/core/theme.dart';
 import 'package:mimao/comic/library_api.dart';
 import 'package:mimao/comic/pages/comic_poster_card.dart';
 import 'package:mimao/comic/pages/comic_search_page.dart' show ComicSearchPage;
@@ -28,6 +29,7 @@ class ComicHomePage extends StatefulWidget {
     this.showAppBar = true,
     this.onOpenDetail,
     this.onOpenSources,
+    this.sourceLister,
     this.onOpenSettings,
     this.refreshKey,
   });
@@ -43,6 +45,12 @@ class ComicHomePage extends StatefulWidget {
 
   /// 打开源管理（模块层 push 源管理页）。
   final VoidCallback? onOpenSources;
+
+  /// 源清单读取器（模块层用 sourceRepository.listSources 注入）。
+  ///
+  /// 主页据此渲染源管理卡片的「已启用 X / 共 N」与前几个源；null（fixture /
+  /// 未接线宿主）时卡片显示降级提示、不崩。
+  final Future<List<ComicSourceInfo>> Function()? sourceLister;
 
   /// 打开模块设置（模块层弹底部面板）；null 时 AppBar 不显示设置按钮。
   final VoidCallback? onOpenSettings;
@@ -68,17 +76,25 @@ class _ComicHomePageState extends State<ComicHomePage> {
   void didUpdateWidget(ComicHomePage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.library != widget.library ||
-        oldWidget.refreshKey != widget.refreshKey) {
+        oldWidget.refreshKey != widget.refreshKey ||
+        oldWidget.sourceLister != widget.sourceLister) {
       _future = _load();
     }
   }
 
   Future<_HomeData> _load() async {
     final library = widget.library;
-    if (library == null) return const _HomeData();
+    final sourceLister = widget.sourceLister;
+    // 源清单读取失败不能让整页进错误态：降级为空清单，卡片显示导入提示。
+    final sources = sourceLister == null
+        ? const <ComicSourceInfo>[]
+        : await sourceLister().catchError(
+            (Object _) => const <ComicSourceInfo>[],
+          );
+    if (library == null) return _HomeData(sources: sources);
     final recent = await library.recent(limit: 20);
     final local = await library.local();
-    return _HomeData(recent: recent, local: local);
+    return _HomeData(recent: recent, local: local, sources: sources);
   }
 
   /// 用块体而非箭头简写：setState 回调必须返回 null，
@@ -199,6 +215,8 @@ class _ComicHomePageState extends State<ComicHomePage> {
               children: <Widget>[
                 _buildSearchEntry(),
                 const SizedBox(height: 8),
+                _buildSourceCard(data.sources),
+                const SizedBox(height: 8),
                 _buildQuickActions(),
                 if (data.recent.isNotEmpty) ...<Widget>[
                   ComicSectionHeader(
@@ -249,6 +267,71 @@ class _ComicHomePageState extends State<ComicHomePage> {
           builder: (_) => ComicSearchPage(
             dataSource: widget.dataSource,
             onOpenDetail: widget.onOpenDetail,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 源管理卡片：从 chip 升级为搜索框下方的 MD3 卡片，整卡可点。
+  ///
+  /// 无 [sourceLister]（fixture/未接线）或读取失败时清单为空，显示导入提示
+  /// 而非崩；点卡片仍交给模块层的 [onOpenSources] 处理。
+  Widget _buildSourceCard(List<ComicSourceInfo> sources) {
+    final onOpenSources = widget.onOpenSources;
+    final cs = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final enabledCount = sources.where((s) => s.enabled).length;
+    // 启用中的源优先展示，最多 5 个——卡片只做概览，完整清单在源管理页。
+    final shown = <ComicSourceInfo>[
+      ...sources.where((s) => s.enabled),
+      ...sources.where((s) => !s.enabled),
+    ].take(5).toList();
+    final subtitle = sources.isEmpty
+        ? '还没有导入来源，点击导入'
+        : '已启用 $enabledCount / 共 ${sources.length} 个源';
+
+    return Card(
+      key: const Key('comic-home-source-card'),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onOpenSources,
+        key: const Key('comic-home-source-card-tap'),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Row(
+                children: <Widget>[
+                  Icon(Icons.source_outlined, size: 20, color: cs.primary),
+                  const SizedBox(width: 8),
+                  Text('源管理', style: textTheme.titleSmall),
+                  const Spacer(),
+                  Icon(
+                    Icons.chevron_right,
+                    size: 20,
+                    color: cs.onSurfaceVariant,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                style: textTheme.bodySmall?.apply(color: cs.onSurfaceVariant),
+              ),
+              if (shown.isNotEmpty) ...<Widget>[
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: [
+                    for (final source in shown)
+                      _SourceChip(source: source, cs: cs, textTheme: textTheme),
+                  ],
+                ),
+              ],
+            ],
           ),
         ),
       ),
@@ -308,15 +391,65 @@ class _ComicHomePageState extends State<ComicHomePage> {
   }
 }
 
+/// 源管理卡片里的单个源：名称 + 启用状态小圆点。
+class _SourceChip extends StatelessWidget {
+  const _SourceChip({
+    required this.source,
+    required this.cs,
+    required this.textTheme,
+  });
+
+  final ComicSourceInfo source;
+  final ColorScheme cs;
+  final TextTheme textTheme;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: Key('comic-home-source-${source.id}'),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerHighest,
+        borderRadius: MimaoShapes.sm,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: source.enabled ? cs.primary : cs.outline,
+            ),
+          ),
+          const SizedBox(width: 6),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 120),
+            child: Text(
+              source.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: textTheme.labelMedium,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// 主页本地数据快照。
 class _HomeData {
   const _HomeData({
     this.recent = const <ComicLibraryEntry>[],
     this.local = const <ComicLibraryEntry>[],
+    this.sources = const <ComicSourceInfo>[],
   });
 
   final List<ComicLibraryEntry> recent;
   final List<ComicLibraryEntry> local;
+  final List<ComicSourceInfo> sources;
 
   bool get isEmpty => recent.isEmpty && local.isEmpty;
 }

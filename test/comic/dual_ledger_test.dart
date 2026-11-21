@@ -184,7 +184,10 @@ void main() {
       pageCount: 20,
       openedAt: DateTime(2026, 11, 17, 10),
     );
-    expect((await env.library.timeline()).single.progressText, 'ch1 · 第 10 页 · 50%');
+    expect(
+      (await env.library.timeline()).single.progressText,
+      'ch1 · 第 10 页 · 50%',
+    );
 
     await history.remove(ref);
 
@@ -196,11 +199,20 @@ void main() {
     final payload = jsonDecode(raw.payload) as Map<String, Object?>;
     expect(payload['page'], 0);
 
-    // 只为验证「删历史即删 core」的另一条路径：没有收藏时一步删净。
-    await history.saveProgress(ref, title: '仅历史', page: 3);
+    // 只为验证「删历史即删 core」的另一条路径：换一个没有收藏的 ref，
+    // 一步删净（投影行按复合主键精确删除，不误伤其它作品）。
+    const historyOnly = ComicRef(id: 'history-only', sourceName: '漫画源');
+    await history.saveProgress(historyOnly, title: '仅历史', page: 3);
+    expect(await env.library.timeline(), hasLength(2));
+    await history.remove(historyOnly);
+    // 仍收藏的那条保留，仅历史的 core 行被删。
     expect(await env.library.timeline(), hasLength(1));
-    await history.remove(ref);
-    expect(await env.library.timeline(), isEmpty);
-    expect(await (env.appDb.select(env.appDb.mediaEntries)).get(), isEmpty);
+    expect((await env.library.timeline()).single.title, '葬送的芙莉莲');
+    expect(
+      (await env.appDb.select(env.appDb.mediaEntries).get()).where(
+        (r) => r.id == 'history-only',
+      ),
+      isEmpty,
+    );
   });
 }

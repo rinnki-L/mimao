@@ -122,5 +122,9 @@ Future<void> removeComicProjection({
     await syncComicProjection(db: db, library: library, ref: ref);
     return;
   }
-  await library.delete(id: ref.id, type: MediaType.comic, sourceName: ref.sourceName);
+  await library.delete(
+    id: ref.id,
+    type: MediaType.comic,
+    sourceName: ref.sourceName,
+  );
 }
