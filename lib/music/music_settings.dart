@@ -23,6 +23,41 @@ abstract interface class MusicSettings {
   Future<void> setListenReportEnabled(bool value);
 }
 
+/// 惰性解析的生产设置：模块注册期不能碰 path_provider，首个读写再构造
+/// [MusicFileSettings]；解析前的读取一律走默认值（与「默认开启」一致）。
+class LazyMusicSettings implements MusicSettings {
+  LazyMusicSettings(this._factory);
+
+  /// 生产传 `MusicFileSettings.openDefault`；测试可传内存 fake。
+  final Future<MusicSettings> Function() _factory;
+
+  MusicSettings? _delegate;
+  Future<MusicSettings>? _resolving;
+
+  Future<MusicSettings> _resolve() async {
+    final existing = _delegate;
+    if (existing != null) return existing;
+    final resolving = _resolving ??= _factory().then(
+      (settings) => _delegate = settings,
+    );
+    try {
+      return await resolving;
+    } finally {
+      _resolving = null;
+    }
+  }
+
+  @override
+  bool get listenReportEnabled => _delegate?.listenReportEnabled ?? true;
+
+  @override
+  Future<void> ensureLoaded() async => (await _resolve()).ensureLoaded();
+
+  @override
+  Future<void> setListenReportEnabled(bool value) async =>
+      (await _resolve()).setListenReportEnabled(value);
+}
+
 /// 生产实现：`<应用支持目录>/music_settings/settings.json`。
 class MusicFileSettings implements MusicSettings {
   MusicFileSettings(this.directory);
