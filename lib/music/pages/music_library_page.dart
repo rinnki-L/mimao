@@ -1,18 +1,30 @@
 // ignore_for_file: deprecated_member_use — Flutter 3.50 弃用整个 material.dart，
 // 与音乐模块页同款说明。
-/// 音乐「我的」页：收藏 / 历史两段（C 线）。
+/// 音乐「我的」页：收藏 / 历史（C 线）+ 账号收藏（云歌单「我喜欢」）。
 ///
-/// 页面只依赖 [MusicCollectService] / [MusicHistoryService]（需要列表方法）；
+/// 收藏分两层：本地收藏（[MusicCollectService]，搜索页点心形）与账号收藏
+/// （酷狗云歌单「我喜欢」，`is_def == 2`，需登录）。账号收藏直接内联在本页
+/// 收藏段，避免用户误以为「收藏没有歌曲」——账号里的歌不在本地库里。
+///
 /// 续播只经 [MusicLibraryPlayHandler]（集成方接到 `playerUi.playSong`），
 /// 本文件不 import 播放线（P）的任何实现——与 P 线保持编译隔离。
 library;
 
+import 'dart:async';
+
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:mimao/core/theme.dart';
+import 'package:mimao/music/api/playlist_read_api.dart';
+import 'package:mimao/music/api/playlist_track_all_new.dart';
+import 'package:mimao/music/api/user_library_api.dart';
+import 'package:mimao/music/client/kugou_error.dart';
 import 'package:mimao/music/collect_service.dart';
 import 'package:mimao/music/history_service.dart';
 import 'package:mimao/music/models/music_models.dart';
+import 'package:mimao/music/models/playlist_models.dart';
+import 'package:mimao/music/models/user_library_models.dart';
 import 'package:mimao/music/music_library_store.dart';
 import 'package:mimao/music/music_projection.dart';
 
@@ -21,27 +33,61 @@ typedef MusicLibraryPlayHandler =
     void Function(MusicSong song, Duration startAt);
 
 /// 「我的」页。`onPlaySong` 为空时，点击只提示「播放功能未接线」。
+///
+/// [userLibrary] / [playlistRead] 非空时，收藏段顶部内联账号「我喜欢」歌曲；
+/// 两者缺一时只显示本地收藏（旧行为）。[authEpoch] 用于登录/切号后自动重拉。
 class MusicLibraryPage extends StatefulWidget {
   const MusicLibraryPage({
     super.key,
     required this.collect,
     required this.history,
     this.onPlaySong,
+    this.userLibrary,
+    this.playlistRead,
+    this.authEpoch,
   });
 
   final MusicCollectService collect;
   final MusicHistoryService history;
   final MusicLibraryPlayHandler? onPlaySong;
 
+  /// 用户库接口（user_playlist：定位「我喜欢」云歌单）。
+  final MusicUserLibraryApi? userLibrary;
+
+  /// 歌单读接口（playlist_track_all_new：取「我喜欢」曲目）。
+  final MusicPlaylistReadApi? playlistRead;
+
+  /// 登录态变化信号；非空时登录/切号自动重拉账号收藏。
+  final ValueListenable<int>? authEpoch;
+
   @override
   State<MusicLibraryPage> createState() => _MusicLibraryPageState();
 }
 
 class _MusicLibraryPageState extends State<MusicLibraryPage> {
+  /// 「我喜欢」曲目分页大小（playlist_track_all_new 上限 300，取 50）。
+  static const int _favoritePageSize = 50;
+
+  /// 云歌单「我喜欢」的默认种类码（wire `is_def`）。实测账号里
+  /// `is_def=1` 是空的「默认收藏」，`is_def=2` 才是「我喜欢」。
+  static const int _favoriteDefaultKind = 2;
+
   late final MusicLibraryStore _store = MusicLibraryStore(
     widget.collect,
     widget.history,
   );
+
+  // ── 账号收藏（我喜欢）──
+  int? _favoriteListId;
+  int _favoritePage = 1;
+  bool _favoritesLoading = false;
+  bool _favoritesLoadingMore = false;
+  bool _favoritesHasMore = false;
+  Object? _favoritesError;
+  final List<MusicPlaylistTrack> _favoriteTracks = <MusicPlaylistTrack>[];
+
+  bool get _accountFavoritesEnabled =>
+      widget.userLibrary != null && widget.playlistRead != null;
 
   @override
   void initState() {
@@ -49,19 +95,127 @@ class _MusicLibraryPageState extends State<MusicLibraryPage> {
     // 收藏/历史在搜索页也能被改动（收藏按钮、播放进度），服务写完会通知刷新。
     widget.collect.addListener(_onLibraryChanged);
     widget.history.addListener(_onLibraryChanged);
+    widget.authEpoch?.addListener(_onAuthChanged);
     _store.refresh();
+    if (_accountFavoritesEnabled) {
+      unawaited(_loadFavorites(reset: true));
+    }
   }
 
   @override
   void dispose() {
     widget.collect.removeListener(_onLibraryChanged);
     widget.history.removeListener(_onLibraryChanged);
+    widget.authEpoch?.removeListener(_onAuthChanged);
     super.dispose();
   }
 
   void _onLibraryChanged() {
     if (!mounted) return;
     _store.refresh();
+  }
+
+  /// 登录/登出/切号：缓存里的 listid 属于旧账号，必须清掉重定位。
+  void _onAuthChanged() {
+    if (!mounted) return;
+    unawaited(_loadFavorites(reset: true, clearListId: true));
+  }
+
+  /// 账号收藏装载：首次定位「我喜欢」云歌单，再分页取曲目。
+  ///
+  /// [clearListId] 用于切号；[reset] 为 false 时只追加下一页。
+  Future<void> _loadFavorites({
+    required bool reset,
+    bool clearListId = false,
+  }) async {
+    final library = widget.userLibrary;
+    final read = widget.playlistRead;
+    if (library == null || read == null) return;
+    if (_favoritesLoading || (_favoritesLoadingMore && !reset)) return;
+
+    if (clearListId) _favoriteListId = null;
+    setState(() {
+      if (reset) {
+        _favoritesLoading = true;
+        _favoritesError = null;
+        _favoritePage = 1;
+        _favoritesHasMore = false;
+      } else {
+        _favoritesLoadingMore = true;
+      }
+    });
+    try {
+      var listId = _favoriteListId;
+      if (listId == null) {
+        final playlists = await library.userPlaylist(
+          const MusicUserPlaylistQuery(page: 1, pageSize: 200),
+        );
+        listId = _findFavoriteListId(playlists.page.items);
+        _favoriteListId = listId;
+      }
+      if (listId == null) {
+        // 账号里没有「我喜欢」歌单（或全空）：不是错误，显示空态。
+        if (!mounted) return;
+        setState(() {
+          _favoriteTracks.clear();
+          _favoritesLoading = false;
+          _favoritesLoadingMore = false;
+          _favoritesHasMore = false;
+        });
+        return;
+      }
+      final page = reset ? 1 : _favoritePage;
+      final tracks = await read.playlistTrackAllNew(
+        MusicPlaylistTrackAllNewQuery(
+          cloudListId: listId,
+          page: page,
+          pageSize: _favoritePageSize,
+        ),
+      );
+      if (!mounted) return;
+      final items = tracks.page.items;
+      setState(() {
+        if (reset) _favoriteTracks.clear();
+        _favoriteTracks.addAll(items);
+        _favoritePage = page + 1;
+        final total = tracks.page.total;
+        _favoritesHasMore = total != null
+            ? _favoriteTracks.length < total
+            : items.length == _favoritePageSize;
+        _favoritesLoading = false;
+        _favoritesLoadingMore = false;
+      });
+    } on Object catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _favoritesError = error;
+        _favoritesLoading = false;
+        _favoritesLoadingMore = false;
+      });
+    }
+  }
+
+  /// 定位「我喜欢」：优先 `is_def == 2`，兼容按标题兜底；都没有返回 null。
+  int? _findFavoriteListId(List<MusicUserPlaylist> playlists) {
+    for (final playlist in playlists) {
+      if (playlist.defaultKind == _favoriteDefaultKind &&
+          playlist.cloudListId != null) {
+        return playlist.cloudListId;
+      }
+    }
+    for (final playlist in playlists) {
+      if (playlist.title == '我喜欢' && playlist.cloudListId != null) {
+        return playlist.cloudListId;
+      }
+    }
+    return null;
+  }
+
+  /// 刷新按钮：本地库与账号收藏一起刷。
+  Future<void> _refreshAll() {
+    _store.refresh();
+    if (!_accountFavoritesEnabled) return Future<void>.value();
+    return _loadFavorites(reset: true);
   }
 
   void _play(MusicSong song, Duration startAt) {
@@ -114,7 +268,7 @@ class _MusicLibraryPageState extends State<MusicLibraryPage> {
               IconButton.filledTonal(
                 tooltip: '刷新',
                 icon: const Icon(Icons.refresh),
-                onPressed: _store.refresh,
+                onPressed: _refreshAll,
               ),
             ],
           ),
@@ -153,28 +307,149 @@ class _MusicLibraryPageState extends State<MusicLibraryPage> {
   }
 
   Widget _buildCollected() {
-    final items = _store.collected;
+    final local = _store.collected;
+    if (!_accountFavoritesEnabled) {
+      return _buildLocalCollected(local);
+    }
+    return ListView(
+      key: const Key('library-collected-scroll'),
+      children: <Widget>[
+        ..._accountFavoriteChildren(),
+        const Divider(height: 24),
+        const Padding(
+          padding: EdgeInsets.fromLTRB(16, 0, 16, 4),
+          child: Text('本地收藏'),
+        ),
+        if (local.isEmpty)
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 4, 16, 16),
+            child: Text('还没有本地收藏的歌曲（搜索页点心形收藏）'),
+          )
+        else
+          ...local.map(_localCollectTile),
+      ],
+    );
+  }
+
+  /// 账号收藏段：定位「我喜欢」云歌单后内联曲目；登录后自动出现。
+  List<Widget> _accountFavoriteChildren() {
+    final children = <Widget>[
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 8, 4),
+        child: Row(
+          children: <Widget>[
+            const Expanded(child: Text('账号收藏 · 我喜欢')),
+            if (_favoritesLoading)
+              const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            else if (_favoriteTracks.isNotEmpty)
+              Text(
+                '${_favoriteTracks.length} 首',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+          ],
+        ),
+      ),
+    ];
+    final error = _favoritesError;
+    if (error != null) {
+      final auth = error is KugouApiException && error.kind == 'authentication';
+      children.add(
+        ListTile(
+          key: const Key('library-favorites-error'),
+          leading: Icon(auth ? Icons.lock_outline : Icons.error_outline),
+          title: Text(auth ? '登录酷狗账号后同步「我喜欢」' : '账号收藏加载失败'),
+          subtitle: Text(
+            auth ? '登录后会自动刷新，无需手动重试' : '$error',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          trailing: TextButton(
+            onPressed: () => _loadFavorites(reset: true),
+            child: const Text('重试'),
+          ),
+        ),
+      );
+      return children;
+    }
+    if (_favoritesLoading) return children;
+    if (_favoriteTracks.isEmpty) {
+      children.add(
+        const Padding(
+          padding: EdgeInsets.fromLTRB(16, 8, 16, 16),
+          child: Text('账号「我喜欢」里还没有歌曲'),
+        ),
+      );
+      return children;
+    }
+    for (final track in _favoriteTracks) {
+      final song = track.song;
+      children.add(
+        ListTile(
+          key: ValueKey<String>('library-favorite-${song.id}'),
+          leading: _CoverThumb(
+            url: song.coverUrl.isEmpty ? null : song.coverUrl,
+          ),
+          title: Text(song.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+          subtitle: Text(
+            song.artistText,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          trailing: const Icon(Icons.play_circle_outline),
+          onTap: () => _play(song, Duration.zero),
+        ),
+      );
+    }
+    if (_favoritesHasMore) {
+      children.add(
+        Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: _favoritesLoadingMore
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : OutlinedButton(
+                    key: const Key('library-favorites-more'),
+                    onPressed: () => _loadFavorites(reset: false),
+                    child: const Text('加载更多'),
+                  ),
+          ),
+        ),
+      );
+    }
+    return children;
+  }
+
+  Widget _localCollectTile(MusicCollectItem item) {
+    final song = item.song;
+    return ListTile(
+      key: ValueKey<String>('library-collect-${item.ref.id}'),
+      leading: _CoverThumb(url: item.coverUrl),
+      title: Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+      subtitle: Text(
+        item.artistText.isEmpty ? '已收藏' : item.artistText,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: const Icon(Icons.play_circle_outline),
+      onTap: song == null ? null : () => _play(song, Duration.zero),
+    );
+  }
+
+  Widget _buildLocalCollected(List<MusicCollectItem> items) {
     if (items.isEmpty) {
       return const _EmptyHint(text: '还没有收藏的歌曲');
     }
     return ListView.builder(
       itemCount: items.length,
-      itemBuilder: (context, index) {
-        final item = items[index];
-        final song = item.song;
-        return ListTile(
-          key: ValueKey<String>('library-collect-${item.ref.id}'),
-          leading: _CoverThumb(url: item.coverUrl),
-          title: Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-          subtitle: Text(
-            item.artistText.isEmpty ? '已收藏' : item.artistText,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          trailing: const Icon(Icons.play_circle_outline),
-          onTap: song == null ? null : () => _play(song, Duration.zero),
-        );
-      },
+      itemBuilder: (context, index) => _localCollectTile(items[index]),
     );
   }
 
