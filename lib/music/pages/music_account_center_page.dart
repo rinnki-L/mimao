@@ -9,6 +9,8 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:mimao/core/theme.dart';
@@ -19,6 +21,9 @@ import 'package:mimao/music/models/catalog_models.dart';
 import 'package:mimao/music/models/music_models.dart';
 import 'package:mimao/music/models/user_library_models.dart';
 import 'package:mimao/music/models/user_models.dart';
+import 'package:mimao/music/pages/music_preference_page.dart';
+import 'package:mimao/music/pages/music_profile_edit_page.dart';
+import 'package:mimao/music/pages/music_profile_image_picker.dart';
 import 'package:mimao/music/player/player_ui.dart';
 
 /// 分页请求的每页条数（听歌历史/已购分区共用）。
@@ -39,6 +44,7 @@ class MusicAccountCenterPage extends StatefulWidget {
     required this.player,
     this.onOpenAlbum,
     this.onOpenPlaylist,
+    this.imagePicker,
   });
 
   /// 用户资料组接口（资料头/会员/等级）。
@@ -56,6 +62,10 @@ class MusicAccountCenterPage extends StatefulWidget {
   /// 打开歌单（我的歌单行点击）。
   final ValueChanged<MusicUserPlaylist>? onOpenPlaylist;
 
+  /// 头像图片选择缝（L3）：null 时在触发「更换头像」的瞬间惰性构造
+  /// file_picker 生产实现；widget 测试注入 fake，绝不真调插件。
+  final MusicProfileImagePicker? imagePicker;
+
   @override
   State<MusicAccountCenterPage> createState() => _MusicAccountCenterPageState();
 }
@@ -65,6 +75,9 @@ class _MusicAccountCenterPageState extends State<MusicAccountCenterPage> {
   MusicUserProfile? _detail;
   Object? _detailError;
   bool _detailLoading = true;
+
+  /// 头像上传两步流程进行中（防重复提交、期间禁用入口）。
+  bool _avatarBusy = false;
 
   MusicUserIdentityTags? _tags;
   Object? _tagsError;
@@ -349,6 +362,73 @@ class _MusicAccountCenterPageState extends State<MusicAccountCenterPage> {
     )?.showSnackBar(SnackBar(content: Text(message)));
   }
 
+  // ── 资料写入口（L3） ─────────────────────────────────────────────────
+
+  /// 打开资料编辑页；保存成功（pop(true)）后重拉资料头。
+  Future<void> _openProfileEditor() async {
+    final MusicUserProfile? detail = _detail;
+    if (detail == null) return;
+    final bool? saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (_) =>
+            MusicProfileEditPage(profile: widget.profile, initial: detail),
+      ),
+    );
+    if (saved == true && mounted) unawaited(_loadDetail());
+  }
+
+  /// 打开音乐偏好页（偏好不在账号中心展示，返回无需刷新）。
+  Future<void> _openPreference() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => MusicPreferencePage(library: widget.library),
+      ),
+    );
+  }
+
+  /// 更换头像：选图 → 前置校验 → base64 上传 → 提交引用 → 刷新资料。
+  ///
+  /// 两步接口：`userAvatarUpload` 上传图片拿文件引用，`userUpdateAvatar`
+  /// 提交引用（后者可能返回「审核中」回执 34236——已提交待发布，不算失败）。
+  Future<void> _changeAvatar() async {
+    if (_avatarBusy) return;
+    // 可注入缝：测试注入 fake；生产在此惰性构造 file_picker 实现（不在
+    // build 里构造插件）。
+    final MusicProfileImagePicker picker =
+        widget.imagePicker ?? const FilePickerProfileImagePicker();
+    setState(() => _avatarBusy = true);
+    try {
+      final Uint8List? bytes = await picker.pickImage();
+      if (!mounted) return;
+      if (bytes == null) return; // 用户取消选择
+      final String? invalid = validateAvatarImageBytes(bytes);
+      if (invalid != null) {
+        _showSnack(invalid);
+        return;
+      }
+      final upload = await widget.profile.userAvatarUpload(
+        imageBase64: base64.encode(bytes),
+        localDate: _localDateToday(),
+      );
+      final update = await widget.profile.userUpdateAvatar(upload.fileName);
+      if (!mounted) return;
+      _showSnack(update.reviewPending ? '头像审核中' : '头像已更新');
+      unawaited(_loadDetail());
+    } on Object catch (error) {
+      if (!mounted) return;
+      _showSnack('头像更新失败：$error');
+    } finally {
+      if (mounted) setState(() => _avatarBusy = false);
+    }
+  }
+
+  /// 头像上传要求的 localDate：本地日期 `yyyyMMdd`。
+  String _localDateToday() {
+    final DateTime now = DateTime.now();
+    String two(int value) => value.toString().padLeft(2, '0');
+    return '${now.year}${two(now.month)}${two(now.day)}';
+  }
+
   MusicSong _songFromHistory(MusicHistoryItem item) => MusicSong(
     id: item.songId,
     audioId: item.audioId == null ? null : int.tryParse(item.audioId!),
@@ -615,7 +695,13 @@ class _MusicAccountCenterPageState extends State<MusicAccountCenterPage> {
     final children = <Widget>[
       Row(
         children: <Widget>[
-          _Avatar(url: detail.avatarUrl),
+          // 点头像同样进入更换头像流程（资料卡只在登录态渲染，入口天然
+          // 只对登录态生效）。
+          GestureDetector(
+            key: const ValueKey<String>('account-avatar'),
+            onTap: _avatarBusy ? null : _changeAvatar,
+            child: _Avatar(url: detail.avatarUrl),
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -735,6 +821,37 @@ class _MusicAccountCenterPageState extends State<MusicAccountCenterPage> {
         ),
       );
     }
+
+    // 写入口（登录态）：编辑资料 / 更换头像 / 音乐偏好。
+    children.add(
+      Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: Wrap(
+          spacing: 8,
+          runSpacing: 4,
+          children: <Widget>[
+            TextButton.icon(
+              key: const ValueKey<String>('account-edit-profile'),
+              onPressed: _openProfileEditor,
+              icon: const Icon(Icons.edit_outlined, size: 18),
+              label: const Text('编辑资料'),
+            ),
+            TextButton.icon(
+              key: const ValueKey<String>('account-change-avatar'),
+              onPressed: _avatarBusy ? null : _changeAvatar,
+              icon: const Icon(Icons.photo_outlined, size: 18),
+              label: const Text('更换头像'),
+            ),
+            TextButton.icon(
+              key: const ValueKey<String>('account-preference'),
+              onPressed: _openPreference,
+              icon: const Icon(Icons.tune, size: 18),
+              label: const Text('音乐偏好'),
+            ),
+          ],
+        ),
+      ),
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: children,

@@ -6,6 +6,8 @@
 /// 失败再点重试即可成功）。
 library;
 
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:mimao/music/api/user_library_api.dart';
 import 'package:mimao/music/api/user_profile_api.dart';
@@ -15,6 +17,7 @@ import 'package:mimao/music/models/catalog_models.dart';
 import 'package:mimao/music/models/music_models.dart';
 import 'package:mimao/music/models/user_library_models.dart';
 import 'package:mimao/music/models/user_models.dart';
+import 'package:mimao/music/pages/music_profile_image_picker.dart';
 import 'package:mimao/music/player/player_ui.dart';
 
 // ── 模型工厂（字段取最小可信值） ─────────────────────────────────────────
@@ -44,11 +47,15 @@ MusicUserProfile fakeProfile({
   int? fans = 9,
   int? listeningMinutes = 1234,
   String ipLocation = '广东深圳',
+  int? gender,
+  String birthday = '',
+  String province = '',
+  String city = '',
 }) => MusicUserProfile(
   id: id,
   nickname: nickname,
   avatarUrl: '',
-  gender: null,
+  gender: gender,
   vipType: 1,
   follows: follows,
   fans: fans,
@@ -58,10 +65,10 @@ MusicUserProfile fakeProfile({
   listeningMinutes: listeningMinutes,
   visitors: null,
   registeredAtSeconds: null,
-  province: '',
-  city: '',
+  province: province,
+  city: city,
   ipLocation: ipLocation,
-  birthday: '',
+  birthday: birthday,
   identity: fakeIdentity(),
 );
 
@@ -317,19 +324,59 @@ class FakeUserProfileApi implements MusicUserProfileApi {
     return data;
   }
 
-  @override
-  Future<MusicUserUpdateResult> userUpdate(MusicUserUpdateQuery query) =>
-      throw UnimplementedError();
+  // ── 资料写 / 头像（L3）：调用记录 + 可注入失败 ─────────────────────────
+  final List<MusicUserUpdateQuery> updateQueries = <MusicUserUpdateQuery>[];
+  Object? updateError;
+
+  /// userUpdate 回执的 updated（端点成功恒为 true；false 用于防御分支）。
+  bool updateResult = true;
+
+  /// 头像图片上传的入参记录（imageBase64/localDate）。
+  final List<({String imageBase64, String localDate})> avatarUploads =
+      <({String imageBase64, String localDate})>[];
+  Object? avatarUploadError;
+
+  /// 上传端点回吐的文件引用（userUpdateAvatar 断言它被原样透传）。
+  String avatarUploadFileName = 'abc123.png';
+
+  final List<String> updateAvatarFileNames = <String>[];
+  Object? updateAvatarError;
+  bool avatarReviewPending = false;
+
+  /// 头像两步接口的调用次序记录（'upload' / 'submit'）。
+  final List<String> avatarCallOrder = <String>[];
 
   @override
-  Future<MusicUserAvatarUpdate> userUpdateAvatar(String fileName) =>
-      throw UnimplementedError();
+  Future<MusicUserUpdateResult> userUpdate(MusicUserUpdateQuery query) async {
+    updateQueries.add(query);
+    final Object? error = updateError;
+    if (error != null) throw error;
+    return MusicUserUpdateResult(updated: updateResult);
+  }
 
   @override
   Future<MusicUserAvatarUpload> userAvatarUpload({
     required String imageBase64,
     required String localDate,
-  }) => throw UnimplementedError();
+  }) async {
+    avatarUploads.add((imageBase64: imageBase64, localDate: localDate));
+    avatarCallOrder.add('upload');
+    final Object? error = avatarUploadError;
+    if (error != null) throw error;
+    return MusicUserAvatarUpload(fileName: avatarUploadFileName);
+  }
+
+  @override
+  Future<MusicUserAvatarUpdate> userUpdateAvatar(String fileName) async {
+    updateAvatarFileNames.add(fileName);
+    avatarCallOrder.add('submit');
+    final Object? error = updateAvatarError;
+    if (error != null) throw error;
+    return MusicUserAvatarUpdate(
+      avatarUrl: 'http://c1.kgimg.com/v2/kugouicon/$fileName',
+      reviewPending: avatarReviewPending,
+    );
+  }
 
   @override
   Future<List<MusicUserBatchAuthorProducts>> userBatchUnionVipinfo(
@@ -407,13 +454,39 @@ class FakeUserLibraryApi implements MusicUserLibraryApi {
     return data;
   }
 
+  // ── 偏好（L3）：调用记录 + 可注入失败 ─────────────────────────────────
+  MusicPreferences? preference;
+  Object? preferenceError;
+  int preferenceCalls = 0;
+
+  final List<MusicPreferenceUpdateQuery> preferenceUpdateQueries =
+      <MusicPreferenceUpdateQuery>[];
+  Object? preferenceUpdateError;
+
+  /// userPreferenceUpdate 回执的 updated（false 用于失败提示分支）。
+  bool preferenceUpdateResult = true;
+
   @override
-  Future<MusicPreferences> userPreference() => throw UnimplementedError();
+  Future<MusicPreferences> userPreference() async {
+    preferenceCalls++;
+    final Object? error = preferenceError;
+    if (error != null) throw error;
+    final MusicPreferences? data = preference;
+    if (data == null) {
+      throw StateError('FakeUserLibraryApi: 未配置 preference');
+    }
+    return data;
+  }
 
   @override
   Future<MusicPreferenceAcknowledgement> userPreferenceUpdate(
     MusicPreferenceUpdateQuery query,
-  ) => throw UnimplementedError();
+  ) async {
+    preferenceUpdateQueries.add(query);
+    final Object? error = preferenceUpdateError;
+    if (error != null) throw error;
+    return MusicPreferenceAcknowledgement(updated: preferenceUpdateResult);
+  }
 
   @override
   Future<MusicVerifyAcknowledgement> verifyUserInfo(
@@ -448,3 +521,57 @@ class FakePlayerUi implements MusicPlayerUi {
 /// 认证失败（匿名/未登录）的统一入口——kind 对齐 KugouApiException 词表。
 KugouApiException authenticationError() =>
     const KugouApiException('authentication', '请先登录');
+
+// ── L3：偏好模型工厂 / 选图替身 ───────────────────────────────────────────
+
+/// 偏好快照工厂（权重字段默认为空表；单个测试按需覆盖）。
+MusicPreferences fakePreferences({
+  String? recommendationMode = '0',
+  String? gender = '',
+  String? age = '',
+  MusicWeightPreference? languages,
+  MusicWeightPreference? styles,
+  MusicWeightPreference? recommendation,
+}) {
+  MusicWeightPreference empty() => const MusicWeightPreference(
+    encoded: '',
+    weights: <String, double>{},
+    raw: '',
+  );
+  return MusicPreferences(
+    recommendationMode: recommendationMode,
+    gender: gender,
+    age: age,
+    languages: languages ?? empty(),
+    styles: styles ?? empty(),
+    recommendation: recommendation ?? empty(),
+  );
+}
+
+/// 最小 PNG 字节：完整 8 字节魔数 + 若干填充（校验/上传只看魔数与长度）。
+Uint8List fakePngBytes({int extra = 16}) => Uint8List.fromList(<int>[
+  0x89,
+  0x50,
+  0x4E,
+  0x47,
+  0x0D,
+  0x0A,
+  0x1A,
+  0x0A,
+  ...List<int>.filled(extra, 0x41),
+]);
+
+/// 头像选图替身：返回预置字节（null 模拟用户取消），绝不触碰 file_picker 插件。
+class FakeProfileImagePicker implements MusicProfileImagePicker {
+  FakeProfileImagePicker(this.next);
+
+  /// 下一次 pickImage 的返回值（测试中途可改写）。
+  Uint8List? next;
+  int calls = 0;
+
+  @override
+  Future<Uint8List?> pickImage() async {
+    calls++;
+    return next;
+  }
+}
