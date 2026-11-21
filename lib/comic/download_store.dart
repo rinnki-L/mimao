@@ -52,6 +52,35 @@ class ComicDownloadStore {
     return next;
   }
 
+  /// 更新进行中任务的进度，不改状态。
+  ///
+  /// 进度不是状态转移：`running → running` 在状态机里是非法边，逐页更新若
+  /// 走 [transition] 会让多页章节在第二页就失败。这里只改计数与时间戳，
+  /// 状态仍由 `transition` 把守。
+  Future<ComicDownloadTask> updateProgress(
+    String taskId, {
+    required int receivedBytes,
+    required int totalBytes,
+    DateTime? now,
+  }) async {
+    final current = await find(taskId);
+    if (current == null) {
+      throw ArgumentError('任务不存在：$taskId');
+    }
+    final next = ComicDownloadTask(
+      taskId: current.taskId,
+      ref: current.ref,
+      chapterId: current.chapterId,
+      status: current.status,
+      receivedBytes: receivedBytes,
+      totalBytes: totalBytes,
+      error: current.error,
+      updatedAt: now ?? DateTime.now(),
+    );
+    await _write(next, now: now);
+    return next;
+  }
+
   Future<ComicDownloadTask?> find(String taskId) async {
     final row = await db.downloadRow(taskId);
     return row == null ? null : _fromRow(row);

@@ -214,9 +214,8 @@ class ComicLocalDownloadService implements ComicDownloadApi {
           await file.writeAsBytes(bytes, flush: true);
         }
         done++;
-        await store.transition(
+        await store.updateProgress(
           taskId,
-          ComicDownloadStatus.running,
           receivedBytes: done,
           totalBytes: urls.length,
           now: _now(),
