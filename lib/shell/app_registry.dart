@@ -30,6 +30,7 @@ import 'package:mimao/music/library_api.dart';
 import 'package:mimao/music/music_db.dart';
 import 'package:mimao/music/models/music_models.dart';
 import 'package:mimao/music/music_entry.dart';
+import 'package:mimao/music/music_settings.dart';
 import 'package:mimao/music/pages/music_library_page.dart';
 import 'package:mimao/music/player/media_kit_music_engine.dart';
 import 'package:mimao/music/player/playback_engine.dart';
@@ -120,6 +121,10 @@ Future<void> initAppModules({
 
   /// 播放进度写入口；集成时由 `history.saveProgress` 包成 lambda。
   ProgressSink? musicProgressSink,
+
+  /// 音乐本地设置；测试注入内存 fake，生产走惰性文件实现（首个读写才碰
+  /// path_provider，注册期零插件调用）。
+  MusicSettings? musicSettings,
 
   // ── M4-L 登录（契约缝）──
   MusicAccountApi? musicAccount,
@@ -295,6 +300,10 @@ Future<void> initAppModules({
           musicProgressSink ??
           (MusicSong song, Duration position, Duration duration) =>
               resolvedHistory.saveProgress(song, position, duration);
+      // 本地设置：注册期只构造惰性代理（首个读写才解析 path_provider），
+      // 播放器上报开关与设置页共享同一实例。
+      final settings =
+          musicSettings ?? LazyMusicSettings(MusicFileSettings.openDefault);
       // 三个切片的依赖全部来自注入缝（契约提交）；各线在自己的标记块里
       // 补生产构造，本文件不需要再改签名。
       appModules[MediaType.music] = MusicModule(
@@ -305,7 +314,19 @@ Future<void> initAppModules({
         playbackApi: musicPlaybackApi ?? KugouPlaybackApi(client, api),
         engineFactory: musicPlaybackEngineFactory ?? MediaKitMusicEngine.new,
         progressSink: progressSink,
-        playerUiFactory: musicPlayerUiFactory ?? createMusicPlayerUi,
+        // 播放器长尾接线的闭包适配：typedef 仍是三位置参数，长尾依赖从这里
+        // 传入（上报开关 / 歌曲高潮 / 歌曲资料）。
+        playerUiFactory:
+            musicPlayerUiFactory ??
+            (playbackApi, engineFactory, progressSink) => createMusicPlayerUi(
+              playbackApi,
+              engineFactory,
+              progressSink,
+              listenReport: api.listenReport,
+              settings: settings,
+              loadClimax: api.discovery.songClimax,
+              playbackExt: api.playbackExt,
+            ),
         // ── M4-L 登录 ──
         account: account,
         // ── M4-C 收藏历史 ──
@@ -315,6 +336,8 @@ Future<void> initAppModules({
         libraryBuilder: libraryBuilder,
         // ── 扩容浏览能力（发现/榜单/专辑/歌手/歌单/用户/歌词…）──
         browse: api.browseApis,
+        // ── 本地设置（设置页的听歌上报开关）──
+        settings: settings,
       );
     }
   } catch (error) {

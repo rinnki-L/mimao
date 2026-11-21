@@ -20,7 +20,10 @@ import 'package:mimao/music/api/music_api.dart';
 import 'package:mimao/music/api/music_browse_apis.dart';
 import 'package:mimao/music/api/music_playback_api.dart';
 import 'package:mimao/music/library_api.dart';
+import 'package:mimao/music/models/music_models.dart';
+import 'package:mimao/music/models/playlist_write_models.dart';
 import 'package:mimao/music/models/user_library_models.dart';
+import 'package:mimao/music/music_settings.dart';
 import 'package:mimao/music/music_store.dart';
 import 'package:mimao/music/pages/music_account_center_page.dart';
 import 'package:mimao/music/pages/music_album_detail_page.dart';
@@ -51,6 +54,7 @@ class MusicModule implements AppModule {
     this.searchHistory,
     this.libraryBuilder,
     this.browse,
+    this.settings,
   }) : _api = api,
        store = store ?? MusicStore(api);
 
@@ -78,6 +82,10 @@ class MusicModule implements AppModule {
   /// 扩容端点能力包（发现/榜单/专辑/歌手/歌单/用户/账号/歌词…）。
   /// null 时模块退回旧搜索主页，不显示新入口。
   final MusicBrowseApis? browse;
+
+  /// 本地设置（听歌上报开关）；null 时设置页不显示开关。播放器侧的同一份
+  /// 实例由 registry 注入（见 app_registry 的 createMusicPlayerUi 闭包）。
+  final MusicSettings? settings;
 
   /// 播放 UI 懒构造：P 线产品路径才注入 [playerUiFactory]；测试/未接线时
   /// 保持 null，绝不触碰 media_kit。
@@ -189,7 +197,15 @@ class MusicModule implements AppModule {
     // 不套闸门层（既有测试断言 buildHome 返回 MusicModulePage 的锚点不变）。
     final loginAccount = account;
     if (loginAccount == null) return home;
-    return MusicLoginGate(api: _api, account: loginAccount, child: home);
+    return MusicLoginGate(
+      api: _api,
+      account: loginAccount,
+      // L5：登录扩展门面齐备时全屏登录页带「使用其他方式登录」。
+      auth: browseApis?.auth,
+      verify: browseApis?.verify,
+      searchExt: browseApis?.searchExt,
+      child: home,
+    );
   }
 
   void _openAlbum(BuildContext context, int albumId) {
@@ -203,6 +219,7 @@ class MusicModule implements AppModule {
           album: api,
           albumId: albumId,
           player: player,
+          playbackExt: browse?.playbackExt,
           onOpenArtist: browse?.artist == null
               ? null
               : (id) => _openArtist(context, id),
@@ -222,6 +239,7 @@ class MusicModule implements AppModule {
           artist: api,
           artistId: artistId,
           player: player,
+          playbackExt: browse?.playbackExt,
           onOpenAlbum: browse?.album == null
               ? null
               : (id) => _openAlbum(context, id),
@@ -242,6 +260,7 @@ class MusicModule implements AppModule {
           player: player,
           globalId: globalId,
           write: browse?.playlistWrite,
+          searchSongs: _searchSongs,
         ),
       ),
     );
@@ -262,6 +281,16 @@ class MusicModule implements AppModule {
           title: playlist.title,
           coverUrl: playlist.coverUrl,
           write: browse?.playlistWrite,
+          // 写端点需要的版本/归属/简介事实从列表条目透传；missing 时页面
+          // 自己隐藏写入口（不臆造版本号）。
+          revision: playlist.revision,
+          sortIndex: playlist.sortIndex,
+          kind: MusicPlaylistKind.fromWire(playlist.kindCode),
+          description: playlist.descriptionPresent
+              ? playlist.description
+              : null,
+          tags: playlist.tagsPresent ? playlist.tags : null,
+          searchSongs: _searchSongs,
         ),
       ),
     );
@@ -280,10 +309,19 @@ class MusicModule implements AppModule {
           read: read,
           player: player,
           write: browse?.playlistWrite,
+          searchSongs: _searchSongs,
         ),
       ),
     );
   }
+
+  /// 添加歌曲页的搜索缝：把 [MusicApi.searchSongs] 的命名参数形态适配成
+  /// `MusicSongSearch` 的位置参数 + 可选分页（页面不依赖 MusicApi）。
+  Future<MusicPage<MusicSong>> _searchSongs(
+    String keyword, {
+    int page = 1,
+    int pageSize = 30,
+  }) => _api.searchSongs(keyword: keyword, page: page, pageSize: pageSize);
 
   void _openRank(BuildContext context) {
     final api = browse?.rank;
@@ -299,6 +337,14 @@ class MusicModule implements AppModule {
 
   @override
   Widget buildSettings(BuildContext context) {
-    return MusicModuleSettings(api: _api, account: account);
+    return MusicModuleSettings(
+      api: _api,
+      account: account,
+      // L5：扩展入口都按「注入才显示」处理，缺一项不出现死链。
+      auth: browse?.auth,
+      verify: browse?.verify,
+      searchExt: browse?.searchExt,
+      settings: settings,
+    );
   }
 }

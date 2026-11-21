@@ -9,6 +9,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:mimao/music/api/listen_report_api.dart';
 import 'package:mimao/music/api/music_playback_api.dart';
+import 'package:mimao/music/api/playback_ext_api.dart';
 import 'package:mimao/music/models/discovery_models.dart';
 import 'package:mimao/music/models/music_models.dart';
 import 'package:mimao/music/music_settings.dart';
@@ -20,24 +21,34 @@ import 'package:mimao/music/player/player_store.dart';
 import 'package:mimao/music/player/player_ui.dart';
 
 class MusicPlayerUiImpl implements MusicPlayerUi {
-  MusicPlayerUiImpl(this.store, {this.loadClimax});
+  MusicPlayerUiImpl(this.store, {this.loadClimax, this.playbackExt});
 
   final MusicPlayerStore store;
 
   /// 歌曲高潮加载缝；非空时播放页（含迷你条入口）显示高潮 chip。
   final Future<List<MusicSongClimaxSegment>> Function(String hash)? loadClimax;
 
+  /// 播放补全接口；非空时播放页显示「歌曲资料」入口。
+  final MusicPlaybackExtApi? playbackExt;
+
   @override
   Widget? buildMiniPlayer(BuildContext context) {
     // 队列为空/未配置播放 → null（调用方不渲染）。队列变化由调用方的
     // `Observer` 驱动重建（模块页已按此接线）。
     if (!store.canPlay || store.queue.isEmpty) return null;
-    return MusicMiniPlayer(player: store, loadClimax: loadClimax);
+    return MusicMiniPlayer(
+      player: store,
+      loadClimax: loadClimax,
+      playbackExt: playbackExt,
+    );
   }
 
   @override
-  Widget buildPlayerPage(BuildContext context) =>
-      MusicPlayerPage(player: store, loadClimax: loadClimax);
+  Widget buildPlayerPage(BuildContext context) => MusicPlayerPage(
+    player: store,
+    loadClimax: loadClimax,
+    playbackExt: playbackExt,
+  );
 
   @override
   Future<void> playSong(MusicSong song, {Duration startAt = Duration.zero}) =>
@@ -56,6 +67,7 @@ MusicPlayerUi createMusicPlayerUi(
   MusicListenReportApi? listenReport,
   MusicSettings? settings,
   Future<List<MusicSongClimaxSegment>> Function(String hash)? loadClimax,
+  MusicPlaybackExtApi? playbackExt,
 }) => MusicPlayerUiImpl(
   MusicPlayerStore(
     playbackApi: playbackApi,
@@ -65,4 +77,5 @@ MusicPlayerUi createMusicPlayerUi(
     settings: settings,
   ),
   loadClimax: loadClimax,
+  playbackExt: playbackExt,
 );

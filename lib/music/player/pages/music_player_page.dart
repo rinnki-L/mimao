@@ -12,17 +12,27 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:mimao/core/theme.dart';
+import 'package:mimao/music/api/playback_ext_api.dart';
 import 'package:mimao/music/models/discovery_models.dart';
 import 'package:mimao/music/models/music_models.dart';
+import 'package:mimao/music/pages/music_song_info_sheet.dart';
 import 'package:mimao/music/player/player_store.dart';
 
 class MusicPlayerPage extends StatefulWidget {
-  const MusicPlayerPage({super.key, required this.player, this.loadClimax});
+  const MusicPlayerPage({
+    super.key,
+    required this.player,
+    this.loadClimax,
+    this.playbackExt,
+  });
 
   final MusicPlayerStore player;
 
   /// 歌曲高潮区间加载缝（集成者传 `discovery.songClimax`）；null 时整段隐藏。
   final Future<List<MusicSongClimaxSegment>> Function(String hash)? loadClimax;
+
+  /// 播放补全接口：非空时提供「歌曲资料」入口（权益/资料/歌手图片）。
+  final MusicPlaybackExtApi? playbackExt;
 
   @override
   State<MusicPlayerPage> createState() => _MusicPlayerPageState();
@@ -151,6 +161,22 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
       appBar: AppBar(
         title: const Text('正在播放'),
         actions: <Widget>[
+          // 歌曲资料（权益/资料/歌手图片）：只有注入播放补全接口时才出现；
+          // 面板自己按当前曲目查询，不在这里预取。
+          if (widget.playbackExt != null)
+            IconButton(
+              tooltip: '歌曲资料',
+              icon: const Icon(Icons.info_outline),
+              onPressed: () {
+                final song = player.currentSong;
+                if (song == null) return;
+                showMusicSongInfoSheet(
+                  context,
+                  song: song,
+                  ext: widget.playbackExt,
+                );
+              },
+            ),
           IconButton(
             tooltip: '播放队列',
             icon: const Icon(Icons.queue_music),
