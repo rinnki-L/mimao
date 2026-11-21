@@ -234,7 +234,15 @@ let APP = {
     version: '1.0.0',
     platform: 'windows'
 };
-let UI = {};
+// Venera 源脚本普遍调用 UI.showMessage 做轻提示（ehentai 未登录、jm 图片源
+// 提示、kavita 不支持的标签等）。大多数调用点不在结果显示路径上，但缺这个方法
+// 会直接 TypeError 中断 load（ehentai "watched" 分区未登录时必现）。这里做
+// 成无 UI 的日志透传：消息落到 bridge 日志，调用安全返回，不打断源执行。
+// showDialog/launchUrl/showInputDialog 等交互 API 暂不在此实现（源多行于
+// 登录/设置流程，非 discovery/category 首屏路径）。
+let UI = {
+    showMessage: (message) => log('info', 'UI', message)
+};
 
 class ComicSource {
     static sources = {};

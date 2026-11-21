@@ -40,6 +40,7 @@
 | `console.log/warn/error` | `log` | 落到 `ComicJsBridge.logs` |
 | `ComicSource.loadData/loadSetting/saveData/deleteData/isLogged` | `load_data` / `load_setting` / `save_data` / `delete_data` / `isLogged` | 可注入回调（C′ 存储线对接；默认 null/false）。`loadSetting` 先取保存值，缺失时回落到 `source.settings[key].default`（注册期快照） |
 | `APP.locale` / `getPlatform` / `getLocale` | `getLocale` / `getPlatform` | 固定 `zh_CN` / `windows` |
+| `UI.showMessage` | `log` | 无 UI 日志透传（避免 ehentai/jm/kavita 的提示调用抛错中断 load）；交互类 `showDialog` 等暂不实现 |
 | `Comic` / `ComicDetails` / `Comment` / `ImageLoadingConfig` 构造器 | —（纯 JS 对象） | `comicInitJs` 内定义 |
 
 **注册期**：`SourceExecutionPool.register` 实例化脚本类后会先拍 `source.settings`

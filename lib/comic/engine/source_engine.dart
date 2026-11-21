@@ -218,6 +218,24 @@ class ComicSourceEngine {
         final part = _asMap(rawPart);
         if (part == null) continue;
         final items = <ComicCategoryItem>[];
+        // dynamic loader 分区：JS 侧已把 loader() 的返回值归一化成
+        // `items: [{name, param}]`（name 即 categoryComics.load 的 category）。
+        final rawItems = part['items'];
+        if (rawItems is List) {
+          for (final rawItem in rawItems) {
+            final item = _asMap(rawItem);
+            if (item == null) continue;
+            final name = _string(item['name']);
+            if (name.isEmpty) continue;
+            final param = _string(item['param']);
+            items.add(
+              ComicCategoryItem(
+                name: name,
+                param: param.isEmpty ? null : param,
+              ),
+            );
+          }
+        }
         // 静态分类：`categories`（字符串或 {label,target}）+ 平行 `categoryParams`。
         final categories = part['categories'];
         final params = part['categoryParams'] ?? part['params'];
@@ -615,7 +633,10 @@ class ComicSourceEngine {
       if (typeof item.load === 'function') {
         call = item.load($page);
       } else if (typeof item.loadNext === 'function') {
-        call = item.loadNext($page);
+        // 只有 loadNext 的分区（如 ehentai）第一个参数是「下一页 token/URL」
+        // 而非页码：首屏没有 token 必须传 null，传 1 会被拼进 URL 触发
+        // “必须是绝对 URL: 1”。翻页时才由上层带上一页返回的 next。
+        call = item.loadNext(null);
       } else {
         return { index: i, title: title, error: '分区没有 load/loadNext' };
       }
@@ -644,7 +665,8 @@ class ComicSourceEngine {
     if (typeof item.load === 'function') {
       call = item.load($page);
     } else if (typeof item.loadNext === 'function') {
-      call = item.loadNext($page);
+      // 同 _exploreAllExpression：loadNext 首参是 token 而非页码。
+      call = item.loadNext(null);
     } else {
       return { index: $index, title: title, error: '分区没有 load/loadNext' };
     }
@@ -657,36 +679,86 @@ class ComicSourceEngine {
   );
 })()''';
 
-  /// 分类树：只取静态可读部分（`title` / `parts[].name` /
-  /// `parts[].categories` / `categoryParams`），不触发 dynamic loader——
-  /// 那需要用户先选分类，由 [categoryComics] 负责。
+  /// 分类树：`title` / `parts[].name` / `parts[].categories` / `categoryParams`，
+  /// 外加 `type: "dynamic"` 分区的 `loader()` 展开。
+  ///
+  /// Venera 模板允许分区用 dynamic loader 现场生成标签（manga_dex 的 Tags、
+  /// kavita/komga/lanraragi 的书库/题材等）。loader 返回
+  /// `[{label, target}]`，target 有两种形状：
+  /// * `{page:'category', attributes:{category, param}}`（kavita/komga/lanraragi）；
+  /// * `{action:'category', keyword, param}`（manga_dex）。
+  /// 两者都归一化成 `items: [{name, param}]`——`name` 是 `categoryComics.load`
+  /// 的第一个参数（category），`param` 是第二个。loader 是同步或 Promise 都
+  /// 支持（JS 侧 `Promise.all` + 单分区 catch，一个分区炸了不影响其它分区）。
+  ///
+  /// 静态分区仍走 `categories`/`categoryParams` 原路，Dart 解析器把两路合并；
+  /// 不展开 dynamic loader 会让这些源的分类页整体为空（UI 回退探索），所以
+  /// 这里必须现场调用——loader 只读源内存里的引用数据（loadData），不发网络。
   static const String _categoryExpression = '''
 (() => {
   const category = source.category;
   if (!category || typeof category !== 'object') return null;
   const parts = Array.isArray(category.parts) ? category.parts : [];
-  return {
-    title: category.title === undefined ? '' : String(category.title),
-    parts: parts.map((part) => {
-      if (!part || typeof part !== 'object') return { name: '', categories: [] };
-      const name = part.name === undefined ? '' : String(part.name);
-      let categories = part.categories;
-      if (categories === undefined && Array.isArray(part.categoryParams)) {
-        categories = part.categoryParams;
-      }
-      return {
-        name: name,
-        categories: categories === undefined ? [] : categories,
-        categoryParams: Array.isArray(part.categoryParams)
-          ? part.categoryParams : []
-      };
-    })
+  const normalizeTarget = (entry) => {
+    const target = entry && typeof entry === 'object' ? entry.target : entry;
+    const attrs = target && typeof target === 'object' && target.attributes &&
+                  typeof target.attributes === 'object' ? target.attributes : null;
+    const name = entry && typeof entry === 'object'
+      ? String(entry.label === undefined ? (entry.name === undefined ? '' : entry.name) : entry.label)
+      : String(entry === undefined ? '' : entry);
+    let param;
+    if (attrs) {
+      param = attrs.param;
+      return { name: String(attrs.category === undefined ? name : attrs.category),
+               param: param === undefined || param === null ? null : String(param) };
+    }
+    if (target && typeof target === 'object') {
+      param = target.param === undefined ? target.keyword : target.param;
+      const nm = target.keyword !== undefined ? target.keyword : name;
+      return { name: String(nm === undefined ? '' : nm),
+               param: param === undefined || param === null ? null : String(param) };
+    }
+    return { name: name, param: target === undefined || target === null ? null : String(target) };
   };
+  return Promise.all(parts.map((part) => {
+    if (!part || typeof part !== 'object') return Promise.resolve({ name: '', categories: [], items: [] });
+    const name = part.name === undefined ? '' : String(part.name);
+    let categories = part.categories;
+    if (categories === undefined && Array.isArray(part.categoryParams)) {
+      categories = part.categoryParams;
+    }
+    if (part.type === 'dynamic' && typeof part.loader === 'function') {
+      return Promise.resolve()
+        .then(() => part.loader())
+        .then((loaded) => ({
+          name: name,
+          categories: [],
+          items: Array.isArray(loaded) ? loaded.map(normalizeTarget) : []
+        }))
+        .catch(() => ({ name: name, categories: [], items: [] }));
+    }
+    return Promise.resolve({
+      name: name,
+      categories: categories === undefined ? [] : categories,
+      categoryParams: Array.isArray(part.categoryParams) ? part.categoryParams : [],
+      items: []
+    });
+  })).then((resolvedParts) => ({
+    title: category.title === undefined ? '' : String(category.title),
+    parts: resolvedParts
+  }));
 })()''';
 
   /// 分类漫画：`categoryComics.load(category, param, options, page)`，
   /// 缺 `load` 时回退 `loadNext(category, param, options, null)`。
-  /// `options` 传空数组：分类页第一版不暴露源的自定义筛选项。
+  ///
+  /// 与搜索同口径：未显式传 options 时用每个
+  /// `source.categoryComics.optionList` 项的默认值（有 `default` 取
+  /// `JSON.stringify(default)`，否则取第一个合法 option 的 value）。绝大多数
+  /// Venera 源的 `categoryComics.load` 直接读 `options[0].split('-')` 等，
+  /// 传空数组会 `TypeError: cannot read property '...' of undefined`（baozi、
+  /// ykmh、copy_manga 等实测）——这是与 manga_dex 搜索同类缺口。默认值在 JS
+  /// 侧算：`optionList` 是运行期存活的源数据，Dart 看不到。
   String _categoryComicsExpression(ComicCategoryItem item, int page) {
     final category = _q(item.name);
     final param = item.param == null ? 'null' : _q(item.param!);
@@ -696,12 +768,32 @@ class ComicSourceEngine {
   if (!c || typeof c !== 'object') {
     return { comics: [], maxPage: null };
   }
+  const __defaults = (() => {
+    const list = c.optionList;
+    if (!Array.isArray(list)) return [];
+    return list.map((item) => {
+      if (item && typeof item === 'object' &&
+          Object.prototype.hasOwnProperty.call(item, 'default') &&
+          item.default !== undefined) {
+        const encoded = JSON.stringify(item.default);
+        return encoded === undefined ? "" : encoded;
+      }
+      const entries = item && Array.isArray(item.options) ? item.options : [];
+      for (const entry of entries) {
+        if (typeof entry !== 'string') continue;
+        const dash = entry.indexOf("-");
+        if (dash < 0) continue;
+        return entry.slice(0, dash);
+      }
+      return "";
+    });
+  })();
   let call;
   try {
     if (typeof c.load === 'function') {
-      call = c.load($category, $param, [], $page);
+      call = c.load($category, $param, __defaults, $page);
     } else if (typeof c.loadNext === 'function') {
-      call = c.loadNext($category, $param, [], null);
+      call = c.loadNext($category, $param, __defaults, null);
     } else {
       return { comics: [], maxPage: null };
     }

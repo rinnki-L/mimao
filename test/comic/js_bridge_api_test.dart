@@ -208,6 +208,22 @@ void main() {
       expect(n, 5);
     });
 
+    test('UI.showMessage 走 log 通道，且 init.js 定义了该方法（源脚本不会 TypeError）', () async {
+      // JS 侧的 UI.showMessage 由 comicInitJs 注入，走与 console 相同的 log
+      // 通道。这里同时校验字符串定义与 bridge 落日志两端，避免 native 依赖。
+      expect(comicInitJs, contains('showMessage:'));
+      expect(comicInitJs, contains("log('info', 'UI', message)"));
+      final bridge = ComicJsBridge(client: _RecordingClient());
+      bridge._sync(<dynamic, dynamic>{
+        'method': 'log',
+        'level': 'info',
+        'title': 'UI',
+        'content': 'Need login first',
+      });
+      expect(bridge.logs.single.title, 'UI');
+      expect(bridge.logs.single.content, 'Need login first');
+    });
+
     test('loadData/saveData/deleteData/loadSetting/isLogged 回调可注入', () async {
       final bridge = ComicJsBridge(client: _RecordingClient());
       final store = <String, Object?>{'token': 't1'};

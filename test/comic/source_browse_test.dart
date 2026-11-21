@@ -68,6 +68,24 @@ void main() {
         ),
       );
       expect(expression, contains('item.load(2)'));
+      // 只有 loadNext 的分区首参是 token，不是页码（首屏传 null）。
+      expect(expression, contains('item.loadNext(null)'));
+    });
+
+    test('loadNext 分区首屏传 null 而不是页码（ehentai 绝对 URL 缺口）', () async {
+      final (host, engine) = await _setup((expression) {
+        if (expression.contains('Promise.all(list.map(')) {
+          // 模拟源解析后返回空数据即可，重点断言表达式首参。
+          return <Object?>[];
+        }
+        return null;
+      });
+
+      await engine.exploreGroups('browse', page: 7);
+
+      final expression = host.expressions.last;
+      expect(expression, contains('call = item.loadNext(null)'));
+      expect(expression, isNot(contains('item.loadNext(7)')));
     });
 
     test('exploreSection 按下标取分区，并回传 data', () async {
@@ -302,6 +320,42 @@ void main() {
       expect(tree.parts.single.items.single.param, 'scifi');
     });
 
+    test('dynamic loader 分区现场生成标签（manga_dex/kavita 同形）', () async {
+      final (host, engine) = await _setup((expression) {
+        if (expression.contains('source.category;')) {
+          // JS 侧已把 loader() 结果归一化成 items:[{name,param}]。
+          return <String, Object?>{
+            'title': 'MangaDex',
+            'parts': <Object?>[
+              <String, Object?>{
+                'name': 'Tags',
+                'categories': <Object?>[],
+                'items': <Object?>[
+                  <String, Object?>{'name': 'Oneshot', 'param': 'tag-uuid-1'},
+                  <String, Object?>{'name': '全部', 'param': 'all'},
+                ],
+              },
+            ],
+          };
+        }
+        return null;
+      });
+
+      final tree = await engine.category('browse');
+
+      expect(host.expressions.last, contains("part.type === 'dynamic'"));
+      expect(host.expressions.last, contains('part.loader()'));
+      expect(tree, isNotNull);
+      expect(tree!.parts.single.items.map((i) => i.name), <String>[
+        'Oneshot',
+        '全部',
+      ]);
+      expect(tree.parts.single.items.map((i) => i.param), <String>[
+        'tag-uuid-1',
+        'all',
+      ]);
+    });
+
     test('没有 category 返回 null（UI 回退 explore）', () async {
       final (_, engine) = await _setup((_) => null);
 
@@ -345,8 +399,11 @@ void main() {
       );
 
       final expression = host.expressions.last;
-      expect(expression, contains('c.load("科幻", "scifi", [], 2)'));
-      expect(expression, contains('c.loadNext("科幻", "scifi", [], null)'));
+      expect(expression, contains('c.load("科幻", "scifi", __defaults, 2)'));
+      expect(
+        expression,
+        contains('c.loadNext("科幻", "scifi", __defaults, null)'),
+      );
       expect(result.items.single.comics.single.title, '分类结果');
       expect(result.items.single.maxPage, 3);
     });
@@ -359,7 +416,27 @@ void main() {
         const ComicCategoryItem(name: '全部'),
       );
 
-      expect(host.expressions.last, contains('c.load("全部", null, [], 1)'));
+      expect(
+        host.expressions.last,
+        contains('c.load("全部", null, __defaults, 1)'),
+      );
+    });
+
+    test('options 取 categoryComics.optionList 默认值（baozi/ykmh 同类缺口）', () async {
+      final (host, engine) = await _setup((_) => null);
+
+      await engine.categoryComics(
+        'browse',
+        const ComicCategoryItem(name: '全部', param: 'all'),
+      );
+
+      final expression = host.expressions.last;
+      // 必须在 JS 侧从 c.optionList 计算默认值，而不是硬编码空数组。
+      expect(expression, contains('const list = c.optionList'));
+      expect(expression, contains('item.default'));
+      expect(expression, contains('entry.slice(0, dash)'));
+      expect(expression, contains('__defaults, 1'));
+      expect(expression, isNot(contains(', [], 1)')));
     });
 
     test('分类名含引号时转义，不产生注入面', () async {
