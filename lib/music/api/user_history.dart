@@ -111,10 +111,22 @@ MusicHistoryItem _convertHistoryItem(Object? raw) {
     albumId: optionalText(info['album_id']),
     audioId: optionalText(info['audio_id']),
     hash: wireText(info['hash']),
-    cover: optionalText(info['cover']),
+    cover: _historyCover(info),
     durationMs: musicWireUnsigned(info['timelen']),
     bitrate: musicWireU32(info['bitrate']),
     playCount: musicWireUnsigned(row['pc']),
     lastPlayedAt: musicWireUnsigned(row['ot']),
   );
+}
+
+/// 历史封面：wire 是带 `{size}` 占位的模板（如
+/// `http://imge.kugou.com/stdmusic/{size}/...`），必须套 [coverUrl] 换成
+/// 实际尺寸，否则 `Image.network` 拿到带花括号的 URL 直接失败、列表只剩
+/// 占位图标。cover 缺失时回退 `trans_param.union_cover`（同样套模板）。
+String? _historyCover(Map<String, Object?> info) {
+  final cover = optionalText(info['cover']);
+  if (cover != null && cover.isNotEmpty) return coverUrl(cover);
+  final union = optionalText(wireMap(info['trans_param'])?['union_cover']);
+  if (union != null && union.isNotEmpty) return coverUrl(union);
+  return null;
 }

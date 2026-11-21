@@ -288,4 +288,24 @@ void main() {
     expect(page.items[1].name, '');
     expect(page.items[1].playCount, 4);
   });
+
+  test('封面模板 {size} 替换为 240；cover 缺失回退 trans_param.union_cover', () async {
+    adapter.bytes = Uint8List.fromList(
+      utf8.encode(
+        '{"status":1,"error_code":0,"data":{"has_more":0,"songs":['
+        '{"info":{"name":"有封面","cover":'
+        '"http://imge.kugou.com/stdmusic/{size}/a.jpg"}},'
+        '{"info":{"name":"回退封面","trans_param":{"union_cover":'
+        '"http://imge.kugou.com/stdmusic/{size}/b.jpg"}}},'
+        '{"info":{"name":"无封面"}}]}}',
+      ),
+    );
+    final page = await fetchUserHistory(
+      sessionFor(client, identity),
+      const MusicUserHistoryQuery(),
+    );
+    expect(page.items[0].cover, 'http://imge.kugou.com/stdmusic/240/a.jpg');
+    expect(page.items[1].cover, 'http://imge.kugou.com/stdmusic/240/b.jpg');
+    expect(page.items[2].cover, isNull);
+  });
 }
