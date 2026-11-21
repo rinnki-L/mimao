@@ -1,17 +1,100 @@
 // ignore_for_file: deprecated_member_use — 见同目录 playback_engine.dart 说明。
 /// 播放页（M4-P，最小可用）：封面/歌名/歌手/进度条/播放暂停/上一首下一首/
 /// 错误态与重试；队列放进底部抽屉（不单独开页）。
+///
+/// L4 起为 StatefulWidget：持有「当前曲目高潮区间」的页面级状态（不用
+/// store 的 @observable，避免 build_runner）；`loadClimax` 为空或 hash
+/// 非 32 位时不取，失败静默、无数据不显示。
 library;
+
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:mimao/core/theme.dart';
+import 'package:mimao/music/models/discovery_models.dart';
+import 'package:mimao/music/models/music_models.dart';
 import 'package:mimao/music/player/player_store.dart';
 
-class MusicPlayerPage extends StatelessWidget {
-  const MusicPlayerPage({super.key, required this.player});
+class MusicPlayerPage extends StatefulWidget {
+  const MusicPlayerPage({super.key, required this.player, this.loadClimax});
 
   final MusicPlayerStore player;
+
+  /// 歌曲高潮区间加载缝（集成者传 `discovery.songClimax`）；null 时整段隐藏。
+  final Future<List<MusicSongClimaxSegment>> Function(String hash)? loadClimax;
+
+  @override
+  State<MusicPlayerPage> createState() => _MusicPlayerPageState();
+}
+
+class _MusicPlayerPageState extends State<MusicPlayerPage> {
+  /// 已发起过高潮加载的歌曲 key（每首歌只取一次；失败也不重试）。
+  String? _climaxSongKey;
+
+  /// 当前歌曲的高潮区间；null = 加载中/无数据/失败（统一不显示 chip）。
+  List<MusicSongClimaxSegment>? _climaxSegments;
+
+  MusicPlayerStore get player => widget.player;
+
+  /// Observer builder 内检测换歌并按需发起高潮加载。
+  ///
+  /// 为什么在 build 里收口副作用：换歌信号来自 store 的 observable（本页
+  /// 不新增 @observable），Observer 每次重建时按歌曲 key 比对一次是最小
+  /// 接线；同步部分只改普通字段，结果回来才 setState。
+  void _ensureClimax(MusicSong song) {
+    final key = song.id.isNotEmpty ? song.id : song.hash;
+    if (_climaxSongKey == key) return;
+    _climaxSongKey = key;
+    _climaxSegments = null; // 换歌丢弃旧结果
+    unawaited(_loadClimax(key, song.hash));
+  }
+
+  Future<void> _loadClimax(String requestKey, String hash) async {
+    final load = widget.loadClimax;
+    // 高潮端点只认 32 位 hash（song_climax.rs valid_hash 的长度约束）。
+    if (load == null || hash.length != 32) return;
+    try {
+      final segments = await load(hash);
+      // 慢请求期间换歌：按发起时的歌曲 key 比对，不一致就丢弃旧结果。
+      if (!mounted || _climaxSongKey != requestKey) return;
+      setState(() => _climaxSegments = segments);
+    } on Object {
+      // 失败静默：保持隐藏，不影响播放。
+    }
+  }
+
+  /// 「高潮 mm:ss–mm:ss」chip 列表（点击 seek 到高潮起点）；无数据显示空。
+  List<Widget> _climaxChips() {
+    final segments = _climaxSegments;
+    if (segments == null) return const <Widget>[];
+    final chips = <Widget>[];
+    for (final segment in segments) {
+      final startMs = segment.startMs;
+      final endMs = segment.endMs;
+      if (startMs == null || endMs == null || endMs < startMs) continue;
+      chips.add(
+        ActionChip(
+          tooltip: '跳到高潮',
+          label: Text(
+            '高潮 ${_formatDuration(Duration(milliseconds: startMs))}'
+            '–${_formatDuration(Duration(milliseconds: endMs))}',
+          ),
+          onPressed: () => player.seekTo(Duration(milliseconds: startMs)),
+        ),
+      );
+    }
+    if (chips.isEmpty) return const <Widget>[];
+    return <Widget>[
+      const SizedBox(height: 8),
+      Wrap(
+        spacing: 8,
+        runSpacing: 4,
+        alignment: WrapAlignment.center,
+        children: chips,
+      ),
+    ];
+  }
 
   void _openQueue(BuildContext context) {
     showModalBottomSheet<void>(
@@ -81,6 +164,7 @@ class MusicPlayerPage extends StatelessWidget {
           if (song == null) {
             return const Center(child: Text('暂无播放曲目'));
           }
+          _ensureClimax(song);
           final snapshot = player.snapshot;
           final failure = player.error;
           final durationMs = snapshot.duration.inMilliseconds;
@@ -140,6 +224,7 @@ class MusicPlayerPage extends StatelessWidget {
                     Text(_formatDuration(snapshot.duration)),
                   ],
                 ),
+                ..._climaxChips(),
                 const SizedBox(height: 8),
                 if (player.isResolving)
                   const Padding(
