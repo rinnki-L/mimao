@@ -273,7 +273,12 @@ class ComicLocalDownloadService implements ComicDownloadApi {
     } finally {
       _scheduled.remove(taskId);
       if (_cancelled.remove(taskId)) {
-        await _cleanupCancelled(taskId, ref, chapter.url, chapterDir, comicDir);
+        // 完成与取消赛跑时以完成为准：任务已 done 就不删文件/任务行，
+        // 否则清单会指向被清掉的页。
+        final current = await store.find(taskId);
+        if (current?.status != ComicDownloadStatus.done) {
+          await _cleanupCancelled(taskId, chapterDir, comicDir);
+        }
       }
       _notify();
     }
@@ -281,8 +286,6 @@ class ComicLocalDownloadService implements ComicDownloadApi {
 
   Future<void> _cleanupCancelled(
     String taskId,
-    ComicRef ref,
-    String chapterUrl,
     Directory chapterDir,
     Directory comicDir,
   ) async {
