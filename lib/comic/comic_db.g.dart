@@ -928,6 +928,466 @@ class ComicHistoryEntriesCompanion extends UpdateCompanion<ComicHistoryRow> {
   }
 }
 
+class $ComicReadLaterEntriesTable extends ComicReadLaterEntries
+    with TableInfo<$ComicReadLaterEntriesTable, ComicReadLaterRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $ComicReadLaterEntriesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _sourceNameMeta = const VerificationMeta(
+    'sourceName',
+  );
+  @override
+  late final GeneratedColumn<String> sourceName = GeneratedColumn<String>(
+    'source_name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _titleMeta = const VerificationMeta('title');
+  @override
+  late final GeneratedColumn<String> title = GeneratedColumn<String>(
+    'title',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _coverUrlMeta = const VerificationMeta(
+    'coverUrl',
+  );
+  @override
+  late final GeneratedColumn<String> coverUrl = GeneratedColumn<String>(
+    'cover_url',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _detailUrlMeta = const VerificationMeta(
+    'detailUrl',
+  );
+  @override
+  late final GeneratedColumn<String> detailUrl = GeneratedColumn<String>(
+    'detail_url',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _addedAtMeta = const VerificationMeta(
+    'addedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> addedAt = GeneratedColumn<DateTime>(
+    'added_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _payloadMeta = const VerificationMeta(
+    'payload',
+  );
+  @override
+  late final GeneratedColumn<String> payload = GeneratedColumn<String>(
+    'payload',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('{}'),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    sourceName,
+    title,
+    coverUrl,
+    detailUrl,
+    addedAt,
+    payload,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'comic_read_later';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<ComicReadLaterRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('source_name')) {
+      context.handle(
+        _sourceNameMeta,
+        sourceName.isAcceptableOrUnknown(data['source_name']!, _sourceNameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_sourceNameMeta);
+    }
+    if (data.containsKey('title')) {
+      context.handle(
+        _titleMeta,
+        title.isAcceptableOrUnknown(data['title']!, _titleMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_titleMeta);
+    }
+    if (data.containsKey('cover_url')) {
+      context.handle(
+        _coverUrlMeta,
+        coverUrl.isAcceptableOrUnknown(data['cover_url']!, _coverUrlMeta),
+      );
+    }
+    if (data.containsKey('detail_url')) {
+      context.handle(
+        _detailUrlMeta,
+        detailUrl.isAcceptableOrUnknown(data['detail_url']!, _detailUrlMeta),
+      );
+    }
+    if (data.containsKey('added_at')) {
+      context.handle(
+        _addedAtMeta,
+        addedAt.isAcceptableOrUnknown(data['added_at']!, _addedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_addedAtMeta);
+    }
+    if (data.containsKey('payload')) {
+      context.handle(
+        _payloadMeta,
+        payload.isAcceptableOrUnknown(data['payload']!, _payloadMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id, sourceName};
+  @override
+  ComicReadLaterRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ComicReadLaterRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      sourceName: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source_name'],
+      )!,
+      title: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}title'],
+      )!,
+      coverUrl: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}cover_url'],
+      ),
+      detailUrl: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}detail_url'],
+      )!,
+      addedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}added_at'],
+      )!,
+      payload: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}payload'],
+      )!,
+    );
+  }
+
+  @override
+  $ComicReadLaterEntriesTable createAlias(String alias) {
+    return $ComicReadLaterEntriesTable(attachedDatabase, alias);
+  }
+}
+
+class ComicReadLaterRow extends DataClass
+    implements Insertable<ComicReadLaterRow> {
+  final String id;
+  final String sourceName;
+  final String title;
+  final String? coverUrl;
+
+  /// 源内的详情标识（通常就是 [id]）留底，便于将来换源/迁移。
+  final String detailUrl;
+  final DateTime addedAt;
+
+  /// 模块私有 JSON（预留；core 不解释）。
+  final String payload;
+  const ComicReadLaterRow({
+    required this.id,
+    required this.sourceName,
+    required this.title,
+    this.coverUrl,
+    required this.detailUrl,
+    required this.addedAt,
+    required this.payload,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['source_name'] = Variable<String>(sourceName);
+    map['title'] = Variable<String>(title);
+    if (!nullToAbsent || coverUrl != null) {
+      map['cover_url'] = Variable<String>(coverUrl);
+    }
+    map['detail_url'] = Variable<String>(detailUrl);
+    map['added_at'] = Variable<DateTime>(addedAt);
+    map['payload'] = Variable<String>(payload);
+    return map;
+  }
+
+  ComicReadLaterEntriesCompanion toCompanion(bool nullToAbsent) {
+    return ComicReadLaterEntriesCompanion(
+      id: Value(id),
+      sourceName: Value(sourceName),
+      title: Value(title),
+      coverUrl: coverUrl == null && nullToAbsent
+          ? const Value.absent()
+          : Value(coverUrl),
+      detailUrl: Value(detailUrl),
+      addedAt: Value(addedAt),
+      payload: Value(payload),
+    );
+  }
+
+  factory ComicReadLaterRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ComicReadLaterRow(
+      id: serializer.fromJson<String>(json['id']),
+      sourceName: serializer.fromJson<String>(json['sourceName']),
+      title: serializer.fromJson<String>(json['title']),
+      coverUrl: serializer.fromJson<String?>(json['coverUrl']),
+      detailUrl: serializer.fromJson<String>(json['detailUrl']),
+      addedAt: serializer.fromJson<DateTime>(json['addedAt']),
+      payload: serializer.fromJson<String>(json['payload']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'sourceName': serializer.toJson<String>(sourceName),
+      'title': serializer.toJson<String>(title),
+      'coverUrl': serializer.toJson<String?>(coverUrl),
+      'detailUrl': serializer.toJson<String>(detailUrl),
+      'addedAt': serializer.toJson<DateTime>(addedAt),
+      'payload': serializer.toJson<String>(payload),
+    };
+  }
+
+  ComicReadLaterRow copyWith({
+    String? id,
+    String? sourceName,
+    String? title,
+    Value<String?> coverUrl = const Value.absent(),
+    String? detailUrl,
+    DateTime? addedAt,
+    String? payload,
+  }) => ComicReadLaterRow(
+    id: id ?? this.id,
+    sourceName: sourceName ?? this.sourceName,
+    title: title ?? this.title,
+    coverUrl: coverUrl.present ? coverUrl.value : this.coverUrl,
+    detailUrl: detailUrl ?? this.detailUrl,
+    addedAt: addedAt ?? this.addedAt,
+    payload: payload ?? this.payload,
+  );
+  ComicReadLaterRow copyWithCompanion(ComicReadLaterEntriesCompanion data) {
+    return ComicReadLaterRow(
+      id: data.id.present ? data.id.value : this.id,
+      sourceName: data.sourceName.present
+          ? data.sourceName.value
+          : this.sourceName,
+      title: data.title.present ? data.title.value : this.title,
+      coverUrl: data.coverUrl.present ? data.coverUrl.value : this.coverUrl,
+      detailUrl: data.detailUrl.present ? data.detailUrl.value : this.detailUrl,
+      addedAt: data.addedAt.present ? data.addedAt.value : this.addedAt,
+      payload: data.payload.present ? data.payload.value : this.payload,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ComicReadLaterRow(')
+          ..write('id: $id, ')
+          ..write('sourceName: $sourceName, ')
+          ..write('title: $title, ')
+          ..write('coverUrl: $coverUrl, ')
+          ..write('detailUrl: $detailUrl, ')
+          ..write('addedAt: $addedAt, ')
+          ..write('payload: $payload')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(id, sourceName, title, coverUrl, detailUrl, addedAt, payload);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ComicReadLaterRow &&
+          other.id == this.id &&
+          other.sourceName == this.sourceName &&
+          other.title == this.title &&
+          other.coverUrl == this.coverUrl &&
+          other.detailUrl == this.detailUrl &&
+          other.addedAt == this.addedAt &&
+          other.payload == this.payload);
+}
+
+class ComicReadLaterEntriesCompanion
+    extends UpdateCompanion<ComicReadLaterRow> {
+  final Value<String> id;
+  final Value<String> sourceName;
+  final Value<String> title;
+  final Value<String?> coverUrl;
+  final Value<String> detailUrl;
+  final Value<DateTime> addedAt;
+  final Value<String> payload;
+  final Value<int> rowid;
+  const ComicReadLaterEntriesCompanion({
+    this.id = const Value.absent(),
+    this.sourceName = const Value.absent(),
+    this.title = const Value.absent(),
+    this.coverUrl = const Value.absent(),
+    this.detailUrl = const Value.absent(),
+    this.addedAt = const Value.absent(),
+    this.payload = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  ComicReadLaterEntriesCompanion.insert({
+    required String id,
+    required String sourceName,
+    required String title,
+    this.coverUrl = const Value.absent(),
+    this.detailUrl = const Value.absent(),
+    required DateTime addedAt,
+    this.payload = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       sourceName = Value(sourceName),
+       title = Value(title),
+       addedAt = Value(addedAt);
+  static Insertable<ComicReadLaterRow> custom({
+    Expression<String>? id,
+    Expression<String>? sourceName,
+    Expression<String>? title,
+    Expression<String>? coverUrl,
+    Expression<String>? detailUrl,
+    Expression<DateTime>? addedAt,
+    Expression<String>? payload,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (sourceName != null) 'source_name': sourceName,
+      if (title != null) 'title': title,
+      if (coverUrl != null) 'cover_url': coverUrl,
+      if (detailUrl != null) 'detail_url': detailUrl,
+      if (addedAt != null) 'added_at': addedAt,
+      if (payload != null) 'payload': payload,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  ComicReadLaterEntriesCompanion copyWith({
+    Value<String>? id,
+    Value<String>? sourceName,
+    Value<String>? title,
+    Value<String?>? coverUrl,
+    Value<String>? detailUrl,
+    Value<DateTime>? addedAt,
+    Value<String>? payload,
+    Value<int>? rowid,
+  }) {
+    return ComicReadLaterEntriesCompanion(
+      id: id ?? this.id,
+      sourceName: sourceName ?? this.sourceName,
+      title: title ?? this.title,
+      coverUrl: coverUrl ?? this.coverUrl,
+      detailUrl: detailUrl ?? this.detailUrl,
+      addedAt: addedAt ?? this.addedAt,
+      payload: payload ?? this.payload,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (sourceName.present) {
+      map['source_name'] = Variable<String>(sourceName.value);
+    }
+    if (title.present) {
+      map['title'] = Variable<String>(title.value);
+    }
+    if (coverUrl.present) {
+      map['cover_url'] = Variable<String>(coverUrl.value);
+    }
+    if (detailUrl.present) {
+      map['detail_url'] = Variable<String>(detailUrl.value);
+    }
+    if (addedAt.present) {
+      map['added_at'] = Variable<DateTime>(addedAt.value);
+    }
+    if (payload.present) {
+      map['payload'] = Variable<String>(payload.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ComicReadLaterEntriesCompanion(')
+          ..write('id: $id, ')
+          ..write('sourceName: $sourceName, ')
+          ..write('title: $title, ')
+          ..write('coverUrl: $coverUrl, ')
+          ..write('detailUrl: $detailUrl, ')
+          ..write('addedAt: $addedAt, ')
+          ..write('payload: $payload, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 class $ComicSearchTermsTable extends ComicSearchTerms
     with TableInfo<$ComicSearchTermsTable, ComicSearchTermRow> {
   @override
@@ -2653,6 +3113,8 @@ abstract class _$ComicDb extends GeneratedDatabase {
       $ComicCollectEntriesTable(this);
   late final $ComicHistoryEntriesTable comicHistoryEntries =
       $ComicHistoryEntriesTable(this);
+  late final $ComicReadLaterEntriesTable comicReadLaterEntries =
+      $ComicReadLaterEntriesTable(this);
   late final $ComicSearchTermsTable comicSearchTerms = $ComicSearchTermsTable(
     this,
   );
@@ -2669,6 +3131,7 @@ abstract class _$ComicDb extends GeneratedDatabase {
   List<DatabaseSchemaEntity> get allSchemaEntities => [
     comicCollectEntries,
     comicHistoryEntries,
+    comicReadLaterEntries,
     comicSearchTerms,
     comicDownloadTasks,
     comicImageCacheEntries,
@@ -3180,6 +3643,265 @@ typedef $$ComicHistoryEntriesTableProcessedTableManager =
         BaseReferences<_$ComicDb, $ComicHistoryEntriesTable, ComicHistoryRow>,
       ),
       ComicHistoryRow,
+      PrefetchHooks Function()
+    >;
+typedef $$ComicReadLaterEntriesTableCreateCompanionBuilder =
+    ComicReadLaterEntriesCompanion Function({
+      required String id,
+      required String sourceName,
+      required String title,
+      Value<String?> coverUrl,
+      Value<String> detailUrl,
+      required DateTime addedAt,
+      Value<String> payload,
+      Value<int> rowid,
+    });
+typedef $$ComicReadLaterEntriesTableUpdateCompanionBuilder =
+    ComicReadLaterEntriesCompanion Function({
+      Value<String> id,
+      Value<String> sourceName,
+      Value<String> title,
+      Value<String?> coverUrl,
+      Value<String> detailUrl,
+      Value<DateTime> addedAt,
+      Value<String> payload,
+      Value<int> rowid,
+    });
+
+class $$ComicReadLaterEntriesTableFilterComposer
+    extends Composer<_$ComicDb, $ComicReadLaterEntriesTable> {
+  $$ComicReadLaterEntriesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sourceName => $composableBuilder(
+    column: $table.sourceName,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get title => $composableBuilder(
+    column: $table.title,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get coverUrl => $composableBuilder(
+    column: $table.coverUrl,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get detailUrl => $composableBuilder(
+    column: $table.detailUrl,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get addedAt => $composableBuilder(
+    column: $table.addedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get payload => $composableBuilder(
+    column: $table.payload,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$ComicReadLaterEntriesTableOrderingComposer
+    extends Composer<_$ComicDb, $ComicReadLaterEntriesTable> {
+  $$ComicReadLaterEntriesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sourceName => $composableBuilder(
+    column: $table.sourceName,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get title => $composableBuilder(
+    column: $table.title,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get coverUrl => $composableBuilder(
+    column: $table.coverUrl,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get detailUrl => $composableBuilder(
+    column: $table.detailUrl,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get addedAt => $composableBuilder(
+    column: $table.addedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get payload => $composableBuilder(
+    column: $table.payload,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$ComicReadLaterEntriesTableAnnotationComposer
+    extends Composer<_$ComicDb, $ComicReadLaterEntriesTable> {
+  $$ComicReadLaterEntriesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get sourceName => $composableBuilder(
+    column: $table.sourceName,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get title =>
+      $composableBuilder(column: $table.title, builder: (column) => column);
+
+  GeneratedColumn<String> get coverUrl =>
+      $composableBuilder(column: $table.coverUrl, builder: (column) => column);
+
+  GeneratedColumn<String> get detailUrl =>
+      $composableBuilder(column: $table.detailUrl, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get addedAt =>
+      $composableBuilder(column: $table.addedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get payload =>
+      $composableBuilder(column: $table.payload, builder: (column) => column);
+}
+
+class $$ComicReadLaterEntriesTableTableManager
+    extends
+        RootTableManager<
+          _$ComicDb,
+          $ComicReadLaterEntriesTable,
+          ComicReadLaterRow,
+          $$ComicReadLaterEntriesTableFilterComposer,
+          $$ComicReadLaterEntriesTableOrderingComposer,
+          $$ComicReadLaterEntriesTableAnnotationComposer,
+          $$ComicReadLaterEntriesTableCreateCompanionBuilder,
+          $$ComicReadLaterEntriesTableUpdateCompanionBuilder,
+          (
+            ComicReadLaterRow,
+            BaseReferences<
+              _$ComicDb,
+              $ComicReadLaterEntriesTable,
+              ComicReadLaterRow
+            >,
+          ),
+          ComicReadLaterRow,
+          PrefetchHooks Function()
+        > {
+  $$ComicReadLaterEntriesTableTableManager(
+    _$ComicDb db,
+    $ComicReadLaterEntriesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$ComicReadLaterEntriesTableFilterComposer(
+                $db: db,
+                $table: table,
+              ),
+          createOrderingComposer: () =>
+              $$ComicReadLaterEntriesTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$ComicReadLaterEntriesTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> sourceName = const Value.absent(),
+                Value<String> title = const Value.absent(),
+                Value<String?> coverUrl = const Value.absent(),
+                Value<String> detailUrl = const Value.absent(),
+                Value<DateTime> addedAt = const Value.absent(),
+                Value<String> payload = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => ComicReadLaterEntriesCompanion(
+                id: id,
+                sourceName: sourceName,
+                title: title,
+                coverUrl: coverUrl,
+                detailUrl: detailUrl,
+                addedAt: addedAt,
+                payload: payload,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String sourceName,
+                required String title,
+                Value<String?> coverUrl = const Value.absent(),
+                Value<String> detailUrl = const Value.absent(),
+                required DateTime addedAt,
+                Value<String> payload = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => ComicReadLaterEntriesCompanion.insert(
+                id: id,
+                sourceName: sourceName,
+                title: title,
+                coverUrl: coverUrl,
+                detailUrl: detailUrl,
+                addedAt: addedAt,
+                payload: payload,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$ComicReadLaterEntriesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$ComicDb,
+      $ComicReadLaterEntriesTable,
+      ComicReadLaterRow,
+      $$ComicReadLaterEntriesTableFilterComposer,
+      $$ComicReadLaterEntriesTableOrderingComposer,
+      $$ComicReadLaterEntriesTableAnnotationComposer,
+      $$ComicReadLaterEntriesTableCreateCompanionBuilder,
+      $$ComicReadLaterEntriesTableUpdateCompanionBuilder,
+      (
+        ComicReadLaterRow,
+        BaseReferences<
+          _$ComicDb,
+          $ComicReadLaterEntriesTable,
+          ComicReadLaterRow
+        >,
+      ),
+      ComicReadLaterRow,
       PrefetchHooks Function()
     >;
 typedef $$ComicSearchTermsTableCreateCompanionBuilder =
@@ -4140,6 +4862,8 @@ class $ComicDbManager {
       $$ComicCollectEntriesTableTableManager(_db, _db.comicCollectEntries);
   $$ComicHistoryEntriesTableTableManager get comicHistoryEntries =>
       $$ComicHistoryEntriesTableTableManager(_db, _db.comicHistoryEntries);
+  $$ComicReadLaterEntriesTableTableManager get comicReadLaterEntries =>
+      $$ComicReadLaterEntriesTableTableManager(_db, _db.comicReadLaterEntries);
   $$ComicSearchTermsTableTableManager get comicSearchTerms =>
       $$ComicSearchTermsTableTableManager(_db, _db.comicSearchTerms);
   $$ComicDownloadTasksTableTableManager get comicDownloadTasks =>

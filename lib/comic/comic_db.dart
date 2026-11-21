@@ -56,6 +56,33 @@ class ComicHistoryEntries extends Table {
   Set<Column> get primaryKey => {id, sourceName};
 }
 
+/// 稍后阅读：详情页点「稍后阅读」后落在这里，主页卡片据此展示。
+///
+/// 与收藏刻意分表：稍后阅读是「待读队列」，不参与 core 书架投影（不占
+/// starred 位、不进时间线）；用户从卡片打开详情即视为已消费，可手动移除。
+@DataClassName('ComicReadLaterRow')
+class ComicReadLaterEntries extends Table {
+  @override
+  String get tableName => 'comic_read_later';
+
+  TextColumn get id => text()();
+  TextColumn get sourceName => text()();
+
+  TextColumn get title => text()();
+  TextColumn get coverUrl => text().nullable()();
+
+  /// 源内的详情标识（通常就是 [id]）留底，便于将来换源/迁移。
+  TextColumn get detailUrl => text().withDefault(const Constant(''))();
+
+  DateTimeColumn get addedAt => dateTime()();
+
+  /// 模块私有 JSON（预留；core 不解释）。
+  TextColumn get payload => text().withDefault(const Constant('{}'))();
+
+  @override
+  Set<Column> get primaryKey => {id, sourceName};
+}
+
 @DataClassName('ComicSearchTermRow')
 class ComicSearchTerms extends Table {
   @override
@@ -148,6 +175,7 @@ class ComicLocalEntries extends Table {
   tables: [
     ComicCollectEntries,
     ComicHistoryEntries,
+    ComicReadLaterEntries,
     ComicSearchTerms,
     ComicDownloadTasks,
     ComicImageCacheEntries,
@@ -162,7 +190,21 @@ class ComicDb extends _$ComicDb {
   ComicDb.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
+
+  /// v1 → v2：新增「稍后阅读」表。旧库不重建，只补表（drift 的
+  /// `createTable` 在 SQLite 上是幂等的 IF NOT EXISTS 语义）。
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+    onCreate: (m) async {
+      await m.createAll();
+    },
+    onUpgrade: (m, from, to) async {
+      if (from < 2) {
+        await m.createTable(comicReadLaterEntries);
+      }
+    },
+  );
 
   Future<ComicCollectRow?> collectRow(ComicRef ref) =>
       (select(comicCollectEntries)..where(

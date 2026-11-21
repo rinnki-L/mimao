@@ -79,6 +79,27 @@ class ComicReadEntry {
   });
 }
 
+/// 稍后阅读记录（内部权威库的一行）。
+///
+/// 与收藏分离：不参与 core 投影，仅作为主页「稍后阅读」卡片的待读队列。
+class ComicReadLaterEntry {
+  final ComicRef ref;
+  final String title;
+  final String? coverUrl;
+  final String detailUrl;
+  final String payload;
+  final DateTime addedAt;
+
+  const ComicReadLaterEntry({
+    required this.ref,
+    required this.title,
+    required this.coverUrl,
+    required this.detailUrl,
+    required this.payload,
+    required this.addedAt,
+  });
+}
+
 /// 本地漫画元数据（导入本地文件夹作为漫画时留底）。
 class ComicLocalEntry {
   final ComicRef ref;
