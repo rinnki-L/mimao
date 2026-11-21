@@ -4,7 +4,8 @@
 /// 覆盖：
 /// 1. 页面骨架：只有 AppBar + SearchBar + 入口网格 + 每日推荐，五 tab / 歌词 /
 ///    音效入口不再存在；
-/// 2. 入口网格渲染（排行榜仅接线时显示）、点击导航/回调；
+/// 2. 入口区两排布局（上排两个无封面长条各占一半、下排四个封面卡拉开间距、
+///    两排左右边界对齐），入口渲染（排行榜仅接线时显示）、点击导航/回调；
 /// 3. 4 个内容入口封面预取：cover Key 出现、接口在页面加载时被调用、FM 失败
 ///    静默无封面；authEpoch 变化只重取 FM 预览；
 /// 4. 每日推荐长条渲染、点歌播放、失败独立重试、空数据隐藏、下拉刷新重取；
@@ -128,6 +129,67 @@ void main() {
     // 每日推荐仍内联，长条行渲染。
     expect(find.text('每日推荐'), findsOneWidget);
     expect(find.text('每日之歌A'), findsOneWidget);
+  });
+
+  // ── 入口区两排布局 ─────────────────────────────────────────────────────
+
+  testWidgets('入口区两排布局：上排两个长条各半，下排四个封面卡拉开间距', (tester) async {
+    await _pumpPage(
+      tester,
+      _Fixture(
+        discovery: FakeDiscoveryApi(
+          homeItems: <MusicDiscoverItem>[
+            fakeHomeItem(
+              id: '10',
+              hash: 'd10',
+              title: '首页之歌',
+              coverUrl: 'https://img.example/home.jpg',
+            ),
+          ],
+        ),
+      ),
+    );
+
+    Rect rectOf(String key) => tester.getRect(find.byKey(Key(key)));
+
+    final hot = rectOf('discover-entry-hot');
+    final rank = rectOf('discover-entry-rank');
+    final home = rectOf('discover-entry-home');
+    final style = rectOf('discover-entry-style');
+    final ai = rectOf('discover-entry-ai');
+    final fm = rectOf('discover-entry-fm');
+
+    // 上排：两个长条同一行、等宽（各占一半），中间留横向空隙。
+    expect((hot.top - rank.top).abs(), lessThan(0.5), reason: '两个长条同一行');
+    expect(
+      (hot.width - rank.width).abs(),
+      lessThanOrEqualTo(2),
+      reason: '两个长条各占一半宽度',
+    );
+    expect(hot.right, lessThan(rank.left), reason: '长条之间有空隙');
+    expect(rank.left - hot.right, greaterThanOrEqualTo(4));
+    // 长条形态：横向明显比纵向长。
+    expect(hot.width, greaterThan(hot.height * 2));
+    expect(rank.width, greaterThan(rank.height * 2));
+
+    // 下排：四个封面卡同一行，彼此间距明显拉开（>= 12）。
+    for (final rect in <Rect>[style, ai, fm]) {
+      expect((rect.top - home.top).abs(), lessThan(0.5), reason: '四个卡同一行');
+      expect((rect.height - home.height).abs(), lessThanOrEqualTo(2));
+    }
+    expect(style.left - home.right, greaterThanOrEqualTo(12));
+    expect(ai.left - style.right, greaterThanOrEqualTo(12));
+    expect(fm.left - ai.right, greaterThanOrEqualTo(12));
+    // 比原来的正方形略扁。
+    expect(home.height, lessThan(home.width));
+
+    // 两排上下分开。
+    expect(home.top, greaterThanOrEqualTo(hot.bottom + 8));
+
+    // 两排左右边界对齐（都继承外层 ListView 的 16px 内边距），且离屏幕边缘有空隙。
+    expect(hot.left, greaterThan(0));
+    expect((home.left - hot.left).abs(), lessThanOrEqualTo(2));
+    expect((fm.right - rank.right).abs(), lessThanOrEqualTo(2));
   });
 
   // ── 入口封面预取 ───────────────────────────────────────────────────────

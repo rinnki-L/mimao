@@ -10,8 +10,9 @@
 /// [MusicPlayerUi]/[MusicCollectApi]/[MusicSearchHistoryApi]），不 import
 /// 播放器与库服务的实现——与 P/C 线保持编译隔离。
 ///
-/// 入口网格（3 列圆角小方块：首页发现 / 风格推荐 / AI 免费畅听 / 私人 FM /
-/// 热门搜索 / 排行榜）的 4 个内容入口在 initState 并行预取一次封面（取列表
+/// 入口区两排布局：上排「热门搜索 / 排行榜」两个无封面长条，下排
+/// 「首页发现 / 风格推荐 / AI 免费畅听 / 私人 FM」四个封面卡。4 个内容入口
+/// 在 initState 并行预取一次封面（取列表
 /// 第一首的 coverUrl），封面铺满 + 底部渐变遮罩 + 标签；预取失败静默，回退
 /// 现有 icon 卡。同一份预览数据作为长条列表页的 initialSongs——保证卡片封面
 /// 与列表第一首一致。每日推荐仍留在本页：独立 loading/error/retry，空数据
@@ -522,33 +523,83 @@ class _MusicDiscoveryPageState extends State<MusicDiscoveryPage> {
     );
   }
 
-  /// 入口网格：宽屏 6 列（一行放下全部入口）、中屏 4 列、窄屏 3 列；
-  /// shrinkWrap + 不滚动，随发现页整体滚动。封面卡用正方形，避免桌面宽窗
-  /// 下单卡被拉成巨幅壁纸。
+  /// 入口区两排布局（左右边界直接继承外层 ListView 的 16px 内边距，两排
+  /// 对齐）：
+  /// - 上排：无封面的「热门搜索 / 排行榜」两个长条，一行各占一半，间距 8，
+  ///   高度固定 80；排行榜未接线时热搜独占整行。
+  /// - 下排：4 个内容入口（首页发现/风格推荐/AI 免费畅听/私人 FM），一行
+  ///   四个、间距加大到 16、高度固定 128（比原来的正方形略扁），封面预取
+  ///   失败的入口在本排回退 icon 卡；窄屏（内容宽 < 720）改为 2×2，间距
+  ///   12，避免四张卡挤在一行。
+  /// 不再按屏宽选择列数的 GridView：结构固定，整体随发现页滚动。
   Widget _buildEntryGrid() {
+    final barEntries = <_DiscoveryEntry>[
+      for (final entry in _entries)
+        if (entry.shortName.isEmpty) entry,
+    ];
+    final coverEntries = <_DiscoveryEntry>[
+      for (final entry in _entries)
+        if (entry.shortName.isNotEmpty) entry,
+    ];
     return LayoutBuilder(
       builder: (context, constraints) {
-        final width = constraints.maxWidth;
-        final columns = width >= 1100
-            ? 6
-            : width >= 720
-            ? 4
-            : 3;
-        return GridView.count(
+        final stacked = constraints.maxWidth < 720;
+        final coverSection = stacked
+            ? Column(
+                children: <Widget>[
+                  for (
+                    var start = 0;
+                    start < coverEntries.length;
+                    start += 2
+                  ) ...<Widget>[
+                    if (start > 0) const SizedBox(height: 12),
+                    Row(
+                      children: _spreadEntryCards(
+                        coverEntries.sublist(
+                          start,
+                          start + 2 > coverEntries.length
+                              ? coverEntries.length
+                              : start + 2,
+                        ),
+                        height: 120,
+                        gap: 12,
+                      ),
+                    ),
+                  ],
+                ],
+              )
+            : Row(
+                children: _spreadEntryCards(coverEntries, height: 128, gap: 16),
+              );
+        return Column(
           key: const Key('discover-entry-grid'),
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          crossAxisCount: columns,
-          mainAxisSpacing: 8,
-          crossAxisSpacing: 8,
-          childAspectRatio: 1,
-          padding: const EdgeInsets.only(bottom: 16),
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
-            for (final entry in _entries) _buildEntryCard(entry),
+            Row(children: _spreadEntryCards(barEntries, height: 80, gap: 8)),
+            const SizedBox(height: 12),
+            coverSection,
+            const SizedBox(height: 16),
           ],
         );
       },
     );
+  }
+
+  /// 把入口卡横向铺开：每张卡固定 [height] 高、按份平分当前行宽，
+  /// 相邻卡片之间留 [gap]。单张卡时自然占满整行。
+  List<Widget> _spreadEntryCards(
+    List<_DiscoveryEntry> entries, {
+    required double height,
+    required double gap,
+  }) {
+    return <Widget>[
+      for (var i = 0; i < entries.length; i++) ...<Widget>[
+        if (i > 0) SizedBox(width: gap),
+        Expanded(
+          child: SizedBox(height: height, child: _buildEntryCard(entries[i])),
+        ),
+      ],
+    ];
   }
 
   Widget _buildEntryCard(_DiscoveryEntry entry) {
