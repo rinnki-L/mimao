@@ -221,25 +221,119 @@ class MusicMiniPlayer extends StatelessWidget {
                         ),
                       ],
                     ),
-                    // 卡片底部波浪进度：只画不管手势，IgnorePointer 让整卡点击
-                    // 仍进播放页；progress 由 MobX 快照实时驱动。
+                    // 卡片底部波浪进度：外层兜底点击仍进播放页，条自身是可
+                    // seek 的手势区（子级 recognizer 赢竞技场，不会触发整卡
+                    // onTap）；progress 由 MobX 快照实时驱动。
                     Padding(
                       padding: const EdgeInsets.only(top: 6),
-                      child: SizedBox(
-                        key: const Key('mini-wavy-progress'),
-                        // strokeWidth 7 + 上下各 3.5 振幅 ≈ 14；留 16 避免裁切。
-                        height: 16,
-                        child: MiniWavyProgress(
-                          height: 16,
-                          progress: player.snapshot.duration.inMilliseconds <= 0
-                              ? 0
-                              : (player.snapshot.position.inMilliseconds /
-                                        player.snapshot.duration.inMilliseconds)
-                                    .clamp(0.0, 1.0),
-                        ),
+                      child: _MiniSeekBar(
+                        player: player,
+                        progress: player.snapshot.duration.inMilliseconds <= 0
+                            ? 0
+                            : (player.snapshot.position.inMilliseconds /
+                                      player.snapshot.duration.inMilliseconds)
+                                  .clamp(0.0, 1.0),
                       ),
                     ),
                   ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// 迷你条底部的可交互 seek 条。
+///
+/// 外层整卡 [InkWell] 负责进播放页，本组件作为它的子级注册自己的拖拽/
+/// 点按 recognizer：命中在条上时手势竞技场由子级先赢，整卡 onTap 不会触发。
+/// 命中区比视觉条高（视觉 16，命中 28），方便手指点按。
+///
+/// seek 时机：拖动/按住过程中只在本地暂存 fraction 做即时预览，点按抬起或
+/// 拖动结束时才调用一次 [MusicPlayerStore.seekTo]——seekTo 会顺带写一次
+/// 播放进度（DB），每帧都调会造成写放大。
+class _MiniSeekBar extends StatefulWidget {
+  const _MiniSeekBar({required this.player, required this.progress});
+
+  final MusicPlayerStore player;
+
+  /// 当前播放进度（0..1），来自外层的 MobX 快照。
+  final double progress;
+
+  @override
+  State<_MiniSeekBar> createState() => _MiniSeekBarState();
+}
+
+class _MiniSeekBarState extends State<_MiniSeekBar> {
+  /// 按住/拖动中的即时预览值；null 表示跟随 [MusicMiniPlayer] 的播放进度。
+  double? _preview;
+
+  /// 命中区高度：视觉条仍 16，上下各留 6 给手指。
+  static const double _hitHeight = 28;
+
+  /// 视觉条高度（strokeWidth 7 + 上下各 3.5 振幅 ≈ 14，留 16 避免裁切）。
+  static const double _visualHeight = 16;
+
+  double get _shown => _preview ?? widget.progress;
+
+  double _fractionAt(double localDx, double width) =>
+      width <= 0 ? 0 : (localDx / width).clamp(0.0, 1.0);
+
+  void _previewAt(double localDx, double width) {
+    setState(() => _preview = _fractionAt(localDx, width));
+  }
+
+  /// 提交一次 seek：duration 未知时只清预览、不发 seek。
+  ///
+  /// 预览值保留到 seekTo 完成，避免「松手 → 进度闪回旧值 → 快照更新」的回跳。
+  void _commit() {
+    final fraction = _preview;
+    if (fraction == null) return;
+    final durationMs = widget.player.snapshot.duration.inMilliseconds;
+    if (durationMs <= 0) {
+      setState(() => _preview = null);
+      return;
+    }
+    widget.player
+        .seekTo(Duration(milliseconds: (fraction * durationMs).round()))
+        .whenComplete(() {
+          if (!mounted || _preview != fraction) return;
+          setState(() => _preview = null);
+        });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        // 所有回调都非空：duration 未知时仍要占住手势竞技场，否则事件会
+        // 冒泡到整卡 InkWell 直接进播放页。
+        return GestureDetector(
+          key: const Key('mini-wavy-progress'),
+          behavior: HitTestBehavior.opaque,
+          onTapDown: (details) => _previewAt(details.localPosition.dx, width),
+          onTapUp: (details) {
+            _previewAt(details.localPosition.dx, width);
+            _commit();
+          },
+          onHorizontalDragStart: (details) =>
+              _previewAt(details.localPosition.dx, width),
+          onHorizontalDragUpdate: (details) =>
+              _previewAt(details.localPosition.dx, width),
+          onHorizontalDragEnd: (details) => _commit(),
+          child: SizedBox(
+            height: _hitHeight,
+            child: Center(
+              child: SizedBox(
+                height: _visualHeight,
+                width: double.infinity,
+                child: MiniWavyProgress(
+                  height: _visualHeight,
+                  progress: _shown,
                 ),
               ),
             ),

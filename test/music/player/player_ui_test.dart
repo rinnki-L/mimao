@@ -37,6 +37,19 @@ class _FakeMusicApi implements MusicApi {
   Future<KugouIdentity?> currentIdentity() async => null;
 }
 
+/// [fakeSong] 不接受 coverUrl：复制一份并替换封面，供队列封面用例使用。
+MusicSong _withCover(MusicSong song, String coverUrl) => MusicSong(
+  id: song.id,
+  audioId: song.audioId,
+  hash: song.hash,
+  title: song.title,
+  artists: song.artists,
+  albumId: song.albumId,
+  albumTitle: song.albumTitle,
+  durationMs: song.durationMs,
+  coverUrl: coverUrl,
+);
+
 void main() {
   late FakeMusicEngine engine;
   late FakePlaybackApi playback;
@@ -183,6 +196,7 @@ void main() {
 
   group('迷你条传输控件 / 模式卡片 / 队列抽屉', () {
     const secondHash = 'bbcdef0123456789abcdef0123456789';
+    const thirdHash = 'ccdef0123456789abcdef0123456789';
 
     /// 两首歌：[fakeSong] 在 index 0，晴天在 index 1。
     Future<MusicPlayerStore> seedTwoSongs() async {
@@ -300,6 +314,77 @@ void main() {
       expect(engine.openedUrl, 'https://cdn.example/7302.mp3');
       expect(find.byKey(const Key('music-queue-list')), findsNothing);
     });
+
+    testWidgets('队列抽屉：有封面渲染 Image，空封面回退图标', (tester) async {
+      final store = MusicPlayerStore(
+        playbackApi: playback,
+        engineFactory: () => engine,
+      );
+      addTearDown(store.dispose);
+      await store.playSong(fakeSong());
+      await store.playSong(
+        _withCover(
+          fakeSong(id: '7302', title: '晴天', hash: secondHash),
+          'https://img.example/7302.jpg',
+        ),
+      );
+      await store.playSong(fakeSong(id: '7303', title: '夜曲', hash: thirdHash));
+      await store.playAt(0);
+      await pumpMini(tester, store);
+
+      await tester.tap(find.byKey(const Key('mini-queue')));
+      await tester.pumpAndSettle();
+
+      final drawer = find.byKey(const Key('music-queue-drawer'));
+      final withCover = find.widgetWithText(ListTile, '晴天');
+      final noCover = find.widgetWithText(ListTile, '稻香');
+      // 测试环境无网络：Image.network 会走 errorBuilder，不抛异常。
+      expect(
+        find.descendant(of: withCover, matching: find.byType(Image)),
+        findsOneWidget,
+        reason: '晴天的 coverUrl 非空，leading 走网络图',
+      );
+      expect(
+        find.descendant(of: noCover, matching: find.byType(Image)),
+        findsNothing,
+      );
+      expect(
+        find.descendant(of: noCover, matching: find.byIcon(Icons.music_note)),
+        findsOneWidget,
+        reason: '空封面走图标兜底',
+      );
+      // 当前曲提示仍在：喇叭图标作为 trailing。
+      expect(
+        find.descendant(of: drawer, matching: find.byIcon(Icons.volume_up)),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('迷你条进度条可拖动 seek，且不触发整卡进播放页', (tester) async {
+      final store = await seedTwoSongs();
+      await pumpMini(tester, store);
+
+      engine.emit(
+        const MusicPlaybackSnapshot(
+          position: Duration.zero,
+          duration: Duration(seconds: 200),
+          playing: true,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final bar = find.byKey(const Key('mini-wavy-progress'));
+      final rect = tester.getRect(bar);
+      // 从条中心（50%）向右拖 25%：松手时落在 ~75% 处（允许手势 slop 误差）。
+      await tester.dragFrom(rect.center, Offset(rect.width * 0.25, 0));
+      await tester.pumpAndSettle();
+
+      expect(engine.seeks, isNotEmpty);
+      expect(engine.seeks.last.inMilliseconds, greaterThan(120000));
+      expect(engine.seeks.last.inMilliseconds, lessThan(170000));
+      expect(find.byType(MusicPlayerPage), findsNothing);
+    });
   });
 
   // ---- MD3 Expressive 波浪进度条（M4-P）----
@@ -323,7 +408,7 @@ void main() {
     );
   });
 
-  testWidgets('迷你条出现波浪进度条（Key 存在且不拦截整卡点击）', (tester) async {
+  testWidgets('迷你条波浪进度条可点按 seek（不进播放页）', (tester) async {
     await pumpModule(tester);
     await searchAndOpen(tester);
     await tester.pageBack();
@@ -346,12 +431,19 @@ void main() {
     );
     expect(progress, findsOneWidget);
 
-    // 点进度条区域仍能穿透到整卡 InkWell 进入播放页（用 tapAt 避免
-    // IgnorePointer  widget 本身不可命中的 hit-test 警告——这正是期望行为）。
-    final progressRect = tester.getRect(progress);
-    await tester.tapAt(progressRect.center);
+    final before = engine.seeks.length;
+    final rect = tester.getRect(progress);
+    // 点 75% 处：条的 seek 手势区自己赢竞技场，只 seek 不进播放页。
+    await tester.tapAt(Offset(rect.left + rect.width * 0.75, rect.center.dy));
     await tester.pumpAndSettle();
-    expect(find.byType(MusicPlayerPage), findsOneWidget);
+
+    expect(engine.seeks, hasLength(before + 1), reason: '点按只在抬起时 seek 一次');
+    expect(
+      engine.seeks.last.inMilliseconds,
+      closeTo(200000 * 0.75, 2000),
+      reason: '75% × 200s ≈ 150s',
+    );
+    expect(find.byType(MusicPlayerPage), findsNothing);
   });
 
   testWidgets('拖动波浪进度条后 engine.seeks 非空且 pumpAndSettle 收敛', (tester) async {

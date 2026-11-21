@@ -41,7 +41,7 @@ abstract class _MusicPlayerStore with Store {
        _clock = clock ?? DateTime.now,
        _listenReport = listenReport,
        _settings = settings,
-       _random = random ?? Random() {
+       _randomOverride = random {
     // 构造期同步读设置（LazyMusicSettings 解析前返回默认值）；null → 默认。
     playMode = _settings?.playMode ?? PlayMode.listLoop;
   }
@@ -64,7 +64,14 @@ abstract class _MusicPlayerStore with Store {
   final MusicSettings? _settings;
 
   /// 随机播放用的随机源（测试可注入固定序列）。
-  final Random _random;
+  ///
+  /// 允许多次赋值以兼容热重载：长生命周期单例新增字段时构造器不会重跑，
+  /// 新字段可能仍是 null；由 [_random] getter 在首次访问时懒初始化，
+  /// 避免 shuffle 模式下 `Null is not a subtype of Random` 崩溃。
+  Random? _randomOverride;
+
+  /// 随机源访问点：注入值优先，否则懒初始化一个默认 [Random]。
+  Random get _random => _randomOverride ??= Random();
 
   /// 播放页读取的本地设置（歌词开关/显示模式）；null 视为默认值。
   MusicSettings? get settings => _settings;

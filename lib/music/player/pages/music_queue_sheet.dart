@@ -13,6 +13,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
+import 'package:mimao/core/theme.dart';
 import 'package:mimao/music/models/music_models.dart';
 import 'package:mimao/music/player/player_store.dart';
 
@@ -132,10 +133,11 @@ class _QueueTile extends StatelessWidget {
     return ListTile(
       selected: current,
       contentPadding: const EdgeInsets.symmetric(horizontal: 20),
-      leading: Icon(
-        current ? Icons.volume_up : Icons.music_note,
-        color: current ? theme.colorScheme.primary : null,
-      ),
+      leading: _QueueCover(url: song.coverUrl),
+      // 当前曲用 trailing 的喇叭图标提示（selected 高亮仍保留）。
+      trailing: current
+          ? Icon(Icons.volume_up, color: theme.colorScheme.primary)
+          : null,
       title: Text(
         _displayTitle(song.title),
         maxLines: 1,
@@ -147,6 +149,41 @@ class _QueueTile extends StatelessWidget {
         overflow: TextOverflow.ellipsis,
       ),
       onTap: onTap,
+    );
+  }
+}
+
+/// 队列行 40×40 封面缩略图，与迷你条 `_MiniCover` 同款圆角与兜底口径：
+/// 空 URL 直接给图标；有 URL 走网络图，加载中给进度占位、失败给图标。
+class _QueueCover extends StatelessWidget {
+  const _QueueCover({required this.url});
+
+  final String url;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final fallback = Icon(Icons.music_note, color: colorScheme.primary);
+    if (url.isEmpty) {
+      return SizedBox(width: 40, height: 40, child: Center(child: fallback));
+    }
+    return ClipRRect(
+      borderRadius: MimaoShapes.sm,
+      child: Image.network(
+        url,
+        width: 40,
+        height: 40,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) =>
+            SizedBox(width: 40, height: 40, child: Center(child: fallback)),
+        loadingBuilder: (context, child, progress) => progress == null
+            ? child
+            : const SizedBox(
+                width: 40,
+                height: 40,
+                child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+              ),
+      ),
     );
   }
 }

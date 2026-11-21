@@ -4,7 +4,8 @@
 /// 把进度条拆成两层可复用能力：
 ///
 /// * [_WavyProgressPainter]：纯 [CustomPainter]，只按 progress 画一条波形轨道，
-///   不持有任何控制器、不注册帧回调。迷你条用它做「只画不管手势」的细条。
+///   不持有任何控制器、不注册帧回调。迷你条用它做「只画不管手势」的细条
+///   （手势由迷你条外层的 seek 区域接管）。
 /// * [WavySliderTrackShape]：把同一套波形画法接到 [Slider] 的 track 上，保留
 ///   Slider 的点击 seek / 拖拽 / 语义 / `find.byType(Slider)` 测试能力。
 /// * [_WavyThumbShape]：播放页拖动时跟随手指的小圆点。
@@ -90,9 +91,9 @@ Color _defaultWaveColor(Color activeColor) =>
 
 /// 纯绘制：[progress] 为 0..1，只画波形，不接管任何手势。
 ///
-/// 用于迷你条的细条形态。被放进 [IgnorePointer] 后整卡点击仍可穿透到
-/// 外层 [InkWell]（CustomPaint 默认 hitTestBehavior 为 deferToChild，自身
-/// 不产生命中）。
+/// 用于迷你条的细条形态。内部包 [IgnorePointer] 让它保持纯绘制层：自身不
+/// 产生命中，事件交给迷你条外层的 seek 手势区（点按/拖动调 seek），再往外
+/// 才是整卡 [InkWell]（点非 seek 区进播放页）。
 class MiniWavyProgress extends StatelessWidget {
   const MiniWavyProgress({
     super.key,

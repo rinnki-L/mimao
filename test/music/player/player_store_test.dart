@@ -186,6 +186,32 @@ void main() {
     expect(store.index, inInclusiveRange(0, 3));
   });
 
+  test('shuffle（默认 Random）：不注入随机源也能连续 next/previous 切歌', () async {
+    // 回归锁：默认构造不传 random，走懒初始化 Random() 的路径
+    // （热重载新增字段为 null 时的兜底也正是这条路径）。
+    final store = MusicPlayerStore(
+      playbackApi: api,
+      engineFactory: () => engine,
+      progressSink: sink.call,
+      clock: clock.call,
+    );
+    await store.playSong(fakeSong(id: '1'));
+    await store.playSong(fakeSong(id: '2'));
+    await store.playSong(fakeSong(id: '3'));
+    await store.playSong(fakeSong(id: '4'));
+    await store.playAt(1);
+    store.setPlayMode(PlayMode.shuffle);
+
+    await store.next();
+    expect(store.index, isNot(1));
+    expect(store.index, inInclusiveRange(0, 3));
+
+    final afterNext = store.index;
+    await store.previous();
+    expect(store.index, isNot(afterNext));
+    expect(store.index, inInclusiveRange(0, 3));
+  });
+
   test('playList：整表替换队列并从 startIndex 起播', () async {
     final store = buildStore();
     await store.playSong(fakeSong(id: 'old'));
