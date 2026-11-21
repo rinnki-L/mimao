@@ -1,11 +1,12 @@
 // ignore_for_file: deprecated_member_use — Flutter 3.50 弃用整个 material.dart，
 // 与音乐模块页同款说明。
 /// 歌手详情页（U3）：`artistDetail` 头部 + `artistAlbums` 专辑网格 +
-/// `artistAudiosNew` 歌曲列表 + `artistLists` 可选目录分区。
+/// `artistAudiosNew` 歌曲列表 + `artistLists` 可选目录分区 +
+/// 「歌手写真」可选分区（images_audio，需接线 playbackExt）。
 ///
-/// 只认 [MusicArtistApi] / [MusicPlayerUi] 接口；目录（artistLists）是可选
-/// 增强——失败给行内提示，不挡头部/专辑/歌曲主体。宽屏两栏（左信息 /
-/// 右列表），窄屏单列。
+/// 只认 [MusicArtistApi] / [MusicPlayerUi] 接口；目录（artistLists）与写真
+/// 都是可选增强——目录失败给行内提示；写真失败/空数据整段隐藏。均不挡
+/// 头部/专辑/歌曲主体。宽屏两栏（左信息 / 右列表），窄屏单列。
 library;
 
 import 'package:flutter/material.dart';
@@ -14,14 +15,19 @@ import 'package:mimao/music/api/artist_albums.dart';
 import 'package:mimao/music/api/artist_api.dart';
 import 'package:mimao/music/api/artist_audios_new.dart';
 import 'package:mimao/music/api/artist_lists.dart';
+import 'package:mimao/music/api/images_audio.dart';
+import 'package:mimao/music/api/playback_ext_api.dart';
 import 'package:mimao/music/models/artist_models.dart';
 import 'package:mimao/music/models/catalog_models.dart';
 import 'package:mimao/music/models/music_models.dart';
+import 'package:mimao/music/models/playback_ext_models.dart';
 import 'package:mimao/music/pages/music_album_detail_page.dart'
     show formatMusicDuration;
+import 'package:mimao/music/pages/music_song_info_sheet.dart';
 import 'package:mimao/music/player/player_ui.dart';
 
-/// 歌手详情页。`onOpenAlbum` 为空时专辑卡不可点。
+/// 歌手详情页。`onOpenAlbum` 为空时专辑卡不可点；`playbackExt` 为空时
+/// 不展示「歌手写真」分区。
 class MusicArtistDetailPage extends StatefulWidget {
   const MusicArtistDetailPage({
     super.key,
@@ -29,6 +35,7 @@ class MusicArtistDetailPage extends StatefulWidget {
     required this.artistId,
     required this.player,
     this.onOpenAlbum,
+    this.playbackExt,
   });
 
   final MusicArtistApi artist;
@@ -38,12 +45,19 @@ class MusicArtistDetailPage extends StatefulWidget {
   /// 点击专辑卡 → 打开专辑详情（外层壳负责导航）。
   final ValueChanged<int>? onOpenAlbum;
 
+  /// 播放补全接口：非空时用歌曲 hash 拉一次歌手写真（images_audio）。
+  /// 可选项，保持既有调用兼容。
+  final MusicPlaybackExtApi? playbackExt;
+
   @override
   State<MusicArtistDetailPage> createState() => _MusicArtistDetailPageState();
 }
 
 class _MusicArtistDetailPageState extends State<MusicArtistDetailPage> {
   static const int _pageSize = 30;
+
+  /// 歌手写真查询的资源上限（规格：歌曲 hash 去重、最多 20）。
+  static const int _portraitMaxResources = 20;
 
   MusicArtistDetail? _detail;
   Object? _detailError;
@@ -70,6 +84,9 @@ class _MusicArtistDetailPageState extends State<MusicArtistDetailPage> {
   int _sexFilter = 0;
   int _categoryFilter = 0;
   int _musicianFilter = 0;
+
+  // ── 可选歌手写真（images_audio）：失败/空数据整段隐藏（装饰性分区）──
+  List<MusicPortrait> _portraits = const <MusicPortrait>[];
 
   bool _descExpanded = false;
 
@@ -176,6 +193,7 @@ class _MusicArtistDetailPageState extends State<MusicArtistDetailPage> {
         _songsLoading = false;
         _songsLoadingMore = false;
       });
+      if (reset) _loadPortraits(); // 歌曲首页成功后刷新写真（可选增强）
     } on Object catch (error) {
       if (!mounted) return;
       setState(() {
@@ -183,6 +201,32 @@ class _MusicArtistDetailPageState extends State<MusicArtistDetailPage> {
         _songsLoading = false;
         _songsLoadingMore = false;
       });
+    }
+  }
+
+  /// 歌手写真（可选增强）：用已加载歌曲的 hash 去重（最多 20）查询一次。
+  /// 失败/空数据整段隐藏——装饰性分区，不给重试入口，不打扰主体。
+  Future<void> _loadPortraits() async {
+    final ext = widget.playbackExt;
+    if (ext == null) return;
+    final resources = <ImagesAudioResource>[];
+    final seen = <String>{};
+    for (final song in _songs) {
+      if (resources.length >= _portraitMaxResources) break;
+      final hash = song.hash;
+      if (!isValidResourceHash(hash) || !seen.add(hash)) continue;
+      resources.add(ImagesAudioResource(hash: hash, filename: song.title));
+    }
+    if (resources.isEmpty) return;
+    try {
+      final groups = await ext.imagesAudio(
+        ImagesAudioQuery(resources: resources),
+      );
+      if (!mounted) return;
+      setState(() => _portraits = flattenAuthorImages(groups));
+    } on Object {
+      if (!mounted) return;
+      setState(() => _portraits = const <MusicPortrait>[]);
     }
   }
 
@@ -276,6 +320,7 @@ class _MusicArtistDetailPageState extends State<MusicArtistDetailPage> {
                     ..._albumChildren(context),
                     const SizedBox(height: 12),
                     ..._songChildren(context),
+                    _portraitSection(context),
                     const SizedBox(height: 12),
                     _directorySection(context),
                   ],
@@ -292,6 +337,7 @@ class _MusicArtistDetailPageState extends State<MusicArtistDetailPage> {
             ..._albumChildren(context),
             const SizedBox(height: 12),
             ..._songChildren(context),
+            _portraitSection(context),
             const SizedBox(height: 12),
             _directorySection(context),
           ],
@@ -500,6 +546,27 @@ class _MusicArtistDetailPageState extends State<MusicArtistDetailPage> {
       );
     }
     return children;
+  }
+
+  /// 歌手写真分区（可选）：仅在接线 playbackExt 且拿到写真时出现；
+  /// 加载中/失败/空数据都整段隐藏（返回零尺寸，不留空档）。
+  Widget _portraitSection(BuildContext context) {
+    final portraits = _portraits;
+    if (widget.playbackExt == null || portraits.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text('歌手写真', style: theme.textTheme.titleMedium),
+          const SizedBox(height: 8),
+          MusicPortraitStrip(portraits: portraits),
+        ],
+      ),
+    );
   }
 
   /// 可选目录分区（artistLists）：分组卡片 + 性别/类型筛选 chips。

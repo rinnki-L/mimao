@@ -1,6 +1,7 @@
 // ignore_for_file: deprecated_member_use — 与页面测试同款说明。
 /// 歌手详情页测试：头部/专辑网格/歌曲渲染、点专辑回调、点歌曲播放（含
-/// MusicArtistSong → MusicSong 映射）、分页追加、错误/空态、目录可选分区。
+/// MusicArtistSong → MusicSong 映射）、分页追加、错误/空态、目录可选分区、
+/// 「歌手写真」可选分区（加载/空/失败隐藏与去重限量）。
 /// 全部走 fake（无网络、无真实计时器）。
 library;
 
@@ -297,5 +298,161 @@ void main() {
     expect(api.albumsPageLog, isEmpty);
     expect(api.songsPageLog, isEmpty);
     expect(api.listsLog, isEmpty);
+  });
+
+  testWidgets('歌手写真：歌曲 hash 去重后查询；缩略图可点击全屏预览', (tester) async {
+    _useTallSurface(tester);
+    final ext = FakePlaybackExtApi(portraitGroups: portraitGroupsFixture());
+    final api = _api(
+      detail: artistDetailFixture(name: '歌手乙'),
+      songsPages: <int, MusicPage<MusicArtistSong>>{
+        1: artistSongsPage(
+          1,
+          total: 2,
+          songs: <MusicArtistSong>[
+            artistSongFixture(id: 'as-1', title: '热门歌', hash: kValidHash),
+            // 同 hash 的第二首：不重复进查询。
+            artistSongFixture(id: 'as-2', title: '同Hash歌', hash: kValidHash),
+          ],
+        ),
+      },
+    );
+    await tester.pumpWidget(
+      _wrap(
+        MusicArtistDetailPage(
+          artist: api,
+          artistId: 5,
+          player: FakePlayerUi(),
+          playbackExt: ext,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('歌手写真'), findsOneWidget);
+    expect(ext.imagesLog, hasLength(1));
+    expect(ext.imagesLog.single.resources, hasLength(1)); // hash 去重
+    expect(ext.imagesLog.single.resources.single.hash, kValidHash);
+    expect(ext.imagesLog.single.resources.single.filename, '热门歌');
+    expect(find.byKey(const Key('music-portrait-thumb-0')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('music-portrait-thumb-0')));
+    await tester.pumpAndSettle();
+    expect(find.text('写真0.jpg'), findsOneWidget); // 预览标题（文件名）
+    expect(find.text('关闭'), findsOneWidget);
+    await tester.tap(find.text('关闭'));
+    await tester.pumpAndSettle();
+    expect(find.text('写真0.jpg'), findsNothing);
+    expect(find.text('歌手写真'), findsOneWidget); // 分区仍在
+  });
+
+  testWidgets('歌手写真：hash 去重最多取 20 个资源（超出截断）', (tester) async {
+    _useTallSurface(tester);
+    // 25 个不同合法 hash：只带前 20 个进查询。
+    String hashFor(int i) =>
+        'a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3${i.toRadixString(16).padLeft(2, '0')}';
+    final ext = FakePlaybackExtApi(portraitGroups: portraitGroupsFixture());
+    final api = _api(
+      detail: artistDetailFixture(),
+      songsPages: <int, MusicPage<MusicArtistSong>>{
+        1: artistSongsPage(
+          1,
+          total: 25,
+          songs: List<MusicArtistSong>.generate(
+            25,
+            (i) =>
+                artistSongFixture(id: 'as-$i', title: '歌$i', hash: hashFor(i)),
+          ),
+        ),
+      },
+    );
+    await tester.pumpWidget(
+      _wrap(
+        MusicArtistDetailPage(
+          artist: api,
+          artistId: 5,
+          player: FakePlayerUi(),
+          playbackExt: ext,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('歌手写真'), findsOneWidget);
+    expect(ext.imagesLog, hasLength(1));
+    expect(ext.imagesLog.single.resources, hasLength(20));
+  });
+
+  testWidgets('歌手写真：失败/空数据整段隐藏；未接线时隐藏且不打扰主体', (tester) async {
+    _useTallSurface(tester);
+    MusicPage<MusicArtistSong> pageWithOne() => artistSongsPage(
+      1,
+      total: 1,
+      songs: <MusicArtistSong>[artistSongFixture(hash: kValidHash)],
+    );
+
+    // 失败：装饰性分区，不弹错误文案，主体照常。
+    final failedApi = _api(
+      detail: artistDetailFixture(name: '歌手乙'),
+      songsPages: <int, MusicPage<MusicArtistSong>>{1: pageWithOne()},
+    );
+    final failedExt = FakePlaybackExtApi(imagesError: '写真挂了');
+    await tester.pumpWidget(
+      _wrap(
+        // 同类型重复 pump 会原地复用 State（initState 不会重跑），
+        // 三段用 UniqueKey 强制重建页面各自拉一次数据。
+        MusicArtistDetailPage(
+          key: UniqueKey(),
+          artist: failedApi,
+          artistId: 5,
+          player: FakePlayerUi(),
+          playbackExt: failedExt,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('热门歌'), findsOneWidget); // 主体照常
+    expect(find.text('歌手写真'), findsNothing);
+    expect(failedExt.imagesLog, hasLength(1)); // 请求确实发起过
+
+    // 空数据：整段隐藏。
+    final emptyApi = _api(
+      detail: artistDetailFixture(name: '歌手乙'),
+      songsPages: <int, MusicPage<MusicArtistSong>>{1: pageWithOne()},
+    );
+    final emptyExt = FakePlaybackExtApi();
+    await tester.pumpWidget(
+      _wrap(
+        MusicArtistDetailPage(
+          key: UniqueKey(),
+          artist: emptyApi,
+          artistId: 5,
+          player: FakePlayerUi(),
+          playbackExt: emptyExt,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('歌手写真'), findsNothing);
+    expect(emptyExt.imagesLog, hasLength(1));
+
+    // 未接线 playbackExt：不展示也不请求。
+    final unwiredApi = _api(
+      detail: artistDetailFixture(name: '歌手乙'),
+      songsPages: <int, MusicPage<MusicArtistSong>>{1: pageWithOne()},
+    );
+    await tester.pumpWidget(
+      _wrap(
+        MusicArtistDetailPage(
+          key: UniqueKey(),
+          artist: unwiredApi,
+          artistId: 5,
+          player: FakePlayerUi(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('歌手写真'), findsNothing);
+    expect(find.text('热门歌'), findsOneWidget);
   });
 }

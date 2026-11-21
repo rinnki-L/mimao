@@ -1,6 +1,6 @@
 // ignore_for_file: deprecated_member_use — 与页面测试同款说明。
 /// 专辑详情页测试：渲染、播放、歌手回调、disc/position 排序、分页防重复、
-/// 错误/空态、可选增强（dycover/favoriteCount）降级。
+/// 错误/空态、可选增强（dycover/favoriteCount）降级、长按曲目弹资料面板。
 /// 全部走 fake（无网络、无真实计时器）。
 library;
 
@@ -9,7 +9,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mimao/core/theme.dart';
 import 'package:mimao/music/models/album_models.dart';
 import 'package:mimao/music/models/music_models.dart';
+import 'package:mimao/music/models/playback_ext_models.dart';
 import 'package:mimao/music/pages/music_album_detail_page.dart';
+import 'package:mimao/music/pages/music_song_info_sheet.dart';
 
 import 'fake_apis.dart';
 
@@ -262,5 +264,81 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('专辑暂无曲目'), findsOneWidget);
     expect(find.text('加载更多'), findsNothing);
+  });
+
+  testWidgets('接线 playbackExt：长按曲目弹出资料面板并带上专辑 id', (tester) async {
+    _useTallSurface(tester);
+    final ext = FakePlaybackExtApi(
+      privileges: <MusicResourcePrivileges>[privilegeFixture()],
+      presentations: <MusicSongPresentation>[presentationFixture()],
+      portraitGroups: portraitGroupsFixture(),
+    );
+    final api = _api(
+      detail: albumDetailFixture(title: '测试专辑'),
+      songsPages: <int, MusicAlbumTracks>{
+        1: tracksPage(
+          1,
+          total: 1,
+          tracks: <MusicAlbumTrack>[
+            albumTrackFixture(
+              1,
+              title: '曲目一',
+              songId: 's1',
+              hash: kValidHash,
+              audioId: 9001,
+            ),
+          ],
+        ),
+      },
+    );
+    await tester.pumpWidget(
+      _wrap(
+        MusicAlbumDetailPage(
+          album: api,
+          albumId: 7,
+          player: FakePlayerUi(),
+          playbackExt: ext,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('曲目一'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('权益'), findsOneWidget);
+    expect(find.text('资料'), findsOneWidget);
+    expect(find.text('歌手图片'), findsOneWidget);
+    expect(find.byKey(const Key('music-portrait-thumb-0')), findsOneWidget);
+    // 单曲查询带上了当前专辑 id（privilege_lite 的 album_id）。
+    expect(ext.privilegeLog, hasLength(1));
+    expect(ext.privilegeLog.single.resources.single.albumId, 7);
+    expect(ext.privilegeLog.single.resources.single.hash, kValidHash);
+  });
+
+  testWidgets('未接线 playbackExt：长按曲目不弹面板，点击仍可播放', (tester) async {
+    _useTallSurface(tester);
+    final player = FakePlayerUi();
+    final api = _api(
+      detail: albumDetailFixture(title: '测试专辑'),
+      songsPages: <int, MusicAlbumTracks>{
+        1: tracksPage(
+          1,
+          total: 1,
+          tracks: <MusicAlbumTrack>[albumTrackFixture(1, title: '曲目一')],
+        ),
+      },
+    );
+    await tester.pumpWidget(
+      _wrap(MusicAlbumDetailPage(album: api, albumId: 7, player: player)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('曲目一'));
+    await tester.pumpAndSettle();
+    // 未接线时长按不弹资料面板（长按松开会触发 ListTile 的点击播放，
+    // 属于 ListTile 既有行为，这里只关注面板不出现）。
+    expect(find.byType(MusicSongInfoSheet), findsNothing);
+    expect(find.text('权益'), findsNothing);
   });
 }

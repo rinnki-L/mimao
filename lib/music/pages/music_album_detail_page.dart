@@ -12,11 +12,14 @@ import 'package:mimao/core/theme.dart';
 import 'package:mimao/music/api/album_api.dart';
 import 'package:mimao/music/api/album_dycover.dart';
 import 'package:mimao/music/api/album_songs.dart';
+import 'package:mimao/music/api/playback_ext_api.dart';
 import 'package:mimao/music/models/album_models.dart';
 import 'package:mimao/music/models/music_models.dart';
+import 'package:mimao/music/pages/music_song_info_sheet.dart';
 import 'package:mimao/music/player/player_ui.dart';
 
-/// 专辑详情页。`onOpenArtist` 为空时歌手名不可点。
+/// 专辑详情页。`onOpenArtist` 为空时歌手名不可点；`playbackExt` 为空时
+/// 曲目行不支持长按看资料。
 class MusicAlbumDetailPage extends StatefulWidget {
   const MusicAlbumDetailPage({
     super.key,
@@ -24,6 +27,7 @@ class MusicAlbumDetailPage extends StatefulWidget {
     required this.albumId,
     required this.player,
     this.onOpenArtist,
+    this.playbackExt,
   });
 
   final MusicAlbumApi album;
@@ -32,6 +36,10 @@ class MusicAlbumDetailPage extends StatefulWidget {
 
   /// 点击头部歌手名 → 打开歌手详情（外层壳负责导航）。
   final ValueChanged<int>? onOpenArtist;
+
+  /// 播放补全接口：非空时曲目行长按 → 打开歌曲资料面板（权益/资料/
+  /// 歌手图片）。可选项，保持既有调用兼容。
+  final MusicPlaybackExtApi? playbackExt;
 
   @override
   State<MusicAlbumDetailPage> createState() => _MusicAlbumDetailPageState();
@@ -321,6 +329,14 @@ class _MusicAlbumDetailPageState extends State<MusicAlbumDetailPage> {
           index: index + 1,
           track: track,
           onTap: () => _playTrack(track.song),
+          // 播放补全接口未接线时长按不响应（资料面板需要它）。
+          onLongPress: widget.playbackExt == null
+              ? null
+              : () => showMusicSongInfoSheet(
+                  context,
+                  song: track.song,
+                  ext: widget.playbackExt,
+                ),
         ),
       );
     }
@@ -521,17 +537,21 @@ class _ArtistChips extends StatelessWidget {
   }
 }
 
-/// 曲目行：序号 / 封面 / 标题 / 歌手 / 时长。
+/// 曲目行：序号 / 封面 / 标题 / 歌手 / 时长；长按打开歌曲资料面板（可选）。
 class _TrackTile extends StatelessWidget {
   const _TrackTile({
     required this.index,
     required this.track,
     required this.onTap,
+    this.onLongPress,
   });
 
   final int index;
   final MusicAlbumTrack track;
   final VoidCallback onTap;
+
+  /// 长按曲目 → 歌曲资料面板；未接线播放补全接口时为 null。
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -573,6 +593,7 @@ class _TrackTile extends StatelessWidget {
         ),
       ),
       onTap: onTap,
+      onLongPress: onLongPress,
     );
   }
 }
