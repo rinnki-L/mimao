@@ -1,14 +1,17 @@
 // ignore_for_file: deprecated_member_use — Flutter 3.50 弃用整个 material.dart，
 // 与 music/pages 其它文件同款说明。
-/// 歌单列表页（U4）：账号云歌单（我创建 / 我收藏）的浏览、新建与删除。
+/// 歌单列表页（U4）：账号云歌单（我创建 / 我收藏）的浏览、新建、删除与
+/// 分享链接导入。
 ///
 /// 只依赖接口（[MusicUserLibraryApi] / [MusicPlaylistReadApi] /
 /// [MusicPlaylistWriteApi?] / [MusicPlayerUi]），不 import 任何实现；
-/// `write` 为 null 时隐藏新建/删除入口（只读浏览）。
+/// `write` 为 null 时隐藏新建/删除入口（只读浏览，导入入口不受影响——
+/// 导入走 read 组接口）。
 library;
 
 import 'package:flutter/material.dart';
 import 'package:mimao/core/theme.dart';
+import 'package:mimao/music/api/import_playlist.dart';
 import 'package:mimao/music/api/playlist_add.dart';
 import 'package:mimao/music/api/playlist_del.dart';
 import 'package:mimao/music/api/playlist_read_api.dart';
@@ -16,7 +19,11 @@ import 'package:mimao/music/api/playlist_write_api.dart';
 import 'package:mimao/music/api/user_library_api.dart';
 import 'package:mimao/music/client/kugou_error.dart';
 import 'package:mimao/music/models/music_models.dart';
+import 'package:mimao/music/models/playlist_models.dart';
+import 'package:mimao/music/models/playlist_write_models.dart';
 import 'package:mimao/music/models/user_library_models.dart';
+import 'package:mimao/music/pages/music_playlist_add_songs_page.dart'
+    show MusicSongSearch;
 import 'package:mimao/music/pages/music_playlist_detail_page.dart';
 import 'package:mimao/music/player/player_ui.dart';
 
@@ -29,6 +36,7 @@ class MusicPlaylistListPage extends StatefulWidget {
     required this.read,
     required this.player,
     this.write,
+    this.searchSongs,
   });
 
   final MusicUserLibraryApi library;
@@ -37,6 +45,9 @@ class MusicPlaylistListPage extends StatefulWidget {
 
   /// 歌单写端点；null 表示写功能未接线（不显示新建/删除）。
   final MusicPlaylistWriteApi? write;
+
+  /// 搜索歌曲注入缝，透传给详情页的「添加歌曲」；null 时该入口隐藏。
+  final MusicSongSearch? searchSongs;
 
   @override
   State<MusicPlaylistListPage> createState() => _MusicPlaylistListPageState();
@@ -55,6 +66,7 @@ class _MusicPlaylistListPageState extends State<MusicPlaylistListPage> {
   int _nextPage = 1;
   bool _hasMore = false;
   bool _loadingMore = false;
+  bool _importing = false;
   _Phase _phase = _Phase.loading;
   bool _authError = false;
   String _errorMessage = '';
@@ -250,6 +262,17 @@ class _MusicPlaylistListPageState extends State<MusicPlaylistListPage> {
           coverUrl: playlist.coverUrl,
           write: widget.write,
           editable: playlist.editable == true,
+          // 写端点需要的版本/归属/展示字段都从列表条目透传（MusicUserPlaylist
+          // 已有）；description/tags 只在 wire 里真实存在时传（区分空串与
+          // 「服务端没给」，避免 playlistUpdate 把远端简介清空）。
+          revision: playlist.revision,
+          sortIndex: playlist.sortIndex,
+          kind: MusicPlaylistKind.fromWire(playlist.kindCode),
+          description: playlist.descriptionPresent
+              ? playlist.description
+              : null,
+          tags: playlist.tagsPresent ? playlist.tags : null,
+          searchSongs: widget.searchSongs,
         ),
       ),
     );
@@ -259,12 +282,83 @@ class _MusicPlaylistListPageState extends State<MusicPlaylistListPage> {
     }
   }
 
+  // ── 导入歌单 ────────────────────────────────────────────────────────────
+
+  /// 导入分享链接：对话框收集 → importPlaylist(MusicImportLinkQuery) →
+  /// 按返回的 MusicImportOutcome 分支展示；任务创建成功后刷新列表。
+  /// 截图导入（submit_img → screenshot 两阶段）依赖的 taskSn 是服务端
+  /// 语义，链接导入回执里只有数字任务 id，串不起来——本轮只做链接导入。
+  Future<void> _importPlaylist() async {
+    if (_importing) return;
+    final url = await showDialog<String>(
+      context: context,
+      builder: (_) => const _ImportPlaylistDialog(),
+    );
+    if (url == null || !mounted) return;
+    setState(() => _importing = true);
+    try {
+      final outcome = await widget.read.importPlaylist(
+        MusicImportLinkQuery(url),
+      );
+      if (!mounted) return;
+      setState(() => _importing = false);
+      if (outcome is MusicImportCreatedOutcome) {
+        ScaffoldMessenger.maybeOf(
+          context,
+        )?.showSnackBar(const SnackBar(content: Text('导入任务已创建，完成后列表会自动出现新歌单')));
+        await _refresh();
+        return;
+      }
+      // 链接导入只会回任务创建；其余分支来自其它动作（状态/明细/计数），
+      // 按各自形状展示即可，不触发刷新。
+      ScaffoldMessenger.maybeOf(
+        context,
+      )?.showSnackBar(SnackBar(content: Text(_importOutcomeText(outcome))));
+    } on Object catch (error) {
+      if (!mounted) return;
+      setState(() => _importing = false);
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          content: Text(
+            _isAuthError(error) ? '请先登录酷狗账号' : '导入失败：${_errorText(error)}',
+          ),
+        ),
+      );
+    }
+  }
+
+  String _importOutcomeText(MusicImportOutcome outcome) => switch (outcome) {
+    MusicImportCreatedOutcome() => '导入任务已创建，完成后列表会自动出现新歌单',
+    MusicImportUploadedOutcome() => '截图已提交，等待处理',
+    MusicImportStatusOutcome(:final tasks) =>
+      tasks.isEmpty ? '暂无导入任务' : '共 ${tasks.length} 个导入任务',
+    MusicImportResultOutcome(:final result) =>
+      '已导入 ${result.task.imported ?? 0} 首，未匹配 ${result.task.missed ?? 0} 首',
+    MusicImportCountOutcome(:final count, :final failedCount) =>
+      '累计 ${count ?? 0} 个导入任务，失败 ${failedCount ?? 0} 个',
+  };
+
   // ── 渲染 ────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('歌单')),
+      appBar: AppBar(
+        title: const Text('歌单'),
+        actions: <Widget>[
+          IconButton(
+            tooltip: '导入歌单',
+            icon: _importing
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.download_outlined),
+            onPressed: _importing ? null : _importPlaylist,
+          ),
+        ],
+      ),
       floatingActionButton: widget.write == null
           ? null
           : FloatingActionButton.extended(
@@ -667,5 +761,58 @@ class _CreatePlaylistDialogState extends State<_CreatePlaylistDialog> {
     Navigator.of(
       context,
     ).pop(_NewPlaylistInput(title: title, isPrivate: _private));
+  }
+}
+
+/// 导入对话框的回执（pop 带出分享链接原文，校验交给端点——链接必须含
+/// https:// 且 ≤8192 字节，错误文案由端点统一收口）。
+class _ImportPlaylistDialog extends StatefulWidget {
+  const _ImportPlaylistDialog();
+
+  @override
+  State<_ImportPlaylistDialog> createState() => _ImportPlaylistDialogState();
+}
+
+class _ImportPlaylistDialogState extends State<_ImportPlaylistDialog> {
+  late final TextEditingController _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final url = _controller.text.trim();
+    if (url.isEmpty) return;
+    Navigator.of(context).pop(url);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('导入歌单'),
+      content: TextField(
+        controller: _controller,
+        decoration: const InputDecoration(
+          labelText: '分享链接',
+          hintText: '粘贴酷狗歌单分享链接',
+        ),
+        onSubmitted: (_) => _submit(),
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        ValueListenableBuilder<TextEditingValue>(
+          valueListenable: _controller,
+          builder: (context, value, _) => FilledButton(
+            onPressed: value.text.trim().isEmpty ? null : _submit,
+            child: const Text('导入'),
+          ),
+        ),
+      ],
+    );
   }
 }

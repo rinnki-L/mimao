@@ -5,7 +5,9 @@
 /// 与 wire 的 page/pageSize/total 回显语义对齐。
 library;
 
+import 'dart:async';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:mimao/music/api/import_playlist.dart';
@@ -27,6 +29,7 @@ import 'package:mimao/music/models/music_models.dart';
 import 'package:mimao/music/models/playlist_models.dart';
 import 'package:mimao/music/models/playlist_write_models.dart';
 import 'package:mimao/music/models/user_library_models.dart';
+import 'package:mimao/music/pages/music_playlist_image_picker.dart';
 import 'package:mimao/music/player/player_ui.dart';
 
 /// 用户库替身：`items` 按 [chunkSize] 切片分页，total 恒为 items.length。
@@ -110,6 +113,9 @@ class FakePlaylistReadApi implements MusicPlaylistReadApi {
   Object? trackAllError;
   Object? trackAllNewError;
 
+  /// playlistTrackAllNew 回执里的 list_ver（缺省 null，与旧用例行为一致）。
+  int? trackAllNewRevision;
+
   List<MusicPlaylistDetail> details = const <MusicPlaylistDetail>[];
   List<List<MusicPlaylistTrack>> trackAllPages =
       const <List<MusicPlaylistTrack>>[];
@@ -122,6 +128,12 @@ class FakePlaylistReadApi implements MusicPlaylistReadApi {
       <MusicPlaylistTrackAllQuery>[];
   final List<MusicPlaylistTrackAllNewQuery> trackAllNewQueries =
       <MusicPlaylistTrackAllNewQuery>[];
+
+  // 导入：记录查询对象；onImport 注入按动作分支的 Outcome（可返回未完成
+  // 的 Future 模拟慢请求，缺省回任务创建），importError 注入失败。
+  final List<MusicImportQuery> importQueries = <MusicImportQuery>[];
+  Object? importError;
+  Future<MusicImportOutcome> Function(MusicImportQuery query)? onImport;
 
   @override
   Future<List<MusicPlaylistDetail>> playlistDetail(
@@ -153,6 +165,7 @@ class FakePlaylistReadApi implements MusicPlaylistReadApi {
     return MusicCloudPlaylistTracks(
       page: _trackPage(query.page, query.pageSize, trackAllNewPages),
       cloudListId: query.cloudListId,
+      revision: trackAllNewRevision,
     );
   }
 
@@ -181,22 +194,53 @@ class FakePlaylistReadApi implements MusicPlaylistReadApi {
   Future<List<MusicPlaylistTagCategory>> playlistTags() => _unsupported();
 
   @override
-  Future<MusicImportOutcome> importPlaylist(MusicImportQuery query) =>
-      _unsupported();
+  Future<MusicImportOutcome> importPlaylist(MusicImportQuery query) async {
+    importQueries.add(query);
+    final pending = importError;
+    if (pending != null) throw pending;
+    final handler = onImport;
+    if (handler != null) return handler(query);
+    return const MusicImportCreatedOutcome(
+      MusicImportTask(taskId: 1, title: '', message: ''),
+    );
+  }
 }
 
-/// 歌单写替身：记录 add/del 入参；onAdd/onDel 让测试在写成功时联动改
-/// 用户库替身的数据（模拟服务端生效后的刷新结果）。
+/// 歌单写替身：记录全部八个写端点的入参；onXxx 让测试在写成功时联动改
+/// 用户库/曲目替身的数据（模拟服务端生效后的刷新结果）。
 class FakePlaylistWriteApi implements MusicPlaylistWriteApi {
   FakePlaylistWriteApi({this.addError, this.delError, this.onAdd, this.onDel});
 
   Object? addError;
   Object? delError;
+  Object? updateError;
+  Object? tracksAddError;
+  Object? tracksDelError;
+  Object? tracksSortError;
+  Object? picUploadError;
+  Object? sortError;
+
+  /// 排序挂起缝：非空时排序请求挂到它完成（测试 busy 防重用）。
+  Completer<MusicCloudTrackChange>? tracksSortHold;
   void Function(PlaylistAddQuery query)? onAdd;
   void Function(PlaylistDelQuery query)? onDel;
+  void Function(PlaylistUpdateQuery query)? onUpdate;
+  void Function(PlaylistTracksAddQuery query)? onTracksAdd;
+  void Function(PlaylistTracksDelQuery query)? onTracksDel;
+  void Function(PlaylistTracksSortQuery query)? onTracksSort;
+  void Function(PlaylistPicUploadQuery query)? onPicUpload;
 
   final List<PlaylistAddQuery> addQueries = <PlaylistAddQuery>[];
   final List<PlaylistDelQuery> delQueries = <PlaylistDelQuery>[];
+  final List<PlaylistUpdateQuery> updateQueries = <PlaylistUpdateQuery>[];
+  final List<PlaylistSortQuery> sortQueries = <PlaylistSortQuery>[];
+  final List<PlaylistTracksAddQuery> tracksAddQueries =
+      <PlaylistTracksAddQuery>[];
+  final List<PlaylistTracksDelQuery> tracksDelQueries =
+      <PlaylistTracksDelQuery>[];
+  final List<PlaylistTracksSortQuery> tracksSortQueries =
+      <PlaylistTracksSortQuery>[];
+  final List<PlaylistPicUploadQuery> picQueries = <PlaylistPicUploadQuery>[];
 
   @override
   Future<MusicPlaylistChange> playlistAdd(
@@ -228,36 +272,139 @@ class FakePlaylistWriteApi implements MusicPlaylistWriteApi {
     PlaylistUpdateQuery query, {
     String? seed,
     Random? random,
-  }) => _unsupported();
+  }) async {
+    updateQueries.add(query);
+    onUpdate?.call(query);
+    final pending = updateError;
+    if (pending != null) throw pending;
+    return const MusicPlaylistChange(
+      cloudListId: 9001,
+      coverUrl: 'http://imge.kugou.com/cover.png',
+    );
+  }
 
   @override
   Future<MusicPlaylistOrderChange> playlistSort(
     PlaylistSortQuery query, {
     String? seed,
     Random? random,
-  }) => _unsupported();
+  }) async {
+    sortQueries.add(query);
+    final pending = sortError;
+    if (pending != null) throw pending;
+    return const MusicPlaylistOrderChange(
+      positions: <MusicPlaylistOrderPosition>[],
+    );
+  }
 
   @override
   Future<MusicCloudTrackChange> playlistTracksAdd(
     PlaylistTracksAddQuery query,
-  ) => _unsupported();
+  ) async {
+    tracksAddQueries.add(query);
+    onTracksAdd?.call(query);
+    final pending = tracksAddError;
+    if (pending != null) throw pending;
+    return const MusicCloudTrackChange(songCount: 3);
+  }
 
   @override
   Future<MusicCloudTrackChange> playlistTracksDel(
     PlaylistTracksDelQuery query,
-  ) => _unsupported();
+  ) async {
+    tracksDelQueries.add(query);
+    onTracksDel?.call(query);
+    final pending = tracksDelError;
+    if (pending != null) throw pending;
+    return const MusicCloudTrackChange(songCount: 1);
+  }
 
   @override
   Future<MusicCloudTrackChange> playlistTracksSort(
     PlaylistTracksSortQuery query, {
     String? seed,
     Random? random,
-  }) => _unsupported();
+  }) async {
+    tracksSortQueries.add(query);
+    onTracksSort?.call(query);
+    final hold = tracksSortHold;
+    if (hold != null) return hold.future;
+    final pending = tracksSortError;
+    if (pending != null) throw pending;
+    return const MusicCloudTrackChange();
+  }
 
   @override
   Future<MusicUploadedPlaylistCover> playlistPicUpload(
     PlaylistPicUploadQuery query,
-  ) => _unsupported();
+  ) async {
+    picQueries.add(query);
+    onPicUpload?.call(query);
+    final pending = picUploadError;
+    if (pending != null) throw pending;
+    return const MusicUploadedPlaylistCover(
+      fileName: 'cover-test.png',
+      reference: 'custom/cover-test.png',
+    );
+  }
+}
+
+/// 封面图片选择替身：返回预置的内存字节（null 模拟用户取消），
+/// 绝不触碰 file_picker 插件。
+class FakePlaylistImagePicker implements MusicPlaylistImagePicker {
+  FakePlaylistImagePicker({this.bytes, this.error});
+
+  Uint8List? bytes;
+  Object? error;
+  int calls = 0;
+
+  @override
+  Future<Uint8List?> pickPng() async {
+    calls++;
+    final pending = error;
+    if (pending != null) throw pending;
+    return bytes;
+  }
+}
+
+/// 搜索调用记录（keyword + page/pageSize 回显）。
+class SongSearchCall {
+  const SongSearchCall(this.keyword, this.page, this.pageSize);
+
+  final String keyword;
+  final int page;
+  final int pageSize;
+}
+
+/// 搜索歌曲替身（加歌页注入缝）：页表切片返回，`call` 撕下后即可作为
+/// `Future<MusicPage<MusicSong>> Function(String, {page, pageSize})` 注入。
+class FakeSongSearch {
+  FakeSongSearch({List<List<MusicSong>>? pages, this.error})
+    : pages = pages ?? const <List<MusicSong>>[];
+
+  List<List<MusicSong>> pages;
+  Object? error;
+  final List<SongSearchCall> calls = <SongSearchCall>[];
+
+  Future<MusicPage<MusicSong>> call(
+    String keyword, {
+    int page = 1,
+    int pageSize = 30,
+  }) async {
+    calls.add(SongSearchCall(keyword, page, pageSize));
+    final pending = error;
+    if (pending != null) throw pending;
+    final index = page - 1;
+    final items = index >= 0 && index < pages.length
+        ? pages[index]
+        : const <MusicSong>[];
+    return MusicPage<MusicSong>(
+      page: page,
+      pageSize: pageSize,
+      total: pages.fold<int>(0, (sum, pageItems) => sum + pageItems.length),
+      items: items,
+    );
+  }
 }
 
 /// 播放 UI 替身：记录 playSong；播放页是固定文案锚点（断言 push 生效）。
@@ -297,22 +444,28 @@ MusicUserPlaylist testPlaylist({
   bool? isPrivate = false,
   String coverUrl = '',
   MusicCloudPlaylistKind kind = MusicCloudPlaylistKind.owned,
+  int? revision = 1,
+  int? sortIndex = 0,
+  bool descriptionPresent = false,
+  String description = '',
+  bool tagsPresent = false,
+  String tags = '',
 }) => MusicUserPlaylist(
   cloudListId: cloudListId,
   globalId: globalId,
   creatorGlobalId: 'creator-gid',
   title: title,
-  descriptionPresent: false,
-  tagsPresent: false,
-  description: '',
-  tags: '',
+  descriptionPresent: descriptionPresent,
+  tagsPresent: tagsPresent,
+  description: description,
+  tags: tags,
   coverUrl: coverUrl,
   creatorId: 7,
   creatorName: creatorName,
   creatorListId: 3,
   songCount: songCount,
-  revision: 1,
-  sortIndex: 0,
+  revision: revision,
+  sortIndex: sortIndex,
   sourceCode: 1,
   kind: kind,
   kindCode: kind == MusicCloudPlaylistKind.owned ? 0 : 1,
@@ -341,6 +494,7 @@ MusicPlaylistTrack testTrack({
   String artist = '歌手',
   int? durationMs = 200000,
   String coverUrl = '',
+  int? fileId,
 }) => MusicPlaylistTrack(
   song: MusicSong(
     id: id,
@@ -354,7 +508,40 @@ MusicPlaylistTrack testTrack({
     coverUrl: coverUrl,
   ),
   metadata: MusicPlaylistTrackMetadata(sourceFileName: title),
+  fileId: fileId,
 );
+
+/// 搜索结果歌曲（加歌页/加歌流程用）。hash 固定 32 位、albumId/songId
+/// 都是可解析整数——与 PlaylistTrackInput 的入参要求对齐。
+MusicSong testSong({
+  String id = '501',
+  String title = '歌曲',
+  String artist = '歌手',
+  String albumId = '42',
+  String albumTitle = '专辑',
+  String? hash,
+}) => MusicSong(
+  id: id,
+  audioId: 9000 + int.tryParse(id)!,
+  hash: hash ?? 'h$id'.padLeft(32, '0'),
+  title: title,
+  artists: <MusicArtistRef>[MusicArtistRef(id: 1, name: artist)],
+  albumId: albumId,
+  albumTitle: albumTitle,
+  durationMs: 200000,
+  coverUrl: '',
+);
+
+/// 构造一段恰好通过 playlist_pic_upload 帧校验的 PNG 字节（签名 +
+/// IHDR 长度/类型 + 13 字节 IHDR 数据 + CRC 占位），不读任何真实文件。
+Uint8List fakePlaylistPngBytes() => Uint8List.fromList(<int>[
+  0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // PNG 签名
+  0x00, 0x00, 0x00, 0x0D, // IHDR 长度 13
+  0x49, 0x48, 0x44, 0x52, // 'IHDR'
+  // 13 字节 IHDR 数据（10×10、8bit RGBA），页面/端点都不做图像解码。
+  0x00, 0x0A, 0x00, 0x00, 0x00, 0x0A, 0x08, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00, // CRC 占位
+]);
 
 MusicPlaylistDetail testDetail({
   String globalId = 'g-9',
