@@ -169,4 +169,78 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(MusicPlayerPage), findsOneWidget);
   });
+
+  // ---- MD3 Expressive 波浪进度条（M4-P）----
+
+  testWidgets('播放页出现波浪进度条（可拖动 Slider）', (tester) async {
+    await pumpModule(tester);
+    await searchAndOpen(tester);
+
+    expect(
+      find.byKey(const Key('player-wavy-progress')),
+      findsOneWidget,
+      reason: '播放页替换为波浪进度条后仍保留 Slider 供点击 seek',
+    );
+    // 波浪进度条本体仍是 Slider，既有 find.byType(Slider) 测试不受影响。
+    expect(
+      find.descendant(
+        of: find.byType(MusicPlayerPage),
+        matching: find.byType(Slider),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('迷你条出现波浪进度条（Key 存在且不拦截整卡点击）', (tester) async {
+    await pumpModule(tester);
+    await searchAndOpen(tester);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    // 有播放进度时底部绘制波形细条。
+    engine.emit(
+      const MusicPlaybackSnapshot(
+        position: Duration(seconds: 30),
+        duration: Duration(seconds: 200),
+        playing: true,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final mini = find.byType(MusicMiniPlayer);
+    final progress = find.descendant(
+      of: mini,
+      matching: find.byKey(const Key('mini-wavy-progress')),
+    );
+    expect(progress, findsOneWidget);
+
+    // 点进度条区域仍能穿透到整卡 InkWell 进入播放页（用 tapAt 避免
+    // IgnorePointer  widget 本身不可命中的 hit-test 警告——这正是期望行为）。
+    final progressRect = tester.getRect(progress);
+    await tester.tapAt(progressRect.center);
+    await tester.pumpAndSettle();
+    expect(find.byType(MusicPlayerPage), findsOneWidget);
+  });
+
+  testWidgets('拖动波浪进度条后 engine.seeks 非空且 pumpAndSettle 收敛', (tester) async {
+    await pumpModule(tester);
+    await searchAndOpen(tester);
+
+    engine.emit(
+      const MusicPlaybackSnapshot(
+        position: Duration.zero,
+        duration: Duration(seconds: 200),
+        playing: true,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final slider = find.byKey(const Key('player-wavy-progress'));
+    final rect = tester.getRect(slider);
+    await tester.tapAt(Offset(rect.left + rect.width * 0.75, rect.center.dy));
+    await tester.pumpAndSettle();
+
+    expect(engine.seeks, isNotEmpty);
+    expect(engine.seeks.last.inSeconds, greaterThan(0));
+  });
 }

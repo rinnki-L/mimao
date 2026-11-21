@@ -16,6 +16,7 @@ import 'package:mimao/music/api/playback_ext_api.dart';
 import 'package:mimao/music/models/discovery_models.dart';
 import 'package:mimao/music/models/music_models.dart';
 import 'package:mimao/music/pages/music_song_info_sheet.dart';
+import 'package:mimao/music/player/pages/music_wavy_progress.dart';
 import 'package:mimao/music/player/player_store.dart';
 
 class MusicPlayerPage extends StatefulWidget {
@@ -45,6 +46,13 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
   /// 当前歌曲的高潮区间；null = 加载中/无数据/失败（统一不显示 chip）。
   List<MusicSongClimaxSegment>? _climaxSegments;
 
+  /// 拖动中的本地进度（毫秒）；null = 未在拖动，进度跟随引擎快照。
+  ///
+  /// Slider 是受控组件：拖拽期间引擎位置不会更新，若 value 直接取
+  /// snapshot.position，拇指会「钉在原地」不跟手。拖动期间用本地值回填
+  /// value 让拇指/波形跟随手指，onChangeEnd 再 seekTo，松手后回到引擎位置。
+  double? _dragPositionMs;
+
   MusicPlayerStore get player => widget.player;
 
   /// Observer builder 内检测换歌并按需发起高潮加载。
@@ -57,6 +65,7 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
     if (_climaxSongKey == key) return;
     _climaxSongKey = key;
     _climaxSegments = null; // 换歌丢弃旧结果
+    _dragPositionMs = null; // 换歌丢弃上一首歌的拖动残留
     unawaited(_loadClimax(key, song.hash));
   }
 
@@ -197,6 +206,13 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
           final positionMs = durationMs <= 0
               ? 0
               : snapshot.position.inMilliseconds.clamp(0, durationMs);
+          // 拖动期间用本地值回填 Slider.value，让拇指/波形跟手；松手后回到
+          // 引擎快照驱动的真实位置。duration<=0 时禁用但进度条可见。
+          final enabled = durationMs > 0;
+          final maxMs = durationMs <= 0 ? 1.0 : durationMs.toDouble();
+          final sliderValueMs = (_dragPositionMs ?? positionMs.toDouble())
+              .clamp(0.0, maxMs);
+          final colorScheme = Theme.of(context).colorScheme;
           return SingleChildScrollView(
             padding: const EdgeInsets.all(24),
             child: Column(
@@ -233,15 +249,31 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
                   ),
                 ],
                 const SizedBox(height: 8),
-                Slider(
-                  value: positionMs.toDouble(),
-                  max: durationMs <= 0 ? 1 : durationMs.toDouble(),
-                  onChanged: durationMs <= 0 ? null : (value) {},
-                  onChangeEnd: durationMs <= 0
-                      ? null
-                      : (value) => player.seekTo(
-                          Duration(milliseconds: value.round()),
-                        ),
+                // 波浪进度条：保留 Slider 语义/点击 seek/无障碍，拖动跟手。
+                // 外包 SliderTheme 只影响本条，不改全局主题。
+                SliderTheme(
+                  data: WavySliderTheme(
+                    activeColor: colorScheme.primary,
+                    inactiveColor: colorScheme.onSurfaceVariant.withValues(
+                      alpha: 0.2,
+                    ),
+                  ),
+                  child: Slider(
+                    key: const Key('player-wavy-progress'),
+                    value: sliderValueMs,
+                    max: maxMs,
+                    onChanged: enabled
+                        ? (value) => setState(() => _dragPositionMs = value)
+                        : null,
+                    onChangeEnd: enabled
+                        ? (value) {
+                            setState(() => _dragPositionMs = null);
+                            player.seekTo(
+                              Duration(milliseconds: value.round()),
+                            );
+                          }
+                        : null,
+                  ),
                 ),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,

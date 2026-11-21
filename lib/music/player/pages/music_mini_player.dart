@@ -11,6 +11,7 @@ import 'package:mimao/core/theme.dart';
 import 'package:mimao/music/api/playback_ext_api.dart';
 import 'package:mimao/music/models/discovery_models.dart';
 import 'package:mimao/music/player/pages/music_player_page.dart';
+import 'package:mimao/music/player/pages/music_wavy_progress.dart';
 import 'package:mimao/music/player/player_store.dart';
 
 class MusicMiniPlayer extends StatelessWidget {
@@ -58,49 +59,71 @@ class MusicMiniPlayer extends StatelessWidget {
                 ),
               ),
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-                child: Row(
+                padding: const EdgeInsets.fromLTRB(12, 8, 8, 0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: <Widget>[
-                    _MiniCover(url: song.coverUrl),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: <Widget>[
-                          Text(
-                            _displayTitle(song.title),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodyMedium,
+                    Row(
+                      children: <Widget>[
+                        _MiniCover(url: song.coverUrl),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: <Widget>[
+                              Text(
+                                _displayTitle(song.title),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.bodyMedium,
+                              ),
+                              Text(
+                                song.artistText,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
                           ),
-                          Text(
-                            song.artistText,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                        if (player.isResolving)
+                          const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        else
+                          IconButton.filled(
+                            tooltip: player.snapshot.playing ? '暂停' : '播放',
+                            icon: Icon(
+                              player.snapshot.playing
+                                  ? Icons.pause
+                                  : Icons.play_arrow,
                             ),
+                            onPressed: player.toggle,
                           ),
-                        ],
+                      ],
+                    ),
+                    // 卡片底部波浪进度：只画不管手势，IgnorePointer 让整卡点击
+                    // 仍进播放页；progress 由 MobX 快照实时驱动。
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: SizedBox(
+                        key: const Key('mini-wavy-progress'),
+                        height: 10,
+                        child: MiniWavyProgress(
+                          progress: player.snapshot.duration.inMilliseconds <= 0
+                              ? 0
+                              : (player.snapshot.position.inMilliseconds /
+                                        player.snapshot.duration.inMilliseconds)
+                                    .clamp(0.0, 1.0),
+                        ),
                       ),
                     ),
-                    if (player.isResolving)
-                      const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    else
-                      IconButton.filled(
-                        tooltip: player.snapshot.playing ? '暂停' : '播放',
-                        icon: Icon(
-                          player.snapshot.playing
-                              ? Icons.pause
-                              : Icons.play_arrow,
-                        ),
-                        onPressed: player.toggle,
-                      ),
                   ],
                 ),
               ),
