@@ -1,4 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 听歌识曲：record 插件采集麦克风 PCM（仅用户主动点击时申请） -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <application
         android:label="mimao"
         android:name="${applicationName}"

@@ -36,6 +36,12 @@ dependencies:
   media_kit: ^1.2.6
   media_kit_libs_video: ^1.0.7
 
+  # 音乐长尾 UI：本地选图（头像/歌单封面/导入截图）与麦克风采集（听歌识曲）。
+  # 两者都支持 Windows + Android；record 7.x 在 Windows 走 MediaFoundation，
+  # 不需要额外二进制。只在用户主动操作时触发，测试注入 fake 不走插件。
+  file_picker: ^13.4.0
+  record: ^7.2.0
+
   # 漫画 A′ 线 · 源引擎：flutter_qjs(CyrilPeng fork) 跑社区 Venera JS 源；
   # cookie_jar 管 Cookie；html 解析源脚本里的 HtmlDocument/DOM。
   # flutter_qjs 走 git 固定到上游对齐的 commit；首次编译会拉 native QuickJS。
