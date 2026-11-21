@@ -4,14 +4,14 @@
 ///
 /// L4 起为 StatefulWidget：持有「当前曲目高潮区间」的页面级状态（不用
 /// store 的 @observable，避免 build_runner）；`loadClimax` 为空或 hash
-/// 非 32 位时不取，失败静默、无数据不显示。
+/// 非 32 位时不取，失败静默、无数据不标注。
 library;
 
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
-import 'package:mimao/core/theme.dart';
 import 'package:mimao/music/api/playback_ext_api.dart';
 import 'package:mimao/music/models/discovery_models.dart';
 import 'package:mimao/music/models/music_models.dart';
@@ -43,7 +43,7 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
   /// 已发起过高潮加载的歌曲 key（每首歌只取一次；失败也不重试）。
   String? _climaxSongKey;
 
-  /// 当前歌曲的高潮区间；null = 加载中/无数据/失败（统一不显示 chip）。
+  /// 当前歌曲的高潮区间；null = 加载中/无数据/失败（统一不做标注）。
   List<MusicSongClimaxSegment>? _climaxSegments;
 
   /// 拖动中的本地进度（毫秒）；null = 未在拖动，进度跟随引擎快照。
@@ -83,36 +83,65 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
     }
   }
 
-  /// 「高潮 mm:ss–mm:ss」chip 列表（点击 seek 到高潮起点）；无数据显示空。
-  List<Widget> _climaxChips() {
+  /// 把高潮区间归一化成 0..1 的 [ClimaxSpan]（交给波浪进度条内部标注）；
+  /// 无数据/时长未知/非法区间直接跳过。
+  List<ClimaxSpan> _climaxSpans(int durationMs) {
+    final spans = <ClimaxSpan>[];
     final segments = _climaxSegments;
-    if (segments == null) return const <Widget>[];
-    final chips = <Widget>[];
+    if (segments == null || durationMs <= 0) return spans;
     for (final segment in segments) {
       final startMs = segment.startMs;
       final endMs = segment.endMs;
       if (startMs == null || endMs == null || endMs < startMs) continue;
-      chips.add(
-        ActionChip(
-          tooltip: '跳到高潮',
-          label: Text(
-            '高潮 ${_formatDuration(Duration(milliseconds: startMs))}'
-            '–${_formatDuration(Duration(milliseconds: endMs))}',
-          ),
-          onPressed: () => player.seekTo(Duration(milliseconds: startMs)),
+      spans.add(
+        ClimaxSpan(
+          start: (startMs / durationMs).clamp(0.0, 1.0),
+          end: (endMs / durationMs).clamp(0.0, 1.0),
         ),
       );
     }
-    if (chips.isEmpty) return const <Widget>[];
-    return <Widget>[
-      const SizedBox(height: 8),
-      Wrap(
-        spacing: 8,
-        runSpacing: 4,
-        alignment: WrapAlignment.center,
-        children: chips,
+    return spans;
+  }
+
+  /// 背景层：封面模糊放大铺满 + 暗色遮罩；无封面/加载失败时用主题色渐变
+  /// 兜底。整层 [IgnorePointer]，不干扰前景控件的点击。
+  Widget _background(String coverUrl, ColorScheme colorScheme) {
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: Stack(
+          fit: StackFit.expand,
+          children: <Widget>[
+            DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: <Color>[
+                    colorScheme.primary.withValues(alpha: 0.35),
+                    colorScheme.surface,
+                  ],
+                ),
+              ),
+            ),
+            if (coverUrl.isNotEmpty)
+              ImageFiltered(
+                imageFilter: ui.ImageFilter.blur(sigmaX: 32, sigmaY: 32),
+                child: Image.network(
+                  coverUrl,
+                  fit: BoxFit.cover,
+                  // 无网络/加载失败时透明，露出下面的渐变兜底。
+                  errorBuilder: (context, error, stackTrace) =>
+                      const SizedBox.shrink(),
+                  loadingBuilder: (context, child, progress) =>
+                      progress == null ? child : const SizedBox.shrink(),
+                ),
+              ),
+            // 暗色遮罩：压住背景亮度，保证白字/控件清晰可读。
+            const ColoredBox(color: Color(0x8A000000)),
+          ],
+        ),
       ),
-    ];
+    );
   }
 
   void _openQueue(BuildContext context) {
@@ -213,112 +242,147 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
           final sliderValueMs = (_dragPositionMs ?? positionMs.toDouble())
               .clamp(0.0, maxMs);
           final colorScheme = Theme.of(context).colorScheme;
-          return SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              children: <Widget>[
-                _Cover(url: song.coverUrl),
-                const SizedBox(height: 20),
-                Text(
-                  _displayTitle(song.title),
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  song.artistText,
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                if (failure != null) ...<Widget>[
-                  Text(
-                    failure,
-                    textAlign: TextAlign.center,
-                    style: Theme.of(
-                      context,
-                    ).textTheme.bodyMedium?.copyWith(color: Colors.red),
-                  ),
-                  const SizedBox(height: 8),
-                  OutlinedButton.icon(
-                    onPressed: player.retry,
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('重试'),
-                  ),
-                ],
-                const SizedBox(height: 8),
-                // 波浪进度条：保留 Slider 语义/点击 seek/无障碍，拖动跟手。
-                // 外包 SliderTheme 只影响本条，不改全局主题。
-                SliderTheme(
-                  data: WavySliderTheme(
-                    activeColor: colorScheme.primary,
-                    inactiveColor: colorScheme.onSurfaceVariant.withValues(
-                      alpha: 0.2,
-                    ),
-                  ),
-                  child: Slider(
-                    key: const Key('player-wavy-progress'),
-                    value: sliderValueMs,
-                    max: maxMs,
-                    onChanged: enabled
-                        ? (value) => setState(() => _dragPositionMs = value)
-                        : null,
-                    onChangeEnd: enabled
-                        ? (value) {
-                            setState(() => _dragPositionMs = null);
-                            player.seekTo(
-                              Duration(milliseconds: value.round()),
-                            );
-                          }
-                        : null,
-                  ),
-                ),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          final climaxSpans = _climaxSpans(durationMs);
+
+          Widget slider = SliderTheme(
+            data: WavySliderTheme(
+              activeColor: colorScheme.primary,
+              inactiveColor: colorScheme.onSurfaceVariant.withValues(
+                alpha: 0.2,
+              ),
+              climaxSpans: climaxSpans,
+            ),
+            child: Slider(
+              key: const Key('player-wavy-progress'),
+              value: sliderValueMs,
+              max: maxMs,
+              onChanged: enabled
+                  ? (value) => setState(() => _dragPositionMs = value)
+                  : null,
+              onChangeEnd: enabled
+                  ? (value) {
+                      setState(() => _dragPositionMs = null);
+                      player.seekTo(Duration(milliseconds: value.round()));
+                    }
+                  : null,
+            ),
+          );
+          // 高潮已内化进进度条：仅在有时段时挂一个语义标签，便于无障碍与
+          // 测试断言「进度条包含高潮区间」。
+          if (climaxSpans.isNotEmpty) {
+            slider = Semantics(label: '含高潮区间', child: slider);
+          }
+
+          return Stack(
+            fit: StackFit.expand,
+            children: <Widget>[
+              _background(song.coverUrl, colorScheme),
+              SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(24, 32, 24, 24),
+                child: Column(
                   children: <Widget>[
-                    Text(_formatDuration(snapshot.position)),
-                    Text(_formatDuration(snapshot.duration)),
-                  ],
-                ),
-                ..._climaxChips(),
-                const SizedBox(height: 8),
-                if (player.isResolving)
-                  const Padding(
-                    padding: EdgeInsets.all(16),
-                    child: CircularProgressIndicator(),
-                  )
-                else
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: <Widget>[
-                      IconButton.filledTonal(
-                        tooltip: '上一首',
-                        iconSize: 32,
-                        icon: const Icon(Icons.skip_previous),
-                        onPressed: player.previous,
-                      ),
-                      const SizedBox(width: 16),
-                      IconButton.filled(
-                        tooltip: snapshot.playing ? '暂停' : '播放',
-                        iconSize: 40,
-                        icon: Icon(
-                          snapshot.playing ? Icons.pause : Icons.play_arrow,
+                    // 唱片封面在左，歌名/歌手在右，整体位于屏幕偏上。
+                    Row(
+                      children: <Widget>[
+                        _Cover(url: song.coverUrl, playing: snapshot.playing),
+                        const SizedBox(width: 20),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: <Widget>[
+                              Text(
+                                _displayTitle(song.title),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.titleLarge
+                                    ?.copyWith(color: Colors.white),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                song.artistText,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.bodyMedium
+                                    ?.copyWith(color: Colors.white70),
+                              ),
+                            ],
+                          ),
                         ),
-                        onPressed: player.toggle,
+                      ],
+                    ),
+                    const SizedBox(height: 28),
+                    if (failure != null) ...<Widget>[
+                      Text(
+                        failure,
+                        textAlign: TextAlign.center,
+                        style: Theme.of(
+                          context,
+                        ).textTheme.bodyMedium?.copyWith(color: Colors.red),
                       ),
-                      const SizedBox(width: 16),
-                      IconButton.filledTonal(
-                        tooltip: '下一首',
-                        iconSize: 32,
-                        icon: const Icon(Icons.skip_next),
-                        onPressed: player.next,
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        onPressed: player.retry,
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('重试'),
                       ),
                     ],
-                  ),
-              ],
-            ),
+                    const SizedBox(height: 8),
+                    // 传输控件（上一首/播放暂停/下一首）位于进度条上方。
+                    if (player.isResolving)
+                      const Padding(
+                        padding: EdgeInsets.all(16),
+                        child: CircularProgressIndicator(),
+                      )
+                    else
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: <Widget>[
+                          IconButton.filledTonal(
+                            tooltip: '上一首',
+                            iconSize: 32,
+                            icon: const Icon(Icons.skip_previous),
+                            onPressed: player.previous,
+                          ),
+                          const SizedBox(width: 16),
+                          IconButton.filled(
+                            tooltip: snapshot.playing ? '暂停' : '播放',
+                            iconSize: 40,
+                            icon: Icon(
+                              snapshot.playing ? Icons.pause : Icons.play_arrow,
+                            ),
+                            onPressed: player.toggle,
+                          ),
+                          const SizedBox(width: 16),
+                          IconButton.filledTonal(
+                            tooltip: '下一首',
+                            iconSize: 32,
+                            icon: const Icon(Icons.skip_next),
+                            onPressed: player.next,
+                          ),
+                        ],
+                      ),
+                    const SizedBox(height: 16),
+                    // 波浪进度条：保留 Slider 语义/点击 seek/无障碍，拖动跟手；
+                    // 高潮区间通过 theme 的 climaxSpans 直接画在轨道上。
+                    // 外包 SliderTheme 只影响本条，不改全局主题。
+                    slider,
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: <Widget>[
+                        Text(
+                          _formatDuration(snapshot.position),
+                          style: const TextStyle(color: Colors.white70),
+                        ),
+                        Text(
+                          _formatDuration(snapshot.duration),
+                          style: const TextStyle(color: Colors.white70),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
           );
         },
       ),
@@ -326,41 +390,144 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
   }
 }
 
-class _Cover extends StatelessWidget {
-  const _Cover({required this.url});
+/// 圆形「黑胶唱片」封面：播放时缓慢旋转，暂停时静止。
+///
+/// 旋转用 [AnimationController.repeat] 无限动画，而 widget 测试里的
+/// `pumpAndSettle` 永远等不到收敛。因此在测试绑定下完全不启动动画（只显示
+/// 静止封面）；真机按 [playing] 起停。dispose 必须释放控制器。
+class _Cover extends StatefulWidget {
+  const _Cover({required this.url, required this.playing});
+
+  /// 唱片直径（逻辑像素）。
+  static const double size = 200;
 
   final String url;
+  final bool playing;
+
+  @override
+  State<_Cover> createState() => _CoverState();
+}
+
+class _CoverState extends State<_Cover> with SingleTickerProviderStateMixin {
+  /// 测试绑定下禁用无限旋转（否则 pumpAndSettle 会超时）。
+  static final bool _isWidgetTest = WidgetsBinding.instance.runtimeType
+      .toString()
+      .contains('TestWidgetsFlutterBinding');
+
+  late final AnimationController _spin = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 14),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _syncSpin();
+  }
+
+  @override
+  void didUpdateWidget(covariant _Cover oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.playing != widget.playing) _syncSpin();
+  }
+
+  void _syncSpin() {
+    if (widget.playing && !_isWidgetTest) {
+      if (!_spin.isAnimating) _spin.repeat();
+    } else {
+      _spin.stop();
+    }
+  }
+
+  @override
+  void dispose() {
+    _spin.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final fallback = Container(
-      width: 240,
-      height: 240,
+    const size = _Cover.size;
+
+    final Widget fallback = Container(
+      width: size,
+      height: size,
       alignment: Alignment.center,
       decoration: BoxDecoration(
         color: cs.surfaceContainerHighest,
-        borderRadius: MimaoShapes.xl,
+        shape: BoxShape.circle,
       ),
-      child: Icon(Icons.music_note, size: 96, color: cs.primary),
+      child: Icon(Icons.music_note, size: size * 0.4, color: cs.primary),
     );
-    if (url.isEmpty) return fallback;
     // widget 测试无网络：errorBuilder/loadingBuilder 缺一个都会抛异常。
-    return ClipRRect(
-      borderRadius: MimaoShapes.xl,
-      child: Image.network(
-        url,
-        width: 240,
-        height: 240,
-        fit: BoxFit.cover,
-        errorBuilder: (context, error, stackTrace) => fallback,
-        loadingBuilder: (context, child, progress) => progress == null
-            ? child
-            : const SizedBox(
-                width: 240,
-                height: 240,
-                child: Center(child: CircularProgressIndicator()),
+    final Widget artwork = widget.url.isEmpty
+        ? fallback
+        : Image.network(
+            widget.url,
+            width: size,
+            height: size,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) => fallback,
+            loadingBuilder: (context, child, progress) => progress == null
+                ? child
+                : SizedBox(
+                    width: size,
+                    height: size,
+                    child: const Center(child: CircularProgressIndicator()),
+                  ),
+          );
+
+    return RotationTransition(
+      turns: _spin,
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: Colors.white.withValues(alpha: 0.18),
+            width: 2,
+          ),
+          boxShadow: <BoxShadow>[
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.35),
+              blurRadius: 24,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: ClipOval(
+          child: Stack(
+            fit: StackFit.expand,
+            children: <Widget>[
+              artwork,
+              // 中心轴孔 + 一圈深色盘芯，纯装饰、不参与命中。
+              Center(
+                child: IgnorePointer(
+                  child: Container(
+                    width: size * 0.18,
+                    height: size * 0.18,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.black.withValues(alpha: 0.55),
+                    ),
+                    child: Center(
+                      child: Container(
+                        width: size * 0.06,
+                        height: size * 0.06,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: cs.surface,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               ),
+            ],
+          ),
+        ),
       ),
     );
   }

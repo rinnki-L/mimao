@@ -18,6 +18,15 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+/// 高潮区间在进度条轨道上的位置，start/end 都是 0..1 的归一化值。
+@immutable
+class ClimaxSpan {
+  const ClimaxSpan({required this.start, required this.end});
+
+  final double start;
+  final double end;
+}
+
 /// 已播放波形的振幅（逻辑像素，峰-峰值约 5px）。
 const double kWavyAmplitude = 2.5;
 
@@ -165,7 +174,10 @@ class WavyProgressPainter extends CustomPainter {
 /// track 布局计算（左右按 thumb/overlay 宽度收口）。绘制时复用
 /// [_drawWaveOnTrack] 的同一套算法，因此与迷你条视觉一致。
 class WavySliderTrackShape extends SliderTrackShape with BaseSliderTrackShape {
-  const WavySliderTrackShape();
+  const WavySliderTrackShape({this.climaxSpans = const []});
+
+  /// 需要标在轨道上的高潮区间（默认空，不影响迷你条等现有调用方）。
+  final List<ClimaxSpan> climaxSpans;
 
   @override
   void paint(
@@ -212,6 +224,7 @@ class WavySliderTrackShape extends SliderTrackShape with BaseSliderTrackShape {
       progress.clamp(0.0, 1.0),
       activeColor,
       inactiveColor,
+      climaxSpans: climaxSpans,
     );
   }
 }
@@ -227,6 +240,7 @@ class WavySliderTheme extends SliderThemeData {
     required Color activeColor,
     required Color inactiveColor,
     Color? thumbColor,
+    this.climaxSpans = const [],
   }) : super(
          trackHeight: kWavyTrackHeight,
          activeTrackColor: activeColor,
@@ -235,7 +249,7 @@ class WavySliderTheme extends SliderThemeData {
          disabledInactiveTrackColor: inactiveColor,
          thumbColor: thumbColor ?? activeColor,
          disabledThumbColor: (thumbColor ?? activeColor).withValues(alpha: 0.4),
-         trackShape: const WavySliderTrackShape(),
+         trackShape: WavySliderTrackShape(climaxSpans: climaxSpans),
          thumbShape: const _WavyThumbShape(),
          overlayShape: SliderComponentShape.noOverlay,
          valueIndicatorShape: SliderComponentShape.noOverlay,
@@ -243,6 +257,9 @@ class WavySliderTheme extends SliderThemeData {
          // 让轨道从 Slider 盒子左缘一直延伸到右缘，不留默认 padding。
          padding: EdgeInsets.zero,
        );
+
+  /// 透传给 [WavySliderTrackShape] 的高潮区间（默认空列表）。
+  final List<ClimaxSpan> climaxSpans;
 }
 
 class _WavyThumbShape extends SliderComponentShape {
@@ -291,6 +308,7 @@ void _drawWaveOnTrack(
   double amplitude = kWavyAmplitude,
   double wavelength = kWavyWavelength,
   double strokeWidth = kWavyStrokeWidth,
+  List<ClimaxSpan> climaxSpans = const [],
 }) {
   final midY = trackRect.center.dy;
   final rRect = RRect.fromLTRBR(
@@ -301,6 +319,39 @@ void _drawWaveOnTrack(
     Radius.circular(kWavyTrackHeight / 2),
   );
   canvas.drawRRect(rRect, Paint()..color = inactiveColor);
+
+  // 高潮区间标记：暖橙色半透明圆角块，比轨道略高，叠在未播放轨道之上。
+  // 默认空列表 → 不做任何绘制，现有视觉完全不变。
+  for (final span in climaxSpans) {
+    final start = span.start.clamp(0.0, 1.0);
+    final end = span.end.clamp(0.0, 1.0);
+    final left = trackRect.left + math.min(start, end) * trackRect.width;
+    final right = trackRect.left + math.max(start, end) * trackRect.width;
+    if (right - left <= 0) continue;
+    const markerColor = Color(0xFFFFB74D);
+    const markerHeight = kWavyTrackHeight + 4;
+    final markerRect = RRect.fromLTRBR(
+      left,
+      midY - markerHeight / 2,
+      right,
+      midY + markerHeight / 2,
+      Radius.circular(markerHeight / 2),
+    );
+    canvas.drawRRect(
+      markerRect,
+      Paint()..color = markerColor.withValues(alpha: 0.5),
+    );
+    // 起点强调：一条 1.5px 暖橙竖线。
+    canvas.drawLine(
+      Offset(left, midY - markerHeight / 2),
+      Offset(left, midY + markerHeight / 2),
+      Paint()
+        ..color = markerColor
+        ..strokeWidth = 1.5
+        ..strokeCap = StrokeCap.round,
+    );
+  }
+
   if (progress <= 0) return;
 
   final endX = trackRect.left + progress * trackRect.width;
