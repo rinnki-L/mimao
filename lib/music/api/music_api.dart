@@ -10,7 +10,6 @@ import 'package:mimao/music/api/album_api.dart';
 import 'package:mimao/music/api/artist_api.dart';
 import 'package:mimao/music/api/auth_login_api.dart';
 import 'package:mimao/music/api/discovery_api.dart';
-import 'package:mimao/music/api/effects_api.dart';
 import 'package:mimao/music/api/listen_report_api.dart';
 import 'package:mimao/music/api/lyric_api.dart';
 import 'package:mimao/music/api/music_browse_apis.dart';
@@ -85,7 +84,6 @@ class KugouMusicApi implements MusicApi, MusicIdentityApi, MusicAuthEvents {
   late final MusicRankApi rank = KugouRankApi(session);
   late final MusicAlbumApi album = KugouAlbumApi(session);
   late final MusicArtistApi artist = KugouArtistApi(session);
-  late final MusicEffectsApi effects = KugouEffectsApi(session);
   late final MusicPlaylistReadApi playlistRead = KugouPlaylistReadApi(session);
   late final MusicPlaylistWriteApi playlistWrite = KugouPlaylistWriteApi(
     session,
@@ -105,7 +103,6 @@ class KugouMusicApi implements MusicApi, MusicIdentityApi, MusicAuthEvents {
     rank: rank,
     album: album,
     artist: artist,
-    effects: effects,
     playlistRead: playlistRead,
     playlistWrite: playlistWrite,
     userProfile: userProfile,

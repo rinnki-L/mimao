@@ -13,8 +13,6 @@ import 'package:mimao/music/api/artist_albums.dart';
 import 'package:mimao/music/api/artist_api.dart';
 import 'package:mimao/music/api/artist_audios_new.dart';
 import 'package:mimao/music/api/artist_lists.dart';
-import 'package:mimao/music/api/audio_match.dart';
-import 'package:mimao/music/api/get_model.dart';
 import 'package:mimao/music/api/images_audio.dart';
 import 'package:mimao/music/api/krm_audio.dart';
 import 'package:mimao/music/api/playback_ext_api.dart';
@@ -23,7 +21,6 @@ import 'package:mimao/music/models/album_models.dart'
     hide MusicPreviewRange; // 预览区间用播放补全组自己的版本
 import 'package:mimao/music/models/artist_models.dart';
 import 'package:mimao/music/models/catalog_models.dart';
-import 'package:mimao/music/models/effects_models.dart';
 import 'package:mimao/music/models/music_models.dart';
 // 与 album_models 同名重合的目录事实类保留 album_models 版（曲目 metadata
 // 用的是它），只放行播放补全组自己的差量模型。
@@ -230,8 +227,7 @@ class FakePlayerUi implements MusicPlayerUi {
 
 // ── FakePlaybackExtApi（L6：权益/资料/歌手图片）────────────────────────
 
-/// 播放补全组 fake：记录三段查询入参；识曲/音效商城与本切片无关，
-/// 只给空实现（页面不会调用）。
+/// 播放补全组 fake：记录三段查询入参。
 class FakePlaybackExtApi implements MusicPlaybackExtApi {
   FakePlaybackExtApi({
     this.privileges = const <MusicResourcePrivileges>[],
@@ -254,11 +250,6 @@ class FakePlaybackExtApi implements MusicPlaybackExtApi {
   final List<ImagesAudioQuery> imagesLog = <ImagesAudioQuery>[];
 
   @override
-  Future<List<MusicRecognitionMatch>> audioMatch(AudioMatchQuery query) async {
-    return const <MusicRecognitionMatch>[];
-  }
-
-  @override
   Future<List<MusicResourcePrivileges>> privilegeLite(
     PrivilegeLiteQuery query,
   ) async {
@@ -266,11 +257,6 @@ class FakePlaybackExtApi implements MusicPlaybackExtApi {
     final error = privilegeError;
     if (error != null) throw error;
     return privileges;
-  }
-
-  @override
-  Future<MusicPage<MusicEffect>> getModel(GetModelQuery query) async {
-    return MusicPage<MusicEffect>(items: const <MusicEffect>[]);
   }
 
   @override

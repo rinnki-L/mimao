@@ -234,10 +234,6 @@ void main() {
       kugouOriginHost(KugouOrigin.userService),
       'https://userservice.kugou.com',
     );
-    expect(
-      kugouOriginHost(KugouOrigin.effectsCatalog),
-      'http://mobilecdngz.kugou.com',
-    );
     expect(kugouOriginHost(KugouOrigin.sumComment), kugouGatewayBaseUrl);
   });
 

@@ -1,8 +1,8 @@
 /// 音乐模块的端点能力包——UI/装配层一次性拿到全部按域拆分的接口。
 ///
 /// 设计动机：`MusicApi` 只保留「搜索单曲 + 设备身份」这个最小面；扩容后的
-/// 14 个域各自有独立接口（发现/榜单/专辑/歌手/歌单读/歌单写/用户资料/
-/// 用户库/登录/验证/歌词/播放扩展/音效/听歌上报）。把 15 个可选参数塞进
+/// 13 个域各自有独立接口（发现/榜单/专辑/歌手/歌单读/歌单写/用户资料/
+/// 用户库/登录/验证/歌词/播放扩展/听歌上报）。把 14 个可选参数塞进
 /// `MusicModule` 会很难读，因此用这个不可变包统一传递；生产实现由
 /// `KugouMusicApi.browseApis` 惰性构造，测试可逐项注入 fake。
 library;
@@ -11,7 +11,6 @@ import 'package:mimao/music/api/album_api.dart';
 import 'package:mimao/music/api/artist_api.dart';
 import 'package:mimao/music/api/auth_login_api.dart';
 import 'package:mimao/music/api/discovery_api.dart';
-import 'package:mimao/music/api/effects_api.dart';
 import 'package:mimao/music/api/listen_report_api.dart';
 import 'package:mimao/music/api/lyric_api.dart';
 import 'package:mimao/music/api/playback_ext_api.dart';
@@ -31,7 +30,6 @@ class MusicBrowseApis {
     this.rank,
     this.album,
     this.artist,
-    this.effects,
     this.playlistRead,
     this.playlistWrite,
     this.userProfile,
@@ -48,7 +46,6 @@ class MusicBrowseApis {
   final MusicRankApi? rank;
   final MusicAlbumApi? album;
   final MusicArtistApi? artist;
-  final MusicEffectsApi? effects;
   final MusicPlaylistReadApi? playlistRead;
   final MusicPlaylistWriteApi? playlistWrite;
   final MusicUserProfileApi? userProfile;

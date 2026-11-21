@@ -1,9 +1,9 @@
 /// 播放补全端点组的模型与共享解码辅助——EchoMusicNext `crates/echo-api/src`
-/// 里 `module/audio_match.rs` / `privilege_lite.rs` / `images_audio.rs` /
-/// `krm_audio.rs` 的产物模型（docs/architecture.md §4.3：models ← domain）。
+/// 里 `module/privilege_lite.rs` / `images_audio.rs` / `krm_audio.rs` 的产物
+/// 模型（docs/architecture.md §4.3：models ← domain）。
 ///
 /// `domain/discovery.rs` 的 CatalogSongFacts / CatalogRights 与
-/// `privilege_lite.rs` 的 PreviewRange / QualityMap 是识曲与权益共用的
+/// `privilege_lite.rs` 的 PreviewRange / QualityMap 是权益等端点共用的
 /// 事实结构；`util/response.rs` 的 scalar/text/list/optional 宽容语义沿用
 /// `wire.dart`，这里只补该组用到的差量（无符号域、有限浮点、https 图片）。
 library;
@@ -46,17 +46,8 @@ List<String> playbackTextList(Object? value, String field) {
   return result;
 }
 
-/// 上游 `recognition_list`（audio_match.rs）：数组 → 行；null/空 object →
-/// 空表；其它标量/对象 → 单行。行内严格解码由调用方逐个进行。
-List<Object?> playbackRecognitionList(Object? value, String field) {
-  if (value == null) return const <Object?>[];
-  if (value is List) return value;
-  if (value is Map && value.isEmpty) return const <Object?>[];
-  return <Object?>[value];
-}
-
-/// privilege_lite.rs `PreviewRange` wire → 模型（audio_match 的 trans_param
-/// 复用同一 wire 形态）。字段全走 optional 宽容；非对象 → null。
+/// privilege_lite.rs `PreviewRange` wire → 模型。字段全走 optional 宽容；
+/// 非对象 → null。
 MusicPreviewRange? playbackPreviewRange(Object? value) {
   final wire = wireMap(value);
   if (wire == null) return null;
@@ -94,8 +85,8 @@ MusicEncodedMap? playbackEncodedMap(Object? value) {
 }
 
 /// request.rs `decode` 的前半段：JSON 解析 + 登录过期探测 → 根对象。
-/// 结构解码与恢复分支由各端点按上游变体自行编排（audio_match 无恢复、
-/// privilege_lite/images_audio 走 decode_envelope、krm_audio 走 decode_value）。
+/// 结构解码与恢复分支由各端点按上游变体自行编排（privilege_lite/images_audio
+/// 走 decode_envelope、krm_audio 走 decode_value）。
 Map<String, Object?> decodePlaybackRoot(Uint8List bytes) {
   Object? decoded;
   try {
@@ -125,7 +116,7 @@ String? playbackImageUrl(Object? value) {
   return text;
 }
 
-/// {status, error_code, ...} 信封解码结果（本组五个端点共用）。
+/// {status, error_code, ...} 信封解码结果（privilege_lite 端点使用）。
 class MusicPlaybackEnvelope {
   const MusicPlaybackEnvelope(this.status, this.errorCode, this.root);
 
@@ -134,26 +125,6 @@ class MusicPlaybackEnvelope {
   final Map<String, Object?> root;
 
   Object? get data => root['data'];
-}
-
-/// request.rs `decode` + `decode_envelope("error_code")` 的组合语义
-/// （audio_match / privilege_lite / images_audio 共用；krm_audio 见
-/// `convertSongPresentations` 自身的分支）：
-///
-/// 1. `authentication_expiration`（request.rs）：`error_code`=20018 或
-///    `msg` 含「登录已过期」→ authentication（先于结构解码；码值原样保留）；
-/// 2. 结构解码：status（u32 域）必填 scalar；error_code 在 audio_match 的
-///    Wire 里有 serde default 0（[errorCodeOptional]=true），其余端点必填；
-/// 3. `decode_envelope` 恢复（仅必填档）：结构失败时 error_code 非零或
-///    status==0 → business；
-/// 4. 业务判定由端点按上游区分：audio_match 只看 status!=1；privilege_lite
-///    走 `request::success`（status==1 且 code==0）。
-MusicPlaybackEnvelope decodePlaybackEnvelope(
-  Uint8List bytes, {
-  bool errorCodeOptional = false,
-}) {
-  final root = decodePlaybackRoot(bytes);
-  return _decodeEnvelopeRoot(root, errorCodeOptional: errorCodeOptional);
 }
 
 /// request.rs `authentication_expiration`：error_code=20018 或 msg 文本含
@@ -166,45 +137,6 @@ void _ensureNotAuthenticationExpired(Map<String, Object?> root) {
   if (code == kugouErrorCodeAuthenticationExpired || expired) {
     throw KugouApiException('authentication', '账号认证无效，请重新登录', code: code);
   }
-}
-
-MusicPlaybackEnvelope _decodeEnvelopeRoot(
-  Map<String, Object?> root, {
-  required bool errorCodeOptional,
-}) {
-  // status：u32 域，越界在 Rust from_value::<u32> 失败 → 走恢复/decode 分支。
-  final parsedStatus = optionalInt(root['status']);
-  final statusUsable =
-      parsedStatus != null && parsedStatus >= 0 && parsedStatus <= 0xFFFFFFFF;
-  // error_code：i64 scalar；audio_match 的 Wire 缺省 0，present 非标量 → decode。
-  int errorCode = 0;
-  var errorUsable = true;
-  final rawError = root['error_code'];
-  if (rawError != null) {
-    final parsedError = optionalInt(rawError);
-    if (parsedError == null) {
-      errorUsable = false;
-    } else {
-      errorCode = parsedError;
-    }
-  } else if (!errorCodeOptional) {
-    errorUsable = false;
-  }
-  if (statusUsable && errorUsable) {
-    return MusicPlaybackEnvelope(parsedStatus, errorCode, root);
-  }
-  if (errorCodeOptional) {
-    // audio_match 用 request::decode（无 decode_envelope 恢复）：结构失败
-    // 直接 decode。
-    throw const KugouApiException('decode', '识曲响应缺少必填信封字段');
-  }
-  // decode_envelope 恢复分支：结构失败时按宽松码值重判。
-  final code = optionalInt(root['error_code']);
-  final rejected = optionalInt(root['status']) == 0;
-  if ((code != null && code != 0) || rejected) {
-    throw KugouApiException('business', '音乐服务返回失败', code: code ?? 0);
-  }
-  throw const KugouApiException('decode', '响应缺少必填信封字段');
 }
 
 /// privilege_lite.rs `PreviewRange`（试听/预览区间；全空表示无预览事实）。
@@ -321,8 +253,8 @@ class MusicCatalogRights {
   final MusicVoiceAd? voiceAd;
 }
 
-/// discovery.rs `CatalogSongFacts`——最小目录事实（识曲候选携带；资源行
-/// 复用共享层 `MusicAudioResource`，识曲 wire 不含 download_status）。
+/// discovery.rs `CatalogSongFacts`——最小目录事实（资源行复用共享层
+/// `MusicAudioResource`，wire 不含 download_status）。
 class MusicCatalogSongFacts {
   const MusicCatalogSongFacts({
     this.paymentType,
@@ -339,57 +271,6 @@ class MusicCatalogSongFacts {
   final int? originalityCode;
   final MusicCatalogRights? rights;
   final List<MusicAudioResource> resources;
-}
-
-/// domain.rs `SongSummary` 的识曲投影（audio_match.rs `RecognitionMatch.song`）。
-class MusicRecognitionSong {
-  const MusicRecognitionSong({
-    required this.id,
-    required this.hash,
-    required this.title,
-    required this.artists,
-    required this.albumId,
-    required this.albumTitle,
-    required this.durationMs,
-    required this.coverUrl,
-    this.privilege,
-    required this.facts,
-  });
-
-  /// wire `mixsongid`（text：数字 → 文本）。
-  final String id;
-
-  /// 命中的文件 hash（wire `hash_hit`）。
-  final String hash;
-  final String title;
-  final List<MusicArtistRef> artists;
-  final String albumId;
-
-  /// 从候选 album 列表按 albumid 匹配出的专辑名；无匹配 → null。
-  final String? albumTitle;
-  final int? durationMs;
-
-  /// `{size}` 占位符已替换为 240（domain.rs cover_url）。
-  final String coverUrl;
-  final int? privilege;
-  final MusicCatalogSongFacts facts;
-}
-
-/// audio_match.rs `RecognitionMatch`。
-class MusicRecognitionMatch {
-  const MusicRecognitionMatch({
-    required this.song,
-    required this.distance,
-    required this.confidence,
-    required this.timeOffset,
-  });
-
-  final MusicRecognitionSong song;
-  final double? distance;
-
-  /// 展示分 = 1 - clamp(distance, 0, 1)；distance 缺失不代表满分（上游注释）。
-  final double? confidence;
-  final int? timeOffset;
 }
 
 /// privilege_lite.rs `EncodedFile`（ogg 编码文件事实；hash/size 至少一个存在）。

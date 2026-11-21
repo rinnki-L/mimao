@@ -25,7 +25,6 @@ enum KugouOrigin {
   relationUser,
   climax,
   artistImages,
-  effectsCatalog,
   mcloudService,
   videoCollect,
   tracker,
@@ -49,7 +48,6 @@ String kugouOriginHost(KugouOrigin origin) => switch (origin) {
   KugouOrigin.relationUser => 'https://relationuser.kugou.com',
   KugouOrigin.climax => 'https://expendablekmrcdn.kugou.com',
   KugouOrigin.artistImages => 'https://expendablekmr.kugou.com',
-  KugouOrigin.effectsCatalog => 'http://mobilecdngz.kugou.com',
   KugouOrigin.mcloudService => 'https://mcloudservice.kugou.com',
   KugouOrigin.videoCollect => 'https://collectservice.kugou.com',
   KugouOrigin.gateway ||
@@ -155,7 +153,7 @@ class KugouClient {
 
   /// send_endpoint 核心翻译。`cloud`/`clearDefaults` 对应 Rust 各 request_*
   /// 变体：request→(false,false)、request_cloud/grade/mcloud→(true,…)、
-  /// lyric search/effects/images/import→(false,true)。骨架端点都是 (false,false)。
+  /// lyric search/images/import→(false,true)。骨架端点都是 (false,false)。
   Future<KugouHttpResponse> sendEndpoint(
     KugouIdentity identity,
     KugouEndpoint endpoint, {

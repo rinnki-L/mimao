@@ -193,7 +193,7 @@ error_code=20018 在 decode 层统一映射 `authentication`、信封 status/err
 - 社交 `listen_together_*`、`blacklist*`、`user_follow*`、`user_fans`、
   `user_friends`、`user_visitors`、`artist_follow`/`artist_unfollow`
 
-### 端点组（12 个域 / 70+ 端点）
+### 端点组（11 个域 / 70+ 端点）
 
 | 域 | Dart 门面 | 端点 |
 |---|---|---|
@@ -202,14 +202,13 @@ error_code=20018 在 decode 层统一映射 `authentication`、信封 status/err
 | 榜单 | `api/rank_api.dart` | rank_list、rank_top、rank_audio、song_ranking、song_ranking_filter、top_album、top_ip、top_playlist、top_song |
 | 专辑 | `api/album_api.dart` | album_detail、album_dycover、album_songs、favorite_count |
 | 歌手 | `api/artist_api.dart` | artist_detail、artist_albums、artist_audios_new、artist_lists |
-| 音效 | `api/effects_api.dart` | effects_artist、effects_brand、effects_brand_detail、effects_match |
 | 歌单读 | `api/playlist_read_api.dart` | playlist_detail、playlist_track_all、playlist_track_all_new、playlist_tags、import_playlist |
 | 歌单写 | `api/playlist_write_api.dart` | playlist_add/del/update/sort、tracks_add/del/sort、pic_upload |
 | 用户资料 | `api/user_profile_api.dart` | user_info、user_detail、user_update、update_avatar、avatar_upload、vip_detail、grade_info、batch_union_vipinfo |
 | 用户库 | `api/user_library_api.dart` | user_history、user_playlist、user_preference(+update)、purchased_albums/songs、verify_user_info |
 | 登录 | `api/auth_login_api.dart` | login、cellphone、token、qq/openplat、qq/wx qr create/check、device、device_kick |
 | 验证/歌词 | `api/verify_api.dart`、`api/lyric_api.dart` | captcha_sent、get_verify_info、lyric |
-| 播放扩展 | `api/playback_ext_api.dart` | audio_match、privilege_lite、get_model、images_audio、krm_audio |
+| 播放扩展 | `api/playback_ext_api.dart` | privilege_lite、images_audio、krm_audio |
 | 听歌上报 | `api/listen_report_api.dart` | user_listen_report（CSCC 握手 + 事件 + 内存会话缓存） |
 
 共享底座：
@@ -227,8 +226,11 @@ error_code=20018 在 decode 层统一映射 `authentication`、信封 status/err
 
 ### UI 接线
 
-- 音乐主页首 tab：`pages/music_discovery_page.dart`（发现/歌曲/专辑/歌手/歌单/
-  歌词六 tab；默认词/热词/建议、首页发现、每日推荐、AI 畅听、私人 FM）。
+- 音乐主页首 tab：`pages/music_discovery_page.dart`（AppBar + 搜索框 + 入口
+  网格 + 每日推荐；搜索提交统一 push `pages/music_discovery_search_page.dart`，
+  只出歌曲结果，不再分专辑/歌手/歌单/歌词 tab）。4 个内容入口在页面加载时
+  预取一批数据，用列表第一首封面做卡片图；首页发现 / 私人 FM 进入后按批
+  去重追加到 24 / 20 首（每次 8 / 5 首），避免内容过短。
 - `pages/music_rank_page.dart` + `music_rank_detail_page.dart`：榜单/新歌/专辑/
   歌单/IP。
 - `pages/music_album_detail_page.dart`、`music_artist_detail_page.dart`。
@@ -240,9 +242,6 @@ error_code=20018 在 decode 层统一映射 `authentication`、信封 status/err
   （`KugouMusicApi.authEpoch`）驱动自动重拉，不需要手动重试。
 - 「我的」页收藏段：本地收藏（drift）+ **账号收藏**（云歌单「我喜欢」，
   `is_def == 2`；登录后自动出现，支持分页加载）。
-- `pages/music_effects_page.dart`、`music_effects_brand_page.dart`：音效商城
-  （`getModel`）/ 耳机品牌与型号 / 设备匹配；`pages/music_audio_match_page.dart`
-  听歌识曲（麦克风采集 → `audio_match`）。
 - `pages/music_login_methods_page.dart`：手机号验证码 / QQ 扫码 / 微信扫码 /
   登录设备管理；登录闸门首屏与扫码同屏提供「手机号 / QQ / 微信登录」入口。
   `pages/music_security_verify_page.dart`：验证挑战查询 + sideDt 提交。
@@ -250,15 +249,16 @@ error_code=20018 在 decode 层统一映射 `authentication`、信封 status/err
   （krm_audio）/ 歌手图片（images_audio）；专辑曲目长按、歌手页写真、播放页
   「歌曲资料」入口共用。
 - 发现页：圆角方块入口网格（首页发现 / 风格推荐 / AI 畅听 / 私人 FM /
-  热门搜索 / 排行榜），点入口进各自长条列表页；每日推荐与音效商城入口留在
-  发现 tab，每日推荐用与收藏一致的长条行。风格推荐页保留标签 chips 多选
+  热门搜索 / 排行榜），点入口进各自长条列表页；每日推荐入口留在发现页，
+  每日推荐用与收藏一致的长条行。风格推荐页保留标签 chips 多选
   （`everydayStyleRecommend`）。
 - 「我的」账号收藏自动翻页取全量（每页 300，无「加载更多」）；听歌历史的
   封面模板（`{size}`）在 API 层替换后再交给 UI。
-- 播放页显示歌曲高潮区间并可跳转；听歌上报（CSCC）默认开启，设置页可关
-  （`lib/music/music_settings.dart`）。
+- 播放页显示歌曲高潮区间并可跳转；进度条是 MD3 Expressive 波浪样式（迷你条
+  底部细条 + 播放页可拖动 Slider，`player/pages/music_wavy_progress.dart`）；
+  听歌上报（CSCC）默认开启，设置页可关（`lib/music/music_settings.dart`）。
 - 主页底部 tab：发现（无扩展时回退旧搜索）/ 我的（顶部「我的歌单」入口）/
-  账号 / 设置；迷你播放条与播放页保持原状。
+  账号 / 设置；迷你播放条带封面/进度/播放按钮，点整卡进播放页。
 
 ### 验证
 
@@ -283,9 +283,6 @@ error_code=20018 在 decode 层统一映射 `authentication`、信封 status/err
   缺失时按标题「我喜欢」兜底；两者不合并计数。
 - 歌单导入只做分享链接（`import_playlist` 的 Link 动作）；截图导入的
   `taskSn` 与链接导入回执里的数字任务 id 对不上，未臆造两阶段流程。
-- 听歌识曲依赖麦克风（`record`，Windows 走 MediaFoundation、Android 需
-  `RECORD_AUDIO`）；真实设备录音未在 CI 覆盖，页面给了权限拒绝/录音失败的
-  显式错误态。
 - 安全验证（sideDt）入口在设置页，需要外部提供的事件号才能发起挑战；目前
   没有从业务错误自动跳验证的链路。
 - 听歌上报默认开启，开关落在应用支持目录的 `music_settings/settings.json`；
