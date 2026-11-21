@@ -55,4 +55,17 @@ abstract interface class ComicLibraryApi {
 
   /// 已导入的本地漫画。
   Future<List<ComicLibraryEntry>> local();
+
+  /// 删除一条阅读历史（主页「阅读历史」长按删除）。
+  ///
+  /// 实现方负责投影一致性：该作品若还有收藏/本地则重投影，否则删 core 行。
+  Future<void> removeHistoryEntry({
+    required String id,
+    required String sourceName,
+  });
+
+  /// 清空全部阅读历史（主页「阅读历史」一键清空）。
+  ///
+  /// 与 [removeHistoryEntry] 同款投影收尾。
+  Future<void> clearHistory();
 }

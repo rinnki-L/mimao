@@ -3,7 +3,7 @@
 ///
 /// 底部 NavigationBar 四个功能分区（用户拍板）：
 ///   主页 / 收藏 / 发现 / 分类
-/// - **主页**：搜索入口 + 跨源继续阅读 + 本地漫画 + 源管理入口；
+/// - **主页**：搜索入口 + 跨源阅读历史（可删/清空）+ 本地漫画 + 源管理入口；
 /// - **收藏**：用户收藏的漫画；
 /// - **发现**：各源站点的探索流（推荐/排行分栏）；
 /// - **分类**：各源站点的分类树（无 category 时回退到探索分栏）。
@@ -38,7 +38,6 @@ class ComicModulePage extends StatefulWidget {
     this.settingsTab,
     this.onOpenDetail,
     this.onOpenSources,
-    this.onOpenLibrary,
     this.isFavorite,
     this.onFavoriteChanged,
     this.onStartReading,
@@ -70,9 +69,6 @@ class ComicModulePage extends StatefulWidget {
 
   /// 打开源管理页（主页入口）；null 时用模块内置的源管理页。
   final VoidCallback? onOpenSources;
-
-  /// 打开统一书架（壳层能力）；null 时主页不显示该入口。
-  final VoidCallback? onOpenLibrary;
 
   /// 打开详情前读取权威收藏态；由模块层接收藏服务注入。
   final Future<bool> Function(ComicSummary)? isFavorite;
@@ -184,7 +180,6 @@ class _ComicModulePageState extends State<ComicModulePage> {
             showAppBar: !widget.embedded,
             onOpenDetail: _openDetail,
             onOpenSources: _openSources,
-            onOpenLibrary: widget.onOpenLibrary,
             onOpenSettings: hasSettings ? _openSettings : null,
             // 与收藏页同一刷新信号：从详情/阅读器返回后重读历史与本地。
             refreshKey: _libraryRevision,

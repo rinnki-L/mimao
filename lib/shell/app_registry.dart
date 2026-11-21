@@ -18,7 +18,6 @@ import 'package:mimao/shell/app.dart';
 import 'package:mimao/shell/dev/dev_capability.dart';
 import 'package:mimao/shell/network_settings.dart';
 import 'package:mimao/shell/dev/dev_databases.dart';
-import 'package:mimao/shell/shell_store.dart';
 import 'package:mimao/music/api/kugou_playback_api.dart';
 import 'package:mimao/music/api/lyric.dart';
 import 'package:mimao/music/api/music_account_api.dart';
@@ -232,8 +231,7 @@ Future<void> initAppModules({
         // 当前没有下载器/文件夹导入 UI，区块为空但不崩。
         localService: ComicLocalService(db, library),
         searchHistory: searchHistory,
-        // 主页快捷入口「统一书架」：壳级导航，模块只拿一个回调。
-        onOpenLibrary: shellStore.openLibrary,
+        // 统一书架入口保留在壳层顶栏，漫画主页不再重复放快捷入口。
         loadChapterImages: adapter.loadImagesForChapter,
         imageCacheFactory: comicImageCacheFactory ?? defaultComicImageCache,
       );

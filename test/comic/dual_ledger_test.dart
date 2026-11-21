@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mimao/comic/collect_service.dart';
 import 'package:mimao/comic/comic_models.dart';
+import 'package:mimao/comic/comic_projection.dart';
 import 'package:mimao/comic/history_service.dart';
 import 'package:mimao/core/contract.dart';
 
@@ -170,5 +171,36 @@ void main() {
     final afterRemove = (await env.library.timeline()).single;
     expect(afterRemove.starred, isFalse);
     expect(afterRemove.progressText, '第 10 页 · 50%');
+  });
+
+  test('删除点是成对落账：删历史后 core 投影随之删/重投影', () async {
+    // 收藏 + 历史都在：此时删除历史应保留投影并把 starred 留下、进度回未读。
+    await collect.collect(ref, title: '葬送的芙莉莲');
+    await history.saveProgress(
+      ref,
+      title: '葬送的芙莉莲',
+      chapterId: 'ch1',
+      page: 10,
+      pageCount: 20,
+      openedAt: DateTime(2026, 11, 17, 10),
+    );
+    expect((await env.library.timeline()).single.progressText, 'ch1 · 第 10 页 · 50%');
+
+    await history.remove(ref);
+
+    var row = (await env.library.timeline()).single;
+    expect(row.starred, isTrue);
+    expect(row.progressText, comicUnreadText);
+    // 重投影后 payload 只剩「尚未阅读」的零进度摘要。
+    final raw = await env.appDb.select(env.appDb.mediaEntries).getSingle();
+    final payload = jsonDecode(raw.payload) as Map<String, Object?>;
+    expect(payload['page'], 0);
+
+    // 只为验证「删历史即删 core」的另一条路径：没有收藏时一步删净。
+    await history.saveProgress(ref, title: '仅历史', page: 3);
+    expect(await env.library.timeline(), hasLength(1));
+    await history.remove(ref);
+    expect(await env.library.timeline(), isEmpty);
+    expect(await (env.appDb.select(env.appDb.mediaEntries)).get(), isEmpty);
   });
 }

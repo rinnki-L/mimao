@@ -99,6 +99,31 @@ void main() {
     expect(rows.firstWhere((r) => r.sourceName == '源A').title, '源A更新后');
   });
 
+  test('delete 按 id + type + sourceName 删一行，不动其它源/类型', () async {
+    await seed(id: 'x:1', source: '源A');
+    await seed(id: 'x:1', source: '源B');
+    await seed(id: 'x:1', source: '源C', type: MediaType.novel);
+
+    await repo.delete(id: 'x:1', type: MediaType.comic, sourceName: '源A');
+
+    final rows = await repo.timeline();
+    expect(rows, hasLength(2));
+    expect(rows.map((r) => r.sourceName), containsAll(<String>['源B', '源C']));
+    expect(rows.any((r) => r.sourceName == '源A'), isFalse);
+  });
+
+  test('delete 不传 sourceName 时按 id + type 删全部匹配行', () async {
+    await seed(id: 'x:1', source: '源A');
+    await seed(id: 'x:1', source: '源B');
+    await seed(id: 'x:1', source: '源C', type: MediaType.novel);
+
+    await repo.delete(id: 'x:1', type: MediaType.comic);
+
+    final rows = await repo.timeline();
+    expect(rows, hasLength(1));
+    expect(rows.single.type, MediaType.novel);
+  });
+
   test('limit 生效', () async {
     for (var i = 0; i < 5; i++) {
       await seed(id: 'a:$i', opened: DateTime(2026, 1, i + 1));

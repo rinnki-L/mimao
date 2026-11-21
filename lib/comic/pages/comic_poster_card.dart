@@ -11,10 +11,18 @@ import 'package:mimao/comic/pages/comic_cover.dart';
 
 /// 搜索结果卡片：封面 + 标题 + 状态行。
 class ComicPosterCard extends StatelessWidget {
-  const ComicPosterCard({super.key, required this.item, this.onTap});
+  const ComicPosterCard({
+    super.key,
+    required this.item,
+    this.onTap,
+    this.onLongPress,
+  });
 
   final ComicSummary item;
   final VoidCallback? onTap;
+
+  /// 长按回调（主页「阅读历史」用它触发单条删除）；null 时长按无行为。
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -26,6 +34,7 @@ class ComicPosterCard extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
+        onLongPress: onLongPress,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
@@ -158,6 +167,7 @@ class ComicPosterRow extends StatelessWidget {
     super.key,
     required this.items,
     this.onOpen,
+    this.onItemLongPress,
     this.keyPrefix = 'row',
     this.height = 296,
     this.cardWidth = 150,
@@ -165,6 +175,10 @@ class ComicPosterRow extends StatelessWidget {
 
   final List<ComicSummary> items;
   final ValueChanged<ComicSummary>? onOpen;
+
+  /// 条目长按回调；null 不影响收藏/发现/分类的既有用法。
+  final ValueChanged<ComicSummary>? onItemLongPress;
+
   final String keyPrefix;
   final double height;
   final double cardWidth;
@@ -180,12 +194,16 @@ class ComicPosterRow extends StatelessWidget {
         itemBuilder: (context, index) {
           final item = items[index];
           final onOpen = this.onOpen;
+          final onItemLongPress = this.onItemLongPress;
           return SizedBox(
             width: cardWidth,
             child: ComicPosterCard(
               key: ValueKey<String>('$keyPrefix-${item.id}'),
               item: item,
               onTap: onOpen == null ? null : () => onOpen(item),
+              onLongPress: onItemLongPress == null
+                  ? null
+                  : () => onItemLongPress(item),
             ),
           );
         },

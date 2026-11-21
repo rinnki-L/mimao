@@ -64,6 +64,36 @@ class ComicHistoryService {
     );
   }
 
+  /// 删除单条阅读历史。
+  ///
+  /// 只删内部 `comic_history` 行；投影一致性交给 [removeComicProjection]：
+  /// 该作品若还有收藏/本地行就重投影（进度回「尚未阅读」），三者皆空则连
+  /// core 投影行一起删掉，避免统一书架里留下点开即空的幽灵条目。
+  Future<void> remove(ComicRef ref) async {
+    final existing = await db.historyRow(ref);
+    if (existing == null) return;
+    await (db.delete(db.comicHistoryEntries)..where(
+          (t) => t.id.equals(ref.id) & t.sourceName.equals(ref.sourceName),
+        ))
+        .go();
+    await removeComicProjection(db: db, library: library, ref: ref);
+  }
+
+  /// 清空全部阅读历史。
+  ///
+  /// 逐条走与 [remove] 相同的投影收尾：有收藏/本地的作品重投影，其余删
+  /// core 行。不能简单地 truncate 内部表——那样收藏/本地的投影会残留旧进度。
+  Future<void> clear() async {
+    final rows = await (db.select(db.comicHistoryEntries)).get();
+    final refs = [
+      for (final row in rows) ComicRef(id: row.id, sourceName: row.sourceName),
+    ];
+    await db.delete(db.comicHistoryEntries).go();
+    for (final ref in refs) {
+      await removeComicProjection(db: db, library: library, ref: ref);
+    }
+  }
+
   Future<ComicReadEntry?> latest(ComicRef ref) async {
     final row = await db.historyRow(ref);
     return row == null ? null : _fromRow(row);

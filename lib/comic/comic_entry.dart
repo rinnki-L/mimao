@@ -61,7 +61,6 @@ class ComicModule implements AppModule {
     this.browseSource,
     this.sourceCatalog,
     this.imageCacheFactory,
-    this.onOpenLibrary,
   });
 
   final ComicDataSource dataSource;
@@ -73,9 +72,6 @@ class ComicModule implements AppModule {
 
   /// 本地漫画服务（主页「本地漫画」区块）；null 时该区块为空。
   final ComicLocalService? localService;
-
-  /// 壳层的「统一书架」入口（主页快捷入口）；null 时主页不显示该入口。
-  final VoidCallback? onOpenLibrary;
 
   /// 源仓库目录（浏览 `index.json` 按需导入）。null 时源管理页不显示仓库区块。
   final ComicSourceCatalog? sourceCatalog;
@@ -126,7 +122,6 @@ class ComicModule implements AppModule {
       // 各入口的设置放进各入口：模块设置面板收在主页右上角按钮里
       // （底部栏四个位置留给功能分区）。
       settingsTab: buildSettings(context),
-      onOpenLibrary: onOpenLibrary,
       onOpenDetail: (item) => history.open(refOf(item)),
       isFavorite: (item) => collect.isCollected(refOf(item)),
       onFavoriteChanged: (item, favorite) =>

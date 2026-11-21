@@ -103,6 +103,27 @@ class LibraryRepository {
         );
   }
 
+  /// 删除一行投影。
+  ///
+  /// 为什么需要 delete：media_entries 是模块内部权威表的投影，当某条作品在
+  /// 模块侧被彻底删光（如删掉最后一条阅读历史且无收藏/本地）时，投影行再无
+  /// 数据来源，留着就是统一书架里的「幽灵条目」。删除语义按 media_entries 的
+  /// 复合主键 {id, mediaType, sourceName}：[sourceName] 传入时精确删一条，
+  /// 不传时按 id + type 删（兼容只关心作品与类型的调用方）。
+  Future<void> delete({
+    required String id,
+    required MediaType type,
+    String? sourceName,
+  }) async {
+    await (db.delete(db.mediaEntries)..where((t) {
+      var expression = t.id.equals(id) & t.mediaType.equals(type.name);
+      if (sourceName != null) {
+        expression = expression & t.sourceName.equals(sourceName);
+      }
+      return expression;
+    })).go();
+  }
+
   /// 收藏切换（全局设置/`我的`页都用得到）。
   Future<void> setStarred(MediaEntryView entry, {required bool starred}) async {
     await (db.update(db.mediaEntries)..where(

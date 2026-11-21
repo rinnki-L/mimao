@@ -97,3 +97,30 @@ Future<void> syncComicProjection({
     createdAt: createdAt,
   );
 }
+
+/// 删除历史行之后的投影一致性收尾（双记账的删除点）。
+///
+/// 调用时机：内部 `comic_history` 行刚被删掉。此时本函数读三张内部表判断
+/// 这条作品在模块侧还有没有「存在理由」：
+/// - 还有收藏/本地（或残余历史）行 → 重新 [syncComicProjection]，让投影回到
+///   权威状态（历史已删则 progressText 回「尚未阅读」，starred 由收藏决定）；
+/// - 三者皆空 → 直接删掉 core 投影行。
+///
+/// 为什么删 core 行而不是写最后一笔：收藏取消时留投影是因为用户仍可能从
+/// 阅读历史点进来（投影还有历史作权威）；历史也删光后 core 行没有任何内部
+/// 来源，留在统一书架里就是点开即空的「幽灵条目」，必须一起清掉，
+/// 否则双账不一致。
+Future<void> removeComicProjection({
+  required ComicDb db,
+  required LibraryRepository library,
+  required ComicRef ref,
+}) async {
+  final hasCollect = await db.collectRow(ref) != null;
+  final hasHistory = await db.historyRow(ref) != null;
+  final hasLocal = await db.localRow(ref) != null;
+  if (hasCollect || hasHistory || hasLocal) {
+    await syncComicProjection(db: db, library: library, ref: ref);
+    return;
+  }
+  await library.delete(id: ref.id, type: MediaType.comic, sourceName: ref.sourceName);
+}

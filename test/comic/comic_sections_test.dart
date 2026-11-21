@@ -57,6 +57,16 @@ class _FakeLibrary implements ComicLibraryApi {
       subtitle: '12 页',
     ),
   ];
+
+  // interface 契约：implements 方需显式实现（接口默认体不 inherits）。
+  @override
+  Future<void> removeHistoryEntry({
+    required String id,
+    required String sourceName,
+  }) async {}
+
+  @override
+  Future<void> clearHistory() async {}
 }
 
 /// 收藏为空、历史与本地也为空的假数据。
@@ -73,6 +83,15 @@ class _EmptyLibrary implements ComicLibraryApi {
 
   @override
   Future<List<ComicLibraryEntry>> local() async => const <ComicLibraryEntry>[];
+
+  @override
+  Future<void> removeHistoryEntry({
+    required String id,
+    required String sourceName,
+  }) async {}
+
+  @override
+  Future<void> clearHistory() async {}
 }
 
 /// 读数据必抛的假数据（错误态测试）。
@@ -89,6 +108,15 @@ class _BrokenLibrary implements ComicLibraryApi {
 
   @override
   Future<List<ComicLibraryEntry>> local() async => throw StateError('db down');
+
+  @override
+  Future<void> removeHistoryEntry({
+    required String id,
+    required String sourceName,
+  }) async => throw StateError('db down');
+
+  @override
+  Future<void> clearHistory() async => throw StateError('db down');
 }
 
 /// 分类树为 null 的浏览源（验证回退到 explore 分栏）。
@@ -155,8 +183,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('comic-home-search')), findsOneWidget);
-      expect(find.byKey(const Key('comic-home-sources')), findsOneWidget);
-      expect(find.text('继续阅读'), findsOneWidget);
+      expect(find.text('阅读历史'), findsOneWidget);
+      expect(find.text('继续阅读'), findsNothing);
       expect(find.text('本地漫画'), findsOneWidget);
       // 历史行带进度文案；本地行带页数。
       expect(find.text('第 1 章 · 看到第 3 页'), findsOneWidget);
@@ -185,7 +213,113 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('还没有阅读记录或本地漫画'), findsOneWidget);
-      expect(find.text('继续阅读'), findsNothing);
+      expect(find.text('阅读历史'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('主页不再出现统一书架 chip', (tester) async {
+      _usePhoneSize(tester);
+      await tester.pumpWidget(
+        _app(
+          ComicHomePage(
+            dataSource: comicFixture,
+            library: _FakeLibrary(),
+            onOpenSources: () {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('comic-home-library')), findsNothing);
+      expect(find.text('统一书架'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('长按阅读历史海报 → 确认 → 该条消失', (tester) async {
+      _usePhoneSize(tester);
+      final library = _MutableHistoryLibrary(const <ComicLibraryEntry>[
+        ComicLibraryEntry(
+          id: 'xingzhou',
+          sourceName: 'fixture',
+          title: '星舟漫游',
+          subtitle: '第 1 章 · 看到第 3 页',
+        ),
+        ComicLibraryEntry(
+          id: 'yeyu',
+          sourceName: 'fixture',
+          title: '夜雨剑歌',
+        ),
+      ]);
+      await tester.pumpWidget(
+        _app(
+          ComicHomePage(dataSource: comicFixture, library: library),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey<String>('home-recent-xingzhou')),
+        findsOneWidget,
+      );
+
+      await tester.longPress(
+        find.byKey(const ValueKey<String>('home-recent-xingzhou')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('删除这条阅读历史？'), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(FilledButton, '删除'));
+      await tester.pumpAndSettle();
+
+      expect(library.removed, 1);
+      expect(
+        find.byKey(const ValueKey<String>('home-recent-xingzhou')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('home-recent-yeyu')),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('长按取消不删除；点清空 → 确认 → 阅读历史区消失并出空态', (tester) async {
+      _usePhoneSize(tester);
+      final library = _MutableHistoryLibrary(const <ComicLibraryEntry>[
+        ComicLibraryEntry(
+          id: 'xingzhou',
+          sourceName: 'fixture',
+          title: '星舟漫游',
+        ),
+      ]);
+      await tester.pumpWidget(
+        _app(
+          ComicHomePage(dataSource: comicFixture, library: library),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // 取消长按确认：条目保留。
+      await tester.longPress(
+        find.byKey(const ValueKey<String>('home-recent-xingzhou')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(TextButton, '取消'));
+      await tester.pumpAndSettle();
+      expect(library.removed, 0);
+      expect(
+        find.byKey(const ValueKey<String>('home-recent-xingzhou')),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byKey(const Key('comic-home-clear-history')));
+      await tester.pumpAndSettle();
+      expect(find.text('清空全部阅读历史？'), findsOneWidget);
+      await tester.tap(find.widgetWithText(FilledButton, '清空'));
+      await tester.pumpAndSettle();
+
+      expect(library.cleared, 1);
+      expect(find.text('阅读历史'), findsNothing);
+      expect(find.text('还没有阅读记录或本地漫画'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 
@@ -252,7 +386,7 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('点继续阅读条目回调打开详情', (tester) async {
+    testWidgets('点阅读历史条目回调打开详情', (tester) async {
       _usePhoneSize(tester);
       ComicSummary? opened;
       await tester.pumpWidget(
@@ -562,4 +696,52 @@ class _CountingLibrary implements ComicLibraryApi {
 
   @override
   Future<List<ComicLibraryEntry>> local() async => const <ComicLibraryEntry>[];
+
+  @override
+  Future<void> removeHistoryEntry({
+    required String id,
+    required String sourceName,
+  }) async {}
+
+  @override
+  Future<void> clearHistory() async {}
+}
+
+
+/// 可变历史假库：验证长按删除与一键清空后主页立即重读。
+class _MutableHistoryLibrary implements ComicLibraryApi {
+  _MutableHistoryLibrary(this._history);
+
+  List<ComicLibraryEntry> _history;
+  int removed = 0;
+  int cleared = 0;
+
+  @override
+  Future<List<ComicLibraryEntry>> collected() async =>
+      const <ComicLibraryEntry>[];
+
+  @override
+  Future<List<ComicLibraryEntry>> recent({int limit = 20}) async =>
+      List<ComicLibraryEntry>.unmodifiable(_history);
+
+  @override
+  Future<List<ComicLibraryEntry>> local() async => const <ComicLibraryEntry>[];
+
+  @override
+  Future<void> removeHistoryEntry({
+    required String id,
+    required String sourceName,
+  }) async {
+    removed++;
+    _history = [
+      for (final entry in _history)
+        if (!(entry.id == id && entry.sourceName == sourceName)) entry,
+    ];
+  }
+
+  @override
+  Future<void> clearHistory() async {
+    cleared++;
+    _history = const <ComicLibraryEntry>[];
+  }
 }

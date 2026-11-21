@@ -75,6 +75,15 @@ class ComicLibraryApiImpl implements ComicLibraryApi {
         ),
     ];
   }
+
+  @override
+  Future<void> removeHistoryEntry({
+    required String id,
+    required String sourceName,
+  }) => history.remove(ComicRef(id: id, sourceName: sourceName));
+
+  @override
+  Future<void> clearHistory() => history.clear();
 }
 
 /// 本地漫画条目的 [ComicRef]（供详情/阅读接线反查用）。

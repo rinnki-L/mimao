@@ -1,14 +1,15 @@
 // ignore_for_file: deprecated_member_use — 见 lib/comic/pages/comic_cover.dart 同款说明。
-/// 漫画模块「主页」分区：搜索 + 跨源继续阅读 + 本地漫画 + 源管理入口。
+/// 漫画模块「主页」分区：搜索 + 跨源阅读历史 + 本地漫画 + 源管理入口。
 ///
 /// 分工（用户拍板）：
-/// - 主页 = 搜索框 + 跨源汇总的阅读历史 + 本地漫画 + 源管理入口（「我的」式枢纽）；
+/// - 主页 = 搜索框 + 跨源汇总的阅读历史（可单条删/一键清空）+ 本地漫画
+///   + 源管理入口（「我的」式枢纽）；
 /// - 收藏 = 用户收藏的漫画；
 /// - 发现 / 分类 = 各源站点的探索流与分类树。
 ///
 /// 本页只认 [ComicDataSource]（搜索）与 [ComicLibraryApi]（本地数据）；
 /// 源管理入口经 [onOpenSources] 回调交给模块层 push 源管理页，本页不认识
-/// 源仓库。
+/// 源仓库。统一书架入口收归壳层顶栏，主页不再重复放入口。
 library;
 
 import 'package:flutter/material.dart';
@@ -27,7 +28,6 @@ class ComicHomePage extends StatefulWidget {
     this.showAppBar = true,
     this.onOpenDetail,
     this.onOpenSources,
-    this.onOpenLibrary,
     this.onOpenSettings,
     this.refreshKey,
   });
@@ -43,9 +43,6 @@ class ComicHomePage extends StatefulWidget {
 
   /// 打开源管理（模块层 push 源管理页）。
   final VoidCallback? onOpenSources;
-
-  /// 打开统一书架（壳层能力，由模块出口注入；null 时不显示）。
-  final VoidCallback? onOpenLibrary;
 
   /// 打开模块设置（模块层弹底部面板）；null 时 AppBar 不显示设置按钮。
   final VoidCallback? onOpenSettings;
@@ -84,7 +81,87 @@ class _ComicHomePageState extends State<ComicHomePage> {
     return _HomeData(recent: recent, local: local);
   }
 
-  void _reload() => setState(() => _future = _load());
+  /// 用块体而非箭头简写：setState 回调必须返回 null，
+  /// `() => _future = _load()` 会把 Future 作为返回值触发 debug 断言。
+  void _reload() {
+    setState(() {
+      _future = _load();
+    });
+  }
+
+  /// 单条删除历史：先弹 MD3 确认框，确认后走库 API（含投影一致性）并重读。
+  ///
+  /// 失败时留在原页面并弹 SnackBar，不假装删除成功——否则 UI 与两库不一致。
+  Future<void> _deleteHistory(ComicSummary item) async {
+    final library = widget.library;
+    if (library == null) return;
+    final confirmed = await _confirm(
+      title: '删除这条阅读历史？',
+      content: '「${item.title}」的阅读进度将被移除；收藏与本地漫画不受影响。',
+      confirmLabel: '删除',
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await library.removeHistoryEntry(
+        id: item.id,
+        sourceName: item.sourceName ?? '',
+      );
+    } on Object catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.maybeOf(
+          context,
+        )?.showSnackBar(SnackBar(content: Text('删除历史失败：$error')));
+      }
+      return;
+    }
+    if (mounted) _reload();
+  }
+
+  /// 清空全部历史：确认后清库并重读（UI 回到空态）。
+  Future<void> _clearHistory() async {
+    final library = widget.library;
+    if (library == null) return;
+    final confirmed = await _confirm(
+      title: '清空全部阅读历史？',
+      content: '所有漫画的阅读进度将被移除；收藏与本地漫画不受影响。',
+      confirmLabel: '清空',
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await library.clearHistory();
+    } on Object catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.maybeOf(
+          context,
+        )?.showSnackBar(SnackBar(content: Text('清空历史失败：$error')));
+      }
+      return;
+    }
+    if (mounted) _reload();
+  }
+
+  /// 统一的 MD3 确认对话框；返回 true 表示用户点了确认。
+  Future<bool?> _confirm({
+    required String title,
+    required String content,
+    required String confirmLabel,
+  }) => showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text(title),
+      content: Text(content),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(true),
+          child: Text(confirmLabel),
+        ),
+      ],
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -124,11 +201,19 @@ class _ComicHomePageState extends State<ComicHomePage> {
                 const SizedBox(height: 8),
                 _buildQuickActions(),
                 if (data.recent.isNotEmpty) ...<Widget>[
-                  const ComicSectionHeader(title: '继续阅读'),
+                  ComicSectionHeader(
+                    title: '阅读历史',
+                    trailing: TextButton(
+                      key: const Key('comic-home-clear-history'),
+                      onPressed: _clearHistory,
+                      child: const Text('清空'),
+                    ),
+                  ),
                   ComicPosterRow(
                     items: [for (final entry in data.recent) entry.asSummary()],
                     keyPrefix: 'home-recent',
                     onOpen: widget.onOpenDetail,
+                    onItemLongPress: _deleteHistory,
                   ),
                 ],
                 if (data.local.isNotEmpty) ...<Widget>[
@@ -171,27 +256,12 @@ class _ComicHomePageState extends State<ComicHomePage> {
   }
 
   Widget _buildQuickActions() {
-    final onOpenSources = widget.onOpenSources;
-    final onOpenLibrary = widget.onOpenLibrary;
     final onOpenSettings = widget.onOpenSettings;
     return Wrap(
       spacing: 8,
       runSpacing: 8,
       children: <Widget>[
-        if (onOpenSources != null)
-          ActionChip(
-            key: const Key('comic-home-sources'),
-            avatar: const Icon(Icons.source_outlined, size: 18),
-            label: const Text('源管理'),
-            onPressed: onOpenSources,
-          ),
-        if (onOpenLibrary != null)
-          ActionChip(
-            key: const Key('comic-home-library'),
-            avatar: const Icon(Icons.collections_bookmark_outlined, size: 18),
-            label: const Text('统一书架'),
-            onPressed: onOpenLibrary,
-          ),
+        // 源管理从 chip 升级为搜索框下方的卡片；统一书架入口收归壳层顶栏。
         // 壳已提供顶部栏（embedded）时 AppBar 不画，设置入口收进这一行，
         // 保证模块设置在任何宿主下都能打开。
         if (onOpenSettings != null && !widget.showAppBar)
