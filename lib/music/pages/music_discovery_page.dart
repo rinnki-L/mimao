@@ -528,9 +528,9 @@ class _MusicDiscoveryPageState extends State<MusicDiscoveryPage> {
   /// - 上排：无封面的「热门搜索 / 排行榜」两个长条，一行各占一半，间距 8，
   ///   高度固定 80；排行榜未接线时热搜独占整行。
   /// - 下排：4 个内容入口（首页发现/风格推荐/AI 免费畅听/私人 FM），一行
-  ///   四个、间距加大到 16、高度固定 128（比原来的正方形略扁），封面预取
-  ///   失败的入口在本排回退 icon 卡；窄屏（内容宽 < 720）改为 2×2，间距
-  ///   12，避免四张卡挤在一行。
+  ///   四个、间距 24、卡片为正方形（高随宽等比例缩放，封面显示完整且间距
+  ///   拉大后不再显得占面积）；封面预取失败的入口在本排回退 icon 卡；窄屏
+  ///   （内容宽 < 720）改为 2×2，间距 16，避免四张卡挤在一行。
   /// 不再按屏宽选择列数的 GridView：结构固定，整体随发现页滚动。
   Widget _buildEntryGrid() {
     final barEntries = <_DiscoveryEntry>[
@@ -552,7 +552,7 @@ class _MusicDiscoveryPageState extends State<MusicDiscoveryPage> {
                     start < coverEntries.length;
                     start += 2
                   ) ...<Widget>[
-                    if (start > 0) const SizedBox(height: 12),
+                    if (start > 0) const SizedBox(height: 16),
                     Row(
                       children: _spreadEntryCards(
                         coverEntries.sublist(
@@ -561,15 +561,19 @@ class _MusicDiscoveryPageState extends State<MusicDiscoveryPage> {
                               ? coverEntries.length
                               : start + 2,
                         ),
-                        height: 120,
-                        gap: 12,
+                        square: true,
+                        gap: 16,
                       ),
                     ),
                   ],
                 ],
               )
             : Row(
-                children: _spreadEntryCards(coverEntries, height: 128, gap: 16),
+                children: _spreadEntryCards(
+                  coverEntries,
+                  square: true,
+                  gap: 24,
+                ),
               );
         return Column(
           key: const Key('discover-entry-grid'),
@@ -585,18 +589,25 @@ class _MusicDiscoveryPageState extends State<MusicDiscoveryPage> {
     );
   }
 
-  /// 把入口卡横向铺开：每张卡固定 [height] 高、按份平分当前行宽，
-  /// 相邻卡片之间留 [gap]。单张卡时自然占满整行。
+  /// 把入口卡横向铺开：按份平分当前行宽，相邻卡片之间留 [gap]。单张卡时
+  /// 自然占满整行。[square] 为 true 时用 AspectRatio(1) 让高度随宽度等比
+  /// 缩放成正方形（封面显示完整）；否则用固定 [height]（上排长条）。
   List<Widget> _spreadEntryCards(
     List<_DiscoveryEntry> entries, {
-    required double height,
+    double? height,
+    bool square = false,
     required double gap,
   }) {
     return <Widget>[
       for (var i = 0; i < entries.length; i++) ...<Widget>[
         if (i > 0) SizedBox(width: gap),
         Expanded(
-          child: SizedBox(height: height, child: _buildEntryCard(entries[i])),
+          child: square
+              ? AspectRatio(aspectRatio: 1, child: _buildEntryCard(entries[i]))
+              : SizedBox(
+                  height: height ?? 80,
+                  child: _buildEntryCard(entries[i]),
+                ),
         ),
       ],
     ];

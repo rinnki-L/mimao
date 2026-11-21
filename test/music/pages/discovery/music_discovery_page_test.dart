@@ -172,16 +172,20 @@ void main() {
     expect(hot.width, greaterThan(hot.height * 2));
     expect(rank.width, greaterThan(rank.height * 2));
 
-    // 下排：四个封面卡同一行，彼此间距明显拉开（>= 12）。
+    // 下排：四个封面卡同一行，彼此间距明显拉开（>= 20）。
     for (final rect in <Rect>[style, ai, fm]) {
       expect((rect.top - home.top).abs(), lessThan(0.5), reason: '四个卡同一行');
       expect((rect.height - home.height).abs(), lessThanOrEqualTo(2));
     }
-    expect(style.left - home.right, greaterThanOrEqualTo(12));
-    expect(ai.left - style.right, greaterThanOrEqualTo(12));
-    expect(fm.left - ai.right, greaterThanOrEqualTo(12));
-    // 比原来的正方形略扁。
-    expect(home.height, lessThan(home.width));
+    expect(style.left - home.right, greaterThanOrEqualTo(20));
+    expect(ai.left - style.right, greaterThanOrEqualTo(20));
+    expect(fm.left - ai.right, greaterThanOrEqualTo(20));
+    // 正方形：高宽相等（封面完整显示），间距拉大后等比例缩小。
+    expect(
+      (home.height - home.width).abs(),
+      lessThanOrEqualTo(2),
+      reason: '封面卡为正方形',
+    );
 
     // 两排上下分开。
     expect(home.top, greaterThanOrEqualTo(hot.bottom + 8));
