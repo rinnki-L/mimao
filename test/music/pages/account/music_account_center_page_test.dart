@@ -355,6 +355,43 @@ void main() {
     expect(find.text('历史歌二'), findsOneWidget);
   });
 
+  testWidgets('宽屏布局：资料卡与会员同一行、等级与专辑并排、历史通栏在下', (tester) async {
+    await _pumpPage(tester, _Harness(), surface: const Size(800, 1800));
+
+    Rect rectOf(String key) =>
+        tester.getRect(find.byKey(ValueKey<String>(key)));
+
+    final profile = rectOf('account-profile');
+    final vip = rectOf('account-vip');
+    final grade = rectOf('account-grade');
+    final albums = rectOf('account-albums');
+    final history = rectOf('account-history');
+
+    // 第一行：资料卡（左，较宽）+ 会员（右），顶部对齐、左右分开。
+    expect((profile.top - vip.top).abs(), lessThan(0.5), reason: '资料卡与会员同一行');
+    expect(profile.right, lessThan(vip.left), reason: '会员在资料卡右侧');
+    expect(vip.left, greaterThan(0), reason: '会员未贴屏幕左边缘');
+    expect(profile.width, greaterThan(vip.width), reason: '资料卡占较大份');
+
+    // 第二行：听歌等级 + 已购专辑并排、顶部对齐，且在资料卡行下方。
+    expect((grade.top - albums.top).abs(), lessThan(0.5), reason: '等级与专辑并排');
+    expect(grade.right, lessThan(albums.left), reason: '专辑在等级右侧');
+    expect(grade.top, greaterThanOrEqualTo(profile.bottom - 12));
+
+    // 第三行：听歌历史通栏大卡片，位于等级卡片下方，左边界与资料卡对齐。
+    expect(history.top, greaterThan(grade.top), reason: '历史在等级下方');
+    expect(
+      history.width,
+      greaterThan(grade.width * 1.5),
+      reason: '历史为通栏宽卡，明显宽于等级卡',
+    );
+    expect(
+      (history.left - profile.left).abs(),
+      lessThanOrEqualTo(2),
+      reason: '历史左边界与资料卡对齐',
+    );
+  });
+
   testWidgets('窄屏走单列布局（无两栏 SingleChildScrollView）', (tester) async {
     await _pumpPage(tester, _Harness(), surface: const Size(400, 1200));
 

@@ -541,6 +541,10 @@ class _MusicAccountCenterPageState extends State<MusicAccountCenterPage> {
     );
   }
 
+  /// 宽屏布局：
+  /// 1. 第一行是资料卡（较宽）+ 会员（右侧窄栏），顶部对齐；
+  /// 2. 第二行是听歌等级 + 已购专辑并排对齐；
+  /// 3. 其下听歌历史 / 已购单曲 / 我的歌单作通栏大卡片依次排列。
   Widget _buildWideContent() {
     return SingleChildScrollView(
       physics: const AlwaysScrollableScrollPhysics(),
@@ -548,33 +552,26 @@ class _MusicAccountCenterPageState extends State<MusicAccountCenterPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          _buildProfileCard(),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    _buildVipSection(),
-                    _buildGradeSection(),
-                    _buildAlbumsSection(),
-                  ],
-                ),
-              ),
+              // 资料卡内容较多（头像+昵称+ID+标签+操作按钮），占 2 份宽。
+              Expanded(flex: 2, child: _buildProfileCard()),
               const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    _buildHistorySection(),
-                    _buildSongsSection(),
-                    _buildPlaylistsSection(),
-                  ],
-                ),
-              ),
+              Expanded(child: _buildVipSection()),
             ],
           ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Expanded(child: _buildGradeSection()),
+              const SizedBox(width: 12),
+              Expanded(child: _buildAlbumsSection()),
+            ],
+          ),
+          _buildHistorySection(),
+          _buildSongsSection(),
+          _buildPlaylistsSection(),
         ],
       ),
     );
