@@ -65,12 +65,18 @@ class MusicLibraryPage extends StatefulWidget {
 }
 
 class _MusicLibraryPageState extends State<MusicLibraryPage> {
-  /// 「我喜欢」曲目分页大小（playlist_track_all_new 上限 300，取 50）。
-  static const int _favoritePageSize = 50;
+  /// 「我喜欢」曲目分页大小（playlist_track_all_new 上限 300）。
+  ///
+  /// 账号收藏要求「自动全量」：首屏循环翻页直到取完，不提供「加载更多」；
+  /// 取上限值把请求次数压到最少。
+  static const int _favoritePageSize = 300;
 
   /// 云歌单「我喜欢」的默认种类码（wire `is_def`）。实测账号里
   /// `is_def=1` 是空的「默认收藏」，`is_def=2` 才是「我喜欢」。
   static const int _favoriteDefaultKind = 2;
+
+  /// 全量翻页的安全上限（防止服务端 total 异常导致死循环）。
+  static const int _favoriteMaxPages = 100;
 
   late final MusicLibraryStore _store = MusicLibraryStore(
     widget.collect,
@@ -79,10 +85,7 @@ class _MusicLibraryPageState extends State<MusicLibraryPage> {
 
   // ── 账号收藏（我喜欢）──
   int? _favoriteListId;
-  int _favoritePage = 1;
   bool _favoritesLoading = false;
-  bool _favoritesLoadingMore = false;
-  bool _favoritesHasMore = false;
   Object? _favoritesError;
   final List<MusicPlaylistTrack> _favoriteTracks = <MusicPlaylistTrack>[];
 
@@ -98,7 +101,7 @@ class _MusicLibraryPageState extends State<MusicLibraryPage> {
     widget.authEpoch?.addListener(_onAuthChanged);
     _store.refresh();
     if (_accountFavoritesEnabled) {
-      unawaited(_loadFavorites(reset: true));
+      unawaited(_loadFavorites());
     }
   }
 
@@ -118,31 +121,24 @@ class _MusicLibraryPageState extends State<MusicLibraryPage> {
   /// 登录/登出/切号：缓存里的 listid 属于旧账号，必须清掉重定位。
   void _onAuthChanged() {
     if (!mounted) return;
-    unawaited(_loadFavorites(reset: true, clearListId: true));
+    unawaited(_loadFavorites(clearListId: true));
   }
 
-  /// 账号收藏装载：首次定位「我喜欢」云歌单，再分页取曲目。
+  /// 账号收藏装载：定位「我喜欢」云歌单后**自动翻页取全量**。
   ///
-  /// [clearListId] 用于切号；[reset] 为 false 时只追加下一页。
-  Future<void> _loadFavorites({
-    required bool reset,
-    bool clearListId = false,
-  }) async {
+  /// 每取完一页就 setState 追加（用户能看到进度），直到 total 收口或整页
+  /// 不满为止；中途失败保留已取得的歌曲并给出错误/重试。
+  Future<void> _loadFavorites({bool clearListId = false}) async {
     final library = widget.userLibrary;
     final read = widget.playlistRead;
     if (library == null || read == null) return;
-    if (_favoritesLoading || (_favoritesLoadingMore && !reset)) return;
+    if (_favoritesLoading) return;
 
     if (clearListId) _favoriteListId = null;
     setState(() {
-      if (reset) {
-        _favoritesLoading = true;
-        _favoritesError = null;
-        _favoritePage = 1;
-        _favoritesHasMore = false;
-      } else {
-        _favoritesLoadingMore = true;
-      }
+      _favoritesLoading = true;
+      _favoritesError = null;
+      _favoriteTracks.clear();
     });
     try {
       var listId = _favoriteListId;
@@ -156,41 +152,37 @@ class _MusicLibraryPageState extends State<MusicLibraryPage> {
       if (listId == null) {
         // 账号里没有「我喜欢」歌单（或全空）：不是错误，显示空态。
         if (!mounted) return;
-        setState(() {
-          _favoriteTracks.clear();
-          _favoritesLoading = false;
-          _favoritesLoadingMore = false;
-          _favoritesHasMore = false;
-        });
+        setState(() => _favoritesLoading = false);
         return;
       }
-      final page = reset ? 1 : _favoritePage;
-      final tracks = await read.playlistTrackAllNew(
-        MusicPlaylistTrackAllNewQuery(
-          cloudListId: listId,
-          page: page,
-          pageSize: _favoritePageSize,
-        ),
-      );
-      if (!mounted) return;
-      final items = tracks.page.items;
-      setState(() {
-        if (reset) _favoriteTracks.clear();
-        _favoriteTracks.addAll(items);
-        _favoritePage = page + 1;
+      var page = 1;
+      while (mounted && page <= _favoriteMaxPages) {
+        final tracks = await read.playlistTrackAllNew(
+          MusicPlaylistTrackAllNewQuery(
+            cloudListId: listId,
+            page: page,
+            pageSize: _favoritePageSize,
+          ),
+        );
+        if (!mounted) return;
+        final items = tracks.page.items;
+        setState(() => _favoriteTracks.addAll(items));
         final total = tracks.page.total;
-        _favoritesHasMore = total != null
-            ? _favoriteTracks.length < total
-            : items.length == _favoritePageSize;
-        _favoritesLoading = false;
-        _favoritesLoadingMore = false;
-      });
+        final hasMore = items.isEmpty
+            ? false
+            : (total != null
+                  ? _favoriteTracks.length < total
+                  : items.length == _favoritePageSize);
+        if (!hasMore) break;
+        page++;
+      }
+      if (!mounted) return;
+      setState(() => _favoritesLoading = false);
     } on Object catch (error) {
       if (!mounted) return;
       setState(() {
         _favoritesError = error;
         _favoritesLoading = false;
-        _favoritesLoadingMore = false;
       });
     }
   }
@@ -215,7 +207,7 @@ class _MusicLibraryPageState extends State<MusicLibraryPage> {
   Future<void> _refreshAll() {
     _store.refresh();
     if (!_accountFavoritesEnabled) return Future<void>.value();
-    return _loadFavorites(reset: true);
+    return _loadFavorites();
   }
 
   void _play(MusicSong song, Duration startAt) {
@@ -368,7 +360,7 @@ class _MusicLibraryPageState extends State<MusicLibraryPage> {
             overflow: TextOverflow.ellipsis,
           ),
           trailing: TextButton(
-            onPressed: () => _loadFavorites(reset: true),
+            onPressed: () => _loadFavorites(),
             child: const Text('重试'),
           ),
         ),
@@ -401,26 +393,6 @@ class _MusicLibraryPageState extends State<MusicLibraryPage> {
           ),
           trailing: const Icon(Icons.play_circle_outline),
           onTap: () => _play(song, Duration.zero),
-        ),
-      );
-    }
-    if (_favoritesHasMore) {
-      children.add(
-        Center(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: _favoritesLoadingMore
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : OutlinedButton(
-                    key: const Key('library-favorites-more'),
-                    onPressed: () => _loadFavorites(reset: false),
-                    child: const Text('加载更多'),
-                  ),
-          ),
         ),
       );
     }

@@ -42,7 +42,7 @@ void main() {
       ],
     );
 
-  testWidgets('登录后收藏段内联账号「我喜欢」曲目，并可加载更多', (tester) async {
+  testWidgets('登录后收藏段自动全量加载账号「我喜欢」曲目', (tester) async {
     final library = libraryWithFavorites();
     final read = FakePlaylistReadApi()
       ..trackAllNewPages = <List<MusicPlaylistTrack>>[
@@ -65,14 +65,15 @@ void main() {
     // 账号「我喜欢」优先展示，且 listid 来自 is_def=2 而不是默认收藏(1)。
     expect(find.text('账号收藏 · 我喜欢'), findsOneWidget);
     expect(find.text('账号收藏一'), findsOneWidget);
-    expect(read.trackAllNewQueries.single.cloudListId, 2);
-    expect(read.trackAllNewQueries.single.page, 1);
+    expect(read.trackAllNewQueries.first.cloudListId, 2);
 
-    // 第二页：加载更多带 page 2。
-    await tester.tap(find.byKey(const Key('library-favorites-more')));
-    await tester.pumpAndSettle();
+    // 全量：无需点「加载更多」，循环把第 2 页也取回并渲染。
     expect(find.text('账号收藏二'), findsOneWidget);
-    expect(read.trackAllNewQueries.last.page, 2);
+    expect(read.trackAllNewQueries.map((query) => query.page).toList(), <int>[
+      1,
+      2,
+    ]);
+    expect(find.byKey(const Key('library-favorites-more')), findsNothing);
   });
 
   testWidgets('本地收藏仍在账号收藏下方显示', (tester) async {
