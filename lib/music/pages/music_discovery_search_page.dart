@@ -21,6 +21,7 @@ import 'package:mimao/music/music_store.dart';
 import 'package:mimao/music/pages/music_discovery_list_page.dart';
 import 'package:mimao/music/pages/music_discovery_mappers.dart';
 import 'package:mimao/music/player/player_ui.dart';
+import 'package:mimao/music/widgets/music_song_card.dart';
 
 /// 发现页搜索结果页。
 class MusicDiscoverySearchPage extends StatefulWidget {
@@ -411,13 +412,15 @@ class _MusicDiscoverySearchPageState extends State<MusicDiscoverySearchPage> {
           itemCount: results.length,
           itemBuilder: (context, index) {
             final song = results[index];
-            return _SongTile(
-              song: song,
-              isCollected: _collectedIds.contains(_songId(song)),
-              onToggleCollect: widget.collect == null
-                  ? null
-                  : () => _toggleCollect(song),
-              onTap: () => _openSong(song),
+            return MusicSongCard(
+              child: _SongTile(
+                song: song,
+                isCollected: _collectedIds.contains(_songId(song)),
+                onToggleCollect: widget.collect == null
+                    ? null
+                    : () => _toggleCollect(song),
+                onTap: () => _openSong(song),
+              ),
             );
           },
         );

@@ -24,6 +24,7 @@ import 'package:mimao/core/theme.dart';
 import 'package:mimao/music/models/music_models.dart';
 import 'package:mimao/music/pages/music_discovery_mappers.dart';
 import 'package:mimao/music/player/player_ui.dart';
+import 'package:mimao/music/widgets/music_song_card.dart';
 
 /// 长条歌曲列表页：AppBar 标题 +（refreshLabel 非空时）刷新按钮 + 歌曲长条。
 class MusicDiscoveryListPage extends StatefulWidget {
@@ -268,7 +269,9 @@ class _MusicDiscoveryListPageState extends State<MusicDiscoveryListPage> {
           );
         }
         final song = _songs[index];
-        return DiscoverySongTile(song: song, onTap: () => _openSong(song));
+        return MusicSongCard(
+          child: DiscoverySongTile(song: song, onTap: () => _openSong(song)),
+        );
       },
     );
   }

@@ -134,6 +134,28 @@ void main() {
     expect(_text(tester, '第一行').style?.fontWeight, FontWeight.normal);
   });
 
+  testWidgets('点击歌词行回调对应的 LyricLine', (tester) async {
+    final tapped = <LyricLine>[];
+    await tester.pumpWidget(
+      _wrap(
+        LyricView(
+          lyric: _lyric,
+          position: Duration.zero,
+          mode: LyricMode.original,
+          onLineTap: tapped.add,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('第二行'));
+    await tester.pump();
+
+    expect(tapped, hasLength(1));
+    expect(tapped.single.original, '第二行');
+    expect(tapped.single.start, const Duration(seconds: 5));
+  });
+
   testWidgets('当前行随播放位置自动滚动到可视区', (tester) async {
     final lines = List<LyricLine>.generate(30, (i) {
       return LyricLine(

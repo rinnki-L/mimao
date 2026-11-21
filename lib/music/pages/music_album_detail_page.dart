@@ -17,6 +17,7 @@ import 'package:mimao/music/models/album_models.dart';
 import 'package:mimao/music/models/music_models.dart';
 import 'package:mimao/music/pages/music_song_info_sheet.dart';
 import 'package:mimao/music/player/player_ui.dart';
+import 'package:mimao/music/widgets/music_song_card.dart';
 
 /// 专辑详情页。`onOpenArtist` 为空时歌手名不可点；`playbackExt` 为空时
 /// 曲目行不支持长按看资料。
@@ -325,18 +326,20 @@ class _MusicAlbumDetailPageState extends State<MusicAlbumDetailPage> {
     }
     for (final (index, track) in _tracks.indexed) {
       children.add(
-        _TrackTile(
-          index: index + 1,
-          track: track,
-          onTap: () => _playTrack(track.song),
-          // 播放补全接口未接线时长按不响应（资料面板需要它）。
-          onLongPress: widget.playbackExt == null
-              ? null
-              : () => showMusicSongInfoSheet(
-                  context,
-                  song: track.song,
-                  ext: widget.playbackExt,
-                ),
+        MusicSongCard(
+          child: _TrackTile(
+            index: index + 1,
+            track: track,
+            onTap: () => _playTrack(track.song),
+            // 播放补全接口未接线时长按不响应（资料面板需要它）。
+            onLongPress: widget.playbackExt == null
+                ? null
+                : () => showMusicSongInfoSheet(
+                    context,
+                    song: track.song,
+                    ext: widget.playbackExt,
+                  ),
+          ),
         ),
       );
     }

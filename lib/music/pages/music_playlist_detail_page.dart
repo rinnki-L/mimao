@@ -38,6 +38,7 @@ import 'package:mimao/music/pages/music_playlist_add_songs_page.dart';
 import 'package:mimao/music/pages/music_playlist_edit_sheet.dart';
 import 'package:mimao/music/pages/music_playlist_image_picker.dart';
 import 'package:mimao/music/player/player_ui.dart';
+import 'package:mimao/music/widgets/music_song_card.dart';
 
 /// 歌单详情。`globalId` 是公开歌单标识（云歌单可传空串）；`cloudListId`
 /// 非空时优先走云歌单曲目端点。`editable` 由列表页传入：true 且 write
@@ -860,7 +861,7 @@ class _MusicPlaylistDetailPageState extends State<MusicPlaylistDetailPage> {
             if (empty) return const _EmptyHint(text: '歌单里还没有歌曲');
             final trackIndex = index - 1;
             if (trackIndex < _tracks.length) {
-              return _buildTrackRow(context, trackIndex);
+              return MusicSongCard(child: _buildTrackRow(context, trackIndex));
             }
             return _buildFooter();
           },

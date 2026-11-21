@@ -27,6 +27,7 @@ import 'package:mimao/music/models/playlist_models.dart';
 import 'package:mimao/music/models/user_library_models.dart';
 import 'package:mimao/music/music_library_store.dart';
 import 'package:mimao/music/music_projection.dart';
+import 'package:mimao/music/widgets/music_song_card.dart';
 
 /// 历史条目点击的续播入口（集成方接线到 `playerStore.playSong`）。
 typedef MusicLibraryPlayHandler =
@@ -243,7 +244,7 @@ class _MusicLibraryPageState extends State<MusicLibraryPage> {
                       ButtonSegment<int>(
                         value: 0,
                         icon: Icon(Icons.favorite_outline),
-                        label: Text('收藏'),
+                        label: Text('我喜欢'),
                       ),
                       ButtonSegment<int>(
                         value: 1,
@@ -325,27 +326,7 @@ class _MusicLibraryPageState extends State<MusicLibraryPage> {
 
   /// 账号收藏段：定位「我喜欢」云歌单后内联曲目；登录后自动出现。
   List<Widget> _accountFavoriteChildren() {
-    final children = <Widget>[
-      Padding(
-        padding: const EdgeInsets.fromLTRB(16, 4, 8, 4),
-        child: Row(
-          children: <Widget>[
-            const Expanded(child: Text('账号收藏 · 我喜欢')),
-            if (_favoritesLoading)
-              const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            else if (_favoriteTracks.isNotEmpty)
-              Text(
-                '${_favoriteTracks.length} 首',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-          ],
-        ),
-      ),
-    ];
+    final children = <Widget>[];
     final error = _favoritesError;
     if (error != null) {
       final auth = error is KugouApiException && error.kind == 'authentication';
@@ -380,19 +361,26 @@ class _MusicLibraryPageState extends State<MusicLibraryPage> {
     for (final track in _favoriteTracks) {
       final song = track.song;
       children.add(
-        ListTile(
-          key: ValueKey<String>('library-favorite-${song.id}'),
-          leading: _CoverThumb(
-            url: song.coverUrl.isEmpty ? null : song.coverUrl,
+        MusicSongCard(
+          horizontalMargin: 16,
+          child: ListTile(
+            key: ValueKey<String>('library-favorite-${song.id}'),
+            leading: _CoverThumb(
+              url: song.coverUrl.isEmpty ? null : song.coverUrl,
+            ),
+            title: Text(
+              song.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            subtitle: Text(
+              song.artistText,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            trailing: const Icon(Icons.play_circle_outline),
+            onTap: () => _play(song, Duration.zero),
           ),
-          title: Text(song.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-          subtitle: Text(
-            song.artistText,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          trailing: const Icon(Icons.play_circle_outline),
-          onTap: () => _play(song, Duration.zero),
         ),
       );
     }
@@ -401,17 +389,20 @@ class _MusicLibraryPageState extends State<MusicLibraryPage> {
 
   Widget _localCollectTile(MusicCollectItem item) {
     final song = item.song;
-    return ListTile(
-      key: ValueKey<String>('library-collect-${item.ref.id}'),
-      leading: _CoverThumb(url: item.coverUrl),
-      title: Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-      subtitle: Text(
-        item.artistText.isEmpty ? '已收藏' : item.artistText,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
+    return MusicSongCard(
+      horizontalMargin: 16,
+      child: ListTile(
+        key: ValueKey<String>('library-collect-${item.ref.id}'),
+        leading: _CoverThumb(url: item.coverUrl),
+        title: Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+        subtitle: Text(
+          item.artistText.isEmpty ? '已收藏' : item.artistText,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: const Icon(Icons.play_circle_outline),
+        onTap: song == null ? null : () => _play(song, Duration.zero),
       ),
-      trailing: const Icon(Icons.play_circle_outline),
-      onTap: song == null ? null : () => _play(song, Duration.zero),
     );
   }
 
@@ -440,19 +431,26 @@ class _MusicLibraryPageState extends State<MusicLibraryPage> {
           durationMs: item.duration.inMilliseconds,
         );
         final artist = song.artistText;
-        return ListTile(
-          key: ValueKey<String>('library-history-${song.id}'),
-          leading: _CoverThumb(
-            url: song.coverUrl.isEmpty ? null : song.coverUrl,
+        return MusicSongCard(
+          horizontalMargin: 16,
+          child: ListTile(
+            key: ValueKey<String>('library-history-${song.id}'),
+            leading: _CoverThumb(
+              url: song.coverUrl.isEmpty ? null : song.coverUrl,
+            ),
+            title: Text(
+              song.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            subtitle: Text(
+              artist.isEmpty ? progress : '$artist · $progress',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            trailing: const Icon(Icons.play_circle_outline),
+            onTap: () => _play(song, item.position),
           ),
-          title: Text(song.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-          subtitle: Text(
-            artist.isEmpty ? progress : '$artist · $progress',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          trailing: const Icon(Icons.play_circle_outline),
-          onTap: () => _play(song, item.position),
         );
       },
     );

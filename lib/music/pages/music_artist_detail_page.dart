@@ -25,6 +25,7 @@ import 'package:mimao/music/pages/music_album_detail_page.dart'
     show formatMusicDuration;
 import 'package:mimao/music/pages/music_song_info_sheet.dart';
 import 'package:mimao/music/player/player_ui.dart';
+import 'package:mimao/music/widgets/music_song_card.dart';
 
 /// 歌手详情页。`onOpenAlbum` 为空时专辑卡不可点；`playbackExt` 为空时
 /// 不展示「歌手写真」分区。
@@ -495,10 +496,12 @@ class _MusicArtistDetailPageState extends State<MusicArtistDetailPage> {
     }
     for (final (index, item) in _songs.indexed) {
       children.add(
-        _ArtistSongTile(
-          index: index + 1,
-          song: item,
-          onTap: () => _playSong(item),
+        MusicSongCard(
+          child: _ArtistSongTile(
+            index: index + 1,
+            song: item,
+            onTap: () => _playSong(item),
+          ),
         ),
       );
     }

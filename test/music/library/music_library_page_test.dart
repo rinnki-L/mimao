@@ -59,7 +59,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('收藏'), findsOneWidget);
+    expect(find.text('我喜欢'), findsOneWidget);
     expect(find.text('历史'), findsOneWidget);
     expect(find.text('收藏二'), findsOneWidget);
     expect(find.text('收藏一'), findsOneWidget);

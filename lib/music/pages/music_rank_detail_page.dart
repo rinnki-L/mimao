@@ -14,6 +14,7 @@ import 'package:mimao/music/api/rank_audio.dart';
 import 'package:mimao/music/models/music_models.dart';
 import 'package:mimao/music/models/rank_models.dart';
 import 'package:mimao/music/player/player_ui.dart';
+import 'package:mimao/music/widgets/music_song_card.dart';
 
 /// 榜单详情页。
 class MusicRankDetailPage extends StatefulWidget {
@@ -133,12 +134,14 @@ class _MusicRankDetailPageState extends State<MusicRankDetailPage> {
       itemBuilder: (context, index) {
         final entry = _songs[index];
         // rankAudio 的歌曲摘要本身就是共享 MusicSong（song 字段）。
-        return _DetailSongRow(
-          song: entry.song,
-          // 榜内位置优先取 ranking.position；缺省退回列表序号。
-          position: entry.metadata.ranking?.position ?? index + 1,
-          remark: _remarkOf(entry),
-          onTap: () => _openSong(entry),
+        return MusicSongCard(
+          child: _DetailSongRow(
+            song: entry.song,
+            // 榜内位置优先取 ranking.position；缺省退回列表序号。
+            position: entry.metadata.ranking?.position ?? index + 1,
+            remark: _remarkOf(entry),
+            onTap: () => _openSong(entry),
+          ),
         );
       },
     );

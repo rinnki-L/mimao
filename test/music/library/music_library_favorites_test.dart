@@ -62,8 +62,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // 账号「我喜欢」优先展示，且 listid 来自 is_def=2 而不是默认收藏(1)。
-    expect(find.text('账号收藏 · 我喜欢'), findsOneWidget);
+    // 表头已移除：账号收藏歌单直接以卡片行展示，曲目本身仍要正常渲染。
+    expect(find.text('账号收藏 · 我喜欢'), findsNothing);
     expect(find.text('账号收藏一'), findsOneWidget);
     expect(read.trackAllNewQueries.first.cloudListId, 2);
 

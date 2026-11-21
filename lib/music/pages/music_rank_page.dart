@@ -15,6 +15,7 @@ import 'package:mimao/music/models/music_models.dart';
 import 'package:mimao/music/models/rank_models.dart';
 import 'package:mimao/music/pages/music_rank_detail_page.dart';
 import 'package:mimao/music/player/player_ui.dart';
+import 'package:mimao/music/widgets/music_song_card.dart';
 
 /// 榜单总页。
 class MusicRankPage extends StatefulWidget {
@@ -311,11 +312,13 @@ class _NewSongsTabState extends _RankTabBase<_NewSongsTab> {
       itemBuilder: (context, index) {
         final entry = _songs[index];
         // 新歌模型本身就是共享 MusicSong（song 字段），无需再映射。
-        return _RankSongRow(
-          song: entry.song,
-          // 榜内位置优先取 chart；缺省退回列表序号。
-          position: entry.metadata.chart.position ?? index + 1,
-          onTap: () => widget.onOpenSong(entry.song),
+        return MusicSongCard(
+          child: _RankSongRow(
+            song: entry.song,
+            // 榜内位置优先取 chart；缺省退回列表序号。
+            position: entry.metadata.chart.position ?? index + 1,
+            onTap: () => widget.onOpenSong(entry.song),
+          ),
         );
       },
     );

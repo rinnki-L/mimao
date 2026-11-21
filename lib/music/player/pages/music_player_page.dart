@@ -381,6 +381,12 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
                                               lyric: _lyric,
                                               position: snapshot.position,
                                               mode: lyricMode,
+                                              // 点歌词跳到该行起始时间；
+                                              // position 变化后高亮/滚动由
+                                              // Observer 重建自动跟上。
+                                              onLineTap: (line) => unawaited(
+                                                player.seekTo(line.start),
+                                              ),
                                             ),
                                           ),
                                         ],
@@ -475,7 +481,7 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
   }
 }
 
-/// 圆形「黑胶唱片」封面：播放时旋转（5 秒一圈），暂停时静止。
+/// 圆形「黑胶唱片」封面：播放时旋转（12 秒一圈），暂停时静止。
 ///
 /// 盘面叠了一道非对称反光（两道相对扇形高光 + 边缘标记点），否则同心对称
 /// 的封面图案转起来和静止几乎没有区别。旋转用 [AnimationController.repeat]
@@ -485,8 +491,14 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
 class _Cover extends StatefulWidget {
   const _Cover({required this.url, required this.playing});
 
-  /// 唱片直径（逻辑像素）。
-  static const double size = 200;
+  /// 唱片在 Row 中占的布局边长（逻辑像素）。
+  ///
+  /// 盘面实际绘制比它大（[size]），但布局占位保持此值，保证 Row 里的
+  /// 中心点不因放大而右移。
+  static const double layoutSize = 200;
+
+  /// 唱片实际绘制直径（逻辑像素）；以中心为锚溢出布局占位。
+  static const double size = 260;
 
   final String url;
   final bool playing;
@@ -501,10 +513,11 @@ class _CoverState extends State<_Cover> with SingleTickerProviderStateMixin {
       .toString()
       .contains('TestWidgetsFlutterBinding');
 
-  /// 5 秒一圈：比真实 33 转黑胶快，慢于「转太快看不清」，肉眼一眼能看出。
+  /// 12 秒一圈：比之前 5 秒更慢更接近真实黑胶的从容感，同时仍能一眼
+  /// 看出在转。
   late final AnimationController _spin = AnimationController(
     vsync: this,
-    duration: const Duration(seconds: 5),
+    duration: const Duration(seconds: 12),
   );
 
   @override
@@ -566,7 +579,7 @@ class _CoverState extends State<_Cover> with SingleTickerProviderStateMixin {
                   ),
           );
 
-    return RotationTransition(
+    final Widget disc = RotationTransition(
       turns: _spin,
       child: Container(
         width: size,
@@ -628,6 +641,20 @@ class _CoverState extends State<_Cover> with SingleTickerProviderStateMixin {
             ],
           ),
         ),
+      ),
+    );
+
+    // 布局占位固定为 [layoutSize]（Row 里的中心点不因放大而右移），盘面
+    // 按 [size] 以中心为锚向四周溢出绘制。
+    return SizedBox(
+      width: _Cover.layoutSize,
+      height: _Cover.layoutSize,
+      child: OverflowBox(
+        minWidth: size,
+        maxWidth: size,
+        minHeight: size,
+        maxHeight: size,
+        child: disc,
       ),
     );
   }

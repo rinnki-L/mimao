@@ -14,6 +14,7 @@ import 'package:mimao/music/library_api.dart';
 import 'package:mimao/music/models/music_models.dart';
 import 'package:mimao/music/music_store.dart';
 import 'package:mimao/music/player/player_ui.dart';
+import 'package:mimao/music/widgets/music_song_card.dart';
 
 /// 搜索框 + 结果列表。embedded=true 时由壳提供顶部「返回 + 标题」。
 class MusicModulePage extends StatefulWidget {
@@ -322,13 +323,16 @@ class _MusicModulePageState extends State<MusicModulePage> {
       itemCount: store.results.length,
       itemBuilder: (context, index) {
         final song = store.results[index];
-        return _SongTile(
-          song: song,
-          isCollected: _collectedIds.contains(_songId(song)),
-          onToggleCollect: widget.collect == null
-              ? null
-              : () => _toggleCollect(song),
-          onTap: () => _openSong(song),
+        return MusicSongCard(
+          horizontalMargin: 16,
+          child: _SongTile(
+            song: song,
+            isCollected: _collectedIds.contains(_songId(song)),
+            onToggleCollect: widget.collect == null
+                ? null
+                : () => _toggleCollect(song),
+            onTap: () => _openSong(song),
+          ),
         );
       },
     );

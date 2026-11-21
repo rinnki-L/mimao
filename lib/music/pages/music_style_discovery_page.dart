@@ -20,6 +20,7 @@ import 'package:mimao/music/models/music_models.dart';
 import 'package:mimao/music/pages/music_discovery_list_page.dart';
 import 'package:mimao/music/pages/music_discovery_mappers.dart';
 import 'package:mimao/music/player/player_ui.dart';
+import 'package:mimao/music/widgets/music_song_card.dart';
 
 /// 风格推荐页。
 class MusicStyleDiscoveryPage extends StatefulWidget {
@@ -188,7 +189,7 @@ class _MusicStyleDiscoveryPageState extends State<MusicStyleDiscoveryPage> {
         for (final group in data.groups)
           if (group.child.isNotEmpty) _buildGroupChips(group),
         if (hasChips && hasSongs) const SizedBox(height: 8),
-        for (final song in data.songs) _songTile(song),
+        for (final song in data.songs) MusicSongCard(child: _songTile(song)),
       ],
     );
   }

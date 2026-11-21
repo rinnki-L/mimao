@@ -110,4 +110,13 @@ void main() {
     expect(find.text('第一句歌词'), findsNothing);
     expect(find.text('暂无歌词'), findsNothing);
   });
+
+  testWidgets('点击歌词行跳转到该行起始时间', (tester) async {
+    await pumpPlayerPage(tester);
+
+    await tester.tap(find.text('第一句歌词'));
+    await tester.pump();
+
+    expect(engine.seeks, <Duration>[Duration.zero]);
+  });
 }

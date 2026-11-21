@@ -40,6 +40,7 @@ import 'package:mimao/music/pages/music_discovery_search_page.dart';
 import 'package:mimao/music/pages/music_hot_search_page.dart';
 import 'package:mimao/music/pages/music_style_discovery_page.dart';
 import 'package:mimao/music/player/player_ui.dart';
+import 'package:mimao/music/widgets/music_song_card.dart';
 
 /// 音乐发现页：入口网格 + 每日推荐；搜索统一交给搜索结果页。回调按集成者
 /// 契约接线，null 时对应功能降级（入口不显示 / 行可点但不跳转）。
@@ -713,7 +714,8 @@ class _MusicDiscoveryPageState extends State<MusicDiscoveryPage> {
         empty: const SizedBox.shrink(),
         content: () => Column(
           children: <Widget>[
-            for (final item in section.items) _dailyTile(item),
+            for (final item in section.items)
+              MusicSongCard(child: _dailyTile(item)),
           ],
         ),
         onRetry: _loadDailySongs,
