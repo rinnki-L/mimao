@@ -516,7 +516,13 @@ Future<Uint8List> _fetchComicImageBytes(
       : null;
   final response = await client.fetch(
     url,
-    options: ComicFetchOptions(referer: referer),
+    options: ComicFetchOptions(
+      referer: referer,
+      // 明确图片语义：沿用默认的 HTML Accept 有站点会直接 403/返回错误页。
+      headers: const <String, String>{
+        'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+      },
+    ),
   );
   if (!response.isSuccessful) {
     throw HttpException('HTTP ${response.statusCode}', uri: uri);

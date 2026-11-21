@@ -65,7 +65,8 @@ class ComicLocalContent {
     final root = Directory(entry.folderPath);
     final chapters = await _chapters(entry, manifest, root);
     final result = <LocalChapterContent>[];
-    for (final chapter in chapters) {
+    for (var i = 0; i < chapters.length; i++) {
+      final chapter = chapters[i];
       final dir = chapter.dir.isEmpty
           ? root
           : Directory(p.join(root.path, chapter.dir));
@@ -73,6 +74,7 @@ class ComicLocalContent {
       if (images.isEmpty) continue;
       result.add(
         LocalChapterContent(
+          index: i,
           title: chapter.title,
           imageUrls: [for (final file in images) file.uri.toString()],
         ),
@@ -189,10 +191,16 @@ class ComicLocalContent {
 
 /// 本地章节的阅读数据（不依赖 reader 目录，模块层再转成 reader 模型）。
 class LocalChapterContent {
+  /// 原详情里的章节序号（空章被跳过后仍与 `localChapterUrl` 对齐）。
+  final int index;
   final String title;
   final List<String> imageUrls;
 
-  const LocalChapterContent({required this.title, required this.imageUrls});
+  const LocalChapterContent({
+    required this.index,
+    required this.title,
+    required this.imageUrls,
+  });
 }
 
 /// 本地详情里章节的稳定 URL（只承载序号，阅读时按序号取章）。

@@ -245,13 +245,12 @@ class ComicModule implements AppModule {
         final localEntry = await content.find(ref);
         if (localEntry == null) throw StateError('本地漫画不存在：${item.title}');
         final chapters = await content.readerChapters(localEntry);
-        for (var i = 0; i < chapters.length; i++) {
-          final localChapter = chapters[i];
+        for (final localChapter in chapters) {
           readerChapters.add(
             reader.ComicChapter(
               title: localChapter.title,
               // 用原章节序号作 id：空章被跳过时也不会错位，且能写进历史。
-              chapterId: localChapterUrl(i),
+              chapterId: localChapterUrl(localChapter.index),
               imageUrls: localChapter.imageUrls,
             ),
           );
