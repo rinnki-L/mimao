@@ -8,13 +8,17 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:mimao/core/theme.dart';
+import 'package:mimao/music/models/discovery_models.dart';
 import 'package:mimao/music/player/pages/music_player_page.dart';
 import 'package:mimao/music/player/player_store.dart';
 
 class MusicMiniPlayer extends StatelessWidget {
-  const MusicMiniPlayer({super.key, required this.player});
+  const MusicMiniPlayer({super.key, required this.player, this.loadClimax});
 
   final MusicPlayerStore player;
+
+  /// 透传给播放页的高潮加载缝；null 时播放页不显示高潮 chip。
+  final Future<List<MusicSongClimaxSegment>> Function(String hash)? loadClimax;
 
   @override
   Widget build(BuildContext context) {
@@ -37,7 +41,8 @@ class MusicMiniPlayer extends StatelessWidget {
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
                   settings: const RouteSettings(name: 'music/player'),
-                  builder: (context) => MusicPlayerPage(player: player),
+                  builder: (context) =>
+                      MusicPlayerPage(player: player, loadClimax: loadClimax),
                 ),
               ),
               child: Padding(

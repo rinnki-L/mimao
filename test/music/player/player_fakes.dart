@@ -1,12 +1,18 @@
-/// 音乐播放线测试替身：fake engine / fake playbackApi / 进度记录 / 曲目工厂。
+/// 音乐播放线测试替身：fake engine / fake playbackApi / 进度记录 / 曲目工厂
+/// / fake 听歌上报 / fake 本地设置（L4）。
 ///
 /// 全部纯内存，不初始化 media_kit、不联网；播放器内核与 UI 测试共用。
 library;
 
 import 'dart:async';
+import 'dart:math';
 
+import 'package:mimao/music/api/listen_report_api.dart';
 import 'package:mimao/music/api/music_playback_api.dart';
+import 'package:mimao/music/api/user_listen_report.dart';
 import 'package:mimao/music/models/music_models.dart';
+import 'package:mimao/music/models/user_listen_report_models.dart';
+import 'package:mimao/music/music_settings.dart';
 import 'package:mimao/music/player/playback_engine.dart';
 
 /// 曲目工厂：默认 hash 为 32 位十六进制、id 为数字（可播路径的合法输入）。
@@ -133,5 +139,52 @@ class RecordingProgressSink {
     Duration duration,
   ) async {
     writes.add((song.id, position, duration));
+  }
+}
+
+/// 听歌上报替身：记录事件序列，可配置抛错（验证异常吞掉、不挡播放）。
+class FakeListenReportApi implements MusicListenReportApi {
+  FakeListenReportApi({this.failure});
+
+  /// 非 null 时每次上报都抛它；上报本身不被 store await，抛错必须被吞。
+  Object? failure;
+
+  /// 收到的事件（按时间序）；`listenReport` 先抛错就不记录。
+  final List<MusicListenReportQuery> events = <MusicListenReportQuery>[];
+
+  @override
+  Future<MusicListenReportAcceptance> listenReport(
+    MusicListenReportQuery query, {
+    MusicListenReportClock? clock,
+    Random? random,
+  }) async {
+    final error = failure;
+    if (error != null) throw error;
+    events.add(query);
+    return const MusicListenReportAcceptance(accepted: true);
+  }
+}
+
+/// 本地设置替身：内存开关 + ensureLoaded 计数（不碰 path_provider）。
+class FakeMusicSettings implements MusicSettings {
+  FakeMusicSettings({bool listenReportEnabled = true})
+    : _listenReportEnabled = listenReportEnabled;
+
+  bool _listenReportEnabled;
+
+  @override
+  bool get listenReportEnabled => _listenReportEnabled;
+
+  /// 断言「上报前先 ensureLoaded」用。
+  int ensureLoadedCalls = 0;
+
+  @override
+  Future<void> ensureLoaded() async {
+    ensureLoadedCalls++;
+  }
+
+  @override
+  Future<void> setListenReportEnabled(bool value) async {
+    _listenReportEnabled = value;
   }
 }
