@@ -460,7 +460,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byKey(const Key('comic-home-sources')));
+      // 源管理入口已从胶囊 chip 升级为卡片（comic-home-source-card），点卡片进源管理页。
+      await tester.tap(find.byKey(const Key('comic-home-source-card-tap')));
       await tester.pumpAndSettle();
       expect(find.text('已导入 3 个来源'), findsOneWidget);
       expect(tester.takeException(), isNull);
