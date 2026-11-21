@@ -186,7 +186,11 @@ class ComicModule implements AppModule {
         await collect.collect(
           ref,
           title: item.title,
-          coverUrl: item.coverUrl.isEmpty ? null : item.coverUrl,
+          // 本地封面是本机路径，属模块私有：不写进收藏/投影的公共 coverUrl。
+          coverUrl:
+              ref.sourceName == ComicRef.localSource || item.coverUrl.isEmpty
+              ? null
+              : item.coverUrl,
         );
       } else {
         await collect.remove(ref);
