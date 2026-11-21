@@ -233,8 +233,22 @@ error_code=20018 在 decode 层统一映射 `authentication`、信封 status/err
   歌单/IP。
 - `pages/music_album_detail_page.dart`、`music_artist_detail_page.dart`。
 - `pages/music_playlist_list_page.dart`、`music_playlist_detail_page.dart`：
-  云/公开歌单、新建/删除（write 注入时）。
-- `pages/music_account_center_page.dart`：资料/会员/听歌等级/历史/已购/我的歌单。
+  云/公开歌单、新建/删除/分享链接导入；云歌单可编辑（信息/封面/曲目
+  多选删除与排序/加歌，`write` + 版本信息注入时）。
+- `pages/music_account_center_page.dart`：资料/会员/听歌等级/历史/已购/我的歌单；
+  资料编辑/头像上传/音乐偏好入口（登录态）。
+- `pages/music_effects_page.dart`、`music_effects_brand_page.dart`：音效商城
+  （`getModel`）/ 耳机品牌与型号 / 设备匹配；`pages/music_audio_match_page.dart`
+  听歌识曲（麦克风采集 → `audio_match`）。
+- `pages/music_login_methods_page.dart`：手机号验证码 / QQ 扫码 / 微信扫码 /
+  登录设备管理；`pages/music_security_verify_page.dart`：验证挑战查询 + sideDt
+  提交。
+- `pages/music_song_info_sheet.dart`：歌曲权益（privilege_lite）/ 资料
+  （krm_audio）/ 歌手图片（images_audio）；专辑曲目长按、歌手页写真、播放页
+  「歌曲资料」入口共用。
+- 发现页新增「风格推荐」（`everydayStyleRecommend` 标签 chips 多选）与
+  「音效商城」入口卡；播放页显示歌曲高潮区间并可跳转；听歌上报（CSCC）
+  默认开启，设置页可关（`lib/music/music_settings.dart`）。
 - 主页底部 tab：发现（无扩展时回退旧搜索）/ 我的（顶部「我的歌单」入口）/
   账号 / 设置；迷你播放条与播放页保持原状。
 
@@ -256,5 +270,12 @@ error_code=20018 在 decode 层统一映射 `authentication`、信封 status/err
   playback_ext 三组各有一份（上游同名 util 的独立翻译），字段语义一致；
   后续可抽取到 `models/catalog_rights_models.dart` 统一。
 - 私人 FM「换一批」未透传 curMark/batchMark（上游翻页语义未验证）。
-- sideDt（安全上报）、everydayStyleRecommend、songClimax 已提供 API，UI 未
-  单独入口；播放页歌词/高潮区间留待播放线后续切片。
+- 歌单导入只做分享链接（`import_playlist` 的 Link 动作）；截图导入的
+  `taskSn` 与链接导入回执里的数字任务 id 对不上，未臆造两阶段流程。
+- 听歌识曲依赖麦克风（`record`，Windows 走 MediaFoundation、Android 需
+  `RECORD_AUDIO`）；真实设备录音未在 CI 覆盖，页面给了权限拒绝/录音失败的
+  显式错误态。
+- 安全验证（sideDt）入口在设置页，需要外部提供的事件号才能发起挑战；目前
+  没有从业务错误自动跳验证的链路。
+- 听歌上报默认开启，开关落在应用支持目录的 `music_settings/settings.json`；
+  上报失败静默，不影响播放。

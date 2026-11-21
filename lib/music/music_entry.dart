@@ -29,6 +29,7 @@ import 'package:mimao/music/pages/music_account_center_page.dart';
 import 'package:mimao/music/pages/music_album_detail_page.dart';
 import 'package:mimao/music/pages/music_artist_detail_page.dart';
 import 'package:mimao/music/pages/music_discovery_page.dart';
+import 'package:mimao/music/pages/music_effects_page.dart';
 import 'package:mimao/music/pages/music_login_gate.dart';
 import 'package:mimao/music/pages/music_module_page.dart';
 import 'package:mimao/music/pages/music_module_settings.dart';
@@ -154,6 +155,10 @@ class MusicModule implements AppModule {
             onOpenRank: browseApis?.rank == null
                 ? null
                 : () => _openRank(context),
+            // 音效商城（L1 音效页）；effects 端点缺失时入口卡隐藏。
+            onOpenEffects: browseApis?.effects == null
+                ? null
+                : () => _openEffects(context),
           )
         : null;
 
@@ -331,6 +336,25 @@ class MusicModule implements AppModule {
       MaterialPageRoute<void>(
         settings: const RouteSettings(name: 'music/rank'),
         builder: (_) => MusicRankPage(api: api, player: player),
+      ),
+    );
+  }
+
+  /// 音效商城（L1）：音效目录 / 耳机品牌 / 设备匹配 + 听歌识曲。
+  /// 音效页本身不依赖播放；识曲结果的播放需要 player，缺省时只展示。
+  void _openEffects(BuildContext context) {
+    final effects = browse?.effects;
+    if (effects == null) return;
+    final player = _resolvePlayerUi;
+    final playbackExt = browse?.playbackExt;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'music/effects'),
+        builder: (_) => MusicEffectsPage(
+          effects: effects,
+          playbackExt: playbackExt,
+          player: player,
+        ),
       ),
     );
   }
