@@ -7,6 +7,11 @@
 library;
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mimao/comic/data/comic_data_source.dart';
+// engine.dart 也导出 ComicSummary/ComicDetail，加前缀避免与本文件测试用到的数据
+// 契约模型同名冲突。
+import 'package:mimao/comic/data/comic_models.dart' as data;
+import 'package:mimao/comic/data/fixture_comic_data_source.dart';
 
 import 'package:mimao/comic/engine/engine.dart';
 
@@ -59,7 +64,91 @@ Future<(_RecordingHost, ComicSourceEngine)> _setup({
   return (host, ComicSourceEngine(pool: pool));
 }
 
+/// 直接 implements ComicDataSource 的最小 fake：验证零改动即获得分组语义
+/// （接口默认实现走扩展，direct implements 无需补覆盖）。
+class _FlatFakeDataSource implements ComicDataSource {
+  const _FlatFakeDataSource(this.results);
+
+  final List<data.ComicSummary> results;
+
+  @override
+  Future<List<data.ComicSummary>> search(String keyword) async => results;
+
+  @override
+  Future<data.ComicDetail> detail(data.ComicSummary item) =>
+      throw UnimplementedError();
+
+  // interface 契约：implements 方需显式实现（接口默认体不 inherits）。
+  @override
+  Future<List<data.ComicSummary>> searchSource(String key, String keyword) =>
+      search(keyword);
+
+  @override
+  List<String> availableSourceKeys() => const <String>[];
+
+  @override
+  Future<List<String>> recentSearchTerms() async => const <String>[];
+
+  @override
+  List<String> takeSearchDiagnostics() => const <String>[];
+}
+
 void main() {
+  group('searchGrouped 默认分组契约', () {
+    test('fixture 零改动：按 sourceName 分组，组内保序、组按 key 排序', () async {
+      const ds = FixtureComicDataSource();
+      final sections = await ds.searchGrouped('');
+      expect(sections.map((s) => s.sourceKey).toList(), <String>[
+        '漫画DB',
+        '酷漫屋',
+      ]);
+      expect(sections.first.items.map((e) => e.id).toList(), <String>[
+        'xingzhou',
+        'mihuan',
+      ]);
+      expect(sections.last.items.map((e) => e.id).toList(), <String>[
+        'yeyu',
+        'haibian',
+      ]);
+      expect(sections.every((s) => s.diagnostics.isEmpty), isTrue);
+    });
+
+    test('sourceName 缺失/空白归入「默认」组，不静默丢弃', () async {
+      final ds = _FlatFakeDataSource(<data.ComicSummary>[
+        const data.ComicSummary(
+          id: 'a',
+          title: 'A',
+          coverUrl: '',
+          detailUrl: '',
+        ),
+        data.ComicSummary(
+          id: 'b',
+          title: 'B',
+          coverUrl: '',
+          detailUrl: '',
+          sourceName: '   ',
+        ),
+        const data.ComicSummary(
+          id: 'c',
+          title: 'C',
+          coverUrl: '',
+          detailUrl: '',
+          sourceName: '源X',
+        ),
+      ]);
+      final sections = await groupedSearch(ds, 'kw');
+      expect(sections.map((s) => s.sourceKey).toList(), <String>['源X', '默认']);
+      expect(sections.last.items.map((e) => e.id).toList(), <String>['a', 'b']);
+    });
+
+    test('空结果返回空分组列表', () async {
+      expect(
+        await const FixtureComicDataSource().searchGrouped('不存在'),
+        isEmpty,
+      );
+    });
+  });
+
   group('默认 options（optionList defaultValue）', () {
     test('表达式包含 default 优先逻辑与 loadNext 回退', () async {
       final (host, engine) = await _setup(

@@ -2,7 +2,8 @@
 import 'package:flutter/material.dart';
 import 'package:mimao/comic/data/comic_data_source.dart';
 import 'package:mimao/comic/data/comic_models.dart';
-import 'package:mimao/comic/pages/comic_poster_card.dart';
+import 'package:mimao/comic/pages/comic_poster_card.dart'
+    show ComicPosterGrid, ComicSectionHeader;
 
 // 卡片与网格已抽到 comic_poster_card.dart（四个分区页共用同一形态）；
 // 这里 re-export，既有 `import 'comic_search_page.dart'` 拿 ComicPosterCard
@@ -34,18 +35,44 @@ class ComicSearchPage extends StatefulWidget {
   State<ComicSearchPage> createState() => _ComicSearchPageState();
 }
 
+/// 一次搜索的视图数据：聚合模式带按源分组的 sections，单源/无来源模式带摊平
+/// 结果。用一个 future 同时携带两者，避免为了拿诊断再调一次数据源。
+class _SearchViewData {
+  const _SearchViewData._({this.sections, this.items});
+
+  factory _SearchViewData.grouped(List<ComicSourceSearchSection> sections) =>
+      _SearchViewData._(sections: sections);
+  factory _SearchViewData.flat(List<ComicSummary> items) =>
+      _SearchViewData._(items: items);
+
+  /// 非 null 表示聚合模式（结果按源分组）。
+  final List<ComicSourceSearchSection>? sections;
+
+  /// 非 null 表示摊平模式（单源搜索 / 数据源未暴露来源）。
+  final List<ComicSummary>? items;
+
+  bool get isGrouped => sections != null;
+
+  /// 总条目数（计数行 + 空态判定共用）。
+  int get count =>
+      sections?.fold<int>(0, (sum, s) => sum + s.items.length) ??
+      items?.length ??
+      0;
+}
+
 class _ComicSearchPageState extends State<ComicSearchPage> {
   final TextEditingController _controller = TextEditingController();
-  late Future<List<ComicSummary>> _future;
+  late Future<_SearchViewData> _future;
   String _query = '';
 
   /// 诊断是"取走即清"，builder 内不能 setState。按 [_future] 身份缓存一次读取
   /// 结果：同一 future 的多次 build 复用缓存，换 future（新一轮搜索）才重新取。
   /// 这样既满足 builder 无副作用，也避免 rebuild 时诊断被清空后错误态闪烁回空态。
-  Future<List<ComicSummary>>? _diagnosticsForFuture;
+  /// 聚合模式下逐源诊断由 section.diagnostics 承担，这里只服务摊平模式空态。
+  Future<_SearchViewData>? _diagnosticsForFuture;
   List<String> _searchDiagnostics = const <String>[];
 
-  List<String> _diagnosticsFor(Future<List<ComicSummary>> future) {
+  List<String> _diagnosticsFor(Future<_SearchViewData> future) {
     if (!identical(_diagnosticsForFuture, future)) {
       _diagnosticsForFuture = future;
       _searchDiagnostics = widget.dataSource.takeSearchDiagnostics();
@@ -59,8 +86,12 @@ class _ComicSearchPageState extends State<ComicSearchPage> {
   /// 搜索历史：每次搜索后重建，FutureBuilder 从数据源读取真实历史词。
   late Future<List<String>> _historyFuture;
 
-  /// 当前选中的来源；null = 全部来源（默认聚合搜索语义不变）。
+  /// 当前选中的来源；null = 聚合搜索（全源并发，结果按源分组）。
   String? _selectedSource;
+
+  /// 是否处于聚合模式：数据源暴露了来源筛选且当前未选中任何单源。
+  /// 无来源数据源（fixture/fake）保持旧行为——摊平网格，避免无谓分组。
+  bool get _isGroupedMode => _sourceKeys.isNotEmpty && _selectedSource == null;
 
   @override
   void initState() {
@@ -90,14 +121,23 @@ class _ComicSearchPageState extends State<ComicSearchPage> {
     super.dispose();
   }
 
-  /// 按当前选中来源路由搜索：空关键词或「全部来源」走 [ComicDataSource.search]，
-  /// 否则走 [ComicDataSource.searchSource] 指定单源。
-  Future<List<ComicSummary>> _runQuery(String query) {
+  /// 按当前选中来源路由搜索：聚合模式走 [ComicDataSource.searchGrouped]
+  /// （全源并发、按源分组），单源走 [ComicDataSource.searchSource]，无来源
+  /// 数据源与空关键词走 [ComicDataSource.search] 保持旧行为。
+  Future<_SearchViewData> _runQuery(String query) async {
     final key = _selectedSource;
-    if (query.isNotEmpty && key != null && key.isNotEmpty) {
-      return widget.dataSource.searchSource(key, query);
+    if (_isGroupedMode) {
+      // 经统一入口分派：静态类型是 ComicDataSource 时扩展方法不会自动分派到
+      // 引擎的 GroupedComicDataSource override，必须由 groupedSearch 做 is 收窄。
+      final sections = await groupedSearch(widget.dataSource, query);
+      return _SearchViewData.grouped(sections);
     }
-    return widget.dataSource.search(query);
+    if (query.isNotEmpty && key != null && key.isNotEmpty) {
+      return _SearchViewData.flat(
+        await widget.dataSource.searchSource(key, query),
+      );
+    }
+    return _SearchViewData.flat(await widget.dataSource.search(query));
   }
 
   void _runSearch(String value) {
@@ -160,7 +200,7 @@ class _ComicSearchPageState extends State<ComicSearchPage> {
     );
   }
 
-  /// 来源筛选行：「全部来源」+ 各可用源 key。选中后自动重搜。
+  /// 来源筛选行：「聚合搜索」+ 各可用源 key。选中后自动重搜。
   /// 用横向滚动避免多来源时挤出 390 宽屏幕。
   Widget _buildSourceFilter(ColorScheme cs) {
     return SingleChildScrollView(
@@ -168,7 +208,7 @@ class _ComicSearchPageState extends State<ComicSearchPage> {
       child: Row(
         children: <Widget>[
           _SourceFilterChip(
-            label: '全部来源',
+            label: '聚合搜索',
             selected: _selectedSource == null,
             onSelected: (_) => _selectSource(null),
             filterKey: const Key('source-filter-all'),
@@ -215,7 +255,7 @@ class _ComicSearchPageState extends State<ComicSearchPage> {
   }
 
   Widget _buildResults(BuildContext context, ColorScheme cs) {
-    return FutureBuilder<List<ComicSummary>>(
+    return FutureBuilder<_SearchViewData>(
       future: _future,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -224,9 +264,29 @@ class _ComicSearchPageState extends State<ComicSearchPage> {
         if (snapshot.hasError) {
           return _SearchErrorState(onRetry: () => _runSearch(_query));
         }
-        final results = snapshot.data ?? const <ComicSummary>[];
-        if (results.isEmpty) {
-          // 失败被吞成空结果时，用搜索期诊断还原真实原因（最多 10 条）。
+        final view = snapshot.data;
+        // 聚合模式只要拿到 section 就逐源展示：即使全源失败（count==0），
+        // 每个失败源的 section.diagnostics 仍能上达，绝不退回笼统空态。
+        // 只有「section 列表本身为空」（如空关键词）才走原空态。
+        if (view != null && view.isGrouped) {
+          if (view.sections!.isEmpty) {
+            // 默认分组源（无 searchGrouped override）没有 section：失败原因
+            // 只能走 takeSearchDiagnostics 全局出口（A/C 共存语义）。有诊断
+            // 仍显示错误态，无诊断才回退空态。
+            final diagnostics = _diagnosticsFor(_future);
+            if (diagnostics.isNotEmpty) {
+              return _SearchDiagnosticsState(
+                diagnostics: diagnostics,
+                onRetry: () => _runSearch(_query),
+              );
+            }
+            return _SearchEmptyState(query: _query);
+          }
+          return _buildGroupedResults(context, cs, view.sections!);
+        }
+        if (view == null || view.count == 0) {
+          // 摊平模式：失败被吞成空结果时，用搜索期诊断还原真实原因；
+          // 无诊断时保留原空态（回显关键词）。
           final diagnostics = _diagnosticsFor(_future);
           if (diagnostics.isNotEmpty) {
             return _SearchDiagnosticsState(
@@ -236,28 +296,127 @@ class _ComicSearchPageState extends State<ComicSearchPage> {
           }
           return _SearchEmptyState(query: _query);
         }
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            Padding(
-              padding: const EdgeInsets.only(top: 4, bottom: 8),
-              child: Text(
-                '共 ${results.length} 部',
-                style: Theme.of(
-                  context,
-                ).textTheme.labelLarge?.apply(color: cs.onSurfaceVariant),
-              ),
-            ),
-            Expanded(
-              child: ComicPosterGrid(
-                items: results,
-                keyPrefix: 'search-result',
-                onOpen: widget.onOpenDetail,
-              ),
-            ),
-          ],
-        );
+        return _buildFlatResults(context, cs, view.items!);
       },
+    );
+  }
+
+  /// 摊平结果（单源搜索 / 无来源数据源）：保留旧版「共 N 部」+ 网格。
+  Widget _buildFlatResults(
+    BuildContext context,
+    ColorScheme cs,
+    List<ComicSummary> results,
+  ) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: <Widget>[
+      Padding(
+        padding: const EdgeInsets.only(top: 4, bottom: 8),
+        child: Text(
+          '共 ${results.length} 部',
+          style: Theme.of(
+            context,
+          ).textTheme.labelLarge?.apply(color: cs.onSurfaceVariant),
+        ),
+      ),
+      Expanded(
+        child: ComicPosterGrid(
+          items: results,
+          keyPrefix: 'search-result',
+          onOpen: widget.onOpenDetail,
+        ),
+      ),
+    ],
+  );
+
+  /// 聚合结果：每个源一个可见 section（含 0 结果带诊断的源）。
+  /// 排序：有结果的组在前、失败/空组在后，组内按源 key 稳定序。
+  Widget _buildGroupedResults(
+    BuildContext context,
+    ColorScheme cs,
+    List<ComicSourceSearchSection> sections,
+  ) {
+    final ordered = <ComicSourceSearchSection>[
+      ...sections.where((s) => s.items.isNotEmpty),
+      ...sections.where((s) => s.items.isEmpty),
+    ];
+    final sourceCount = sections.length;
+    final comicCount = sections.fold<int>(0, (sum, s) => sum + s.items.length);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.only(top: 4, bottom: 4),
+          child: Text(
+            '$sourceCount 个源 · $comicCount 部',
+            key: const Key('search-group-summary'),
+            style: Theme.of(
+              context,
+            ).textTheme.labelLarge?.apply(color: cs.onSurfaceVariant),
+          ),
+        ),
+        Expanded(
+          // 用 SingleChildScrollView + Column 而非 ListView.builder：懒构建会
+          // 让屏幕外的失败/空源 section 不在树里，违背「每源 section 可见」，
+          // widget 测试也找不到。源数量有限（已启用源），全量构建可接受。
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                for (final section in ordered)
+                  _buildSourceSection(context, cs, section),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 单个源的分区：组头（源 key + 「N 部」）+ 可选失败原因行 + 结果网格。
+  Widget _buildSourceSection(
+    BuildContext context,
+    ColorScheme cs,
+    ComicSourceSearchSection section,
+  ) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        key: Key('search-group-${section.sourceKey}'),
+        children: <Widget>[
+          ComicSectionHeader(
+            title: section.sourceKey,
+            trailing: Text(
+              '${section.items.length} 部',
+              style: theme.textTheme.labelMedium?.apply(
+                color: cs.onSurfaceVariant,
+              ),
+            ),
+          ),
+          // 失败/空结果原因逐条列出，带「源key：」前缀的原文，绝不静默吞掉。
+          for (final reason in section.diagnostics)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Text(
+                '• $reason',
+                key: Key('search-group-diagnostic-${section.sourceKey}'),
+                style: theme.textTheme.bodySmall?.apply(color: cs.error),
+              ),
+            ),
+          if (section.items.isNotEmpty)
+            ComicPosterGrid(
+              items: section.items,
+              // 卡片 key 沿用 search-result-<id>：既有调用方/测试用该 key 定位
+              // 结果卡片，分组只是外层包裹，不应破坏卡片级定位契约。不同源的
+              // 网格是不同父节点，key 不构成兄弟冲突。
+              keyPrefix: 'search-result',
+              onOpen: widget.onOpenDetail,
+              shrinkWrap: true,
+            ),
+        ],
+      ),
     );
   }
 }

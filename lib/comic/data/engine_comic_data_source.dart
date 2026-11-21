@@ -110,6 +110,7 @@ String deriveSourceKeyFromUrl(String url) {
 class EngineComicDataSource
     implements
         ComicDataSource,
+        GroupedComicDataSource,
         ComicSourceRepository,
         ComicSourcePoolSync,
         ComicBrowseSource {
@@ -180,12 +181,14 @@ class EngineComicDataSource
 
   /// 注册期 `init()` 是非阻塞的：异步失败在注册时可能还没落地，这里在
   /// 搜索入口补一次取走，转成长期诊断 + 本次搜索诊断，避免静默吞掉。
-  void _takeInitError(String key) {
+  /// 返回诊断文本供 [searchGrouped] 写进该源的 section（调用方可忽略）。
+  String? _takeInitError(String key) {
     final error = engine.pool.takeInitError(key);
-    if (error == null) return;
+    if (error == null) return null;
     final message = '$key：初始化失败（$error）';
     _addDiagnostics(<String>[message]);
     _addSearchDiagnostic(message);
+    return message;
   }
 
   /// 读取 store 全部源并注册进执行池。返回加载结果（含坏文件说明）。
@@ -263,6 +266,16 @@ class EngineComicDataSource
 
   @override
   Future<List<ComicSummary>> search(String keyword) async {
+    // 摊平视图直接复用聚合结果，消除两份并发/诊断逻辑漂移：分组按源 key
+    // 稳定排序，摊平后的顺序与旧实现（enabled 按 key 排序后逐源合并）一致。
+    final sections = await searchGrouped(keyword);
+    return List<ComicSummary>.unmodifiable([
+      for (final section in sections) ...section.items,
+    ]);
+  }
+
+  @override
+  Future<List<ComicSourceSearchSection>> searchGrouped(String keyword) async {
     // 每次搜索开头清空搜索期缓冲：一次 build 只读一次（取走即清），
     // 保证诊断只对应本次搜索，不混入上一次的失败原因。
     _searchDiagnostics.clear();
@@ -275,7 +288,7 @@ class EngineComicDataSource
       }
     }
     // 空关键词不做推荐流（决策⑧）：真实源的 search.load('') 语义未定义。
-    if (query.isEmpty) return const <ComicSummary>[];
+    if (query.isEmpty) return const <ComicSourceSearchSection>[];
 
     final enabled = _sources.where((s) => s.enabled).toList()
       ..sort((a, b) => a.key.compareTo(b.key));
@@ -293,32 +306,50 @@ class EngineComicDataSource
         }
       }),
     );
-    final merged = <ComicSummary>[];
+    final sections = <ComicSourceSearchSection>[];
     for (final entry in entries) {
-      _takeInitError(entry.key);
+      // section 诊断与 _searchDiagnostics 同源：两条出口文案一致，UI 分组模式
+      // 读 section.diagnostics，单源/摊平模式读 takeSearchDiagnostics。
+      final sectionDiagnostics = <String>[];
+      final initError = _takeInitError(entry.key);
+      if (initError != null) sectionDiagnostics.add(initError);
+
       final result = entry.result;
+      final items = <ComicSummary>[];
       if (result == null) {
         final message = '${entry.key}：搜索异常（${entry.error}）';
         _addDiagnostics(<String>[message]);
         _addSearchDiagnostic(message);
-        continue;
+        sectionDiagnostics.add(message);
+      } else {
+        final prefixed = result.diagnostics
+            .map((d) => '${entry.key}：$d')
+            .toList();
+        _addDiagnostics(prefixed);
+        for (final message in prefixed) {
+          _addSearchDiagnostic(message);
+        }
+        sectionDiagnostics.addAll(prefixed);
+        // 源返回空且无任何诊断：错误不得被吞成「没找到」，给出可读原因。
+        if (result.items.isEmpty && prefixed.isEmpty) {
+          final message = '${entry.key}：搜索无结果且未返回原因';
+          _addSearchDiagnostic(message);
+          sectionDiagnostics.add(message);
+        }
+        for (final item in result.items) {
+          items.add(_mapSummary(item, entry.key));
+        }
       }
-      final prefixed = result.diagnostics
-          .map((d) => '${entry.key}：$d')
-          .toList();
-      _addDiagnostics(prefixed);
-      for (final message in prefixed) {
-        _addSearchDiagnostic(message);
-      }
-      // 源返回空且无任何诊断：错误不得被吞成「没找到」，给出可读原因。
-      if (result.items.isEmpty && prefixed.isEmpty) {
-        _addSearchDiagnostic('${entry.key}：搜索无结果且未返回原因');
-      }
-      for (final item in result.items) {
-        merged.add(_mapSummary(item, entry.key));
-      }
+      // 每个参与搜索的源都有 section：0 结果带诊断的源也不会静默消失。
+      sections.add(
+        ComicSourceSearchSection(
+          sourceKey: entry.key,
+          items: List<ComicSummary>.unmodifiable(items),
+          diagnostics: List<String>.unmodifiable(sectionDiagnostics),
+        ),
+      );
     }
-    return List<ComicSummary>.unmodifiable(merged);
+    return List<ComicSourceSearchSection>.unmodifiable(sections);
   }
 
   @override

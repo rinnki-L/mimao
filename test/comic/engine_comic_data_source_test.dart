@@ -235,6 +235,104 @@ void main() {
     });
   });
 
+  group('聚合搜索按源分组', () {
+    setUp(() => env.seedSource());
+
+    test('多源成功：每源一个 section，按 key 稳定排序，条目带各自 sourceName', () async {
+      final other = source_engine.parseSourceScript(
+        integrationSourceScriptText.replaceFirst('bilimanga', 'othermanga'),
+      );
+      await env.sourceStore.save(other);
+      final adapter = await env.buildAdapter();
+
+      final sections = await adapter.searchGrouped('海贼王');
+      expect(sections.map((s) => s.sourceKey).toList(), <String>[
+        'bilimanga',
+        'othermanga',
+      ], reason: '按源 key 稳定排序');
+      for (final section in sections) {
+        expect(section.items, hasLength(2));
+        expect(
+          section.items.every((item) => item.sourceName == section.sourceKey),
+          isTrue,
+        );
+        expect(section.diagnostics, isEmpty);
+      }
+    });
+
+    test('单源解析异常：该源 section 空 items + 带诊断，其它源不受影响', () async {
+      final other = source_engine.parseSourceScript(
+        integrationSourceScriptText.replaceFirst('bilimanga', 'boomsource'),
+      );
+      await env.sourceStore.save(other);
+      final adapter = await env.buildAdapter(
+        boomSearchKeys: <String>{'boomsource'},
+      );
+
+      final sections = await adapter.searchGrouped('海贼王');
+      expect(sections.map((s) => s.sourceKey).toList(), <String>[
+        'bilimanga',
+        'boomsource',
+      ]);
+      final healthy = sections.singleWhere((s) => s.sourceKey == 'bilimanga');
+      final broken = sections.singleWhere((s) => s.sourceKey == 'boomsource');
+      expect(healthy.items, hasLength(2));
+      expect(healthy.diagnostics, isEmpty);
+      expect(broken.items, isEmpty, reason: '失败源 0 结果');
+      expect(broken.diagnostics.join(), contains('boomsource'));
+      expect(broken.diagnostics.join(), contains('搜索异常'));
+      // 失败源 section 可见且不静默：诊断同时进入 takeSearchDiagnostics。
+      expect(
+        adapter.takeSearchDiagnostics().join(),
+        contains('boomsource：搜索异常'),
+      );
+    });
+
+    test('单源调用抛异常：失败源 section 仍存在且带原因', () async {
+      final other = source_engine.parseSourceScript(
+        integrationSourceScriptText.replaceFirst('bilimanga', 'badsource'),
+      );
+      await env.sourceStore.save(other);
+      final adapter = await env.buildAdapter(failKeys: <String>{'badsource'});
+
+      final sections = await adapter.searchGrouped('海贼王');
+      final broken = sections.singleWhere((s) => s.sourceKey == 'badsource');
+      expect(broken.items, isEmpty);
+      // failKeys 走引擎诊断通道（result.diagnostics），文案带源 key 前缀；
+      // boomSearchKeys 走 throw 通道，文案是「搜索异常（…）」。两条都可见。
+      expect(broken.diagnostics.join(), contains('badsource：'));
+      expect(broken.diagnostics, isNotEmpty);
+      expect(
+        sections.singleWhere((s) => s.sourceKey == 'bilimanga').items,
+        hasLength(2),
+      );
+    });
+
+    test('空关键词返回空分组列表', () async {
+      final adapter = await env.buildAdapter();
+      expect(await adapter.searchGrouped(''), isEmpty);
+      expect(await adapter.searchGrouped('   '), isEmpty);
+    });
+
+    test('search() 摊平结果与 searchGrouped 一致，历史已记录', () async {
+      final other = source_engine.parseSourceScript(
+        integrationSourceScriptText.replaceFirst('bilimanga', 'othermanga'),
+      );
+      await env.sourceStore.save(other);
+      final adapter = await env.buildAdapter();
+
+      final sections = await adapter.searchGrouped('海贼王');
+      final flat = await adapter.search('海贼王');
+      final flattened = sections.expand((s) => s.items).toList();
+      expect(
+        flat.map((e) => '${e.sourceName}:${e.id}').toList(),
+        flattened.map((e) => '${e.sourceName}:${e.id}').toList(),
+        reason: '摊平顺序 = 分组按 key 排序后逐源拼接',
+      );
+      expect(await env.searchHistory.recent(), contains('海贼王'));
+    });
+  });
+
   group('详情与章节映射', () {
     setUp(() => env.seedSource());
 

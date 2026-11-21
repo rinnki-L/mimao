@@ -36,6 +36,31 @@ class ComicSummary {
   });
 }
 
+/// 聚合搜索里「一个来源」的结果分区。
+///
+/// 每个参与搜索的源都对应一个 section：成功源带 [items]（可能为空），失败源
+/// 带 [diagnostics] 说明原因，绝不静默消失。不可变 + const 构造，便于测试与
+/// 页面按源 key 稳定排序。
+class ComicSourceSearchSection {
+  const ComicSourceSearchSection({
+    required this.sourceKey,
+    this.items = const <ComicSummary>[],
+    this.diagnostics = const <String>[],
+  });
+
+  /// 源 key（与 [ComicSummary.sourceName] 同一取值空间）。
+  final String sourceKey;
+
+  /// 该源返回的条目（按源内原顺序）。
+  final List<ComicSummary> items;
+
+  /// 该源的失败原因（空 = 无问题）。引擎诊断沿用「源key：原因」前缀。
+  final List<String> diagnostics;
+
+  /// 该源是否有可展示的失败原因（UI 据此显示失败行）。
+  bool get hasDiagnostics => diagnostics.isNotEmpty;
+}
+
 /// 详情页里的一章。
 class ComicChapter {
   /// 从 1 开始的序号。

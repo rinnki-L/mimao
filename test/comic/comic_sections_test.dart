@@ -16,6 +16,7 @@ import 'package:mimao/comic/pages/comic_discover_page.dart';
 import 'package:mimao/comic/pages/comic_favorites_page.dart';
 import 'package:mimao/comic/pages/comic_home_page.dart';
 import 'package:mimao/comic/pages/comic_module_page.dart';
+import 'package:mimao/comic/pages/comic_search_page.dart';
 
 const FixtureComicDataSource comicFixture = FixtureComicDataSource();
 const FixtureComicBrowseSource browseFixture = FixtureComicBrowseSource();
@@ -149,6 +150,64 @@ class _NoCategoryBrowse implements ComicBrowseSource {
     ComicCategoryNode node, {
     int page = 1,
   }) => delegate.categoryComics(key, node, page: page);
+}
+
+/// 聚合搜索假源：两个成功源 + 一个失败源（0 结果带诊断），验证按源分组渲染。
+class _GroupedSearchDataSource implements GroupedComicDataSource {
+  const _GroupedSearchDataSource({this.allFail = false});
+
+  /// true 时所有源均 0 结果带诊断（验证全失败仍逐源可见）。
+  final bool allFail;
+
+  static const List<String> keys = <String>['源A', '源B', '坏源'];
+
+  @override
+  List<String> availableSourceKeys() => keys;
+
+  @override
+  Future<List<ComicSummary>> search(String keyword) async =>
+      FixtureComicDataSource.defaultSearchResults;
+
+  @override
+  Future<List<ComicSourceSearchSection>> searchGrouped(String keyword) async =>
+      allFail
+      ? <ComicSourceSearchSection>[
+          for (final key in keys)
+            ComicSourceSearchSection(
+              sourceKey: key,
+              diagnostics: <String>['$key：搜索异常（boom）'],
+            ),
+        ]
+      : <ComicSourceSearchSection>[
+          ComicSourceSearchSection(
+            sourceKey: '源A',
+            items: const <ComicSummary>[FixtureComicDataSource.xingzhou],
+          ),
+          ComicSourceSearchSection(
+            sourceKey: '源B',
+            items: const <ComicSummary>[
+              FixtureComicDataSource.yeyu,
+              FixtureComicDataSource.mihuan,
+            ],
+          ),
+          const ComicSourceSearchSection(
+            sourceKey: '坏源',
+            diagnostics: <String>['坏源：搜索异常（boom）'],
+          ),
+        ];
+
+  @override
+  Future<List<ComicSummary>> searchSource(String key, String keyword) async =>
+      (await searchGrouped(
+        keyword,
+      )).firstWhere((s) => s.sourceKey == key).items;
+
+  @override
+  Future<ComicDetail> detail(ComicSummary item) => throw UnimplementedError();
+  @override
+  List<String> takeSearchDiagnostics() => const <String>[];
+  @override
+  Future<List<String>> recentSearchTerms() async => const <String>[];
 }
 
 Widget _app(Widget home) => MaterialApp(
@@ -385,9 +444,7 @@ void main() {
     testWidgets('源管理卡片：无 sourceLister 时降级显示导入提示不崩', (tester) async {
       _usePhoneSize(tester);
       await tester.pumpWidget(
-        _app(
-          ComicHomePage(dataSource: comicFixture, library: _FakeLibrary()),
-        ),
+        _app(ComicHomePage(dataSource: comicFixture, library: _FakeLibrary())),
       );
       await tester.pumpAndSettle();
 
@@ -711,6 +768,78 @@ void main() {
     });
   });
 
+  group('聚合搜索按源分组', () {
+    testWidgets('聚合模式：每源一个可见 section + 汇总行 + 失败原因行', (tester) async {
+      _usePhoneSize(tester);
+      await tester.pumpWidget(
+        _app(const ComicSearchPage(dataSource: _GroupedSearchDataSource())),
+      );
+      await tester.pumpAndSettle();
+
+      // chip 文案与 Key 保持不变。
+      expect(find.text('聚合搜索'), findsOneWidget);
+      expect(find.byKey(const Key('source-filter-all')), findsOneWidget);
+      // 汇总：3 个源、3 部结果。
+      expect(find.text('3 个源 · 3 部'), findsOneWidget);
+      // 每个源都有 section（含 0 结果的失败源，不能静默消失）。
+      for (final key in _GroupedSearchDataSource.keys) {
+        expect(
+          find.byKey(Key('search-group-$key')),
+          findsOneWidget,
+          reason: '$key 的 section 必须可见',
+        );
+      }
+      // 失败源原因行可见。
+      expect(find.text('• 坏源：搜索异常（boom）'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('单源模式：仍为摊平网格，无分组 section，计数为「共 N 部」', (tester) async {
+      _usePhoneSize(tester);
+      await tester.pumpWidget(
+        _app(const ComicSearchPage(dataSource: _GroupedSearchDataSource())),
+      );
+      await tester.pumpAndSettle();
+
+      // 先输入关键词再选单源：空关键词下选源仍走 search('')（保持旧语义）。
+      await tester.enterText(find.byType(TextField), '关键词');
+      await tester.tap(find.byTooltip('搜索'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('source-filter-源B')));
+      await tester.pumpAndSettle();
+
+      // 单源走 searchSource，结果摊平网格、无按源 section。
+      expect(find.text('共 2 部'), findsOneWidget);
+      expect(find.byKey(const Key('search-group-summary')), findsNothing);
+      expect(find.byKey(const Key('search-group-源B')), findsNothing);
+      expect(
+        find.byKey(const ValueKey<String>('search-result-yeyu')),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('全源失败：每个失败源 section 仍可见并显示原因，不退回笼统空态', (tester) async {
+      _usePhoneSize(tester);
+      await tester.pumpWidget(
+        _app(
+          const ComicSearchPage(
+            dataSource: _GroupedSearchDataSource(allFail: true),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('3 个源 · 0 部'), findsOneWidget);
+      for (final key in _GroupedSearchDataSource.keys) {
+        expect(find.byKey(Key('search-group-$key')), findsOneWidget);
+        expect(find.text('• $key：搜索异常（boom）'), findsOneWidget);
+      }
+      expect(find.text('搜索未成功'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  });
+
   group('模块页四分区联动', () {
     testWidgets('四个 tab 均可切换且有内容', (tester) async {
       _usePhoneSize(tester);
@@ -856,7 +985,6 @@ class _CountingLibrary implements ComicLibraryApi {
   Future<void> clearHistory() async {}
 }
 
-
 /// 可变历史假库：验证长按删除与一键清空后主页立即重读。
 class _MutableHistoryLibrary implements ComicLibraryApi {
   _MutableHistoryLibrary(this._history);
@@ -894,7 +1022,6 @@ class _MutableHistoryLibrary implements ComicLibraryApi {
     _history = const <ComicLibraryEntry>[];
   }
 }
-
 
 /// 记录 listSources 调用的假仓库：验证从源管理页返回后卡片重读。
 class _CountingSourceRepository extends FixtureComicSourceRepository {

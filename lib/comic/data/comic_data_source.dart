@@ -44,6 +44,62 @@ abstract interface class ComicDataSource {
   Future<List<String>> recentSearchTerms() async => const <String>[];
 }
 
+/// 聚合搜索能力：按源分组返回 [ComicSourceSearchSection]，每个参与搜索的源
+/// 一个 section（含失败/空结果源），section 自带该源诊断。
+///
+/// 设计取舍（现实约束）：[ComicDataSource] 是 `abstract interface class`，
+/// Dart 的 `implements` 不继承接口默认体——把 [searchGrouped] 直接加进接口会
+/// 要求所有 `implements` 方（含本切片不可改的测试 fake）都补覆盖，否则编译失败。
+/// 因此这里用一个可选能力接口承载 override 点：真实引擎 [EngineComicDataSource]
+/// implements 它提供真分组；其余数据源通过 [ComicDataSourceGroupedX] 扩展获得
+/// 「调 [ComicDataSource.search] 按 sourceName 分组」的默认语义，零改动。
+/// 调用方通过 [groupedSearch] 统一入口，无需关心数据源属于哪一类。
+abstract interface class GroupedComicDataSource extends ComicDataSource {
+  /// 全源并发搜索并按源分组；失败/空结果源也产出带诊断的 section。
+  Future<List<ComicSourceSearchSection>> searchGrouped(String keyword);
+}
+
+/// [ComicDataSource.searchGrouped] 的默认实现（扩展形式，兼容所有直接
+/// `implements ComicDataSource` 的既有类——它们无需补覆盖即获得分组语义）。
+extension ComicDataSourceGroupedX on ComicDataSource {
+  /// 调 [ComicDataSource.search] 后按 [ComicSummary.sourceName] 分组；空/缺失
+  /// sourceName 归入「默认」组。组按 sourceName 排序，组内保持原顺序。
+  /// 走默认路径的数据源没有逐源诊断，section.diagnostics 恒为空。
+  Future<List<ComicSourceSearchSection>> searchGrouped(String keyword) async {
+    final results = await search(keyword);
+    final groups = <String, List<ComicSummary>>{};
+    for (final item in results) {
+      final key = (item.sourceName ?? '').trim().isEmpty
+          ? '默认'
+          : item.sourceName!.trim();
+      (groups[key] ??= <ComicSummary>[]).add(item);
+    }
+    final keys = groups.keys.toList()..sort();
+    return List<ComicSourceSearchSection>.unmodifiable([
+      for (final key in keys)
+        ComicSourceSearchSection(
+          sourceKey: key,
+          items: List<ComicSummary>.unmodifiable(groups[key]!),
+        ),
+    ]);
+  }
+}
+
+/// 聚合搜索统一入口：能力源走自己的真分组实现，其余源走扩展默认分组。
+///
+/// 注意扩展方法是**静态分派**：直接对 [ComicDataSource] 类型的引用调用
+/// `searchGrouped` 永远走扩展，即便运行时对象是 [GroupedComicDataSource]。
+/// 因此这里先用 `is` 把静态类型收窄到能力接口，才会分派到真实 override。
+Future<List<ComicSourceSearchSection>> groupedSearch(
+  ComicDataSource source,
+  String keyword,
+) {
+  if (source is GroupedComicDataSource) {
+    return source.searchGrouped(keyword);
+  }
+  return source.searchGrouped(keyword); // 扩展默认分组
+}
+
 /// 一个可浏览的源（发现/分类页的来源选择器）。
 ///
 /// 只描述展示所需字段；分类树与发现流是否真的存在，由

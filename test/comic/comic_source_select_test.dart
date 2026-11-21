@@ -240,11 +240,13 @@ void main() {
       await tester.pumpWidget(_app(ComicSearchPage(dataSource: ds)));
       await tester.pumpAndSettle();
 
-      // 有来源：显示「全部来源」+ 各源 chip。
+      // 有来源：显示「聚合搜索」+ 各源 chip。
       expect(find.byKey(const Key('source-filter-all')), findsOneWidget);
+      expect(find.text('聚合搜索'), findsOneWidget);
       expect(find.byKey(const Key('source-filter-k1')), findsOneWidget);
       expect(find.byKey(const Key('source-filter-k2')), findsOneWidget);
-      expect(find.text('共 3 部'), findsOneWidget);
+      // 聚合模式按源分组展示：计数行为「N 个源 · M 部」。
+      expect(find.text('2 个源 · 3 部'), findsOneWidget);
 
       // 先跑一次全源搜索。
       await tester.enterText(find.byType(TextField), '关键词');
@@ -258,11 +260,12 @@ void main() {
       expect(ds.calls, contains('searchSource:k1:关键词'));
       expect(find.text('共 2 部'), findsOneWidget);
 
-      // 选「全部来源」：回到全源 search。
+      // 选「聚合搜索」：回到全源 searchGrouped。
       await tester.tap(find.byKey(const Key('source-filter-all')));
       await tester.pumpAndSettle();
+      // 默认分组走接口扩展：内部调 search，故 calls.last 仍是 search。
       expect(ds.calls.last, 'search:关键词');
-      expect(find.text('共 3 部'), findsOneWidget);
+      expect(find.text('2 个源 · 3 部'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 
