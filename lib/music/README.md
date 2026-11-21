@@ -249,9 +249,14 @@ error_code=20018 在 decode 层统一映射 `authentication`、信封 status/err
 - `pages/music_song_info_sheet.dart`：歌曲权益（privilege_lite）/ 资料
   （krm_audio）/ 歌手图片（images_audio）；专辑曲目长按、歌手页写真、播放页
   「歌曲资料」入口共用。
-- 发现页新增「风格推荐」（`everydayStyleRecommend` 标签 chips 多选）与
-  「音效商城」入口卡；播放页显示歌曲高潮区间并可跳转；听歌上报（CSCC）
-  默认开启，设置页可关（`lib/music/music_settings.dart`）。
+- 发现页：圆角方块入口网格（首页发现 / 风格推荐 / AI 畅听 / 私人 FM /
+  热门搜索 / 排行榜），点入口进各自长条列表页；每日推荐与音效商城入口留在
+  发现 tab，每日推荐用与收藏一致的长条行。风格推荐页保留标签 chips 多选
+  （`everydayStyleRecommend`）。
+- 「我的」账号收藏自动翻页取全量（每页 300，无「加载更多」）；听歌历史的
+  封面模板（`{size}`）在 API 层替换后再交给 UI。
+- 播放页显示歌曲高潮区间并可跳转；听歌上报（CSCC）默认开启，设置页可关
+  （`lib/music/music_settings.dart`）。
 - 主页底部 tab：发现（无扩展时回退旧搜索）/ 我的（顶部「我的歌单」入口）/
   账号 / 设置；迷你播放条与播放页保持原状。
 
