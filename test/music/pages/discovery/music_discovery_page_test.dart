@@ -9,6 +9,8 @@
 /// 5. 歌词候选 → downloadLyric → 弹出文本（含解码失败「歌词格式不支持」）；
 /// 6. 某个 section 失败时页面仍显示其它 section 与重试按钮（重试后恢复）。
 /// 附：FM 换一批、搜索建议防抖。
+/// L7：风格推荐（标签预选/多选重取/独立失败重试/空数据隐藏）、
+/// 音效商城入口（接线显示+回调 / 未接线隐藏）。
 library;
 
 import 'package:flutter/material.dart';
@@ -39,6 +41,7 @@ class _Fixture {
     this.lyric,
     this.collect,
     this.history,
+    this.wireEffects = false,
   }) : searchExt = searchExt ?? FakeSearchExtApi(),
        discovery = discovery ?? FakeDiscoveryApi(),
        player = FakePlayerUi() {
@@ -52,6 +55,10 @@ class _Fixture {
   final FakeCollectApi? collect;
   final FakeSearchHistoryApi? history;
   final FakePlayerUi player;
+
+  /// 是否给页面接上「音效商城」入口（L7）；默认不接（入口隐藏）。
+  final bool wireEffects;
+  int openEffectsCalls = 0;
 
   final List<int> openedAlbums = <int>[];
   final List<int> openedArtists = <int>[];
@@ -70,6 +77,7 @@ class _Fixture {
     onOpenArtist: openedArtists.add,
     onOpenPlaylist: openedPlaylists.add,
     onOpenRank: () => openRankCalls++,
+    onOpenEffects: wireEffects ? () => openEffectsCalls++ : null,
   );
 }
 
@@ -414,5 +422,262 @@ void main() {
     expect(find.text('周杰伦 之一'), findsOneWidget);
     // 提交后建议条收回：剩下的「周杰伦」只有搜索框里的输入文本。
     expect(find.text('周杰伦'), findsOneWidget);
+  });
+
+  // ── L7：风格推荐 section ───────────────────────────────────────────────
+
+  testWidgets('风格推荐：首载渲染标签 chips（含预选）与歌曲卡，可播放', (tester) async {
+    final fixture = await _pumpPage(
+      tester,
+      _Fixture(
+        discovery: FakeDiscoveryApi(
+          styleBatches: <MusicStyleRecommendations>[
+            fakeStyleRecommendations(
+              groups: <MusicStyleTagGroup>[
+                fakeStyleGroup(
+                  name: '风格',
+                  tags: <MusicStyleTag>[
+                    fakeStyleTag(id: 'pop', name: '流行', selected: 1),
+                    fakeStyleTag(id: 'rock', name: '摇滚'),
+                  ],
+                ),
+              ],
+              songs: <MusicDiscoverySong>[
+                fakeDiscoverySong(id: '50', hash: 'st50', title: '风格之歌A'),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+
+    expect(find.text('风格推荐'), findsOneWidget);
+    expect(find.text('风格'), findsOneWidget, reason: '标签组名渲染');
+    expect(find.text('流行'), findsOneWidget);
+    expect(find.text('摇滚'), findsOneWidget);
+    expect(find.text('风格之歌A'), findsOneWidget);
+
+    expect(fixture.discovery.styleCalls, 1);
+    // 首载不带 tagIds（用 const 空查询）。
+    expect(fixture.discovery.lastStyleQuery?.tagIds, isEmpty);
+
+    // selected == 1 的「流行」预选中，「摇滚」未选中。
+    final popChip = tester.widget<FilterChip>(
+      find.ancestor(of: find.text('流行'), matching: find.byType(FilterChip)),
+    );
+    expect(popChip.selected, isTrue);
+    final rockChip = tester.widget<FilterChip>(
+      find.ancestor(of: find.text('摇滚'), matching: find.byType(FilterChip)),
+    );
+    expect(rockChip.selected, isFalse);
+
+    // 歌曲卡走与其它发现 section 相同的播放链路。
+    await tester.tap(find.text('风格之歌A'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(fixture.player.played, hasLength(1));
+    expect(fixture.player.played.single.id, '50');
+  });
+
+  testWidgets('风格推荐：点标签带 tagIds 重取，歌曲刷新且预选保留', (tester) async {
+    final groups = <MusicStyleTagGroup>[
+      fakeStyleGroup(
+        name: '风格',
+        tags: <MusicStyleTag>[
+          fakeStyleTag(id: 'pop', name: '流行', selected: 1),
+          fakeStyleTag(id: 'rock', name: '摇滚'),
+        ],
+      ),
+    ];
+    final fixture = await _pumpPage(
+      tester,
+      _Fixture(
+        discovery: FakeDiscoveryApi(
+          styleBatches: <MusicStyleRecommendations>[
+            fakeStyleRecommendations(
+              groups: groups,
+              songs: <MusicDiscoverySong>[
+                fakeDiscoverySong(id: '50', hash: 'st50', title: '风格之歌A'),
+              ],
+            ),
+            fakeStyleRecommendations(
+              groups: groups,
+              songs: <MusicDiscoverySong>[
+                fakeDiscoverySong(id: '51', hash: 'st51', title: '风格之歌B'),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('摇滚'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(fixture.discovery.styleCalls, 2);
+    // 重取 tagIds = 服务端预选（流行）+ 新选（摇滚），顺序与下发一致。
+    expect(fixture.discovery.lastStyleQuery?.tagIds, <String>['pop', 'rock']);
+    expect(find.text('风格之歌A'), findsNothing);
+    expect(find.text('风格之歌B'), findsOneWidget);
+
+    // 重取结果可播放。
+    await tester.tap(find.text('风格之歌B'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(fixture.player.played.single.id, '51');
+  });
+
+  testWidgets('风格推荐：再点已选标签取消并带剩余 tagIds 重取', (tester) async {
+    final groups = <MusicStyleTagGroup>[
+      fakeStyleGroup(
+        tags: <MusicStyleTag>[
+          fakeStyleTag(id: 'pop', name: '流行', selected: 1),
+          fakeStyleTag(id: 'rock', name: '摇滚'),
+        ],
+      ),
+    ];
+    final fixture = await _pumpPage(
+      tester,
+      _Fixture(
+        discovery: FakeDiscoveryApi(
+          styleBatches: <MusicStyleRecommendations>[
+            fakeStyleRecommendations(
+              groups: groups,
+              songs: <MusicDiscoverySong>[
+                fakeDiscoverySong(id: '50', hash: 'st50', title: '风格之歌A'),
+              ],
+            ),
+            fakeStyleRecommendations(
+              groups: groups,
+              songs: <MusicDiscoverySong>[
+                fakeDiscoverySong(id: '51', hash: 'st51', title: '风格之歌B'),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('摇滚'));
+    await tester.pump();
+    await tester.pump();
+    expect(fixture.discovery.lastStyleQuery?.tagIds, <String>['pop', 'rock']);
+
+    await tester.tap(find.text('流行'));
+    await tester.pump();
+    await tester.pump();
+    expect(fixture.discovery.styleCalls, 3);
+    expect(fixture.discovery.lastStyleQuery?.tagIds, <String>['rock']);
+    expect(find.text('风格之歌B'), findsOneWidget);
+  });
+
+  testWidgets('风格推荐：标签重取失败后重试沿用最近一次 tagIds', (tester) async {
+    final discovery = FakeDiscoveryApi(
+      styleBatches: <MusicStyleRecommendations>[
+        fakeStyleRecommendations(
+          groups: <MusicStyleTagGroup>[
+            fakeStyleGroup(
+              tags: <MusicStyleTag>[
+                fakeStyleTag(id: 'pop', name: '流行', selected: 1),
+                fakeStyleTag(id: 'rock', name: '摇滚'),
+              ],
+            ),
+          ],
+          songs: <MusicDiscoverySong>[
+            fakeDiscoverySong(id: '50', hash: 'st50', title: '风格之歌A'),
+          ],
+        ),
+      ],
+    );
+    final fixture = await _pumpPage(tester, _Fixture(discovery: discovery));
+
+    // 首载成功后注入一次失败，点「摇滚」重取报错。
+    discovery.styleFailuresLeft = 1;
+    await tester.tap(find.text('摇滚'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('风格推荐挂了'), findsOneWidget);
+
+    // 重试沿用点选时的 tagIds，成功后错误态恢复、选中态保留。
+    discovery.styleFailuresLeft = 0;
+    final retry = find.descendant(
+      of: find.byKey(const Key('discover-style')),
+      matching: find.text('重试'),
+    );
+    await tester.tap(retry);
+    await tester.pump();
+    await tester.pump();
+
+    expect(fixture.discovery.styleCalls, 3);
+    expect(fixture.discovery.lastStyleQuery?.tagIds, <String>['pop', 'rock']);
+    expect(find.textContaining('风格推荐挂了'), findsNothing);
+    final rockChip = tester.widget<FilterChip>(
+      find.ancestor(of: find.text('摇滚'), matching: find.byType(FilterChip)),
+    );
+    expect(rockChip.selected, isTrue);
+  });
+
+  testWidgets('风格推荐失败：独立错误与重试，不影响其它 section', (tester) async {
+    final fixture = await _pumpPage(
+      tester,
+      _Fixture(
+        discovery: FakeDiscoveryApi(
+          homeItems: <MusicDiscoverItem>[
+            fakeHomeItem(id: '10', hash: 'd10', title: '发现之歌A'),
+          ],
+          styleBatches: <MusicStyleRecommendations>[
+            fakeStyleRecommendations(
+              songs: <MusicDiscoverySong>[
+                fakeDiscoverySong(id: '50', hash: 'st50', title: '风格之歌A'),
+              ],
+            ),
+          ],
+          styleFailuresLeft: 1,
+        ),
+      ),
+    );
+
+    // 风格推荐失败，首页发现照常渲染；失败 section 有重试按钮。
+    expect(find.text('发现之歌A'), findsOneWidget);
+    expect(find.textContaining('风格推荐挂了'), findsOneWidget);
+    final retry = find.descendant(
+      of: find.byKey(const Key('discover-style')),
+      matching: find.text('重试'),
+    );
+    expect(retry, findsOneWidget);
+
+    await tester.tap(retry);
+    await tester.pump();
+    await tester.pump();
+
+    expect(fixture.discovery.styleCalls, 2);
+    expect(find.text('风格之歌A'), findsOneWidget);
+    expect(find.textContaining('风格推荐挂了'), findsNothing);
+  });
+
+  testWidgets('风格推荐空数据：标签与歌曲全空时整段隐藏', (tester) async {
+    await _pumpPage(tester, _Fixture());
+    expect(find.text('风格推荐'), findsNothing);
+  });
+
+  // ── L7：音效商城入口 ───────────────────────────────────────────────────
+
+  testWidgets('音效商城入口：接线后展示入口卡，点击触发回调', (tester) async {
+    final fixture = await _pumpPage(tester, _Fixture(wireEffects: true));
+
+    expect(find.byKey(const Key('discover-effects-entry')), findsOneWidget);
+    expect(find.text('音效商城'), findsOneWidget);
+    expect(find.text('耳机品牌 / 设备匹配'), findsOneWidget);
+
+    await tester.tap(find.text('音效商城'));
+    await tester.pump();
+    expect(fixture.openEffectsCalls, 1);
+  });
+
+  testWidgets('音效商城入口：未接线（onOpenEffects 为 null）时隐藏', (tester) async {
+    await _pumpPage(tester, _Fixture());
+    expect(find.byKey(const Key('discover-effects-entry')), findsNothing);
+    expect(find.text('音效商城'), findsNothing);
   });
 }
