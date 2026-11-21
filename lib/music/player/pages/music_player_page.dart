@@ -18,6 +18,7 @@ import 'package:mimao/music/lyric/lyric_view.dart';
 import 'package:mimao/music/models/discovery_models.dart';
 import 'package:mimao/music/models/music_models.dart';
 import 'package:mimao/music/pages/music_song_info_sheet.dart';
+import 'package:mimao/music/player/pages/music_queue_sheet.dart';
 import 'package:mimao/music/player/pages/music_wavy_progress.dart';
 import 'package:mimao/music/player/player_store.dart';
 
@@ -180,55 +181,6 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
     );
   }
 
-  void _openQueue(BuildContext context) {
-    showModalBottomSheet<void>(
-      context: context,
-      builder: (sheetContext) => SafeArea(
-        child: Observer(
-          builder: (context) {
-            if (player.queue.isEmpty) {
-              return const Padding(
-                padding: EdgeInsets.all(24),
-                child: Text('播放队列为空'),
-              );
-            }
-            return ListView.builder(
-              shrinkWrap: true,
-              itemCount: player.queue.length,
-              itemBuilder: (context, index) {
-                final song = player.queue[index];
-                final current = index == player.index;
-                return ListTile(
-                  selected: current,
-                  leading: Icon(
-                    current ? Icons.volume_up : Icons.music_note,
-                    color: current
-                        ? Theme.of(context).colorScheme.primary
-                        : null,
-                  ),
-                  title: Text(
-                    _displayTitle(song.title),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  subtitle: Text(
-                    song.artistText,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  onTap: () {
-                    player.playAt(index);
-                    Navigator.of(sheetContext).pop();
-                  },
-                );
-              },
-            );
-          },
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -254,7 +206,7 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
           IconButton(
             tooltip: '播放队列',
             icon: const Icon(Icons.queue_music),
-            onPressed: () => _openQueue(context),
+            onPressed: () => showMusicQueueSheet(context, player),
           ),
         ],
       ),

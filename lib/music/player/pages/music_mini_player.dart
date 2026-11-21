@@ -12,8 +12,16 @@ import 'package:mimao/music/api/playback_ext_api.dart';
 import 'package:mimao/music/lyric/lyric_models.dart';
 import 'package:mimao/music/models/discovery_models.dart';
 import 'package:mimao/music/player/pages/music_player_page.dart';
+import 'package:mimao/music/player/pages/music_queue_sheet.dart';
 import 'package:mimao/music/player/pages/music_wavy_progress.dart';
 import 'package:mimao/music/player/player_store.dart';
+
+/// 迷你条按钮统一 36×36：三个按钮总宽固定 108，便于在卡片中精确居中。
+const ButtonStyle _miniIconButtonStyle = ButtonStyle(
+  padding: WidgetStatePropertyAll<EdgeInsetsGeometry>(EdgeInsets.zero),
+  minimumSize: WidgetStatePropertyAll<Size>(Size(36, 36)),
+  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+);
 
 class MusicMiniPlayer extends StatelessWidget {
   const MusicMiniPlayer({
@@ -44,7 +52,7 @@ class MusicMiniPlayer extends StatelessWidget {
         if (song == null) return const SizedBox.shrink();
         // 圆角悬浮卡（r14 + 细描边），不再通栏贴底——MD3 的浮动播放条形态。
         return Padding(
-          padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+          padding: const EdgeInsets.fromLTRB(6, 4, 6, 8),
           child: Material(
             color: theme.colorScheme.surfaceContainerHigh,
             shape: RoundedRectangleBorder(
@@ -72,46 +80,106 @@ class MusicMiniPlayer extends StatelessWidget {
                   children: <Widget>[
                     Row(
                       children: <Widget>[
-                        _MiniCover(url: song.coverUrl),
-                        const SizedBox(width: 12),
+                        // 左：封面 + 歌名/歌手。与右侧 Expanded 均分空白，
+                        // 中间固定宽度的按钮组因此落在卡片水平中心。
                         Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
+                          child: Row(
                             children: <Widget>[
-                              Text(
-                                _displayTitle(song.title),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.bodyMedium,
-                              ),
-                              Text(
-                                song.artistText,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: theme.colorScheme.onSurfaceVariant,
+                              _MiniCover(url: song.coverUrl),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: <Widget>[
+                                    Text(
+                                      _displayTitle(song.title),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: theme.textTheme.bodyMedium,
+                                    ),
+                                    Text(
+                                      song.artistText,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                            color: theme
+                                                .colorScheme
+                                                .onSurfaceVariant,
+                                          ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ],
                           ),
                         ),
-                        if (player.isResolving)
-                          const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        else
-                          IconButton.filled(
-                            tooltip: player.snapshot.playing ? '暂停' : '播放',
-                            icon: Icon(
-                              player.snapshot.playing
-                                  ? Icons.pause
-                                  : Icons.play_arrow,
+                        // 中：上一首 / 播放暂停 / 下一首。
+                        SizedBox(
+                          width: 108,
+                          height: 40,
+                          child: player.isResolving
+                              ? const Center(
+                                  child: SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  ),
+                                )
+                              : Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: <Widget>[
+                                    IconButton(
+                                      key: const Key('mini-previous'),
+                                      tooltip: '上一首',
+                                      iconSize: 20,
+                                      style: _miniIconButtonStyle,
+                                      icon: const Icon(Icons.skip_previous),
+                                      onPressed: player.previous,
+                                    ),
+                                    IconButton.filled(
+                                      key: const Key('mini-play-pause'),
+                                      tooltip: player.snapshot.playing
+                                          ? '暂停'
+                                          : '播放',
+                                      iconSize: 22,
+                                      style: _miniIconButtonStyle,
+                                      icon: Icon(
+                                        player.snapshot.playing
+                                            ? Icons.pause
+                                            : Icons.play_arrow,
+                                      ),
+                                      onPressed: player.toggle,
+                                    ),
+                                    IconButton(
+                                      key: const Key('mini-next'),
+                                      tooltip: '下一首',
+                                      iconSize: 20,
+                                      style: _miniIconButtonStyle,
+                                      icon: const Icon(Icons.skip_next),
+                                      onPressed: player.next,
+                                    ),
+                                  ],
+                                ),
+                        ),
+                        // 右：歌曲列表（播放模式 + 队列弹窗）。
+                        Expanded(
+                          child: Align(
+                            alignment: Alignment.centerRight,
+                            child: IconButton(
+                              key: const Key('mini-queue'),
+                              tooltip: '播放列表',
+                              iconSize: 22,
+                              style: _miniIconButtonStyle,
+                              icon: const Icon(Icons.queue_music),
+                              onPressed: () =>
+                                  showMusicQueueSheet(context, player),
                             ),
-                            onPressed: player.toggle,
                           ),
+                        ),
                       ],
                     ),
                     // 卡片底部波浪进度：只画不管手势，IgnorePointer 让整卡点击
@@ -120,8 +188,10 @@ class MusicMiniPlayer extends StatelessWidget {
                       padding: const EdgeInsets.only(top: 6),
                       child: SizedBox(
                         key: const Key('mini-wavy-progress'),
-                        height: 10,
+                        // strokeWidth 7 + 上下各 3.5 振幅 ≈ 14；留 16 避免裁切。
+                        height: 16,
                         child: MiniWavyProgress(
+                          height: 16,
                           progress: player.snapshot.duration.inMilliseconds <= 0
                               ? 0
                               : (player.snapshot.position.inMilliseconds /

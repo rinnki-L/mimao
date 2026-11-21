@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mimao/music/lyric/lyric_models.dart';
 import 'package:mimao/music/models/user_listen_report_models.dart';
 import 'package:mimao/music/music_settings.dart';
+import 'package:mimao/music/player/play_mode.dart';
 import 'package:mimao/music/player/playback_engine.dart';
 import 'package:mimao/music/player/player_store.dart';
 
@@ -35,6 +36,9 @@ class _ThrowingSettings implements MusicSettings {
   LyricMode get lyricMode => LyricMode.original;
 
   @override
+  PlayMode get playMode => PlayMode.listLoop;
+
+  @override
   Future<void> ensureLoaded() async => throw Exception('disk broken');
 
   @override
@@ -45,6 +49,9 @@ class _ThrowingSettings implements MusicSettings {
 
   @override
   Future<void> setLyricMode(LyricMode mode) async {}
+
+  @override
+  Future<void> setPlayMode(PlayMode mode) async {}
 }
 
 void main() {
@@ -149,7 +156,7 @@ void main() {
     expect(end.durationMs, 30000, reason: '暂停期间不计入已播时长');
   });
 
-  test('引擎播完（completed 快照）→ end completed=true；重复快照不重复上报', () async {
+  test('引擎播完（completed 快照）→ end completed=true 并自动重播当前曲', () async {
     final store = buildStore();
     await store.playSong(fakeSong(id: '1'));
     engine.emit(
@@ -163,30 +170,44 @@ void main() {
     clock.advance(const Duration(seconds: 60));
 
     engine.emit(const MusicPlaybackSnapshot(completed: true, playing: false));
-    await pumpEventQueue();
     engine.emit(const MusicPlaybackSnapshot(completed: true, playing: false));
     await pumpEventQueue();
 
-    expect(report.events, hasLength(2));
+    // 单曲队列 + 默认列表循环：播完结算 end 后自动重播当前曲。
+    expect(report.events, hasLength(3));
     final end = eventAt(1)!;
     expect(end.event, MusicListenReportEvent.end);
     expect(end.mixsongid, 1);
     expect(end.completed, isTrue, reason: 'completed 取快照标记');
     expect(end.durationMs, 60000);
+    expect(eventAt(2)!.event, MusicListenReportEvent.start);
+    expect(eventAt(2)!.mixsongid, 1);
+    expect(store.index, 0);
+    expect(store.currentSong!.id, '1');
+    expect(store.snapshot.completed, isFalse);
   });
 
-  test('队列到尾停止（_stopAtEnd）→ end completed=true', () async {
+  test('列表循环：队尾播完自动回绕到首曲并继续上报', () async {
     final store = buildStore();
     // 注意用数字 id：非数字 id（如 'only'）按协议不参与上报。
+    await store.playSong(fakeSong(id: '41'));
     await store.playSong(fakeSong(id: '42'));
-    await store.next();
+    await pumpEventQueue();
+    expect(store.index, 1);
+
+    engine.emit(const MusicPlaybackSnapshot(completed: true, playing: false));
     await pumpEventQueue();
 
-    expect(report.events, hasLength(2));
-    final end = eventAt(1)!;
+    expect(store.index, 0);
+    expect(store.currentSong!.id, '41');
+    expect(store.snapshot.completed, isFalse);
+    expect(report.events, hasLength(5));
+    final end = eventAt(3)!;
     expect(end.event, MusicListenReportEvent.end);
+    expect(end.mixsongid, 42);
     expect(end.completed, isTrue);
-    expect(store.snapshot.completed, isTrue);
+    expect(eventAt(4)!.event, MusicListenReportEvent.start);
+    expect(eventAt(4)!.mixsongid, 41);
   });
 
   test('dispose → end（completed=当前快照、durationMs=已播时长）', () async {

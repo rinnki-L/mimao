@@ -3,8 +3,12 @@
 /// 不初始化 media_kit、不做真实等待；节流用注入时钟推进。
 library;
 
+import 'dart:math';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mimao/music/client/kugou_error.dart';
+import 'package:mimao/music/music_settings.dart';
+import 'package:mimao/music/player/play_mode.dart';
 import 'package:mimao/music/player/playback_engine.dart';
 import 'package:mimao/music/player/player_store.dart';
 
@@ -27,11 +31,17 @@ void main() {
   late _Clock clock;
   late List<String> log;
 
-  MusicPlayerStore buildStore({bool withEngine = true}) => MusicPlayerStore(
+  MusicPlayerStore buildStore({
+    bool withEngine = true,
+    MusicSettings? settings,
+    Random? random,
+  }) => MusicPlayerStore(
     playbackApi: api,
     engineFactory: withEngine ? () => engine : null,
     progressSink: sink.call,
     clock: clock.call,
+    settings: settings,
+    random: random,
   );
 
   setUp(() {
@@ -92,8 +102,9 @@ void main() {
     expect(store.queue, isEmpty);
   });
 
-  test('next/previous：顺序切歌、边界不回绕、到尾标记播完', () async {
+  test('默认列表循环：next/previous 顺序切歌、首尾回绕', () async {
     final store = buildStore();
+    expect(store.playMode, PlayMode.listLoop, reason: '默认列表循环');
     await store.playSong(fakeSong(id: '1'));
     await store.playSong(fakeSong(id: '2'));
     await store.playSong(fakeSong(id: '3'));
@@ -106,28 +117,137 @@ void main() {
     await store.previous();
     expect(store.index, 0);
 
-    // 第一首再 previous：不越界、不崩溃。
+    // 第一首再 previous：列表循环回绕到最后一首。
     await store.previous();
+    expect(store.index, 2);
+    expect(store.currentSong!.id, '3');
+
+    // 最后一首 next：回绕到第一首，而不是停在原地标记播完。
+    await store.next();
     expect(store.index, 0);
     expect(store.currentSong!.id, '1');
-
-    // 跳到最后一首再 next：停在最后一首，状态为「播完」。
-    await store.playAt(2);
-    await store.next();
-    expect(store.index, 2);
-    expect(store.snapshot.completed, isTrue);
-    expect(store.snapshot.playing, isFalse);
+    expect(store.snapshot.completed, isFalse);
   });
 
-  test('单曲队列：next/previous 都不崩且不越界', () async {
+  test('单曲队列：next/previous 都重播当前曲、不越界', () async {
     final store = buildStore();
     await store.playSong(fakeSong(id: 'only'));
+    expect(engine.playCalls, 1);
     await store.next();
     expect(store.index, 0);
-    expect(store.snapshot.completed, isTrue);
+    expect(store.queue.length, 1);
+    expect(store.snapshot.completed, isFalse);
+    expect(engine.playCalls, 2, reason: '单曲循环重播当前');
     await store.previous();
     expect(store.index, 0);
     expect(store.queue.length, 1);
+    expect(engine.playCalls, 3);
+  });
+
+  test('repeatOne：next/previous 重播当前曲而不换歌', () async {
+    final store = buildStore();
+    await store.playSong(fakeSong(id: '1'));
+    await store.playSong(fakeSong(id: '2'));
+    store.setPlayMode(PlayMode.repeatOne);
+
+    await store.next();
+    expect(store.index, 1);
+    expect(store.currentSong!.id, '2');
+    expect(api.resolvedSongs.map((song) => song.id), <String>['1', '2', '2']);
+
+    await store.previous();
+    expect(store.index, 1);
+    expect(store.currentSong!.id, '2');
+    expect(api.resolvedSongs.map((song) => song.id), <String>[
+      '1',
+      '2',
+      '2',
+      '2',
+    ]);
+  });
+
+  test('shuffle：next/previous 随机切到非当前曲', () async {
+    final store = buildStore(random: Random(7));
+    await store.playSong(fakeSong(id: '1'));
+    await store.playSong(fakeSong(id: '2'));
+    await store.playSong(fakeSong(id: '3'));
+    await store.playSong(fakeSong(id: '4'));
+    await store.playAt(1);
+    store.setPlayMode(PlayMode.shuffle);
+
+    await store.next();
+    expect(store.index, isNot(1));
+    expect(store.index, inInclusiveRange(0, 3));
+
+    final afterNext = store.index;
+    await store.previous();
+    expect(store.index, isNot(afterNext));
+    expect(store.index, inInclusiveRange(0, 3));
+  });
+
+  test('setPlayMode：立即更新状态并写入 settings', () async {
+    final settings = FakeMusicSettings();
+    final store = buildStore(settings: settings);
+    expect(store.playMode, PlayMode.listLoop);
+
+    store.setPlayMode(PlayMode.shuffle);
+    expect(store.playMode, PlayMode.shuffle);
+    await pumpEventQueue();
+    expect(settings.playMode, PlayMode.shuffle);
+  });
+
+  test('构造时从 settings 读取初始播放模式', () async {
+    final store = buildStore(
+      settings: FakeMusicSettings(playMode: PlayMode.repeatOne),
+    );
+    expect(store.playMode, PlayMode.repeatOne);
+  });
+
+  test('播完自动切歌：listLoop 播完进入下一首（重复快照不重复推进）', () async {
+    final store = buildStore();
+    await store.playSong(fakeSong(id: '1'));
+    await store.playSong(fakeSong(id: '2'));
+    await store.playAt(0);
+    api.resolvedSongs.clear();
+
+    engine.emit(const MusicPlaybackSnapshot(completed: true, playing: false));
+    engine.emit(const MusicPlaybackSnapshot(completed: true, playing: false));
+    await pumpEventQueue();
+
+    expect(store.index, 1);
+    expect(store.currentSong!.id, '2');
+    expect(api.resolvedSongs.map((song) => song.id), <String>['2']);
+  });
+
+  test('播完自动切歌：repeatOne 重播当前曲', () async {
+    final store = buildStore(
+      settings: FakeMusicSettings(playMode: PlayMode.repeatOne),
+    );
+    await store.playSong(fakeSong(id: '1'));
+    api.resolvedSongs.clear();
+
+    engine.emit(const MusicPlaybackSnapshot(completed: true, playing: false));
+    await pumpEventQueue();
+
+    expect(store.index, 0);
+    expect(store.currentSong!.id, '1');
+    expect(store.snapshot.completed, isFalse);
+    expect(api.resolvedSongs.map((song) => song.id), <String>['1']);
+  });
+
+  test('播完自动切歌：shuffle 随机换一首', () async {
+    final store = buildStore(random: Random(3));
+    await store.playSong(fakeSong(id: '1'));
+    await store.playSong(fakeSong(id: '2'));
+    await store.playAt(0);
+    store.setPlayMode(PlayMode.shuffle);
+    api.resolvedSongs.clear();
+
+    engine.emit(const MusicPlaybackSnapshot(completed: true, playing: false));
+    await pumpEventQueue();
+
+    expect(store.index, 1, reason: '两首队列随机只能是另一首');
+    expect(api.resolvedSongs.map((song) => song.id), <String>['2']);
   });
 
   test('toggle：playing/paused 切换并调用 engine 对应方法', () async {
@@ -178,9 +298,8 @@ void main() {
     expect(sink.writes.single.$1, '1');
     sink.writes.clear();
 
-    // 播完一次（重复 completed 快照不重复写）。
+    // 播完一次（重复 completed 快照不重复写；自动切歌只落一次进度）。
     engine.emit(const MusicPlaybackSnapshot(completed: true, playing: false));
-    await pumpEventQueue();
     engine.emit(const MusicPlaybackSnapshot(completed: true, playing: false));
     await pumpEventQueue();
     expect(sink.writes.length, 1);

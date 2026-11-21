@@ -30,6 +30,7 @@ import 'package:mimao/music/models/music_models.dart';
 import 'package:mimao/music/models/search_models.dart';
 import 'package:mimao/music/models/verify_models.dart';
 import 'package:mimao/music/music_settings.dart';
+import 'package:mimao/music/player/play_mode.dart';
 
 /// 1×1 PNG 的 base64（二维码图片渲染用，不读真实文件）。
 const String kPngBase64 =
@@ -369,24 +370,28 @@ class FakeSearchExtApi implements MusicSearchExtApi {
       throw UnimplementedError();
 }
 
-/// 本地设置替身（听歌上报开关 + 歌词开关/模式）。
+/// 本地设置替身（听歌上报开关 + 歌词开关/模式 + 播放模式）。
 class FakeMusicSettings implements MusicSettings {
   FakeMusicSettings({
     bool initial = true,
     bool lyricEnabled = true,
     LyricMode lyricMode = LyricMode.original,
+    PlayMode playMode = PlayMode.listLoop,
   }) : _enabled = initial,
        _lyricEnabled = lyricEnabled,
-       _lyricMode = lyricMode;
+       _lyricMode = lyricMode,
+       _playMode = playMode;
 
   bool _enabled;
   bool _lyricEnabled;
   LyricMode _lyricMode;
+  PlayMode _playMode;
   bool loaded = false;
   int ensureLoadedCalls = 0;
   final List<bool> savedValues = <bool>[];
   final List<bool> savedLyricValues = <bool>[];
   final List<LyricMode> savedLyricModes = <LyricMode>[];
+  final List<PlayMode> savedPlayModes = <PlayMode>[];
   Object? saveError;
 
   @override
@@ -397,6 +402,9 @@ class FakeMusicSettings implements MusicSettings {
 
   @override
   LyricMode get lyricMode => _lyricMode;
+
+  @override
+  PlayMode get playMode => _playMode;
 
   @override
   Future<void> ensureLoaded() async {
@@ -426,6 +434,14 @@ class FakeMusicSettings implements MusicSettings {
     if (error != null) throw error;
     savedLyricModes.add(mode);
     _lyricMode = mode;
+  }
+
+  @override
+  Future<void> setPlayMode(PlayMode mode) async {
+    final Object? error = saveError;
+    if (error != null) throw error;
+    savedPlayModes.add(mode);
+    _playMode = mode;
   }
 }
 

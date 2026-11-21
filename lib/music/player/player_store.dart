@@ -7,6 +7,7 @@
 library;
 
 import 'dart:async';
+import 'dart:math';
 
 import 'package:mimao/music/api/listen_report_api.dart';
 import 'package:mimao/music/api/music_playback_api.dart';
@@ -14,6 +15,7 @@ import 'package:mimao/music/client/kugou_error.dart';
 import 'package:mimao/music/models/music_models.dart';
 import 'package:mimao/music/models/user_listen_report_models.dart';
 import 'package:mimao/music/music_settings.dart';
+import 'package:mimao/music/player/play_mode.dart';
 import 'package:mimao/music/player/playback_engine.dart';
 import 'package:mimao/music/player/player_progress.dart';
 import 'package:mobx/mobx.dart';
@@ -33,11 +35,16 @@ abstract class _MusicPlayerStore with Store {
     DateTime Function()? clock,
     MusicListenReportApi? listenReport,
     MusicSettings? settings,
+    Random? random,
   }) : _engineFactory = engineFactory,
        _progressSink = progressSink,
        _clock = clock ?? DateTime.now,
        _listenReport = listenReport,
-       _settings = settings;
+       _settings = settings,
+       _random = random ?? Random() {
+    // 构造期同步读设置（LazyMusicSettings 解析前返回默认值）；null → 默认。
+    playMode = _settings?.playMode ?? PlayMode.listLoop;
+  }
 
   final MusicPlaybackApi playbackApi;
 
@@ -55,6 +62,9 @@ abstract class _MusicPlayerStore with Store {
 
   /// 本地设置（听歌上报开关）；null 视为允许上报。
   final MusicSettings? _settings;
+
+  /// 随机播放用的随机源（测试可注入固定序列）。
+  final Random _random;
 
   /// 播放页读取的本地设置（歌词开关/显示模式）；null 视为默认值。
   MusicSettings? get settings => _settings;
@@ -91,6 +101,10 @@ abstract class _MusicPlayerStore with Store {
   @observable
   bool isResolving = false;
 
+  /// 播放模式（随机 / 单曲循环 / 列表循环），默认列表循环。
+  @observable
+  PlayMode playMode = PlayMode.listLoop;
+
   /// 解析/播放失败的展示文案；null 表示无错误。
   @observable
   String? error;
@@ -112,20 +126,75 @@ abstract class _MusicPlayerStore with Store {
     await _start(queue[target], targetIndex: target);
   }
 
+  /// 切换播放模式：立即生效并尽力落盘（失败不影响本次会话）。
+  @action
+  void setPlayMode(PlayMode mode) {
+    playMode = mode;
+    final settings = _settings;
+    if (settings == null) return;
+    unawaited(_persistPlayMode(settings, mode));
+  }
+
+  Future<void> _persistPlayMode(MusicSettings settings, PlayMode mode) async {
+    try {
+      await settings.setPlayMode(mode);
+    } on Object {
+      // 持久化失败只影响下次启动的初值，不挡播放。
+    }
+  }
+
   @action
   Future<void> next() async {
-    if (_disposed || queue.isEmpty) return;
-    if (index + 1 >= queue.length) {
+    if (_disposed) return;
+    if (queue.isEmpty) {
       await _stopAtEnd();
       return;
     }
-    await _start(queue[index + 1], targetIndex: index + 1);
+    final target = _nextIndex();
+    await _start(queue[target], targetIndex: target);
   }
 
   @action
   Future<void> previous() async {
-    if (_disposed || queue.isEmpty || index <= 0) return;
-    await _start(queue[index - 1], targetIndex: index - 1);
+    if (_disposed || queue.isEmpty) return;
+    final target = _previousIndex();
+    await _start(queue[target], targetIndex: target);
+  }
+
+  /// 按播放模式计算下一首下标（队列非空时调用）。
+  int _nextIndex() {
+    final length = queue.length;
+    switch (playMode) {
+      case PlayMode.repeatOne:
+        return index < 0 ? 0 : index;
+      case PlayMode.shuffle:
+        return _randomOtherIndex();
+      case PlayMode.listLoop:
+        return index < 0 ? 0 : (index + 1) % length;
+    }
+  }
+
+  /// 按播放模式计算上一首下标（队列非空时调用）。
+  int _previousIndex() {
+    final length = queue.length;
+    switch (playMode) {
+      case PlayMode.repeatOne:
+        return index < 0 ? 0 : index;
+      case PlayMode.shuffle:
+        return _randomOtherIndex();
+      case PlayMode.listLoop:
+        if (index < 0) return 0;
+        return index == 0 ? length - 1 : index - 1;
+    }
+  }
+
+  /// 随机取一个不等于当前曲的下标；单曲队列重播当前。
+  int _randomOtherIndex() {
+    final length = queue.length;
+    if (length <= 1) return index < 0 ? 0 : index;
+    var candidate = _random.nextInt(length);
+    if (candidate == index) candidate = (candidate + 1) % length;
+    return candidate;
   }
 
   @action
@@ -267,7 +336,8 @@ abstract class _MusicPlayerStore with Store {
     }
   }
 
-  /// 队列到尾：停在最后一首并标记「播完」，不回绕。
+  /// 停止播放并标记「播完」（队列为空的兜底路径；三种播放模式正常播放
+  /// 不走这里，改为按模式切歌）。
   Future<void> _stopAtEnd() async {
     final engine = _engine;
     if (engine != null) {
@@ -296,12 +366,18 @@ abstract class _MusicPlayerStore with Store {
       error = '播放失败：${next.error}';
     }
     if (next.completed) {
-      if (!_completionWritten) {
-        _completionWritten = true;
-        unawaited(_writeCurrentProgress());
-      }
-      // 播完：结算上报（completed=快照 completed）；重复快照靠会话去重。
+      final firstCompletion = !_completionWritten;
+      if (firstCompletion) _completionWritten = true;
+      // 播完：先结算上报（completed=快照 completed）；重复快照靠会话去重。
       _finishReportSession(completed: next.completed);
+      if (firstCompletion) {
+        if (!_disposed && currentSong != null) {
+          // 按播放模式自动切歌；_start 的 recordOutgoing 顺带落一次进度。
+          unawaited(this.next());
+        } else {
+          unawaited(_writeCurrentProgress());
+        }
+      }
       return;
     }
     if (next.playing) {

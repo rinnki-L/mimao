@@ -14,6 +14,7 @@ import 'package:mimao/music/lyric/lyric_models.dart';
 import 'package:mimao/music/models/music_models.dart';
 import 'package:mimao/music/models/user_listen_report_models.dart';
 import 'package:mimao/music/music_settings.dart';
+import 'package:mimao/music/player/play_mode.dart';
 import 'package:mimao/music/player/playback_engine.dart';
 
 /// 曲目工厂：默认 hash 为 32 位十六进制、id 为数字（可播路径的合法输入）。
@@ -172,13 +173,16 @@ class FakeMusicSettings implements MusicSettings {
     bool listenReportEnabled = true,
     bool lyricEnabled = true,
     LyricMode lyricMode = LyricMode.original,
+    PlayMode playMode = PlayMode.listLoop,
   }) : _listenReportEnabled = listenReportEnabled,
        _lyricEnabled = lyricEnabled,
-       _lyricMode = lyricMode;
+       _lyricMode = lyricMode,
+       _playMode = playMode;
 
   bool _listenReportEnabled;
   bool _lyricEnabled;
   LyricMode _lyricMode;
+  PlayMode _playMode;
 
   @override
   bool get listenReportEnabled => _listenReportEnabled;
@@ -188,6 +192,9 @@ class FakeMusicSettings implements MusicSettings {
 
   @override
   LyricMode get lyricMode => _lyricMode;
+
+  @override
+  PlayMode get playMode => _playMode;
 
   /// 断言「上报前先 ensureLoaded」用。
   int ensureLoadedCalls = 0;
@@ -210,5 +217,10 @@ class FakeMusicSettings implements MusicSettings {
   @override
   Future<void> setLyricMode(LyricMode mode) async {
     _lyricMode = mode;
+  }
+
+  @override
+  Future<void> setPlayMode(PlayMode mode) async {
+    _playMode = mode;
   }
 }

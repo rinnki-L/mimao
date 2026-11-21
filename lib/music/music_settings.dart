@@ -1,4 +1,4 @@
-/// 音乐模块的少量本地设置（听歌上报开关 + 歌词开关/显示模式）。
+/// 音乐模块的少量本地设置（听歌上报开关 + 歌词开关/显示模式 + 播放模式）。
 ///
 /// 与身份文件同款：JSON 落盘在应用支持目录、构造不碰 path_provider（工厂
 /// [MusicFileSettings.openDefault] 才解析），读取失败回默认值，写盘失败只
@@ -10,6 +10,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:mimao/music/lyric/lyric_models.dart';
+import 'package:mimao/music/player/play_mode.dart';
 import 'package:path_provider/path_provider.dart';
 
 /// 音乐本地设置读取/写入缝。
@@ -23,6 +24,9 @@ abstract interface class MusicSettings {
   /// 歌词显示模式（原文 / 原文+中翻 / 原文+音译）。默认原文。
   LyricMode get lyricMode;
 
+  /// 播放模式（随机 / 单曲循环 / 列表循环）。默认列表循环。
+  PlayMode get playMode;
+
   /// 首次读盘（单次并发合并；失败吞掉回默认值）。
   Future<void> ensureLoaded();
 
@@ -34,6 +38,9 @@ abstract interface class MusicSettings {
 
   /// 写入歌词显示模式（先改内存，再尽力落盘）。
   Future<void> setLyricMode(LyricMode mode);
+
+  /// 写入播放模式（先改内存，再尽力落盘）。
+  Future<void> setPlayMode(PlayMode mode);
 }
 
 /// 惰性解析的生产设置：模块注册期不能碰 path_provider，首个读写再构造
@@ -70,6 +77,9 @@ class LazyMusicSettings implements MusicSettings {
   LyricMode get lyricMode => _delegate?.lyricMode ?? LyricMode.original;
 
   @override
+  PlayMode get playMode => _delegate?.playMode ?? PlayMode.listLoop;
+
+  @override
   Future<void> ensureLoaded() async => (await _resolve()).ensureLoaded();
 
   @override
@@ -83,6 +93,10 @@ class LazyMusicSettings implements MusicSettings {
   @override
   Future<void> setLyricMode(LyricMode mode) async =>
       (await _resolve()).setLyricMode(mode);
+
+  @override
+  Future<void> setPlayMode(PlayMode mode) async =>
+      (await _resolve()).setPlayMode(mode);
 }
 
 /// 生产实现：`<应用支持目录>/music_settings/settings.json`。
@@ -105,6 +119,7 @@ class MusicFileSettings implements MusicSettings {
   bool _listenReportEnabled = true;
   bool _lyricEnabled = true;
   LyricMode _lyricMode = LyricMode.original;
+  PlayMode _playMode = PlayMode.listLoop;
   bool _loaded = false;
   Future<void>? _loading;
 
@@ -116,6 +131,9 @@ class MusicFileSettings implements MusicSettings {
 
   @override
   LyricMode get lyricMode => _lyricMode;
+
+  @override
+  PlayMode get playMode => _playMode;
 
   @override
   Future<void> ensureLoaded() {
@@ -138,6 +156,16 @@ class MusicFileSettings implements MusicSettings {
             for (final mode in LyricMode.values) {
               if (mode.name == lyricMode) {
                 _lyricMode = mode;
+                break;
+              }
+            }
+          }
+          final playMode = decoded['playMode'];
+          if (playMode is String) {
+            // 未知/损坏的模式名回默认列表循环。
+            for (final mode in PlayMode.values) {
+              if (mode.name == playMode) {
+                _playMode = mode;
                 break;
               }
             }
@@ -169,7 +197,13 @@ class MusicFileSettings implements MusicSettings {
     await _persist();
   }
 
-  /// 整文件重写（三个键同级写入，任一 setter 都不会丢其它偏好）。
+  @override
+  Future<void> setPlayMode(PlayMode mode) async {
+    _playMode = mode;
+    await _persist();
+  }
+
+  /// 整文件重写（四个键同级写入，任一 setter 都不会丢其它偏好）。
   Future<void> _persist() async {
     try {
       if (!await directory.exists()) {
@@ -177,7 +211,7 @@ class MusicFileSettings implements MusicSettings {
       }
       const encoder = JsonEncoder.withIndent('  ');
       await _file.writeAsString(
-        '${encoder.convert(<String, Object?>{'listenReportEnabled': _listenReportEnabled, 'lyricEnabled': _lyricEnabled, 'lyricMode': _lyricMode.name})}\n',
+        '${encoder.convert(<String, Object?>{'listenReportEnabled': _listenReportEnabled, 'lyricEnabled': _lyricEnabled, 'lyricMode': _lyricMode.name, 'playMode': _playMode.name})}\n',
         flush: true,
       );
     } on Object {

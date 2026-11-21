@@ -14,6 +14,7 @@ import 'package:mimao/music/music_store.dart';
 import 'package:mimao/music/pages/music_module_page.dart';
 import 'package:mimao/music/player/pages/music_mini_player.dart';
 import 'package:mimao/music/player/pages/music_player_page.dart';
+import 'package:mimao/music/player/play_mode.dart';
 import 'package:mimao/music/player/playback_engine.dart';
 import 'package:mimao/music/player/player_store.dart';
 import 'package:mimao/music/player/player_ui_impl.dart';
@@ -165,9 +166,90 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(MusicMiniPlayer), findsOneWidget);
 
-    await tester.tap(find.byType(MusicMiniPlayer));
+    // 点标题（非按钮区域）进播放页：改造后迷你条中心是播放按钮，
+    // 不能再点整卡的几何中心。
+    await tester.tap(
+      find.descendant(
+        of: find.byType(MusicMiniPlayer),
+        matching: find.text('稻香'),
+      ),
+    );
     await tester.pumpAndSettle();
     expect(find.byType(MusicPlayerPage), findsOneWidget);
+  });
+
+  group('迷你条传输控件与歌曲列表弹窗', () {
+    const secondHash = 'bbcdef0123456789abcdef0123456789';
+
+    /// 两首歌：[fakeSong] 在 index 0，晴天在 index 1。
+    Future<MusicPlayerStore> seedTwoSongs() async {
+      final store = MusicPlayerStore(
+        playbackApi: playback,
+        engineFactory: () => engine,
+      );
+      addTearDown(store.dispose);
+      await store.playSong(fakeSong());
+      await store.playSong(fakeSong(id: '7302', title: '晴天', hash: secondHash));
+      await store.playAt(0);
+      return store;
+    }
+
+    Future<void> pumpMini(WidgetTester tester, MusicPlayerStore store) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: MusicMiniPlayer(player: store)),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('上一首/下一首按钮存在并驱动 store 切歌', (tester) async {
+      final store = await seedTwoSongs();
+      await pumpMini(tester, store);
+
+      expect(find.byKey(const Key('mini-previous')), findsOneWidget);
+      expect(find.byKey(const Key('mini-play-pause')), findsOneWidget);
+      expect(find.byKey(const Key('mini-next')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('mini-next')));
+      await tester.pumpAndSettle();
+      expect(store.index, 1);
+      expect(engine.openedUrl, 'https://cdn.example/7302.mp3');
+
+      await tester.tap(find.byKey(const Key('mini-previous')));
+      await tester.pumpAndSettle();
+      expect(store.index, 0);
+      expect(engine.openedUrl, 'https://cdn.example/7301.mp3');
+    });
+
+    testWidgets('歌曲列表弹窗：队列切歌 + 三种播放模式单选', (tester) async {
+      final store = await seedTwoSongs();
+      await pumpMini(tester, store);
+
+      await tester.tap(find.byKey(const Key('mini-queue')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('music-queue-play-mode')), findsOneWidget);
+      expect(find.text('播放模式'), findsOneWidget);
+      expect(find.widgetWithText(ListTile, '稻香'), findsOneWidget);
+      expect(find.widgetWithText(ListTile, '晴天'), findsOneWidget);
+
+      // 点队列里的非当前曲目：切歌并关闭弹窗。
+      await tester.tap(find.widgetWithText(ListTile, '晴天'));
+      await tester.pumpAndSettle();
+      expect(store.index, 1);
+      expect(engine.openedUrl, 'https://cdn.example/7302.mp3');
+      expect(find.byKey(const Key('music-queue-play-mode')), findsNothing);
+
+      // 再次打开：默认列表循环，切到随机。
+      expect(store.playMode, PlayMode.listLoop);
+      await tester.tap(find.byKey(const Key('mini-queue')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('随机'));
+      await tester.pumpAndSettle();
+      expect(store.playMode, PlayMode.shuffle);
+      expect(find.byKey(const Key('music-queue-play-mode')), findsOneWidget);
+    });
   });
 
   // ---- MD3 Expressive 波浪进度条（M4-P）----

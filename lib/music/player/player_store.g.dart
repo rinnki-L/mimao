@@ -89,6 +89,24 @@ mixin _$MusicPlayerStore on _MusicPlayerStore, Store {
     });
   }
 
+  late final _$playModeAtom = Atom(
+    name: '_MusicPlayerStore.playMode',
+    context: context,
+  );
+
+  @override
+  PlayMode get playMode {
+    _$playModeAtom.reportRead();
+    return super.playMode;
+  }
+
+  @override
+  set playMode(PlayMode value) {
+    _$playModeAtom.reportWrite(value, super.playMode, () {
+      super.playMode = value;
+    });
+  }
+
   late final _$errorAtom = Atom(
     name: '_MusicPlayerStore.error',
     context: context,
@@ -185,6 +203,18 @@ mixin _$MusicPlayerStore on _MusicPlayerStore, Store {
   }
 
   @override
+  void setPlayMode(PlayMode mode) {
+    final _$actionInfo = _$_MusicPlayerStoreActionController.startAction(
+      name: '_MusicPlayerStore.setPlayMode',
+    );
+    try {
+      return super.setPlayMode(mode);
+    } finally {
+      _$_MusicPlayerStoreActionController.endAction(_$actionInfo);
+    }
+  }
+
+  @override
   void dispose() {
     final _$actionInfo = _$_MusicPlayerStoreActionController.startAction(
       name: '_MusicPlayerStore.dispose',
@@ -203,6 +233,7 @@ queue: ${queue},
 index: ${index},
 snapshot: ${snapshot},
 isResolving: ${isResolving},
+playMode: ${playMode},
 error: ${error},
 currentSong: ${currentSong}
     ''';

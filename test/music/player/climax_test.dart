@@ -215,7 +215,13 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byType(MusicMiniPlayer));
+    // 改造后迷你条中心是播放按钮：点标题（非按钮区域）进入播放页。
+    await tester.tap(
+      find.descendant(
+        of: find.byType(MusicMiniPlayer),
+        matching: find.text('稻香'),
+      ),
+    );
     await tester.pumpAndSettle();
     await emitDuration(tester);
     expect(find.byType(MusicPlayerPage), findsOneWidget);
