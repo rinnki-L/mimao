@@ -13,10 +13,27 @@ import 'package:mimao/music/api/artist_albums.dart';
 import 'package:mimao/music/api/artist_api.dart';
 import 'package:mimao/music/api/artist_audios_new.dart';
 import 'package:mimao/music/api/artist_lists.dart';
-import 'package:mimao/music/models/album_models.dart';
+import 'package:mimao/music/api/audio_match.dart';
+import 'package:mimao/music/api/get_model.dart';
+import 'package:mimao/music/api/images_audio.dart';
+import 'package:mimao/music/api/krm_audio.dart';
+import 'package:mimao/music/api/playback_ext_api.dart';
+import 'package:mimao/music/api/privilege_lite.dart';
+import 'package:mimao/music/models/album_models.dart'
+    hide MusicPreviewRange; // 预览区间用播放补全组自己的版本
 import 'package:mimao/music/models/artist_models.dart';
 import 'package:mimao/music/models/catalog_models.dart';
+import 'package:mimao/music/models/effects_models.dart';
 import 'package:mimao/music/models/music_models.dart';
+// 与 album_models 同名重合的目录事实类保留 album_models 版（曲目 metadata
+// 用的是它），只放行播放补全组自己的差量模型。
+import 'package:mimao/music/models/playback_ext_models.dart'
+    hide
+        MusicCatalogSongFacts,
+        MusicCatalogRights,
+        MusicEncodedMap,
+        MusicQualityMap,
+        MusicVoiceAd;
 import 'package:mimao/music/player/player_ui.dart';
 
 // ── FakeAlbumApi ────────────────────────────────────────────────────────
@@ -211,6 +228,70 @@ class FakePlayerUi implements MusicPlayerUi {
   void dispose() {}
 }
 
+// ── FakePlaybackExtApi（L6：权益/资料/歌手图片）────────────────────────
+
+/// 播放补全组 fake：记录三段查询入参；识曲/音效商城与本切片无关，
+/// 只给空实现（页面不会调用）。
+class FakePlaybackExtApi implements MusicPlaybackExtApi {
+  FakePlaybackExtApi({
+    this.privileges = const <MusicResourcePrivileges>[],
+    this.privilegeError,
+    this.presentations = const <MusicSongPresentation>[],
+    this.krmError,
+    this.portraitGroups = const <List<MusicAuthorImages>>[],
+    this.imagesError,
+  });
+
+  List<MusicResourcePrivileges> privileges;
+  Object? privilegeError;
+  List<MusicSongPresentation> presentations;
+  Object? krmError;
+  List<List<MusicAuthorImages>> portraitGroups;
+  Object? imagesError;
+
+  final List<PrivilegeLiteQuery> privilegeLog = <PrivilegeLiteQuery>[];
+  final List<KrmAudioQuery> krmLog = <KrmAudioQuery>[];
+  final List<ImagesAudioQuery> imagesLog = <ImagesAudioQuery>[];
+
+  @override
+  Future<List<MusicRecognitionMatch>> audioMatch(AudioMatchQuery query) async {
+    return const <MusicRecognitionMatch>[];
+  }
+
+  @override
+  Future<List<MusicResourcePrivileges>> privilegeLite(
+    PrivilegeLiteQuery query,
+  ) async {
+    privilegeLog.add(query);
+    final error = privilegeError;
+    if (error != null) throw error;
+    return privileges;
+  }
+
+  @override
+  Future<MusicPage<MusicEffect>> getModel(GetModelQuery query) async {
+    return MusicPage<MusicEffect>(items: const <MusicEffect>[]);
+  }
+
+  @override
+  Future<List<List<MusicAuthorImages>>> imagesAudio(
+    ImagesAudioQuery query,
+  ) async {
+    imagesLog.add(query);
+    final error = imagesError;
+    if (error != null) throw error;
+    return portraitGroups;
+  }
+
+  @override
+  Future<List<MusicSongPresentation>> krmAudio(KrmAudioQuery query) async {
+    krmLog.add(query);
+    final error = krmError;
+    if (error != null) throw error;
+    return presentations;
+  }
+}
+
 // ── Fixtures ────────────────────────────────────────────────────────────
 
 MusicAlbumDetail albumDetailFixture({
@@ -232,15 +313,19 @@ MusicAlbumDetail albumDetailFixture({
 );
 
 /// 专辑曲目 fixture：disc/position 默认递增；coverUrl 留空走占位（测试不联网）。
+/// `hash`/`audioId` 供 L6 资料面板测试传入合法值（默认沿用旧的无意义值）。
 MusicAlbumTrack albumTrackFixture(
   int position, {
   String title = '曲目',
   String songId = 'song-1',
   int disc = 1,
+  String? hash,
+  int? audioId,
 }) => MusicAlbumTrack(
   song: MusicSong(
     id: songId,
-    hash: 'hash-$songId',
+    audioId: audioId,
+    hash: hash ?? 'hash-$songId',
     title: title,
     artists: const <MusicArtistRef>[MusicArtistRef(id: 42, name: '歌手A')],
     albumId: '7',
@@ -300,13 +385,15 @@ MusicArtistDetail artistDetailFixture({String name = '歌手B'}) =>
     );
 
 /// 歌手歌曲 fixture（平铺结构）：durationMs 毫秒原样透传。
+/// `hash` 供 L6 歌手写真测试传入合法值（默认沿用旧的无意义值）。
 MusicArtistSong artistSongFixture({
   String id = 'as-1',
   String title = '热门歌',
   String? albumTitle = '专辑甲',
+  String? hash,
 }) => MusicArtistSong(
   id: id,
-  hash: 'hash-$id',
+  hash: hash ?? 'hash-$id',
   title: title,
   artists: const <MusicArtistRef>[MusicArtistRef(id: 5, name: '歌手B')],
   albumId: '10',
@@ -355,3 +442,142 @@ MusicArtistDirectory directoryFixture() => MusicArtistDirectory(
     const MusicArtistFilter(id: '3', label: '音乐人', category: 0, musician: 3),
   ],
 );
+
+// ── L6 播放补全 fixtures：权益 / 资料 / 歌手图片 ──────────────────────
+
+/// 32 位合法 hash（页面以它判断「要不要发起查询」）。
+const String kValidHash = 'a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4';
+
+/// 权益档位 fixture（上游不解释位义，页面只展示码值事实）。
+MusicQualityVariant qualityVariantFixture({
+  String quality = '128',
+  int? bitRateBps = 128000,
+  String extension = 'mp3',
+}) => MusicQualityVariant(
+  message: '',
+  errorCode: null,
+  hash: kValidHash,
+  quality: quality,
+  level: null,
+  privilege: null,
+  serviceStatus: 1,
+  failureCode: null,
+  paymentType: 0,
+  priceUnits: null,
+  durationMs: 213000,
+  sizeBytes: 3400000,
+  bitRateBps: bitRateBps,
+  extension: extension,
+  coverUrl: '',
+);
+
+/// 权益资源 fixture：默认 flac 主档位 + 320 音质行 + 预览区间 0:30–1:00。
+MusicResourcePrivileges privilegeFixture({
+  String quality = 'flac',
+  int? bitRateBps = 900000,
+  String extension = 'flac',
+  int? resourceError,
+  String resourceMessage = '',
+  MusicPreviewRange? preview = const MusicPreviewRange(
+    startMs: 30000,
+    endMs: 60000,
+  ),
+  List<MusicQualityVariant> variants = const <MusicQualityVariant>[
+    MusicQualityVariant(
+      message: '',
+      errorCode: null,
+      hash: kValidHash,
+      quality: '320',
+      level: null,
+      privilege: null,
+      serviceStatus: 1,
+      failureCode: null,
+      paymentType: 0,
+      priceUnits: null,
+      durationMs: 213000,
+      sizeBytes: 8500000,
+      bitRateBps: 320000,
+      extension: 'mp3',
+      coverUrl: '',
+    ),
+  ],
+}) => MusicResourcePrivileges(
+  id: null,
+  albumId: '7',
+  songId: 9001,
+  hash: kValidHash,
+  displayName: '曲目一',
+  artistText: '歌手A',
+  albumTitle: '测试专辑',
+  primary: qualityVariantFixture(
+    quality: quality,
+    bitRateBps: bitRateBps,
+    extension: extension,
+  ),
+  variants: variants,
+  oggStandard: null,
+  oggHigh: null,
+  preview: preview,
+  qualityMap: null,
+  resourceError: resourceError,
+  resourceMessage: resourceMessage,
+  language: '',
+  presentationExtension: const <String, Object?>{},
+);
+
+/// 资料包 fixture：默认词曲/语言/发行/BPM 齐全（空字段场景逐个传空串）。
+MusicSongPresentation presentationFixture({
+  String id = '9001',
+  String lyricist = '词人甲',
+  String composer = '作曲乙',
+  String language = '国语',
+  String publishedAt = '2024-01-01',
+  double? bpm = 96,
+}) => MusicSongPresentation(
+  id: id,
+  title: '曲目一',
+  albumId: '7',
+  albumTitle: '测试专辑',
+  coverUrl: '',
+  artists: const <MusicPresentationArtist>[],
+  information: MusicSongInformation(
+    publishedAt: publishedAt,
+    albumPublishedAt: null,
+    language: language,
+    lyricist: lyricist,
+    composer: composer,
+    bpm: bpm,
+    tempoCode: null,
+    tempoDescription: null,
+  ),
+);
+
+/// 歌手写真 fixture：一个歌手、count 张带 https 地址的写真
+///（url 用保留域名——widget 测试里网络请求不会真正完成，走占位/回退）。
+List<List<MusicAuthorImages>> portraitGroupsFixture({int count = 2}) =>
+    <List<MusicAuthorImages>>[
+      <MusicAuthorImages>[
+        MusicAuthorImages(
+          artistId: '5',
+          name: '歌手B',
+          publishStatus: 1,
+          resourceHash: kValidHash,
+          avatar: '',
+          avatarUrl: '',
+          audioPublishDate: '',
+          images: <String, List<MusicPortrait>>{
+            'user': <MusicPortrait>[
+              for (var i = 0; i < count; i++)
+                MusicPortrait(
+                  id: 'p$i',
+                  fileHash: kValidHash,
+                  url: 'https://img.example.com/portrait-$i.jpg',
+                  filename: '写真$i.jpg',
+                  publishTime: '',
+                  source: null,
+                ),
+            ],
+          },
+        ),
+      ],
+    ];
