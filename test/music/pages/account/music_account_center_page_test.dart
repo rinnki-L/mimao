@@ -7,6 +7,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mimao/music/client/kugou_error.dart';
+import 'package:mimao/music/models/discovery_models.dart';
 import 'package:mimao/music/models/music_models.dart';
 import 'package:mimao/music/models/user_library_models.dart';
 import 'package:mimao/music/models/user_models.dart';
@@ -21,6 +22,9 @@ class _Harness {
   final FakePlayerUi player = FakePlayerUi();
   final List<int> openedAlbums = <int>[];
   final List<MusicUserPlaylist> openedPlaylists = <MusicUserPlaylist>[];
+
+  /// 音乐偏好页候选标签注入（null = 未接线，候选区隐藏）。
+  Future<List<MusicStyleTagGroup>> Function()? loadPreferenceTagGroups;
 
   /// 配置一套「全部成功」的最小数据（单个测试再按需覆盖个别分区）。
   _Harness() {
@@ -75,6 +79,7 @@ class _Harness {
         player: player,
         onOpenAlbum: openedAlbums.add,
         onOpenPlaylist: openedPlaylists.add,
+        loadPreferenceTagGroups: loadPreferenceTagGroups,
       ),
     );
   }
@@ -99,6 +104,18 @@ Future<_Harness> _pumpPage(
 }
 
 Finder _section(String key) => find.byKey(ValueKey<String>(key));
+
+/// 风格标签组假数据：语种组（国语 id=1 / 粤语 id=2），形状与
+/// everyday_style_recommend 的 `tag_info` 一致。
+List<MusicStyleTagGroup> _fakeStyleGroups() => <MusicStyleTagGroup>[
+  const MusicStyleTagGroup(
+    name: '语种',
+    child: <MusicStyleTag>[
+      MusicStyleTag(id: '1', name: '国语', selected: null),
+      MusicStyleTag(id: '2', name: '粤语', selected: null),
+    ],
+  ),
+];
 
 void main() {
   testWidgets('资料头渲染昵称/等级/简介/标签/统计，各分区按默认查询装载', (tester) async {
@@ -421,5 +438,23 @@ void main() {
     expect(find.byType(SingleChildScrollView), findsNothing);
     expect(find.byKey(const ValueKey('account-profile')), findsOneWidget);
     expect(find.text('示例昵称'), findsOneWidget);
+  });
+
+  testWidgets('偏好页透传候选装载器：点击「音乐偏好」后候选 chip 可见', (tester) async {
+    final h = _Harness()
+      ..loadPreferenceTagGroups = () async => _fakeStyleGroups();
+    // 偏好页装载依赖 fake 的 userPreference，未配置会走错误态。
+    h.library.preference = fakePreferences();
+    // 加高视口，账号中心与偏好表单尽量一屏展开。
+    await _pumpPage(tester, h, surface: const Size(800, 1600));
+
+    final Finder entry = find.byKey(const ValueKey('account-preference'));
+    await tester.ensureVisible(entry);
+    await tester.tap(entry);
+    await tester.pumpAndSettle();
+
+    // 语种候选在 lang 与 song_lang 两个字段各出现一次。
+    expect(find.text('国语'), findsWidgets);
+    expect(find.text('粤语'), findsWidgets);
   });
 }

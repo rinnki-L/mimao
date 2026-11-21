@@ -8,14 +8,18 @@
 /// - 初始/跨行滚动使用 `Scrollable.ensureVisible(duration: Duration.zero)`
 ///   （等价 jumpTo），不使用无限动画，测试里 `pumpAndSettle` 不会卡死；
 /// - 用户手动滚动后暂停自动复位，松手满 3 秒才带动画回到当前行，
-///   避免播放推进把用户正在看的歌词抢走；
+///   避免播放推进把用户正在看的歌词抢走；复位动画带阻尼振荡，呈现
+///   「果冻」回弹质感；
+/// - 歌词行只在**双击**时跳转播放进度，单击是空操作，避免误触；
 /// - [LyricView] 本身保持 `StatelessWidget` 契约，内部滚动状态由私有
 ///   StatefulWidget 承担。
 library;
 
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:mimao/music/lyric/lyric_models.dart';
 
 /// 歌词视图。
@@ -37,7 +41,7 @@ class LyricView extends StatelessWidget {
   /// 显示模式。
   final LyricMode mode;
 
-  /// 点击某一行歌词时回调（用于跳转播放进度）；null 表示不可点击。
+  /// 双击某一行歌词时回调（用于跳转播放进度）；null 表示不可交互。
   final void Function(LyricLine line)? onLineTap;
 
   @override
@@ -82,8 +86,9 @@ class _LyricScrollBodyState extends State<_LyricScrollBody> {
   /// 用户松手后等待多久再带动画复位到当前行。
   static const Duration _resetDelay = Duration(seconds: 3);
 
-  /// 复位动画时长；有限动画，`pumpAndSettle` 能收敛。
-  static const Duration _resetDuration = Duration(milliseconds: 350);
+  /// 复位动画时长；有限动画，`pumpAndSettle` 能收敛。550ms 配合果冻
+  /// 曲线让「吸附回当前行」的回弹看得清。
+  static const Duration _resetDuration = Duration(milliseconds: 550);
 
   final ScrollController _controller = ScrollController();
   late List<GlobalKey> _lineKeys;
@@ -147,21 +152,50 @@ class _LyricScrollBodyState extends State<_LyricScrollBody> {
     });
   }
 
+  /// 用户松手后复位用的「果冻」曲线；常量实例，避免每帧重建。
+  static const Curve _jellyCurve = _JellyCurve();
+
   /// 把当前行滚到视口中央。
   ///
   /// 常规跟随用零时长（等价 jumpTo，不影响测试收敛）；用户松手满
-  /// [_resetDelay] 后的复位用 [_resetDuration] 的有限动画。
+  /// [_resetDelay] 后的复位用 [_resetDuration] 的果冻曲线。
   void _scrollToCurrent({bool animate = false}) {
     if (!mounted) return;
     final index = _currentIndex;
     if (index < 0 || index >= _lineKeys.length) return;
     final targetContext = _lineKeys[index].currentContext;
     if (targetContext == null) return;
+
+    Curve curve = Curves.ease;
+    if (animate) {
+      curve = _jellyCurve;
+      // 首/末行的居中目标会被滚动物理 clamp 到 min/max，过冲在边界上
+      // 只会被截断、表现为边缘抽动，这时退回平滑的 easeOut。
+      if (_isTargetNearScrollEdge(targetContext)) {
+        curve = Curves.easeOut;
+      }
+    }
+
     Scrollable.ensureVisible(
       targetContext,
       alignment: 0.5,
       duration: animate ? _resetDuration : Duration.zero,
+      curve: curve,
     );
+  }
+
+  /// 目标行居中后的偏移是否已贴在 min/max 滚动边界（2px 内）。
+  bool _isTargetNearScrollEdge(BuildContext targetContext) {
+    if (!_controller.hasClients) return false;
+    final renderObject = targetContext.findRenderObject();
+    if (renderObject == null || !renderObject.attached) return false;
+    final position = _controller.position;
+    final targetOffset = RenderAbstractViewport.of(
+      renderObject,
+    ).getOffsetToReveal(renderObject, 0.5).offset;
+    const tolerance = 2.0;
+    return (targetOffset - position.minScrollExtent).abs() <= tolerance ||
+        (targetOffset - position.maxScrollExtent).abs() <= tolerance;
   }
 
   /// 用户开始拖动：立刻暂停自动复位，并取消上一次的松手计时。
@@ -209,7 +243,7 @@ class _LyricScrollBodyState extends State<_LyricScrollBody> {
                   mode: widget.mode,
                   highlighted: i == _currentIndex,
                   primary: primary,
-                  onTap: widget.onLineTap == null
+                  onDoubleTap: widget.onLineTap == null
                       ? null
                       : () => widget.onLineTap!(widget.lines[i]),
                 ),
@@ -228,14 +262,14 @@ class _LyricLineTile extends StatelessWidget {
     required this.mode,
     required this.highlighted,
     required this.primary,
-    this.onTap,
+    this.onDoubleTap,
   });
 
   final LyricLine line;
   final LyricMode mode;
   final bool highlighted;
   final Color primary;
-  final VoidCallback? onTap;
+  final VoidCallback? onDoubleTap;
 
   @override
   Widget build(BuildContext context) {
@@ -277,12 +311,42 @@ class _LyricLineTile extends StatelessWidget {
       ),
     );
 
-    final tap = onTap;
-    if (tap == null) return content;
+    final doubleTap = onDoubleTap;
+    if (doubleTap == null) return content;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: tap,
+      // 只挂 onDoubleTap：单击是空操作。若同时挂 onTap，单击会在双击
+      // 判定窗口过期后被识别，误触问题依旧存在。
+      onDoubleTap: doubleTap,
       child: content,
     );
+  }
+}
+
+/// 复位用的「果冻」曲线：阻尼正弦给出小幅过冲与 1.5 次回摆。
+///
+/// `1 - e^(-6.5t)·cos(8t)` 在 t=0 处为 0、约 t=0.31 处过冲 ~10.5%，
+/// 随后在 1 附近做一次轻微回摆；末尾用端点归一化，保证
+/// `transform(1) == 1`，动画结束正好落在目标位置，残留偏移为 0。
+/// 振幅刻意小于 `Curves.elasticOut` 的 25%，避免被滚动边界 clamp
+/// 成「断头」动画。
+class _JellyCurve extends Curve {
+  const _JellyCurve();
+
+  /// 阻尼系数：越大越快收敛。
+  static const double _damping = 6.5;
+
+  /// 振荡角频率：约 1.5 个周期。
+  static const double _frequency = 8;
+
+  static final double _endValue =
+      1 - math.exp(-_damping) * math.cos(_frequency);
+
+  @override
+  double transformInternal(double t) {
+    if (t <= 0) return 0;
+    if (t >= 1) return 1;
+    final raw = 1 - math.exp(-_damping * t) * math.cos(_frequency * t);
+    return raw / _endValue;
   }
 }

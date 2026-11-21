@@ -1,6 +1,7 @@
 // ignore_for_file: deprecated_member_use — 与 lib/music/lyric/lyric_view.dart 同款说明。
-/// 歌词视图测试：三种模式、缺失翻译/音译的降级、当前行高亮、自动滚动与
-/// 无歌词提示。全部使用固定时间轴，不涉及 I/O 或无限动画。
+/// 歌词视图测试：三种模式、缺失翻译/音译的降级、当前行高亮、双击跳转、
+/// 单击不误触、自动滚动与无歌词提示。全部使用固定时间轴，不涉及 I/O
+/// 或无限动画。
 library;
 
 import 'package:flutter/material.dart';
@@ -134,7 +135,37 @@ void main() {
     expect(_text(tester, '第一行').style?.fontWeight, FontWeight.normal);
   });
 
-  testWidgets('点击歌词行回调对应的 LyricLine', (tester) async {
+  testWidgets('双击歌词行回调对应的 LyricLine', (tester) async {
+    final tapped = <LyricLine>[];
+    await tester.pumpWidget(
+      _wrap(
+        LyricView(
+          lyric: _lyric,
+          position: Duration.zero,
+          mode: LyricMode.original,
+          onLineTap: tapped.add,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // flutter_test 没有 doubleTap，这里手动点两次：间隔 50ms，
+    // 大于 kDoubleTapMinTime(40ms)、小于 kDoubleTapTimeout(300ms)。
+    await tester.tap(find.text('第二行'));
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.tap(find.text('第二行'));
+    await tester.pump();
+
+    expect(tapped, hasLength(1));
+    expect(tapped.single.original, '第二行');
+    expect(tapped.single.start, const Duration(seconds: 5));
+
+    // 双击识别器为每次 tap 预留 40ms 最短间隔计时器，推掉它，
+    // 避免测试结束时报 pending timer。
+    await tester.pump(const Duration(milliseconds: 50));
+  });
+
+  testWidgets('单击歌词行不触发跳转（避免误触）', (tester) async {
     final tapped = <LyricLine>[];
     await tester.pumpWidget(
       _wrap(
@@ -150,10 +181,12 @@ void main() {
 
     await tester.tap(find.text('第二行'));
     await tester.pump();
+    expect(tapped, isEmpty);
 
-    expect(tapped, hasLength(1));
-    expect(tapped.single.original, '第二行');
-    expect(tapped.single.start, const Duration(seconds: 5));
+    // 推过双击判定窗口（300ms），确认单击不会在窗口过期后补发回调，
+    // 同时清掉手势识别器残留的计时器，避免测试结束时报 pending timer。
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(tapped, isEmpty);
   });
 
   testWidgets('当前行随播放位置自动滚动到可视区', (tester) async {

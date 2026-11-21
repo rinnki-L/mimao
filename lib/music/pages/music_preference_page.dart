@@ -5,6 +5,11 @@
 /// 六个字段（mode/gender/age/lang/style/song_lang）都是字符串；lang/style/
 /// song_lang 是权重型偏好——能解出 weights 时按「标签: 权重」chips 展示并
 /// 行编辑，解不出时展示原始文本（不丢远端值），连文本都没有的只读展示。
+///
+/// 官方标签候选：页面可选注入 [loadTagGroups]（风格推荐端点的标签组），按
+/// 组名归类出「语种/曲风」候选 chips，作为权重行的便捷添加入口。候选只
+/// 提供标签 id，不校验也不改写已有权重键——上游偏好键与风格标签 id 是否
+/// 同源未验证，读到的任何键都原样保留。
 library;
 
 import 'dart:async';
@@ -13,7 +18,9 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart' show mapEquals;
 import 'package:flutter/material.dart';
 import 'package:mimao/music/api/user_library_api.dart';
+import 'package:mimao/music/models/discovery_models.dart';
 import 'package:mimao/music/models/user_library_models.dart';
+import 'package:mimao/music/music_preference_tags.dart';
 
 /// 单个权重编辑行：「标签 + 权重」两个输入框。
 class _WeightRow {
@@ -24,9 +31,13 @@ class _WeightRow {
   final TextEditingController label;
   final TextEditingController weight;
 
+  /// 标签输入框焦点：候选 chip 新增行后自动进入编辑。
+  final FocusNode labelFocus = FocusNode();
+
   void dispose() {
     label.dispose();
     weight.dispose();
+    labelFocus.dispose();
   }
 }
 
@@ -95,10 +106,22 @@ String serializeWeights(Map<String, double> weights) {
 
 /// 音乐偏好页。进入即 `library.userPreference()` 装载；保存只提交相对
 /// 初始快照有改动的字段，无改动就地提示、不发请求。
+///
+/// [loadTagGroups] 是官方标签候选的可选注入缝：生产由上层把
+/// `MusicDiscoveryApi.everydayStyleRecommend` 的标签组透传进来（首载空
+/// tagIds 即完整目录）；测试注入 fake。为 null 或加载失败时静默隐藏候选
+/// 区，原有自由行编辑完全不受影响。
 class MusicPreferencePage extends StatefulWidget {
-  const MusicPreferencePage({super.key, required this.library});
+  const MusicPreferencePage({
+    super.key,
+    required this.library,
+    this.loadTagGroups,
+  });
 
   final MusicUserLibraryApi library;
+
+  /// 标签组装载器（everyday_style_recommend 的 `tag_info` 分组）。
+  final Future<List<MusicStyleTagGroup>> Function()? loadTagGroups;
 
   @override
   State<MusicPreferencePage> createState() => _MusicPreferencePageState();
@@ -114,6 +137,9 @@ class _MusicPreferencePageState extends State<MusicPreferencePage> {
   late final TextEditingController _age = TextEditingController();
   List<_WeightField> _weights = <_WeightField>[];
 
+  /// 官方标签候选目录；加载失败/未注入时保持空目录（候选区静默隐藏）。
+  MusicPreferenceTagCatalog _tagCatalog = MusicPreferenceTagCatalog.empty;
+
   bool _saving = false;
   String? _saveError;
 
@@ -121,6 +147,7 @@ class _MusicPreferencePageState extends State<MusicPreferencePage> {
   void initState() {
     super.initState();
     unawaited(_load());
+    unawaited(_loadTagCandidates());
   }
 
   @override
@@ -172,6 +199,53 @@ class _MusicPreferencePageState extends State<MusicPreferencePage> {
       ),
     ];
     _initial = prefs;
+  }
+
+  /// 候选标签装载：失败或返回空组 → 空目录，候选区静默隐藏；绝不写入
+  /// 任何伪造标签，也不影响已装载的偏好编辑状态。
+  Future<void> _loadTagCandidates() async {
+    final loader = widget.loadTagGroups;
+    if (loader == null) return;
+    try {
+      final List<MusicStyleTagGroup> groups = await loader();
+      if (!mounted) return;
+      setState(() {
+        _tagCatalog = MusicPreferenceTagCatalog.fromGroups(groups);
+      });
+    } on Object {
+      // 候选只是便捷入口：失败时保持空目录，页面其它功能照常。
+    }
+  }
+
+  /// 候选 chip 的默认权重：语种/曲风 100，推荐语种 50。
+  static double _defaultWeightFor(String wireKey) =>
+      wireKey == 'song_lang' ? 50 : 100;
+
+  /// 点击候选 chip：未添加 → 追加权重行并聚焦标签输入框；已添加 → 移除
+  /// 该行（对应权重键随之从提交里消失）。
+  ///
+  /// 匹配只看行标签文本与候选 id 是否相等；用户手改过的标签行不强行归并。
+  void _toggleCandidate(
+    _WeightField field,
+    MusicPreferenceTagCandidate candidate,
+  ) {
+    final int index = field.rows.indexWhere(
+      (_WeightRow row) => row.label.text.trim() == candidate.id,
+    );
+    if (index >= 0) {
+      setState(() => field.rows.removeAt(index)..dispose());
+      return;
+    }
+    final _WeightRow row = _WeightRow(
+      label: candidate.id,
+      weight: formatWeight(_defaultWeightFor(field.wireKey)),
+    );
+    setState(() => field.rows.add(row));
+    // 新增行进入编辑态（帧后请求焦点：此时输入框已挂到树）；行若已被
+    // 移除/释放则跳过，避免操作已 dispose 的 FocusNode。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && field.rows.contains(row)) row.labelFocus.requestFocus();
+    });
   }
 
   /// 文本字段的差量：与初始值相同 → null（不下发）；否则提交文本
@@ -363,15 +437,58 @@ class _MusicPreferencePageState extends State<MusicPreferencePage> {
     );
   }
 
+  /// 权重 chip 文本：键命中候选 id 时展示候选名称（如「国语: 100」），
+  /// 否则回退原始键（保持既有 `'$key: ${formatWeight(...)}'` 格式）。
+  String _weightChipLabel(_WeightField field, String key) {
+    final String display = _tagCatalog.nameForId(field.wireKey, key) ?? key;
+    return '$display: ${formatWeight(field.initial.weights![key]!)}';
+  }
+
+  /// 候选 chips：选中态由当前行标签是否等于候选 id 决定；点击即增删行。
+  Widget _buildCandidateChips(
+    _WeightField field,
+    List<MusicPreferenceTagCandidate> candidates,
+  ) {
+    final Set<String> rowIds = <String>{
+      for (final _WeightRow row in field.rows) row.label.text.trim(),
+    };
+    return Wrap(
+      key: ValueKey<String>('pref-${field.wireKey}-candidates'),
+      spacing: 6,
+      runSpacing: 6,
+      children: <Widget>[
+        for (final MusicPreferenceTagCandidate candidate in candidates)
+          FilterChip(
+            key: ValueKey<String>(
+              'pref-${field.wireKey}-candidate-${candidate.id}',
+            ),
+            label: Text(candidate.label),
+            selected: rowIds.contains(candidate.id),
+            // 与风格推荐页一致：不显示勾选图标，选中态靠填充底色表达。
+            showCheckmark: false,
+            onSelected: (_) => _toggleCandidate(field, candidate),
+            visualDensity: VisualDensity.compact,
+          ),
+      ],
+    );
+  }
+
   Widget _buildWeightSection(BuildContext context, _WeightField field) {
     final theme = Theme.of(context);
+    final List<MusicPreferenceTagCandidate> candidates = _tagCatalog
+        .candidatesFor(field.wireKey);
     return Column(
       key: ValueKey<String>('pref-${field.wireKey}'),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         Text(field.title, style: theme.textTheme.titleSmall),
         const SizedBox(height: 8),
-        if (field.editableByRows)
+        if (field.editableByRows) ...<Widget>[
+          // 官方标签候选：仅在拿到数据时展示，点击即增删对应权重行。
+          if (candidates.isNotEmpty) ...<Widget>[
+            _buildCandidateChips(field, candidates),
+            const SizedBox(height: 8),
+          ],
           // 能解出 weights：远端快照以 chips 展示（「标签: 权重」），
           // 行编辑器负责修改。
           Wrap(
@@ -383,14 +500,12 @@ class _MusicPreferencePageState extends State<MusicPreferencePage> {
                       .toList()
                     ..sort())
                 Chip(
-                  label: Text(
-                    '$key: ${formatWeight(field.initial.weights![key]!)}',
-                  ),
+                  label: Text(_weightChipLabel(field, key)),
                   visualDensity: VisualDensity.compact,
                 ),
             ],
-          )
-        else if (field.editableByText)
+          ),
+        ] else if (field.editableByText)
           // 解不出 weights 的字符串原值：原始文本直接进输入框（可修正）。
           TextFormField(
             key: ValueKey<String>('pref-${field.wireKey}-raw'),
@@ -421,6 +536,7 @@ class _MusicPreferencePageState extends State<MusicPreferencePage> {
                         'pref-${field.wireKey}-label-$index',
                       ),
                       controller: field.rows[index].label,
+                      focusNode: field.rows[index].labelFocus,
                       decoration: const InputDecoration(
                         hintText: '标签',
                         border: OutlineInputBorder(),

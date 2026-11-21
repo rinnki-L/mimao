@@ -16,6 +16,7 @@ library;
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:mimao/core/contract.dart';
+import 'package:mimao/music/api/everyday_style_recommend.dart';
 import 'package:mimao/music/api/music_account_api.dart';
 import 'package:mimao/music/api/music_api.dart';
 import 'package:mimao/music/api/music_browse_apis.dart';
@@ -174,6 +175,13 @@ class MusicModule implements AppModule {
             onOpenPlaylist: browseApis?.playlistRead == null
                 ? null
                 : (playlist) => _openUserPlaylist(context, playlist),
+            // 音乐偏好页的官方标签候选：首载空 tagIds 即完整标签目录；
+            // discovery 未接线时传 null，候选区静默隐藏。
+            loadPreferenceTagGroups: discovery == null
+                ? null
+                : () async => (await discovery.everydayStyleRecommend(
+                    const EverydayStyleRecommendQuery(),
+                  )).groups,
           )
         : null;
 

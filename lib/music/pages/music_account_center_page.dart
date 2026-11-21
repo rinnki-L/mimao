@@ -19,6 +19,7 @@ import 'package:mimao/music/api/user_library_api.dart';
 import 'package:mimao/music/api/user_profile_api.dart';
 import 'package:mimao/music/client/kugou_error.dart';
 import 'package:mimao/music/models/catalog_models.dart';
+import 'package:mimao/music/models/discovery_models.dart';
 import 'package:mimao/music/models/music_models.dart';
 import 'package:mimao/music/models/user_library_models.dart';
 import 'package:mimao/music/models/user_models.dart';
@@ -47,6 +48,7 @@ class MusicAccountCenterPage extends StatefulWidget {
     this.onOpenPlaylist,
     this.imagePicker,
     this.authEpoch,
+    this.loadPreferenceTagGroups,
   });
 
   /// 用户资料组接口（资料头/会员/等级）。
@@ -71,6 +73,12 @@ class MusicAccountCenterPage extends StatefulWidget {
   /// 登录态变化信号：登录/登出后自动重拉全部账号分区（资料/会员/等级/
   /// 历史/已购/歌单），用户不必再手动点重试。null 时保持旧行为。
   final ValueListenable<int>? authEpoch;
+
+  /// 音乐偏好页的官方标签候选注入缝（透传给 [MusicPreferencePage] 的
+  /// `loadTagGroups`）：生产由入口页把发现组的
+  /// `everydayStyleRecommend` 标签组接进来。null 时候选区静默隐藏，
+  /// 不影响偏好的读取与保存。
+  final Future<List<MusicStyleTagGroup>> Function()? loadPreferenceTagGroups;
 
   @override
   State<MusicAccountCenterPage> createState() => _MusicAccountCenterPageState();
@@ -405,7 +413,10 @@ class _MusicAccountCenterPageState extends State<MusicAccountCenterPage> {
   Future<void> _openPreference() async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
-        builder: (_) => MusicPreferencePage(library: widget.library),
+        builder: (_) => MusicPreferencePage(
+          library: widget.library,
+          loadTagGroups: widget.loadPreferenceTagGroups,
+        ),
       ),
     );
   }

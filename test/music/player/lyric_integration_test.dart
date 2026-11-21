@@ -111,11 +111,14 @@ void main() {
     expect(find.text('暂无歌词'), findsNothing);
   });
 
-  testWidgets('点击歌词行跳转到该行起始时间', (tester) async {
+  testWidgets('双击歌词行跳转到该行起始时间', (tester) async {
     await pumpPlayerPage(tester);
 
+    // flutter_test 没有 doubleTap，手动点两次（间隔 50ms 落在双击窗口内）。
     await tester.tap(find.text('第一句歌词'));
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.tap(find.text('第一句歌词'));
+    await tester.pumpAndSettle();
 
     expect(engine.seeks, <Duration>[Duration.zero]);
   });

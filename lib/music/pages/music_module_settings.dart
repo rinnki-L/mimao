@@ -16,6 +16,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:mimao/core/theme.dart';
 import 'package:mimao/music/api/auth_login_api.dart';
 import 'package:mimao/music/api/music_account_api.dart';
 import 'package:mimao/music/api/music_api.dart';
@@ -228,125 +229,180 @@ class _MusicModuleSettingsState extends State<MusicModuleSettings> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-          child: Text('设备身份', style: theme.textTheme.titleSmall),
-        ),
-        if (_loading)
-          const Padding(
-            padding: EdgeInsets.all(16),
-            child: SizedBox(
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-          )
-        else
-          _buildDevice(),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-          child: Text('账号', style: theme.textTheme.titleSmall),
-        ),
-        // ── M4-L 登录 ──
-        if (widget.account == null)
-          const ListTile(
-            leading: Icon(Icons.qr_code_2),
-            title: Text('酷狗账号登录（二维码）'),
-            subtitle: Text('登录态 API 客户端切片接入'),
-            enabled: false,
-            trailing: Icon(Icons.chevron_right),
-          )
-        else
-          _buildAccount(),
-        // ── L5 登录扩展 ──
-        if (widget.auth != null && widget.verify != null)
-          ListTile(
-            leading: const Icon(Icons.login),
-            title: const Text('更多登录方式'),
-            subtitle: const Text('手机号验证码 / QQ / 微信 / 登录设备管理'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: _openLoginMethods,
-          ),
-        if (widget.verify != null)
-          ListTile(
-            leading: const Icon(Icons.verified_user_outlined),
-            title: const Text('安全验证'),
-            subtitle: const Text('按事件号查询验证挑战并提交验证码'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: _openSecurityVerify,
-          ),
-        if (widget.settings != null) ...<Widget>[
-          SwitchListTile(
-            key: const Key('music-settings-listen-report'),
-            secondary: const Icon(Icons.graphic_eq),
-            title: const Text('听歌上报'),
-            subtitle: Text(
-              _listenReport == null ? '正在读取本地设置…' : '播放歌曲时上报听歌记录（可在本地关闭）',
-            ),
-            value: _listenReport ?? false,
-            // 读盘完成前禁用，避免用默认值覆盖真实偏好。
-            onChanged: _listenReport == null ? null : _toggleListenReport,
-          ),
-          SwitchListTile(
-            key: const Key('music-settings-lyric'),
-            secondary: const Icon(Icons.lyrics),
-            title: const Text('歌词'),
-            subtitle: Text(
-              _lyricEnabled == null ? '正在读取本地设置…' : '播放页显示歌词（可在本地关闭）',
-            ),
-            value: _lyricEnabled ?? false,
-            // 读盘完成前禁用；关掉后播放页不再显示歌词。
-            onChanged: _lyricEnabled == null ? null : _toggleLyric,
-          ),
-          // 三种显示模式常驻展示；歌词关闭或未读盘时整体禁用，避免误改。
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text('歌词显示模式', style: theme.textTheme.bodyMedium),
-                const SizedBox(height: 8),
-                SegmentedButton<LyricMode>(
-                  key: const Key('music-settings-lyric-mode'),
-                  showSelectedIcon: false,
-                  segments: const <ButtonSegment<LyricMode>>[
-                    ButtonSegment<LyricMode>(
-                      value: LyricMode.original,
-                      label: Text('原文'),
-                    ),
-                    ButtonSegment<LyricMode>(
-                      value: LyricMode.originalWithTranslation,
-                      label: Text('原文+中翻'),
-                    ),
-                    ButtonSegment<LyricMode>(
-                      value: LyricMode.originalWithTransliteration,
-                      label: Text('原文+音译'),
-                    ),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+      // 宽窗（桌面）下限制正文宽度并居中，避免内容被拉成超长一行。
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 720),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              _SettingsCard(
+                icon: Icons.fingerprint,
+                title: '设备身份',
+                subtitle: '本机匿名标识',
+                child: _loading
+                    ? const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 12),
+                        child: Center(
+                          child: SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        ),
+                      )
+                    : _buildDevice(),
+              ),
+              _SettingsCard(
+                icon: Icons.account_circle_outlined,
+                title: '账号',
+                subtitle: '扫码登录后同步数据',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    // ── M4-L 登录 ──
+                    if (widget.account == null)
+                      const ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.qr_code_2),
+                        title: Text('酷狗账号登录（二维码）'),
+                        subtitle: Text('登录态 API 客户端切片接入'),
+                        enabled: false,
+                        trailing: Icon(Icons.chevron_right),
+                      )
+                    else
+                      _buildAccount(),
+                    // ── L5 登录扩展 ──
+                    if (widget.auth != null &&
+                        widget.verify != null) ...<Widget>[
+                      const Divider(height: 1),
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.login),
+                        title: const Text('更多登录方式'),
+                        subtitle: const Text('手机号验证码 / QQ / 微信 / 登录设备管理'),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: _openLoginMethods,
+                      ),
+                    ],
+                    if (widget.verify != null) ...<Widget>[
+                      const Divider(height: 1),
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.verified_user_outlined),
+                        title: const Text('安全验证'),
+                        subtitle: const Text('按事件号查询验证挑战并提交验证码'),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: _openSecurityVerify,
+                      ),
+                    ],
                   ],
-                  selected: <LyricMode>{_lyricMode ?? LyricMode.original},
-                  onSelectionChanged:
-                      _lyricEnabled == true && _lyricMode != null
-                      ? (selection) => _changeLyricMode(selection.first)
-                      : null,
                 ),
-              ],
-            ),
-          ),
-        ],
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-          child: Text(
-            '协议实现对照 EchoMusicNext crates/echo-api 逐函数翻译，'
-            '上游酷狗概念版 API 取自 MakcRe/KuGouMusicApi（详见 lib/music/README.md）。',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
+              ),
+              if (widget.settings != null)
+                _SettingsCard(
+                  icon: Icons.headphones_outlined,
+                  title: '播放与歌词',
+                  subtitle: '上报、歌词开关与显示方式',
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: <Widget>[
+                      SwitchListTile(
+                        key: const Key('music-settings-listen-report'),
+                        contentPadding: EdgeInsets.zero,
+                        secondary: const Icon(Icons.graphic_eq),
+                        title: const Text('听歌上报'),
+                        subtitle: Text(
+                          _listenReport == null
+                              ? '正在读取本地设置…'
+                              : '播放歌曲时上报听歌记录（可在本地关闭）',
+                        ),
+                        value: _listenReport ?? false,
+                        // 读盘完成前禁用，避免用默认值覆盖真实偏好。
+                        onChanged: _listenReport == null
+                            ? null
+                            : _toggleListenReport,
+                      ),
+                      const Divider(height: 1),
+                      SwitchListTile(
+                        key: const Key('music-settings-lyric'),
+                        contentPadding: EdgeInsets.zero,
+                        secondary: const Icon(Icons.lyrics),
+                        title: const Text('歌词'),
+                        subtitle: Text(
+                          _lyricEnabled == null
+                              ? '正在读取本地设置…'
+                              : '播放页显示歌词（可在本地关闭）',
+                        ),
+                        value: _lyricEnabled ?? false,
+                        // 读盘完成前禁用；关掉后播放页不再显示歌词。
+                        onChanged: _lyricEnabled == null ? null : _toggleLyric,
+                      ),
+                      const Divider(height: 1),
+                      // 三种显示模式常驻展示；歌词关闭或未读盘时整体禁用，避免误改。
+                      Padding(
+                        padding: const EdgeInsets.only(top: 10, bottom: 2),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            Text('歌词显示模式', style: theme.textTheme.titleSmall),
+                            const SizedBox(height: 2),
+                            Text(
+                              '选择播放页歌词的显示内容',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            SegmentedButton<LyricMode>(
+                              key: const Key('music-settings-lyric-mode'),
+                              showSelectedIcon: false,
+                              segments: const <ButtonSegment<LyricMode>>[
+                                ButtonSegment<LyricMode>(
+                                  value: LyricMode.original,
+                                  label: Text('原文'),
+                                ),
+                                ButtonSegment<LyricMode>(
+                                  value: LyricMode.originalWithTranslation,
+                                  label: Text('原文+中翻'),
+                                ),
+                                ButtonSegment<LyricMode>(
+                                  value: LyricMode.originalWithTransliteration,
+                                  label: Text('原文+音译'),
+                                ),
+                              ],
+                              selected: <LyricMode>{
+                                _lyricMode ?? LyricMode.original,
+                              },
+                              onSelectionChanged:
+                                  _lyricEnabled == true && _lyricMode != null
+                                  ? (selection) =>
+                                        _changeLyricMode(selection.first)
+                                  : null,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              _SettingsCard(
+                icon: Icons.info_outline,
+                title: '关于',
+                child: Text(
+                  '协议实现对照 EchoMusicNext crates/echo-api 逐函数翻译，'
+                  '上游酷狗概念版 API 取自 MakcRe/KuGouMusicApi（详见 lib/music/README.md）。',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
-      ],
+      ),
     );
   }
 
@@ -354,22 +410,39 @@ class _MusicModuleSettingsState extends State<MusicModuleSettings> {
     final identity = _identity;
     if (identity == null) {
       return const ListTile(
+        contentPadding: EdgeInsets.zero,
         leading: Icon(Icons.devices_other),
         title: Text('尚未引导设备身份'),
         subtitle: Text('首次搜索时自动生成并注册'),
       );
     }
     final loggedIn = identity.hasAccount;
+    final theme = Theme.of(context);
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         ListTile(
+          contentPadding: EdgeInsets.zero,
           leading: Icon(loggedIn ? Icons.account_circle : Icons.devices_other),
           title: Text(loggedIn ? '酷狗账号已登录' : '匿名设备'),
           subtitle: Text(loggedIn ? '用户 ID：${identity.userId}' : '未登录（匿名态）'),
         ),
-        _IdentityRow(label: 'GUID', value: identity.guid),
-        _IdentityRow(label: 'MID', value: identity.mid),
-        _IdentityRow(label: 'DFID', value: identity.dfid),
+        // 三个本机标识放进浅色小容器，和账号信息拉开层次。
+        Container(
+          margin: const EdgeInsets.only(top: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(MimaoRadii.sm),
+          ),
+          child: Column(
+            children: <Widget>[
+              _IdentityRow(label: 'GUID', value: identity.guid),
+              _IdentityRow(label: 'MID', value: identity.mid),
+              _IdentityRow(label: 'DFID', value: identity.dfid),
+            ],
+          ),
+        ),
       ],
     );
   }
@@ -378,6 +451,7 @@ class _MusicModuleSettingsState extends State<MusicModuleSettings> {
     final identity = _identity;
     if (identity != null && identity.hasAccount) {
       return ListTile(
+        contentPadding: EdgeInsets.zero,
         leading: _AccountAvatar(identity: identity),
         title: Text(identity.accountLabel),
         subtitle: Text('用户 ID：${identity.userId}'),
@@ -385,12 +459,81 @@ class _MusicModuleSettingsState extends State<MusicModuleSettings> {
       );
     }
     return ListTile(
+      contentPadding: EdgeInsets.zero,
       leading: const Icon(Icons.qr_code_2),
       title: const Text('当前：匿名设备 · 未登录'),
       subtitle: const Text('扫码登录后可同步账号权限'),
       trailing: FilledButton.tonal(
         onPressed: _openLoginDialog,
         child: const Text('扫码登录'),
+      ),
+    );
+  }
+}
+
+/// 设置页分区卡：标题行（图标 + 标题 + 可选右侧说明）与内容。
+///
+/// 视觉沿用账号中心 `_sectionCard`：Card 内 14 边距、标题 titleMedium、
+/// 右侧说明 bodySmall/onSurfaceVariant，标题与内容间距 8。
+class _SettingsCard extends StatelessWidget {
+  const _SettingsCard({
+    required this.icon,
+    required this.title,
+    this.subtitle,
+    required this.child,
+  });
+
+  final IconData icon;
+  final String title;
+  final String? subtitle;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Card(
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(MimaoRadii.lg),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Row(
+                children: <Widget>[
+                  Icon(icon, size: 20, color: theme.colorScheme.primary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: theme.textTheme.titleMedium,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (subtitle != null) ...<Widget>[
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        subtitle!,
+                        textAlign: TextAlign.end,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 8),
+              child,
+            ],
+          ),
+        ),
       ),
     );
   }

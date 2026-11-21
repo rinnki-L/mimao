@@ -221,6 +221,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await tester.ensureVisible(find.text('原文+中翻'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('原文+中翻'));
     await tester.pumpAndSettle();
 
@@ -255,6 +257,8 @@ void main() {
     expect(find.text('歌词设置保存失败'), findsOneWidget);
 
     // 模式失败：选中态回滚为原文。
+    await tester.ensureVisible(find.text('原文+音译'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('原文+音译'));
     await tester.pumpAndSettle();
     expect(settings.savedLyricModes, isEmpty);
