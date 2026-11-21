@@ -27,17 +27,20 @@ class ClimaxSpan {
   final double end;
 }
 
-/// 未播放波形的振幅（逻辑像素，峰-峰值约 5px）。
-const double kWavyAmplitude = 2.5;
+/// 未播放波形的振幅（逻辑像素，峰-峰值约 7px）。
+const double kWavyAmplitude = 3.5;
 
 /// 波形波长（一个完整正弦周期的水平长度，逻辑像素）。
-const double kWavyWavelength = 18;
+const double kWavyWavelength = 20;
 
 /// 波形描边宽度；端帽用 round，形成连贯的圆头波浪。
-const double kWavyStrokeWidth = 5;
+const double kWavyStrokeWidth = 7;
 
 /// 轨道（未播放段）高度。
-const double kWavyTrackHeight = 4;
+const double kWavyTrackHeight = 6;
+
+/// 未播放波浪的默认不透明度：用半透明主色画，保证在深浅色主题下都清晰可见。
+const double kWavyWaveAlpha = 0.55;
 
 /// 相位系数：progress 从 0→1 时相位推进 6π（3 个完整波）。
 const double kWavyPhaseTurns = 6 * math.pi;
@@ -48,6 +51,7 @@ class WavyProgressStyle {
   const WavyProgressStyle({
     required this.activeColor,
     required this.inactiveColor,
+    this.waveColor,
     this.amplitude = kWavyAmplitude,
     this.wavelength = kWavyWavelength,
     this.strokeWidth = kWavyStrokeWidth,
@@ -56,21 +60,33 @@ class WavyProgressStyle {
 
   final Color activeColor;
 
-  /// 未播放轨道颜色，调用方通常传入带低透明度（如 20%）的 onSurfaceVariant。
+  /// 未播放轨道颜色；仅作为兜底/装饰色，波浪绘制优先使用 [waveColor]。
   final Color inactiveColor;
+
+  /// 未播放波浪的描边颜色。为空时回退到 [_defaultWaveColor]。
+  final Color? waveColor;
   final double amplitude;
   final double wavelength;
   final double strokeWidth;
   final double trackHeight;
 
+  /// 波浪实际使用的颜色：显式 [waveColor] 优先，否则用半透明主色，
+  /// 避免调用方传入 20% 透明度的 inactiveColor 导致波浪几乎看不见。
+  Color get effectiveWaveColor => waveColor ?? _defaultWaveColor(activeColor);
+
   /// 由当前主题的 [ColorScheme] 生成 MD3 配色：active=primary，
-  /// inactive=onSurfaceVariant @20%。
+  /// inactive=onSurfaceVariant @20%，波浪=primary @55%（肉眼可见）。
   factory WavyProgressStyle.fromColorScheme(ColorScheme cs) =>
       WavyProgressStyle(
         activeColor: cs.primary,
         inactiveColor: cs.onSurfaceVariant.withValues(alpha: 0.2),
+        waveColor: _defaultWaveColor(cs.primary),
       );
 }
+
+/// 未播放波浪的默认颜色：半透明主色，既有主色系辨识度又弱于已播放直线。
+Color _defaultWaveColor(Color activeColor) =>
+    activeColor.withValues(alpha: kWavyWaveAlpha);
 
 /// 纯绘制：[progress] 为 0..1，只画波形，不接管任何手势。
 ///
@@ -110,7 +126,7 @@ class MiniWavyProgress extends StatelessWidget {
   }
 }
 
-/// 波形绘制核心：未播放段是低透明度正弦波，已播放段是 active 色直线。
+/// 波形绘制核心：未播放段是半透明主色正弦波，已播放段是 active 色直线。
 ///
 /// [progress] 是直线与波浪的分界点：直线画到 left + progress * width，
 /// 波浪从该点延伸到右端；相位 = progress * 6π，播放推进时波浪被向左「拉直」。
@@ -143,10 +159,10 @@ class WavyProgressPainter extends CustomPainter {
       canvas.drawLine(Offset(0, midY), Offset(endX, midY), activePaint);
     }
 
-    // 未播放段：inactive 色低透明度正弦波（progress=1 时不画，整条都是直线）。
+    // 未播放段：半透明主色正弦波（progress=1 时不画，整条都是直线）。
     if (p < 1) {
       final wavePaint = Paint()
-        ..color = style.inactiveColor
+        ..color = style.effectiveWaveColor
         ..style = PaintingStyle.stroke
         ..strokeWidth = stroke
         ..strokeCap = StrokeCap.round
@@ -210,22 +226,26 @@ class WavySliderTrackShape extends SliderTrackShape with BaseSliderTrackShape {
       begin: sliderTheme.disabledActiveTrackColor,
       end: sliderTheme.activeTrackColor,
     ).evaluate(enableAnimation);
-    final inactiveColor = ColorTween(
-      begin: sliderTheme.disabledInactiveTrackColor,
-      end: sliderTheme.inactiveTrackColor,
-    ).evaluate(enableAnimation);
-    if (activeColor == null || inactiveColor == null) return;
+    // inactiveTrackColor 仍由 WavySliderTheme 提供，但波浪绘制改用主色系
+    // 半透明色（见下方 waveColor），不再直接用它上色。
+    if (activeColor == null) return;
 
     // 把 thumbCenter 换算成 0..1 的 progress（LTR 左→右，RTL 右→左）。
     final double visual = (thumbCenter.dx - trackRect.left) / trackRect.width;
     final progress = textDirection == TextDirection.rtl ? 1 - visual : visual;
+
+    // 波浪颜色从主色推导（而非低透明度 inactiveColor），确保真机上清晰可见；
+    // 取未禁用态的主色，避免禁用时叠加两层透明度过淡。
+    final waveColor = _defaultWaveColor(
+      sliderTheme.activeTrackColor ?? activeColor,
+    );
 
     _drawWaveOnTrack(
       context.canvas,
       trackRect,
       progress.clamp(0.0, 1.0),
       activeColor,
-      inactiveColor,
+      waveColor: waveColor,
       climaxSpans: climaxSpans,
     );
   }
@@ -302,14 +322,14 @@ class _WavyThumbShape extends SliderComponentShape {
 /// 在给定轨道矩形内画进度：与 [WavyProgressPainter.paint] 同款算法，
 /// 区别只是坐标由 trackRect 提供（Slider 场景）。
 ///
-/// 已播放段是 active 色直线，未播放段是 inactive 色低透明度波浪；高潮区间
-/// 只在 start/end 两端各画一个暖橙色圆点，且画在最上层。
+/// 已播放段是 active 色直线，未播放段是 [waveColor]（默认半透明主色）波浪；
+/// 高潮区间只在 start/end 两端各画一个暖橙色圆点，且画在最上层。
 void _drawWaveOnTrack(
   Canvas canvas,
   Rect trackRect,
   double progress,
-  Color activeColor,
-  Color inactiveColor, {
+  Color activeColor, {
+  Color? waveColor,
   double amplitude = kWavyAmplitude,
   double wavelength = kWavyWavelength,
   double strokeWidth = kWavyStrokeWidth,
@@ -317,9 +337,10 @@ void _drawWaveOnTrack(
 }) {
   final midY = trackRect.center.dy;
   final endX = trackRect.left + progress * trackRect.width;
+  final effectiveWaveColor = waveColor ?? _defaultWaveColor(activeColor);
 
-  // 关键：不能用 trackRect 本身裁剪——它只有 kWavyTrackHeight(4) 高，
-  // 会把振幅 2.5 + 半描边 2.5 的波峰纵向切掉，只剩一条抖动细线。
+  // 关键：不能用 trackRect 本身裁剪——它只有 kWavyTrackHeight(6) 高，
+  // 会把振幅 3.5 + 半描边 3.5 的波峰纵向切掉，只剩一条抖动细线。
   // 向外撑开 amplitude+strokeWidth，给波峰和两端圆帽留足空间。
   canvas.save();
   canvas.clipRect(trackRect.inflate(amplitude + strokeWidth));
@@ -339,11 +360,11 @@ void _drawWaveOnTrack(
     );
   }
 
-  // 未播放段：inactive 色低透明度波浪（progress=1 时不画，整条都是直线）。
+  // 未播放段：半透明主色波浪（progress=1 时不画，整条都是直线）。
   // 相位随 progress 推进，波浪像被从右往左「吃掉」，逐步拉直成直线。
   if (progress < 1) {
     final wavePaint = Paint()
-      ..color = inactiveColor
+      ..color = effectiveWaveColor
       ..style = PaintingStyle.stroke
       ..strokeWidth = strokeWidth
       ..strokeCap = StrokeCap.round

@@ -56,6 +56,9 @@ abstract class _MusicPlayerStore with Store {
   /// 本地设置（听歌上报开关）；null 视为允许上报。
   final MusicSettings? _settings;
 
+  /// 播放页读取的本地设置（歌词开关/显示模式）；null 视为默认值。
+  MusicSettings? get settings => _settings;
+
   MusicPlaybackEngine? _engine;
   StreamSubscription<MusicPlaybackSnapshot>? _engineSubscription;
   DateTime? _lastProgressAt;

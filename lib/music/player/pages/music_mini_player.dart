@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:mimao/core/theme.dart';
 import 'package:mimao/music/api/playback_ext_api.dart';
+import 'package:mimao/music/lyric/lyric_models.dart';
 import 'package:mimao/music/models/discovery_models.dart';
 import 'package:mimao/music/player/pages/music_player_page.dart';
 import 'package:mimao/music/player/pages/music_wavy_progress.dart';
@@ -19,6 +20,7 @@ class MusicMiniPlayer extends StatelessWidget {
     super.key,
     required this.player,
     this.loadClimax,
+    this.loadLyric,
     this.playbackExt,
   });
 
@@ -26,6 +28,9 @@ class MusicMiniPlayer extends StatelessWidget {
 
   /// 透传给播放页的高潮加载缝；null 时播放页不显示高潮 chip。
   final Future<List<MusicSongClimaxSegment>> Function(String hash)? loadClimax;
+
+  /// 透传给播放页的歌词加载缝；null 时播放页右侧显示「暂无歌词」。
+  final LoadLyric? loadLyric;
 
   /// 透传给播放页的歌曲资料入口；null 时播放页不显示资料按钮。
   final MusicPlaybackExtApi? playbackExt;
@@ -54,6 +59,7 @@ class MusicMiniPlayer extends StatelessWidget {
                   builder: (context) => MusicPlayerPage(
                     player: player,
                     loadClimax: loadClimax,
+                    loadLyric: loadLyric,
                     playbackExt: playbackExt,
                   ),
                 ),

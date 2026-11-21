@@ -9,7 +9,8 @@
 /// L5 扩展全部是可选参数（null 时入口隐藏、既有构造不变）：
 /// - [auth]+[verify]：push「更多登录方式」（手机号/QQ/微信/设备管理）；
 /// - [verify]：push「安全验证」（事件号查挑战 + sideDt 提交）；
-/// - [settings]：「听歌上报」开关（本地设置，ensureLoaded 后刷新）。
+/// - [settings]：「听歌上报」开关 + 歌词开关/显示模式（本地设置，
+///   ensureLoaded 后刷新，切换失败回滚）。
 ///
 /// 二维码是服务端直接给的 PNG data URL，用 [Image.memory] 渲染，不引二维码库。
 library;
@@ -21,6 +22,7 @@ import 'package:mimao/music/api/music_api.dart';
 import 'package:mimao/music/api/search_ext_api.dart';
 import 'package:mimao/music/api/verify_api.dart';
 import 'package:mimao/music/client/kugou_identity.dart';
+import 'package:mimao/music/lyric/lyric_models.dart';
 import 'package:mimao/music/music_settings.dart';
 import 'package:mimao/music/pages/music_login_methods_page.dart';
 import 'package:mimao/music/pages/music_security_verify_page.dart';
@@ -56,7 +58,7 @@ class MusicModuleSettings extends StatefulWidget {
   /// L5 sidedt 提交通道；透传给方法页/安全验证页。
   final MusicSearchExtApi? searchExt;
 
-  /// 本地设置（听歌上报开关）；null 时隐藏开关条目。
+  /// 本地设置（听歌上报 / 歌词开关与显示模式）；null 时隐藏设置条目。
   final MusicSettings? settings;
 
   @override
@@ -70,20 +72,30 @@ class _MusicModuleSettingsState extends State<MusicModuleSettings> {
   /// 听歌上报开关（null = 设置层尚未读盘，条目禁用）。
   bool? _listenReport;
 
+  /// 歌词开关（null = 设置层尚未读盘，条目禁用）。
+  bool? _lyricEnabled;
+
+  /// 歌词显示模式（null = 设置层尚未读盘，选择器禁用）。
+  LyricMode? _lyricMode;
+
   @override
   void initState() {
     super.initState();
     _reloadIdentity();
-    _loadListenReport();
+    _loadSettings();
   }
 
-  /// 先 ensureLoaded 再刷新开关初值（本地设置默认 true，读盘后才可信）。
-  Future<void> _loadListenReport() async {
+  /// 先 ensureLoaded 再刷新本地设置初值（读盘后才可信）。
+  Future<void> _loadSettings() async {
     final settings = widget.settings;
     if (settings == null) return;
     await settings.ensureLoaded();
     if (!mounted) return;
-    setState(() => _listenReport = settings.listenReportEnabled);
+    setState(() {
+      _listenReport = settings.listenReportEnabled;
+      _lyricEnabled = settings.lyricEnabled;
+      _lyricMode = settings.lyricMode;
+    });
   }
 
   /// 切换听歌上报：先改内存再落盘；落盘失败回滚并提示。
@@ -97,6 +109,34 @@ class _MusicModuleSettingsState extends State<MusicModuleSettings> {
       if (!mounted) return;
       setState(() => _listenReport = previous);
       _showSnack('听歌上报设置保存失败');
+    }
+  }
+
+  /// 切换歌词开关：与听歌上报同款「先内存、后落盘、失败回滚」。
+  Future<void> _toggleLyric(bool value) async {
+    final settings = widget.settings!;
+    final previous = _lyricEnabled;
+    setState(() => _lyricEnabled = value);
+    try {
+      await settings.setLyricEnabled(value);
+    } on Object {
+      if (!mounted) return;
+      setState(() => _lyricEnabled = previous);
+      _showSnack('歌词设置保存失败');
+    }
+  }
+
+  /// 切换歌词显示模式：失败回滚到上一个模式。
+  Future<void> _changeLyricMode(LyricMode mode) async {
+    final settings = widget.settings!;
+    final previous = _lyricMode;
+    setState(() => _lyricMode = mode);
+    try {
+      await settings.setLyricMode(mode);
+    } on Object {
+      if (!mounted) return;
+      setState(() => _lyricMode = previous);
+      _showSnack('歌词模式保存失败');
     }
   }
 
@@ -238,8 +278,9 @@ class _MusicModuleSettingsState extends State<MusicModuleSettings> {
             trailing: const Icon(Icons.chevron_right),
             onTap: _openSecurityVerify,
           ),
-        if (widget.settings != null)
+        if (widget.settings != null) ...<Widget>[
           SwitchListTile(
+            key: const Key('music-settings-listen-report'),
             secondary: const Icon(Icons.graphic_eq),
             title: const Text('听歌上报'),
             subtitle: Text(
@@ -249,6 +290,52 @@ class _MusicModuleSettingsState extends State<MusicModuleSettings> {
             // 读盘完成前禁用，避免用默认值覆盖真实偏好。
             onChanged: _listenReport == null ? null : _toggleListenReport,
           ),
+          SwitchListTile(
+            key: const Key('music-settings-lyric'),
+            secondary: const Icon(Icons.lyrics),
+            title: const Text('歌词'),
+            subtitle: Text(
+              _lyricEnabled == null ? '正在读取本地设置…' : '播放页显示歌词（可在本地关闭）',
+            ),
+            value: _lyricEnabled ?? false,
+            // 读盘完成前禁用；关掉后播放页不再显示歌词。
+            onChanged: _lyricEnabled == null ? null : _toggleLyric,
+          ),
+          // 三种显示模式常驻展示；歌词关闭或未读盘时整体禁用，避免误改。
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text('歌词显示模式', style: theme.textTheme.bodyMedium),
+                const SizedBox(height: 8),
+                SegmentedButton<LyricMode>(
+                  key: const Key('music-settings-lyric-mode'),
+                  showSelectedIcon: false,
+                  segments: const <ButtonSegment<LyricMode>>[
+                    ButtonSegment<LyricMode>(
+                      value: LyricMode.original,
+                      label: Text('原文'),
+                    ),
+                    ButtonSegment<LyricMode>(
+                      value: LyricMode.originalWithTranslation,
+                      label: Text('原文+中翻'),
+                    ),
+                    ButtonSegment<LyricMode>(
+                      value: LyricMode.originalWithTransliteration,
+                      label: Text('原文+音译'),
+                    ),
+                  ],
+                  selected: <LyricMode>{_lyricMode ?? LyricMode.original},
+                  onSelectionChanged:
+                      _lyricEnabled == true && _lyricMode != null
+                      ? (selection) => _changeLyricMode(selection.first)
+                      : null,
+                ),
+              ],
+            ),
+          ),
+        ],
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
           child: Text(

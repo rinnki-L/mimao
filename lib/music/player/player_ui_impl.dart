@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:mimao/music/api/listen_report_api.dart';
 import 'package:mimao/music/api/music_playback_api.dart';
 import 'package:mimao/music/api/playback_ext_api.dart';
+import 'package:mimao/music/lyric/lyric_models.dart';
 import 'package:mimao/music/models/discovery_models.dart';
 import 'package:mimao/music/models/music_models.dart';
 import 'package:mimao/music/music_settings.dart';
@@ -21,12 +22,20 @@ import 'package:mimao/music/player/player_store.dart';
 import 'package:mimao/music/player/player_ui.dart';
 
 class MusicPlayerUiImpl implements MusicPlayerUi {
-  MusicPlayerUiImpl(this.store, {this.loadClimax, this.playbackExt});
+  MusicPlayerUiImpl(
+    this.store, {
+    this.loadClimax,
+    this.loadLyric,
+    this.playbackExt,
+  });
 
   final MusicPlayerStore store;
 
   /// 歌曲高潮加载缝；非空时播放页（含迷你条入口）显示高潮 chip。
   final Future<List<MusicSongClimaxSegment>> Function(String hash)? loadClimax;
+
+  /// 歌词加载缝；非空时播放页右侧显示歌词（迷你条只透传）。
+  final LoadLyric? loadLyric;
 
   /// 播放补全接口；非空时播放页显示「歌曲资料」入口。
   final MusicPlaybackExtApi? playbackExt;
@@ -39,6 +48,7 @@ class MusicPlayerUiImpl implements MusicPlayerUi {
     return MusicMiniPlayer(
       player: store,
       loadClimax: loadClimax,
+      loadLyric: loadLyric,
       playbackExt: playbackExt,
     );
   }
@@ -47,6 +57,7 @@ class MusicPlayerUiImpl implements MusicPlayerUi {
   Widget buildPlayerPage(BuildContext context) => MusicPlayerPage(
     player: store,
     loadClimax: loadClimax,
+    loadLyric: loadLyric,
     playbackExt: playbackExt,
   );
 
@@ -67,6 +78,7 @@ MusicPlayerUi createMusicPlayerUi(
   MusicListenReportApi? listenReport,
   MusicSettings? settings,
   Future<List<MusicSongClimaxSegment>> Function(String hash)? loadClimax,
+  LoadLyric? loadLyric,
   MusicPlaybackExtApi? playbackExt,
 }) => MusicPlayerUiImpl(
   MusicPlayerStore(
@@ -77,5 +89,6 @@ MusicPlayerUi createMusicPlayerUi(
     settings: settings,
   ),
   loadClimax: loadClimax,
+  loadLyric: loadLyric,
   playbackExt: playbackExt,
 );

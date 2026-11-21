@@ -13,6 +13,8 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:mimao/music/api/playback_ext_api.dart';
+import 'package:mimao/music/lyric/lyric_models.dart';
+import 'package:mimao/music/lyric/lyric_view.dart';
 import 'package:mimao/music/models/discovery_models.dart';
 import 'package:mimao/music/models/music_models.dart';
 import 'package:mimao/music/pages/music_song_info_sheet.dart';
@@ -24,6 +26,7 @@ class MusicPlayerPage extends StatefulWidget {
     super.key,
     required this.player,
     this.loadClimax,
+    this.loadLyric,
     this.playbackExt,
   });
 
@@ -31,6 +34,10 @@ class MusicPlayerPage extends StatefulWidget {
 
   /// 歌曲高潮区间加载缝（集成者传 `discovery.songClimax`）；null 时整段隐藏。
   final Future<List<MusicSongClimaxSegment>> Function(String hash)? loadClimax;
+
+  /// 歌词加载缝（集成者传 registry 组合的两步取词闭包）；null 时显示
+  /// 「暂无歌词」且不发任何请求。
+  final LoadLyric? loadLyric;
 
   /// 播放补全接口：非空时提供「歌曲资料」入口（权益/资料/歌手图片）。
   final MusicPlaybackExtApi? playbackExt;
@@ -45,6 +52,12 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
 
   /// 当前歌曲的高潮区间；null = 加载中/无数据/失败（统一不做标注）。
   List<MusicSongClimaxSegment>? _climaxSegments;
+
+  /// 已发起过歌词加载的歌曲 key（每首歌只取一次；失败也不重试）。
+  String? _lyricSongKey;
+
+  /// 当前歌曲的歌词；null = 加载中/无歌词/失败（UI 显示「暂无歌词」）。
+  ParsedLyric? _lyric;
 
   /// 拖动中的本地进度（毫秒）；null = 未在拖动，进度跟随引擎快照。
   ///
@@ -80,6 +93,29 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
       setState(() => _climaxSegments = segments);
     } on Object {
       // 失败静默：保持隐藏，不影响播放。
+    }
+  }
+
+  /// Observer builder 内检测换歌并按需发起歌词加载（与 [_ensureClimax]
+  /// 同款：每首歌只取一次，失败也不重试）。
+  void _ensureLyric(MusicSong song) {
+    final key = song.id.isNotEmpty ? song.id : song.hash;
+    if (_lyricSongKey == key) return;
+    _lyricSongKey = key;
+    _lyric = null; // 换歌丢弃旧歌词
+    unawaited(_loadLyric(key, song));
+  }
+
+  Future<void> _loadLyric(String requestKey, MusicSong song) async {
+    final load = widget.loadLyric;
+    if (load == null) return;
+    try {
+      final lyric = await load(song);
+      // 慢请求期间换歌：按发起时的歌曲 key 比对，不一致就丢弃旧结果。
+      if (!mounted || _lyricSongKey != requestKey) return;
+      setState(() => _lyric = lyric);
+    } on Object {
+      // 失败静默：显示「暂无歌词」，不影响播放。
     }
   }
 
@@ -229,6 +265,7 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
             return const Center(child: Text('暂无播放曲目'));
           }
           _ensureClimax(song);
+          _ensureLyric(song);
           final snapshot = player.snapshot;
           final failure = player.error;
           final durationMs = snapshot.duration.inMilliseconds;
@@ -243,6 +280,10 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
               .clamp(0.0, maxMs);
           final colorScheme = Theme.of(context).colorScheme;
           final climaxSpans = _climaxSpans(durationMs);
+          // 歌词开关/模式来自本地设置；未注入设置时按默认（显示、原文）。
+          final settings = player.settings;
+          final lyricEnabled = settings?.lyricEnabled ?? true;
+          final lyricMode = settings?.lyricMode ?? LyricMode.original;
 
           Widget slider = SliderTheme(
             data: WavySliderTheme(
@@ -282,19 +323,22 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
                   padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
                   child: Center(
                     child: ConstrainedBox(
-                      // 超宽桌面窗口下收拢内容宽度，避免控件被拉得太散。
-                      constraints: const BoxConstraints(maxWidth: 560),
+                      // 放宽内容宽度：左侧唱片 + 右侧歌词在桌面宽屏下都要有
+                      // 空间；手机竖屏由外层 padding 与 Expanded 自适应。
+                      constraints: const BoxConstraints(maxWidth: 960),
                       child: Column(
                         children: <Widget>[
-                          // 封面 + 歌名留在上方；高度不够时只有这一块滚动，
-                          // 底部控件组始终贴底且不会被挤溢出。
+                          // 顶部区域：唱片居左、垂直居中；右侧一列放歌名/歌手
+                          // 与歌词（歌词占满剩余高度并内部滚动）。
                           Expanded(
-                            child: SingleChildScrollView(
+                            child: Padding(
                               padding: const EdgeInsets.only(
                                 top: 8,
                                 bottom: 16,
                               ),
                               child: Row(
+                                // 封面（左）与右侧文字列垂直居中对齐。
+                                crossAxisAlignment: CrossAxisAlignment.center,
                                 children: <Widget>[
                                   _Cover(
                                     url: song.coverUrl,
@@ -305,6 +349,11 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
                                     child: Column(
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
+                                      // 关闭歌词时列高收缩到文字高度，唱片与
+                                      // 歌名/歌手仍按 Row 的 center 对齐。
+                                      mainAxisSize: lyricEnabled
+                                          ? MainAxisSize.max
+                                          : MainAxisSize.min,
                                       children: <Widget>[
                                         Text(
                                           _displayTitle(song.title),
@@ -325,6 +374,16 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
                                               .bodyMedium
                                               ?.copyWith(color: Colors.white70),
                                         ),
+                                        if (lyricEnabled) ...<Widget>[
+                                          const SizedBox(height: 12),
+                                          Expanded(
+                                            child: LyricView(
+                                              lyric: _lyric,
+                                              position: snapshot.position,
+                                              mode: lyricMode,
+                                            ),
+                                          ),
+                                        ],
                                       ],
                                     ),
                                   ),
@@ -564,29 +623,8 @@ class _CoverState extends State<_Cover> with SingleTickerProviderStateMixin {
                   ),
                 ),
               ),
-              // 中心轴孔 + 一圈深色盘芯，纯装饰、不参与命中。
-              Center(
-                child: IgnorePointer(
-                  child: Container(
-                    width: size * 0.18,
-                    height: size * 0.18,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.black.withValues(alpha: 0.55),
-                    ),
-                    child: Center(
-                      child: Container(
-                        width: size * 0.06,
-                        height: size * 0.06,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: cs.surface,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
+              // 用户要求去掉中间凹进/打孔的唱片轴孔，只保留圆形封面本身
+              // 与非对称反光（反光随盘面旋转，让旋转可见）。
             ],
           ),
         ),

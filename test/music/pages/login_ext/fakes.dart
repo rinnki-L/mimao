@@ -23,6 +23,7 @@ import 'package:mimao/music/api/sidedt.dart';
 import 'package:mimao/music/api/verify_api.dart';
 import 'package:mimao/music/client/kugou_error.dart';
 import 'package:mimao/music/client/kugou_identity.dart';
+import 'package:mimao/music/lyric/lyric_models.dart';
 import 'package:mimao/music/models/auth_models.dart';
 import 'package:mimao/music/models/catalog_models.dart';
 import 'package:mimao/music/models/music_models.dart';
@@ -368,18 +369,34 @@ class FakeSearchExtApi implements MusicSearchExtApi {
       throw UnimplementedError();
 }
 
-/// 本地设置替身（听歌上报开关）。
+/// 本地设置替身（听歌上报开关 + 歌词开关/模式）。
 class FakeMusicSettings implements MusicSettings {
-  FakeMusicSettings({bool initial = true}) : _enabled = initial;
+  FakeMusicSettings({
+    bool initial = true,
+    bool lyricEnabled = true,
+    LyricMode lyricMode = LyricMode.original,
+  }) : _enabled = initial,
+       _lyricEnabled = lyricEnabled,
+       _lyricMode = lyricMode;
 
   bool _enabled;
+  bool _lyricEnabled;
+  LyricMode _lyricMode;
   bool loaded = false;
   int ensureLoadedCalls = 0;
   final List<bool> savedValues = <bool>[];
+  final List<bool> savedLyricValues = <bool>[];
+  final List<LyricMode> savedLyricModes = <LyricMode>[];
   Object? saveError;
 
   @override
   bool get listenReportEnabled => _enabled;
+
+  @override
+  bool get lyricEnabled => _lyricEnabled;
+
+  @override
+  LyricMode get lyricMode => _lyricMode;
 
   @override
   Future<void> ensureLoaded() async {
@@ -393,6 +410,22 @@ class FakeMusicSettings implements MusicSettings {
     if (error != null) throw error;
     savedValues.add(value);
     _enabled = value;
+  }
+
+  @override
+  Future<void> setLyricEnabled(bool value) async {
+    final Object? error = saveError;
+    if (error != null) throw error;
+    savedLyricValues.add(value);
+    _lyricEnabled = value;
+  }
+
+  @override
+  Future<void> setLyricMode(LyricMode mode) async {
+    final Object? error = saveError;
+    if (error != null) throw error;
+    savedLyricModes.add(mode);
+    _lyricMode = mode;
   }
 }
 

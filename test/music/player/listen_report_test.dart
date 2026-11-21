@@ -5,6 +5,7 @@
 library;
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mimao/music/lyric/lyric_models.dart';
 import 'package:mimao/music/models/user_listen_report_models.dart';
 import 'package:mimao/music/music_settings.dart';
 import 'package:mimao/music/player/playback_engine.dart';
@@ -28,10 +29,22 @@ class _ThrowingSettings implements MusicSettings {
   bool get listenReportEnabled => true;
 
   @override
+  bool get lyricEnabled => true;
+
+  @override
+  LyricMode get lyricMode => LyricMode.original;
+
+  @override
   Future<void> ensureLoaded() async => throw Exception('disk broken');
 
   @override
   Future<void> setListenReportEnabled(bool value) async {}
+
+  @override
+  Future<void> setLyricEnabled(bool value) async {}
+
+  @override
+  Future<void> setLyricMode(LyricMode mode) async {}
 }
 
 void main() {

@@ -10,6 +10,7 @@ import 'dart:math';
 import 'package:mimao/music/api/listen_report_api.dart';
 import 'package:mimao/music/api/music_playback_api.dart';
 import 'package:mimao/music/api/user_listen_report.dart';
+import 'package:mimao/music/lyric/lyric_models.dart';
 import 'package:mimao/music/models/music_models.dart';
 import 'package:mimao/music/models/user_listen_report_models.dart';
 import 'package:mimao/music/music_settings.dart';
@@ -167,13 +168,26 @@ class FakeListenReportApi implements MusicListenReportApi {
 
 /// 本地设置替身：内存开关 + ensureLoaded 计数（不碰 path_provider）。
 class FakeMusicSettings implements MusicSettings {
-  FakeMusicSettings({bool listenReportEnabled = true})
-    : _listenReportEnabled = listenReportEnabled;
+  FakeMusicSettings({
+    bool listenReportEnabled = true,
+    bool lyricEnabled = true,
+    LyricMode lyricMode = LyricMode.original,
+  }) : _listenReportEnabled = listenReportEnabled,
+       _lyricEnabled = lyricEnabled,
+       _lyricMode = lyricMode;
 
   bool _listenReportEnabled;
+  bool _lyricEnabled;
+  LyricMode _lyricMode;
 
   @override
   bool get listenReportEnabled => _listenReportEnabled;
+
+  @override
+  bool get lyricEnabled => _lyricEnabled;
+
+  @override
+  LyricMode get lyricMode => _lyricMode;
 
   /// 断言「上报前先 ensureLoaded」用。
   int ensureLoadedCalls = 0;
@@ -186,5 +200,15 @@ class FakeMusicSettings implements MusicSettings {
   @override
   Future<void> setListenReportEnabled(bool value) async {
     _listenReportEnabled = value;
+  }
+
+  @override
+  Future<void> setLyricEnabled(bool value) async {
+    _lyricEnabled = value;
+  }
+
+  @override
+  Future<void> setLyricMode(LyricMode mode) async {
+    _lyricMode = mode;
   }
 }

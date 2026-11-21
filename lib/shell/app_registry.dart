@@ -20,16 +20,19 @@ import 'package:mimao/shell/network_settings.dart';
 import 'package:mimao/shell/dev/dev_databases.dart';
 import 'package:mimao/shell/shell_store.dart';
 import 'package:mimao/music/api/kugou_playback_api.dart';
+import 'package:mimao/music/api/lyric.dart';
 import 'package:mimao/music/api/music_account_api.dart';
 import 'package:mimao/music/api/music_api.dart';
 import 'package:mimao/music/api/music_playback_api.dart';
 import 'package:mimao/music/api/playlist_read_api.dart';
+import 'package:mimao/music/api/search_lyric.dart';
 import 'package:mimao/music/api/user_library_api.dart';
 import 'package:mimao/music/client/kugou_client.dart';
 import 'package:mimao/music/client/kugou_identity.dart';
 import 'package:mimao/music/collect_service.dart';
 import 'package:mimao/music/history_service.dart';
 import 'package:mimao/music/library_api.dart';
+import 'package:mimao/music/lyric/lyric_parser.dart';
 import 'package:mimao/music/music_db.dart';
 import 'package:mimao/music/models/music_models.dart';
 import 'package:mimao/music/music_entry.dart';
@@ -332,6 +335,30 @@ Future<void> initAppModules({
               listenReport: api.listenReport,
               settings: settings,
               loadClimax: api.discovery.songClimax,
+              // 歌词两步取用：按 hash 搜候选 → 下载首条 → 解析成时间轴。
+              // 任何一步失败都返回 null，播放页静默显示「暂无歌词」。
+              loadLyric: (song) async {
+                try {
+                  final candidates = await api.searchExt.searchLyric(
+                    MusicSearchLyricQuery.hash(
+                      hash: song.hash,
+                      songId: int.tryParse(song.id) ?? 0,
+                      durationMs: song.durationMs ?? 0,
+                      allCandidates: false,
+                    ),
+                  );
+                  if (candidates.isEmpty) return null;
+                  final download = await api.lyric.downloadLyric(
+                    MusicLyricDownloadQuery(
+                      id: candidates.first.sourceId,
+                      accesskey: candidates.first.accessKey,
+                    ),
+                  );
+                  return parseLyric(download);
+                } on Object {
+                  return null;
+                }
+              },
               playbackExt: api.playbackExt,
             ),
         // ── M4-L 登录 ──
