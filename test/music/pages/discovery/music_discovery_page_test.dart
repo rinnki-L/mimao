@@ -42,6 +42,7 @@ class _Fixture {
     this.collect,
     this.history,
     this.wireEffects = false,
+    this.authEpoch,
   }) : searchExt = searchExt ?? FakeSearchExtApi(),
        discovery = discovery ?? FakeDiscoveryApi(),
        player = FakePlayerUi() {
@@ -60,6 +61,9 @@ class _Fixture {
   final bool wireEffects;
   int openEffectsCalls = 0;
 
+  /// 登录态信号；非空时页面监听并自动重拉私人 FM。
+  final ValueNotifier<int>? authEpoch;
+
   final List<int> openedAlbums = <int>[];
   final List<int> openedArtists = <int>[];
   final List<String> openedPlaylists = <String>[];
@@ -73,6 +77,7 @@ class _Fixture {
     lyric: lyric,
     collect: collect,
     searchHistory: history,
+    authEpoch: authEpoch,
     onOpenAlbum: openedAlbums.add,
     onOpenArtist: openedArtists.add,
     onOpenPlaylist: openedPlaylists.add,
@@ -679,5 +684,37 @@ void main() {
     await _pumpPage(tester, _Fixture());
     expect(find.byKey(const Key('discover-effects-entry')), findsNothing);
     expect(find.text('音效商城'), findsNothing);
+  });
+
+  testWidgets('登录态变化后私人 FM 自动重拉（无需手动重试）', (tester) async {
+    final epoch = ValueNotifier<int>(0);
+    final fixture = _Fixture(
+      discovery: FakeDiscoveryApi(
+        fmBatches: <List<MusicPersonalFmSong>>[
+          <MusicPersonalFmSong>[
+            fakeFmSong(id: '40', hash: 'fm40', title: 'FM之歌A'),
+          ],
+          <MusicPersonalFmSong>[
+            fakeFmSong(id: '41', hash: 'fm41', title: 'FM之歌B'),
+          ],
+        ],
+      ),
+      authEpoch: epoch,
+    );
+    await _pumpPage(tester, fixture);
+    expect(fixture.discovery.fmCalls, 1);
+
+    // 模拟登录成功：FM section 自动重取第二批，用户不必点重试。
+    epoch.value += 1;
+    await tester.pump();
+    await tester.pump();
+
+    expect(fixture.discovery.fmCalls, 2);
+    await tester.dragUntilVisible(
+      find.text('FM之歌B'),
+      find.byKey(const Key('discover-scroll')),
+      const Offset(0, -300),
+    );
+    expect(find.text('FM之歌B'), findsOneWidget);
   });
 }

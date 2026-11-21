@@ -13,6 +13,7 @@
 /// - 收藏历史（C）：[collect] / [history] / [searchHistory] + [libraryBuilder]。
 library;
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:mimao/core/contract.dart';
 import 'package:mimao/music/api/music_account_api.dart';
@@ -56,6 +57,7 @@ class MusicModule implements AppModule {
     this.libraryBuilder,
     this.browse,
     this.settings,
+    this.authEpoch,
   }) : _api = api,
        store = store ?? MusicStore(api);
 
@@ -87,6 +89,9 @@ class MusicModule implements AppModule {
   /// 本地设置（听歌上报开关）；null 时设置页不显示开关。播放器侧的同一份
   /// 实例由 registry 注入（见 app_registry 的 createMusicPlayerUi 闭包）。
   final MusicSettings? settings;
+
+  /// 登录态变化信号；页面监听后自动重拉账号数据。null 时不监听（旧行为）。
+  final ValueListenable<int>? authEpoch;
 
   /// 播放 UI 懒构造：P 线产品路径才注入 [playerUiFactory]；测试/未接线时
   /// 保持 null，绝不触碰 media_kit。
@@ -143,6 +148,7 @@ class MusicModule implements AppModule {
             lyric: browseApis?.lyric,
             collect: collect,
             searchHistory: searchHistory,
+            authEpoch: authEpoch,
             onOpenAlbum: browseApis?.album == null
                 ? null
                 : (id) => _openAlbum(context, id),
@@ -176,6 +182,7 @@ class MusicModule implements AppModule {
             profile: userProfile,
             library: userLibrary,
             player: player,
+            authEpoch: authEpoch,
             onOpenAlbum: browseApis?.album == null
                 ? null
                 : (id) => _openAlbum(context, id),

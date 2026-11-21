@@ -167,6 +167,7 @@ MusicUserPlaylist fakePlaylist({
   String title = '歌单一',
   int? songCount = 12,
   String coverUrl = '',
+  int? defaultKind,
 }) => MusicUserPlaylist(
   cloudListId: cloudListId,
   globalId: globalId,
@@ -192,7 +193,7 @@ MusicUserPlaylist fakePlaylist({
   deleted: null,
   dropped: null,
   customCover: null,
-  defaultKind: null,
+  defaultKind: defaultKind,
   flagCodes: const MusicPlaylistFlagCodes(
     editable: null,
     private: null,

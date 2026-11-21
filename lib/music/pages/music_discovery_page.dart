@@ -20,6 +20,7 @@ library;
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:mimao/core/theme.dart';
@@ -59,6 +60,7 @@ class MusicDiscoveryPage extends StatefulWidget {
     this.onOpenPlaylist,
     this.onOpenRank,
     this.onOpenEffects,
+    this.authEpoch,
   });
 
   /// 搜索扩展端点组（默认词/热词/建议/专辑/歌手/歌单/歌词候选）。
@@ -97,6 +99,10 @@ class MusicDiscoveryPage extends StatefulWidget {
 
   /// 打开音效商城（L1 音效页，含耳机品牌/设备匹配）；null 时入口卡整体隐藏。
   final VoidCallback? onOpenEffects;
+
+  /// 登录态变化信号：登录后自动重拉私人 FM（需要账号的唯一推荐 section）。
+  /// null 时保持旧行为（只在首载/下拉刷新取）。
+  final ValueListenable<int>? authEpoch;
 
   @override
   State<MusicDiscoveryPage> createState() => _MusicDiscoveryPageState();
@@ -187,6 +193,7 @@ class _MusicDiscoveryPageState extends State<MusicDiscoveryPage>
   void initState() {
     super.initState();
     _controller.addListener(_onQueryChanged);
+    widget.authEpoch?.addListener(_onAuthChanged);
     _loadDiscoverySections();
     _loadHistory();
     _loadCollected();
@@ -195,10 +202,18 @@ class _MusicDiscoveryPageState extends State<MusicDiscoveryPage>
   @override
   void dispose() {
     _suggestTimer?.cancel();
+    widget.authEpoch?.removeListener(_onAuthChanged);
     _controller.removeListener(_onQueryChanged);
     _controller.dispose();
     _tabController.dispose();
     super.dispose();
+  }
+
+  /// 登录/登出：私人 FM 是发现页里唯一要账号的 section，自动重拉即可，
+  /// 不打扰其它 section 的已加载内容。
+  void _onAuthChanged() {
+    if (!mounted) return;
+    _load(_fmSongs, _fetchFmSongs);
   }
 
   // ── 数据装载 ──────────────────────────────────────────────────────────

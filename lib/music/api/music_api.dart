@@ -5,6 +5,7 @@
 /// 测试提供 fake 实现即可跑通页面/MobX 流程。
 library;
 
+import 'package:flutter/foundation.dart' show ValueListenable, ValueNotifier;
 import 'package:mimao/music/api/album_api.dart';
 import 'package:mimao/music/api/artist_api.dart';
 import 'package:mimao/music/api/auth_login_api.dart';
@@ -14,6 +15,7 @@ import 'package:mimao/music/api/listen_report_api.dart';
 import 'package:mimao/music/api/lyric_api.dart';
 import 'package:mimao/music/api/music_browse_apis.dart';
 import 'package:mimao/music/api/music_identity_api.dart';
+import 'package:mimao/music/music_auth_events.dart';
 import 'package:mimao/music/api/playback_ext_api.dart';
 import 'package:mimao/music/api/playlist_read_api.dart';
 import 'package:mimao/music/api/playlist_write_api.dart';
@@ -51,7 +53,7 @@ abstract interface class MusicApi {
 ///
 /// 身份仓库走工厂**惰性解析**——app_registry 装配音乐模块时不碰
 /// path_provider（CI/测试无插件环境也能完成注册），首次调用 API 才解析。
-class KugouMusicApi implements MusicApi, MusicIdentityApi {
+class KugouMusicApi implements MusicApi, MusicIdentityApi, MusicAuthEvents {
   KugouMusicApi({
     required this.client,
     required Future<KugouIdentityStore> Function() identityStoreFactory,
@@ -60,6 +62,13 @@ class KugouMusicApi implements MusicApi, MusicIdentityApi {
        _register = register ?? registerDevice;
 
   final KugouClient client;
+
+  /// 登录/登出信号：`saveIdentity` 是账号态唯一写入口（扫码线与登录组共用），
+  /// 账号态或 userId 变化时递增，页面监听后自动重拉账号数据。
+  final ValueNotifier<int> _authEpoch = ValueNotifier<int>(0);
+
+  @override
+  ValueListenable<int> get authEpoch => _authEpoch;
 
   /// 端点组共享会话：与 [ensureDevice] / [_loadIdentity] / [_saveIdentity]
   /// 共用同一份身份缓存（登录后下一搜自动带 token）。
@@ -130,8 +139,17 @@ class KugouMusicApi implements MusicApi, MusicIdentityApi {
   }
 
   Future<void> _saveIdentity(KugouIdentity identity) async {
+    final previous = _identity;
     _identity = identity;
     await (await _store()).save(identity);
+    final hadAccount = previous?.hasAccount ?? false;
+    final hasAccount = identity.hasAccount;
+    // 只在账号态真正变化（登录/登出/换号）时通知：设备引导的匿名写入、
+    // 同账号刷新 token 都不触发页面重拉。
+    if (hadAccount != hasAccount ||
+        (hasAccount && previous?.userId != identity.userId)) {
+      _authEpoch.value += 1;
+    }
   }
 
   @override

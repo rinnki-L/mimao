@@ -1,4 +1,5 @@
-import 'package:flutter/foundation.dart' show kDebugMode, visibleForTesting;
+import 'package:flutter/foundation.dart'
+    show ValueListenable, kDebugMode, visibleForTesting;
 import 'package:flutter/widgets.dart' show Center, Text;
 import 'package:mimao/comic/collect_service.dart';
 import 'package:mimao/comic/comic_db.dart';
@@ -22,6 +23,8 @@ import 'package:mimao/music/api/kugou_playback_api.dart';
 import 'package:mimao/music/api/music_account_api.dart';
 import 'package:mimao/music/api/music_api.dart';
 import 'package:mimao/music/api/music_playback_api.dart';
+import 'package:mimao/music/api/playlist_read_api.dart';
+import 'package:mimao/music/api/user_library_api.dart';
 import 'package:mimao/music/client/kugou_client.dart';
 import 'package:mimao/music/client/kugou_identity.dart';
 import 'package:mimao/music/collect_service.dart';
@@ -290,7 +293,11 @@ Future<void> initAppModules({
         collectApi ??= MusicCollectService(db, library);
         historyApi ??= MusicHistoryService(db, library);
         searchHistoryApi ??= MusicSearchHistoryService(db);
-        libraryBuilder ??= _defaultMusicLibraryBuilder();
+        libraryBuilder ??= _defaultMusicLibraryBuilder(
+          userLibrary: api.browseApis.userLibrary,
+          playlistRead: api.browseApis.playlistRead,
+          authEpoch: api.authEpoch,
+        );
       }
 
       // 集成收口：未显式注入时，把播放进度写入口接到 C 线的权威库
@@ -338,6 +345,8 @@ Future<void> initAppModules({
         browse: api.browseApis,
         // ── 本地设置（设置页的听歌上报开关）──
         settings: settings,
+        // 登录/登出信号：账号页与发现页（私人 FM）据此自动重拉。
+        authEpoch: api.authEpoch,
       );
     }
   } catch (error) {
@@ -398,7 +407,15 @@ Future<void> initAppModules({
 
 /// 生产默认「我的」页构造器：C 线页面只认列表服务，续播缝在这里接到
 /// P 线的 `MusicPlayerUi.playSong`。注入非本线实现时给可读占位而不是崩溃。
-MusicLibraryBuilder _defaultMusicLibraryBuilder() {
+///
+/// [userLibrary]/[playlistRead] 用于「账号收藏（我喜欢）」段：账号的收藏歌曲
+/// 不在本地库，而在云歌单「我喜欢」（`is_def == 2`），需登录后按
+/// user_playlist → playlist_track_all_new 取；[authEpoch] 让切号/登录后自动重拉。
+MusicLibraryBuilder _defaultMusicLibraryBuilder({
+  MusicUserLibraryApi? userLibrary,
+  MusicPlaylistReadApi? playlistRead,
+  ValueListenable<int>? authEpoch,
+}) {
   return (context, playerUi, collect, history) {
     final collectService = collect is MusicCollectService ? collect : null;
     final historyService = history is MusicHistoryService ? history : null;
@@ -409,6 +426,9 @@ MusicLibraryBuilder _defaultMusicLibraryBuilder() {
       collect: collectService,
       history: historyService,
       onPlaySong: (song, startAt) => playerUi.playSong(song, startAt: startAt),
+      userLibrary: userLibrary,
+      playlistRead: playlistRead,
+      authEpoch: authEpoch,
     );
   };
 }

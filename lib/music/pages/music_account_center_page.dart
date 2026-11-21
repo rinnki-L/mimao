@@ -12,6 +12,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:mimao/core/theme.dart';
 import 'package:mimao/music/api/user_library_api.dart';
@@ -45,6 +46,7 @@ class MusicAccountCenterPage extends StatefulWidget {
     this.onOpenAlbum,
     this.onOpenPlaylist,
     this.imagePicker,
+    this.authEpoch,
   });
 
   /// 用户资料组接口（资料头/会员/等级）。
@@ -65,6 +67,10 @@ class MusicAccountCenterPage extends StatefulWidget {
   /// 头像图片选择缝（L3）：null 时在触发「更换头像」的瞬间惰性构造
   /// file_picker 生产实现；widget 测试注入 fake，绝不真调插件。
   final MusicProfileImagePicker? imagePicker;
+
+  /// 登录态变化信号：登录/登出后自动重拉全部账号分区（资料/会员/等级/
+  /// 历史/已购/歌单），用户不必再手动点重试。null 时保持旧行为。
+  final ValueListenable<int>? authEpoch;
 
   @override
   State<MusicAccountCenterPage> createState() => _MusicAccountCenterPageState();
@@ -98,12 +104,30 @@ class _MusicAccountCenterPageState extends State<MusicAccountCenterPage> {
   @override
   void initState() {
     super.initState();
+    widget.authEpoch?.addListener(_onAuthChanged);
+    unawaited(_refreshAll());
+  }
+
+  @override
+  void dispose() {
+    widget.authEpoch?.removeListener(_onAuthChanged);
+    super.dispose();
+  }
+
+  /// 登录/登出事件：整页重拉。首次进入时的匿名加载失败会在这里被登录后的
+  /// 刷新覆盖，不再需要用户手动点「重试」。
+  void _onAuthChanged() {
+    if (!mounted) return;
     unawaited(_refreshAll());
   }
 
   @override
   void didUpdateWidget(covariant MusicAccountCenterPage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.authEpoch != widget.authEpoch) {
+      oldWidget.authEpoch?.removeListener(_onAuthChanged);
+      widget.authEpoch?.addListener(_onAuthChanged);
+    }
     // 换了接口实例（如重新登录后换 session）就整页重拉。
     if (oldWidget.profile != widget.profile ||
         oldWidget.library != widget.library) {
