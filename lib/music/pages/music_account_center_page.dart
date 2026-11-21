@@ -542,8 +542,8 @@ class _MusicAccountCenterPageState extends State<MusicAccountCenterPage> {
   }
 
   /// 宽屏布局：
-  /// 1. 第一行是资料卡（较宽）+ 会员（右侧窄栏），顶部对齐；
-  /// 2. 第二行是听歌等级 + 已购专辑并排对齐；
+  /// 1. 第一行是通栏资料卡，会员作为资料卡内部右侧的一栏（共用同一张卡）；
+  /// 2. 第二行是听歌等级 + 已购专辑并排、等高；
   /// 3. 其下听歌历史 / 已购单曲 / 我的歌单作通栏大卡片依次排列。
   Widget _buildWideContent() {
     return SingleChildScrollView(
@@ -552,22 +552,18 @@ class _MusicAccountCenterPageState extends State<MusicAccountCenterPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              // 资料卡内容较多（头像+昵称+ID+标签+操作按钮），占 2 份宽。
-              Expanded(flex: 2, child: _buildProfileCard()),
-              const SizedBox(width: 12),
-              Expanded(child: _buildVipSection()),
-            ],
-          ),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Expanded(child: _buildGradeSection()),
-              const SizedBox(width: 12),
-              Expanded(child: _buildAlbumsSection()),
-            ],
+          _buildProfileCard(withInlineVip: true),
+          // 等高：IntrinsicHeight 先取两卡较高的固有高度，再由 stretch
+          // 把两个 Expanded 拉伸到同一高度（内容少的专辑卡不再塌陷）。
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                Expanded(child: _buildGradeSection()),
+                const SizedBox(width: 12),
+                Expanded(child: _buildAlbumsSection()),
+              ],
+            ),
           ),
           _buildHistorySection(),
           _buildSongsSection(),
@@ -663,7 +659,9 @@ class _MusicAccountCenterPageState extends State<MusicAccountCenterPage> {
 
   // ── 资料头 ───────────────────────────────────────────────────────────
 
-  Widget _buildProfileCard() {
+  /// [withInlineVip] 为 true 时（仅宽屏），登录态下把会员块并进同一张
+  /// 资料卡：左侧资料内容占满剩余宽度，右侧固定宽度放会员，中间一条竖线。
+  Widget _buildProfileCard({bool withInlineVip = false}) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final Widget body;
@@ -696,6 +694,21 @@ class _MusicAccountCenterPageState extends State<MusicAccountCenterPage> {
               ),
             ],
           ),
+        ),
+      );
+    } else if (withInlineVip) {
+      // 登录态：资料内容 + 竖分隔线 + 内联会员，共用同一张卡片背景。
+      body = IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            Expanded(child: _buildProfileBody(_detail!)),
+            const SizedBox(width: 16),
+            Container(width: 1, color: cs.outlineVariant),
+            const SizedBox(width: 16),
+            // 会员块固定宽度：宽屏下资料内容占满其余空间。
+            SizedBox(width: 260, child: _buildVipInline()),
+          ],
         ),
       );
     } else {
@@ -880,6 +893,29 @@ class _MusicAccountCenterPageState extends State<MusicAccountCenterPage> {
   }
 
   // ── 会员 ─────────────────────────────────────────────────────────────
+
+  /// 宽屏资料卡内联的会员块：无 Card 外壳，只保留标题 + 三态内容，
+  /// 与资料内容共用外层卡片背景。key 沿用 `account-vip` 以兼容定位/重试。
+  Widget _buildVipInline() {
+    final theme = Theme.of(context);
+    final data = _vip.data;
+    return Column(
+      key: const ValueKey<String>('account-vip'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text('会员', style: theme.textTheme.titleMedium),
+        const SizedBox(height: 8),
+        _sectionBody(
+          loading: _vip.loading,
+          error: _vip.error,
+          onRetry: _loadVip,
+          isEmpty: _isVipEmpty(data),
+          emptyText: '暂无会员信息',
+          content: () => _buildVipContent(data!),
+        ),
+      ],
+    );
+  }
 
   Widget _buildVipSection() {
     final data = _vip.data;

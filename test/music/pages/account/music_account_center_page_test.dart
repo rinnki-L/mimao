@@ -355,7 +355,7 @@ void main() {
     expect(find.text('历史歌二'), findsOneWidget);
   });
 
-  testWidgets('宽屏布局：资料卡与会员同一行、等级与专辑并排、历史通栏在下', (tester) async {
+  testWidgets('宽屏布局：会员融入资料卡、等级与专辑等高并排、历史通栏在下', (tester) async {
     await _pumpPage(tester, _Harness(), surface: const Size(800, 1800));
 
     Rect rectOf(String key) =>
@@ -367,14 +367,37 @@ void main() {
     final albums = rectOf('account-albums');
     final history = rectOf('account-history');
 
-    // 第一行：资料卡（左，较宽）+ 会员（右），顶部对齐、左右分开。
-    expect((profile.top - vip.top).abs(), lessThan(0.5), reason: '资料卡与会员同一行');
-    expect(profile.right, lessThan(vip.left), reason: '会员在资料卡右侧');
-    expect(vip.left, greaterThan(0), reason: '会员未贴屏幕左边缘');
-    expect(profile.width, greaterThan(vip.width), reason: '资料卡占较大份');
+    // 第一行：会员不再是独立卡片，而是资料卡内部的右半边（同一张卡）。
+    expect(vip.left, greaterThan(profile.left), reason: '会员在资料卡内部，不越过左边界');
+    expect(vip.right, lessThan(profile.right), reason: '会员在资料卡内部，不越过右边界');
+    expect(
+      vip.top,
+      greaterThanOrEqualTo(profile.top),
+      reason: '会员在资料卡内部，不越过上边界',
+    );
+    expect(
+      vip.bottom,
+      lessThanOrEqualTo(profile.bottom),
+      reason: '会员在资料卡内部，不越过下边界',
+    );
+    expect(
+      vip.left,
+      greaterThan(profile.left + profile.width / 2),
+      reason: '会员位于资料卡右半边',
+    );
 
-    // 第二行：听歌等级 + 已购专辑并排、顶部对齐，且在资料卡行下方。
+    // 第二行：听歌等级 + 已购专辑并排、顶部对齐、各占一半宽且等高。
     expect((grade.top - albums.top).abs(), lessThan(0.5), reason: '等级与专辑并排');
+    expect(
+      (grade.width - albums.width).abs(),
+      lessThanOrEqualTo(2),
+      reason: '等级与专辑各占一半宽',
+    );
+    expect(
+      (grade.height - albums.height).abs(),
+      lessThanOrEqualTo(2),
+      reason: '等级与专辑等高（内容少的专辑不再塌陷）',
+    );
     expect(grade.right, lessThan(albums.left), reason: '专辑在等级右侧');
     expect(grade.top, greaterThanOrEqualTo(profile.bottom - 12));
 
