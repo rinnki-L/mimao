@@ -305,7 +305,7 @@ class _MusicPlaylistListPageState extends State<MusicPlaylistListPage> {
       if (outcome is MusicImportCreatedOutcome) {
         ScaffoldMessenger.maybeOf(
           context,
-        )?.showSnackBar(const SnackBar(content: Text('导入任务已创建，完成后列表会自动出现新歌单')));
+        )?.showSnackBar(const SnackBar(content: Text('导入任务已创建，处理完成后刷新列表查看')));
         await _refresh();
         return;
       }
@@ -328,7 +328,7 @@ class _MusicPlaylistListPageState extends State<MusicPlaylistListPage> {
   }
 
   String _importOutcomeText(MusicImportOutcome outcome) => switch (outcome) {
-    MusicImportCreatedOutcome() => '导入任务已创建，完成后列表会自动出现新歌单',
+    MusicImportCreatedOutcome() => '导入任务已创建，处理完成后刷新列表查看',
     MusicImportUploadedOutcome() => '截图已提交，等待处理',
     MusicImportStatusOutcome(:final tasks) =>
       tasks.isEmpty ? '暂无导入任务' : '共 ${tasks.length} 个导入任务',

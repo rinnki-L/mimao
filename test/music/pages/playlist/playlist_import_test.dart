@@ -76,7 +76,7 @@ void main() {
     expect(query, isA<MusicImportLinkQuery>());
     expect((query as MusicImportLinkQuery).url, 'https://t.kugou.com/abc123');
     // 成功提示 + 重新拉取列表（page 1）。
-    expect(find.text('导入任务已创建，完成后列表会自动出现新歌单'), findsOneWidget);
+    expect(find.text('导入任务已创建，处理完成后刷新列表查看'), findsOneWidget);
     expect(library.queries.length, 2);
     expect(library.queries.last.page, 1);
     await _drainSnackBar(tester);
@@ -163,7 +163,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('导入任务已创建，完成后列表会自动出现新歌单'), findsOneWidget);
+    expect(find.text('导入任务已创建，处理完成后刷新列表查看'), findsOneWidget);
     await _drainSnackBar(tester);
   });
 
