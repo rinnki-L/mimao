@@ -250,19 +250,29 @@ class _GateLoginPageState extends State<_GateLoginPage> {
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 8),
+                Text(
+                  '或',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                // 「其他登录方式」必须和扫码同屏可见（不藏进设置）：手机号 /
+                // QQ / 微信都从这里进；默认落在手机号 tab。
+                FilledButton.tonalIcon(
+                  key: const Key('gate-open-methods'),
+                  onPressed: _openMethods,
+                  icon: const Icon(Icons.login),
+                  label: const Text('手机号 / QQ / 微信登录'),
+                ),
+                const SizedBox(height: 8),
                 OutlinedButton.icon(
                   onPressed: _controller.phase == QrLoginPhase.loading
                       ? null
                       : _controller.refresh,
                   icon: const Icon(Icons.refresh),
                   label: const Text('刷新二维码'),
-                ),
-                const SizedBox(height: 8),
-                TextButton(
-                  key: const Key('gate-open-methods'),
-                  onPressed: _openMethods,
-                  child: const Text('使用其他方式登录'),
                 ),
               ],
             ),

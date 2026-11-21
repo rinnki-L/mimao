@@ -45,7 +45,8 @@ class MusicLoginMethodsPage extends StatefulWidget {
     this.searchExt,
     this.pollInterval = const Duration(seconds: 2),
     this.codeCountdown = const Duration(seconds: 60),
-  });
+    this.initialTab = 0,
+  }) : assert(initialTab >= 0 && initialTab < 4, '登录 tab 越界');
 
   final MusicAuthApi auth;
 
@@ -61,13 +62,20 @@ class MusicLoginMethodsPage extends StatefulWidget {
   /// 验证码发送后的冷却总时长（生产默认 60 秒，测试注入短时长便于 pump 到 0）。
   final Duration codeCountdown;
 
+  /// 初始 tab：0 手机号 / 1 QQ / 2 微信 / 3 登录设备。登录首屏按需直达。
+  final int initialTab;
+
   @override
   State<MusicLoginMethodsPage> createState() => _MusicLoginMethodsPageState();
 }
 
 class _MusicLoginMethodsPageState extends State<MusicLoginMethodsPage>
     with SingleTickerProviderStateMixin {
-  late final TabController _tabs = TabController(length: 4, vsync: this);
+  late final TabController _tabs = TabController(
+    length: 4,
+    vsync: this,
+    initialIndex: widget.initialTab,
+  );
 
   @override
   void dispose() {
