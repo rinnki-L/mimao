@@ -100,17 +100,22 @@ void main() {
     final p = body['p']! as String;
     expect(p, hasLength(256));
     expect(RegExp(r'^[0-9a-f]{256}$').hasMatch(p), isTrue);
-    // portrait 公开 JSON 是 {"clienttime":"<秒>","key":"<seed>"}（字典序），
-    // p 应与裸 RSA 画像一致（小写）。
-    final expectedPortrait = kugouUserPortrait(
-      utf8.encode(
-        jsonEncode(<String, Object?>{
-          'clienttime': '${kFixedNow.millisecondsSinceEpoch ~/ 1000}',
-          'key': kTestSeed,
-        }),
-      ),
-    ).toLowerCase();
-    expect(p, expectedPortrait);
+    // portrait 用 PKCS#1 v1.5 加密（上游 preference_envelope 明确不能复用
+    // 登录的裸 RSA，否则服务端解不开 clienttime/key → 20006）。PKCS#1 带
+    // 随机填充无稳定密文，可断言的是输出形状（128 字节小写 hex）与被加密
+    // 明文的构造口径：{"clienttime":"<秒>","key":"<seed>"}（字典序）。
+    final portraitPlain = jsonEncode(<String, Object?>{
+      'clienttime': '${kFixedNow.millisecondsSinceEpoch ~/ 1000}',
+      'key': kTestSeed,
+    });
+    expect(portraitPlain, startsWith('{"clienttime":'));
+    expect(portraitPlain, contains('"key":"$kTestSeed"'));
+    // 且与裸 RSA 画像不同（防止有人改回错误实现）——两者都是 256 hex，
+    // 但 PKCS#1 填充使密文几乎不可能与裸 RSA 相同。
+    expect(
+      p,
+      isNot(kugouUserPortrait(utf8.encode(portraitPlain)).toLowerCase()),
+    );
     // params 用信封 seed 可解密回 {"token": ...}（BTreeMap 键序）。
     final decrypted = utf8.decode(
       kugouDecryptCredentials(body['params']! as String, kTestSeed),

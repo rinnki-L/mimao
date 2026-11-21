@@ -326,7 +326,14 @@ KugouParameterEnvelope kugouLoginParameterEnvelope(
     'clienttime': seconds.toString(),
     'key': actualSeed,
   });
-  final portrait = kugouUserPortrait(utf8.encode(public)).toLowerCase();
+  // 偏好信封必须用 PKCS#1 v1.5 加密画像：上游 preference_envelope 明确
+  // 「must not reuse login's raw-RSA variant」。误用裸 kugouUserPortrait 会
+  // 让服务端解不出 clienttime/key，偏好请求返回 20006。这里输出小写 hex
+  // （上游 format!("{b:02x}")），random 可注入供测试对拍。
+  final portrait = _rsaPkcs1v15Encrypt(
+    utf8.encode(public),
+    random: random,
+  ).map((b) => b.toRadixString(16).padLeft(2, '0')).join();
   return (portrait: portrait, params: params);
 }
 
