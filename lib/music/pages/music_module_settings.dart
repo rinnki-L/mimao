@@ -1,18 +1,29 @@
 // ignore_for_file: deprecated_member_use — Flutter 3.50 弃用整个 material.dart，
 // 与 comic 页面同款说明。
-/// 音乐模块主页「设置」tab 的内容（M4 骨架 + M4-L 扫码登录）。
+/// 音乐模块主页「设置」tab 的内容（M4 骨架 + M4-L 扫码登录 + L5 登录扩展）。
 ///
 /// 只读展示设备身份（不触发联网注册）；账号区由 [account] 驱动：
 /// - null：保留契约占位（L 线未接线时既有测试锚点不变）；
 /// - 非 null：匿名态显示「扫码登录」，登录态显示头像/昵称/ID 与退出入口。
 ///
+/// L5 扩展全部是可选参数（null 时入口隐藏、既有构造不变）：
+/// - [auth]+[verify]：push「更多登录方式」（手机号/QQ/微信/设备管理）；
+/// - [verify]：push「安全验证」（事件号查挑战 + sideDt 提交）；
+/// - [settings]：「听歌上报」开关（本地设置，ensureLoaded 后刷新）。
+///
 /// 二维码是服务端直接给的 PNG data URL，用 [Image.memory] 渲染，不引二维码库。
 library;
 
 import 'package:flutter/material.dart';
+import 'package:mimao/music/api/auth_login_api.dart';
 import 'package:mimao/music/api/music_account_api.dart';
 import 'package:mimao/music/api/music_api.dart';
+import 'package:mimao/music/api/search_ext_api.dart';
+import 'package:mimao/music/api/verify_api.dart';
 import 'package:mimao/music/client/kugou_identity.dart';
+import 'package:mimao/music/music_settings.dart';
+import 'package:mimao/music/pages/music_login_methods_page.dart';
+import 'package:mimao/music/pages/music_security_verify_page.dart';
 import 'package:mimao/music/pages/qr_login_controller.dart';
 import 'package:mimao/music/pages/qr_login_view.dart';
 
@@ -22,6 +33,10 @@ class MusicModuleSettings extends StatefulWidget {
     required this.api,
     this.account,
     this.pollInterval = const Duration(seconds: 2),
+    this.auth,
+    this.verify,
+    this.searchExt,
+    this.settings,
   });
 
   final MusicApi api;
@@ -32,6 +47,18 @@ class MusicModuleSettings extends StatefulWidget {
   /// 轮询间隔（测试注入短间隔；生产默认 2 秒）。
   final Duration pollInterval;
 
+  /// L5 登录扩展门面；与 [verify] 齐备时显示「更多登录方式」入口。
+  final MusicAuthApi? auth;
+
+  /// L5 验证端点组；非空时显示「安全验证」入口（也是方法页的依赖）。
+  final MusicVerifyApi? verify;
+
+  /// L5 sidedt 提交通道；透传给方法页/安全验证页。
+  final MusicSearchExtApi? searchExt;
+
+  /// 本地设置（听歌上报开关）；null 时隐藏开关条目。
+  final MusicSettings? settings;
+
   @override
   State<MusicModuleSettings> createState() => _MusicModuleSettingsState();
 }
@@ -40,10 +67,37 @@ class _MusicModuleSettingsState extends State<MusicModuleSettings> {
   KugouIdentity? _identity;
   bool _loading = true;
 
+  /// 听歌上报开关（null = 设置层尚未读盘，条目禁用）。
+  bool? _listenReport;
+
   @override
   void initState() {
     super.initState();
     _reloadIdentity();
+    _loadListenReport();
+  }
+
+  /// 先 ensureLoaded 再刷新开关初值（本地设置默认 true，读盘后才可信）。
+  Future<void> _loadListenReport() async {
+    final settings = widget.settings;
+    if (settings == null) return;
+    await settings.ensureLoaded();
+    if (!mounted) return;
+    setState(() => _listenReport = settings.listenReportEnabled);
+  }
+
+  /// 切换听歌上报：先改内存再落盘；落盘失败回滚并提示。
+  Future<void> _toggleListenReport(bool value) async {
+    final settings = widget.settings!;
+    final previous = _listenReport;
+    setState(() => _listenReport = value);
+    try {
+      await settings.setListenReportEnabled(value);
+    } on Object {
+      if (!mounted) return;
+      setState(() => _listenReport = previous);
+      _showSnack('听歌上报设置保存失败');
+    }
   }
 
   Future<void> _reloadIdentity() async {
@@ -86,6 +140,41 @@ class _MusicModuleSettingsState extends State<MusicModuleSettings> {
       if (!mounted) return;
       _showSnack('退出登录失败，请重试');
     }
+  }
+
+  /// push 更多登录方式（手机号/QQ/微信/设备管理）；登录成功后刷新账号区。
+  Future<void> _openLoginMethods() async {
+    final auth = widget.auth;
+    final verify = widget.verify;
+    if (auth == null || verify == null) return;
+    final result = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        settings: const RouteSettings(name: 'music/login-methods'),
+        builder: (_) => MusicLoginMethodsPage(
+          auth: auth,
+          verify: verify,
+          searchExt: widget.searchExt,
+        ),
+      ),
+    );
+    if (result != true || !mounted) return;
+    await _reloadIdentity();
+    _showSnack('登录成功');
+  }
+
+  /// push 安全验证页（事件号查挑战 + sideDt 提交）。
+  Future<void> _openSecurityVerify() async {
+    final verify = widget.verify;
+    if (verify == null) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'music/security-verify'),
+        builder: (_) => MusicSecurityVerifyPage(
+          verify: verify,
+          searchExt: widget.searchExt,
+        ),
+      ),
+    );
   }
 
   /// 后一条提示顶掉前一条（登录成功后马上退出时不会被队列挡住）。
@@ -132,6 +221,34 @@ class _MusicModuleSettingsState extends State<MusicModuleSettings> {
           )
         else
           _buildAccount(),
+        // ── L5 登录扩展 ──
+        if (widget.auth != null && widget.verify != null)
+          ListTile(
+            leading: const Icon(Icons.login),
+            title: const Text('更多登录方式'),
+            subtitle: const Text('手机号验证码 / QQ / 微信 / 登录设备管理'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: _openLoginMethods,
+          ),
+        if (widget.verify != null)
+          ListTile(
+            leading: const Icon(Icons.verified_user_outlined),
+            title: const Text('安全验证'),
+            subtitle: const Text('按事件号查询验证挑战并提交验证码'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: _openSecurityVerify,
+          ),
+        if (widget.settings != null)
+          SwitchListTile(
+            secondary: const Icon(Icons.graphic_eq),
+            title: const Text('听歌上报'),
+            subtitle: Text(
+              _listenReport == null ? '正在读取本地设置…' : '播放歌曲时上报听歌记录（可在本地关闭）',
+            ),
+            value: _listenReport ?? false,
+            // 读盘完成前禁用，避免用默认值覆盖真实偏好。
+            onChanged: _listenReport == null ? null : _toggleListenReport,
+          ),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
           child: Text(
