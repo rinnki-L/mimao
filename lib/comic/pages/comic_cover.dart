@@ -1,5 +1,7 @@
 // ignore_for_file: deprecated_member_use — Flutter 3.50 弃用整个 material.dart，
 // 与 lib/anime/pages/ 同款说明：上游镜像风格，M1 继续用 material.dart。
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 /// 漫画封面：网络图 + 离线渐变占位。
@@ -31,6 +33,18 @@ class ComicCover extends StatelessWidget {
         fit: BoxFit.cover,
         errorBuilder: (_, _, _) => placeholder,
       );
+    } else if (_isLocalPath(trimmed)) {
+      // 下载/导入的本地封面：绝对路径或 file:// URI（Windows 盘符同样识别）。
+      final path =
+          trimmed.startsWith('file://') &&
+              Uri.tryParse(trimmed)?.scheme == 'file'
+          ? Uri.parse(trimmed).toFilePath()
+          : trimmed;
+      image = Image.file(
+        File(path),
+        fit: BoxFit.cover,
+        errorBuilder: (_, _, _) => placeholder,
+      );
     } else {
       image = Image.network(
         trimmed,
@@ -41,6 +55,13 @@ class ComicCover extends StatelessWidget {
       );
     }
     return ClipRRect(borderRadius: BorderRadius.circular(radius), child: image);
+  }
+
+  /// 本地文件路径：file:// URI、Windows 盘符路径、Unix 绝对路径。
+  static bool _isLocalPath(String value) {
+    if (value.startsWith('file://')) return true;
+    if (RegExp(r'^[A-Za-z]:[\\/]').hasMatch(value)) return true;
+    return value.startsWith('/') && !value.startsWith('//');
   }
 }
 

@@ -82,6 +82,7 @@ class ComicPosterGrid extends StatelessWidget {
     super.key,
     required this.items,
     this.onOpen,
+    this.onItemLongPress,
     this.keyPrefix = 'comic',
     this.padding = const EdgeInsets.only(bottom: 16),
     this.shrinkWrap = false,
@@ -92,6 +93,9 @@ class ComicPosterGrid extends StatelessWidget {
 
   /// 点卡片回调；null 时卡片不可点。
   final ValueChanged<ComicSummary>? onOpen;
+
+  /// 长按回调（稍后阅读页用它移除条目）；null 时长按无行为。
+  final ValueChanged<ComicSummary>? onItemLongPress;
 
   /// 列表 key 前缀（同页多网格时避免 key 冲突）。
   final String keyPrefix;
@@ -121,10 +125,14 @@ class ComicPosterGrid extends StatelessWidget {
       itemBuilder: (context, index) {
         final item = items[index];
         final onOpen = this.onOpen;
+        final onItemLongPress = this.onItemLongPress;
         return ComicPosterCard(
           key: ValueKey<String>('$keyPrefix-${item.id}'),
           item: item,
           onTap: onOpen == null ? null : () => onOpen(item),
+          onLongPress: onItemLongPress == null
+              ? null
+              : () => onItemLongPress(item),
         );
       },
     );

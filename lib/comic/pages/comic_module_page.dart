@@ -17,6 +17,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:mimao/comic/data/comic_data_source.dart';
 import 'package:mimao/comic/data/comic_models.dart';
+import 'package:mimao/comic/download_api.dart';
 import 'package:mimao/comic/engine/engine.dart' show ComicSourceCatalog;
 import 'package:mimao/comic/library_api.dart';
 import 'package:mimao/comic/pages/comic_category_page.dart';
@@ -24,6 +25,8 @@ import 'package:mimao/comic/pages/comic_detail_page.dart';
 import 'package:mimao/comic/pages/comic_discover_page.dart';
 import 'package:mimao/comic/pages/comic_favorites_page.dart';
 import 'package:mimao/comic/pages/comic_home_page.dart';
+import 'package:mimao/comic/pages/comic_local_page.dart';
+import 'package:mimao/comic/pages/comic_read_later_page.dart';
 import 'package:mimao/comic/pages/comic_source_page.dart';
 
 class ComicModulePage extends StatefulWidget {
@@ -40,6 +43,11 @@ class ComicModulePage extends StatefulWidget {
     this.onOpenSources,
     this.isFavorite,
     this.onFavoriteChanged,
+    this.isReadLater,
+    this.onReadLaterChanged,
+    this.readLater,
+    this.localApi,
+    this.downloads,
     this.onStartReading,
     this.onImportSource,
     this.onDeleteSource,
@@ -76,6 +84,21 @@ class ComicModulePage extends StatefulWidget {
   /// 收藏切换；模块层把条目一起包进回调，详情页无需认识 ComicSummary。
   final void Function(ComicSummary item, bool favorite)? onFavoriteChanged;
 
+  /// 打开详情前读取稍后阅读态。
+  final Future<bool> Function(ComicSummary)? isReadLater;
+
+  /// 稍后阅读切换（模块层落库）。
+  final void Function(ComicSummary item, bool included)? onReadLaterChanged;
+
+  /// 稍后阅读整页数据入口（主页卡片「查看全部」）。
+  final ComicReadLaterApi? readLater;
+
+  /// 本地漫画管理入口（主页「本地」卡片 + 本地详情打开）。
+  final ComicLocalApi? localApi;
+
+  /// 在线漫画下载能力（详情页章节下载按钮）。
+  final ComicDownloadApi? downloads;
+
   /// 开始阅读；模块层把条目、详情与所选章节一起交给阅读器装配方。
   final void Function(
     ComicSummary item,
@@ -99,16 +122,25 @@ class _ComicModulePageState extends State<ComicModulePage> {
   int _libraryRevision = 0;
 
   Future<void> _openDetail(ComicSummary item) async {
+    // 本地漫画走本地详情：章节来自落盘清单，不走源引擎抓取。
+    if (item.sourceName == ComicLibraryEntry.localSource) {
+      await _openLocalDetail(item);
+      return;
+    }
     // 打开点校正失败不应挡住导航：投影由下次打开再校正。
     try {
       await widget.onOpenDetail?.call(item);
     } on Object {
       // 校正是纯收益动作，失败静默。
     }
-    // 收藏态读取失败不应挡住导航：退回"未收藏"继续打开详情。
-    final favorite =
-        await (widget.isFavorite?.call(item) ?? Future<bool>.value(false))
-            .catchError((Object _) => false);
+    final favorite = await _boolOr(
+      widget.isFavorite?.call(item),
+      fallback: false,
+    );
+    final readLater = await _boolOr(
+      widget.isReadLater?.call(item),
+      fallback: false,
+    );
     if (!mounted) return;
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
@@ -117,13 +149,102 @@ class _ComicModulePageState extends State<ComicModulePage> {
           dataSource: widget.dataSource,
           summary: item,
           initiallyFavorite: favorite,
+          initiallyReadLater: readLater,
           onFavoriteChanged: (v) => widget.onFavoriteChanged?.call(item, v),
+          onReadLaterChanged: (v) => widget.onReadLaterChanged?.call(item, v),
+          downloads: widget.downloads,
           onStartReading: (detail, chapter) =>
               widget.onStartReading?.call(item, detail, chapter),
         ),
       ),
     );
-    // 详情页里可能改过收藏，返回后让收藏 tab 重读。
+    // 详情页里可能改过收藏/稍后阅读/下载，返回后让主页与收藏 tab 重读。
+    if (mounted) setState(() => _libraryRevision++);
+  }
+
+  /// 本地漫画详情：数据源是下载时落盘的清单快照。
+  Future<void> _openLocalDetail(ComicSummary item) async {
+    final localApi = widget.localApi;
+    if (localApi == null) {
+      _showSnack('本地漫画能力未接线');
+      return;
+    }
+    try {
+      await widget.onOpenDetail?.call(item);
+    } on Object {
+      // 同在线路径：打开点校正是纯收益动作。
+    }
+    final favorite = await _boolOr(
+      widget.isFavorite?.call(item),
+      fallback: false,
+    );
+    final readLater = await _boolOr(
+      widget.isReadLater?.call(item),
+      fallback: false,
+    );
+    final ComicDetail detail;
+    try {
+      detail = await localApi.detail(item);
+    } on Object catch (error) {
+      _showSnack('本地漫画打开失败：$error');
+      return;
+    }
+    if (!mounted) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'comic/detail/local'),
+        builder: (_) => ComicDetailPage(
+          dataSource: _LocalDetailDataSource(detail),
+          summary: item,
+          initiallyFavorite: favorite,
+          initiallyReadLater: readLater,
+          isLocal: true,
+          onFavoriteChanged: (v) => widget.onFavoriteChanged?.call(item, v),
+          onReadLaterChanged: (v) => widget.onReadLaterChanged?.call(item, v),
+          onStartReading: (detail, chapter) =>
+              widget.onStartReading?.call(item, detail, chapter),
+        ),
+      ),
+    );
+    if (mounted) setState(() => _libraryRevision++);
+  }
+
+  Future<bool> _boolOr(Future<bool>? value, {required bool fallback}) async {
+    if (value == null) return fallback;
+    // 读取失败不应挡住导航：退回安全默认值继续打开详情。
+    return value.catchError((Object _) => fallback);
+  }
+
+  void _showSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(
+      context,
+    )?.showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  /// 打开稍后阅读整页；返回后重读主页卡片。
+  Future<void> _openReadLater() async {
+    final api = widget.readLater;
+    if (api == null) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'comic/read-later'),
+        builder: (_) => ComicReadLaterPage(api: api, onOpenDetail: _openDetail),
+      ),
+    );
+    if (mounted) setState(() => _libraryRevision++);
+  }
+
+  /// 打开本地漫画管理页；返回后重读主页「本地」卡片与区块。
+  Future<void> _openLocalLibrary() async {
+    final api = widget.localApi;
+    if (api == null) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'comic/local'),
+        builder: (_) => ComicLocalPage(local: api, onOpenDetail: _openDetail),
+      ),
+    );
     if (mounted) setState(() => _libraryRevision++);
   }
 
@@ -190,6 +311,10 @@ class _ComicModulePageState extends State<ComicModulePage> {
             onOpenSettings: hasSettings ? _openSettings : null,
             // 与收藏页同一刷新信号：从详情/阅读器返回后重读历史与本地。
             refreshKey: _libraryRevision,
+            readLater: widget.readLater,
+            localApi: widget.localApi,
+            onOpenReadLater: _openReadLater,
+            onOpenLocalLibrary: _openLocalLibrary,
           ),
           if (library != null)
             ComicFavoritesPage(
@@ -258,6 +383,35 @@ class _ComicModulePageState extends State<ComicModulePage> {
       ),
     );
   }
+}
+
+/// 本地漫画详情的静态数据源：详情已在打开前从落盘清单装配好。
+///
+/// 只有 [detail] 有真实内容；搜索/诊断接口是空实现（页面只会调 detail）。
+class _LocalDetailDataSource implements ComicDataSource {
+  const _LocalDetailDataSource(this._detail);
+
+  final ComicDetail _detail;
+
+  @override
+  Future<ComicDetail> detail(ComicSummary item) async => _detail;
+
+  @override
+  Future<List<ComicSummary>> search(String keyword) async =>
+      const <ComicSummary>[];
+
+  @override
+  List<String> takeSearchDiagnostics() => const <String>[];
+
+  @override
+  Future<List<ComicSummary>> searchSource(String key, String keyword) async =>
+      const <ComicSummary>[];
+
+  @override
+  List<String> availableSourceKeys() => const <String>[];
+
+  @override
+  Future<List<String>> recentSearchTerms() async => const <String>[];
 }
 
 /// 能力未接线时的占位（不假装有内容）。

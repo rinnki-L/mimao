@@ -32,6 +32,10 @@ class ComicHomePage extends StatefulWidget {
     this.sourceLister,
     this.onOpenSettings,
     this.refreshKey,
+    this.readLater,
+    this.localApi,
+    this.onOpenReadLater,
+    this.onOpenLocalLibrary,
   });
 
   final ComicDataSource dataSource;
@@ -59,6 +63,18 @@ class ComicHomePage extends StatefulWidget {
   /// 与收藏页同款——否则「读完一章返回主页」看到的仍是进模块时的旧快照。
   final Object? refreshKey;
 
+  /// 稍后阅读读取入口；null 时主页不显示该卡片（未接线/测试降级）。
+  final ComicReadLaterApi? readLater;
+
+  /// 本地漫画管理入口；null 时不显示「本地」卡片。
+  final ComicLocalApi? localApi;
+
+  /// 打开「稍后阅读」整页（模块层 push，返回后自增 refreshKey）。
+  final VoidCallback? onOpenReadLater;
+
+  /// 打开「本地漫画」管理页（模块层 push，返回后自增 refreshKey）。
+  final VoidCallback? onOpenLocalLibrary;
+
   @override
   State<ComicHomePage> createState() => _ComicHomePageState();
 }
@@ -77,7 +93,9 @@ class _ComicHomePageState extends State<ComicHomePage> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.library != widget.library ||
         oldWidget.refreshKey != widget.refreshKey ||
-        oldWidget.sourceLister != widget.sourceLister) {
+        oldWidget.sourceLister != widget.sourceLister ||
+        oldWidget.readLater != widget.readLater ||
+        oldWidget.localApi != widget.localApi) {
       _future = _load();
     }
   }
@@ -91,10 +109,28 @@ class _ComicHomePageState extends State<ComicHomePage> {
         : await sourceLister().catchError(
             (Object _) => const <ComicSourceInfo>[],
           );
-    if (library == null) return _HomeData(sources: sources);
+    final readLater = widget.readLater;
+    final saved = readLater == null
+        ? const <ComicLibraryEntry>[]
+        : await readLater.readLater();
+    final localApi = widget.localApi;
+    // 本地卡片与「本地漫画」区块共用同一数据源：有本地写能力时读它，
+    // 避免两个入口（卡片计数 / 区块列表）因来源不同而不一致。
+    final local = localApi != null
+        ? await localApi.local()
+        : (library == null
+              ? const <ComicLibraryEntry>[]
+              : await library.local());
+    if (library == null) {
+      return _HomeData(sources: sources, saved: saved, local: local);
+    }
     final recent = await library.recent(limit: 20);
-    final local = await library.local();
-    return _HomeData(recent: recent, local: local, sources: sources);
+    return _HomeData(
+      recent: recent,
+      local: local,
+      saved: saved,
+      sources: sources,
+    );
   }
 
   /// 用块体而非箭头简写：setState 回调必须返回 null，
@@ -217,6 +253,14 @@ class _ComicHomePageState extends State<ComicHomePage> {
                 const SizedBox(height: 8),
                 _buildSourceCard(data.sources),
                 const SizedBox(height: 8),
+                if (widget.readLater != null) ...<Widget>[
+                  _buildReadLaterCard(data.saved),
+                  const SizedBox(height: 8),
+                ],
+                if (widget.localApi != null) ...<Widget>[
+                  _buildLocalCard(data.local),
+                  const SizedBox(height: 8),
+                ],
                 _buildQuickActions(),
                 if (data.recent.isNotEmpty) ...<Widget>[
                   ComicSectionHeader(
@@ -267,6 +311,115 @@ class _ComicHomePageState extends State<ComicHomePage> {
           builder: (_) => ComicSearchPage(
             dataSource: widget.dataSource,
             onOpenDetail: widget.onOpenDetail,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 稍后阅读卡片：详情页加入的待读队列，横向预览 + 整页入口。
+  ///
+  /// 空队列也保留卡片（显示引导文案）——否则用户不知道有这个功能入口。
+  Widget _buildReadLaterCard(List<ComicLibraryEntry> entries) {
+    final cs = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final items = [for (final entry in entries) entry.asSummary()];
+    return Card(
+      key: const Key('comic-home-read-later-card'),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          InkWell(
+            key: const Key('comic-home-read-later-card-tap'),
+            onTap: widget.onOpenReadLater,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 12, 8),
+              child: Row(
+                children: <Widget>[
+                  Icon(Icons.watch_later_outlined, size: 20, color: cs.primary),
+                  const SizedBox(width: 8),
+                  Text('稍后阅读', style: textTheme.titleSmall),
+                  const SizedBox(width: 8),
+                  Text(
+                    '${items.length} 部',
+                    style: textTheme.bodySmall?.apply(
+                      color: cs.onSurfaceVariant,
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    items.isEmpty ? '' : '查看全部',
+                    style: textTheme.labelMedium?.apply(color: cs.primary),
+                  ),
+                  Icon(
+                    Icons.chevron_right,
+                    size: 20,
+                    color: cs.onSurfaceVariant,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (items.isEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+              child: Text(
+                '在漫画详情页点「稍后阅读」，想读的漫画会收在这里。',
+                style: textTheme.bodySmall?.apply(color: cs.onSurfaceVariant),
+              ),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              child: ComicPosterRow(
+                items: items,
+                keyPrefix: 'home-read-later',
+                height: 200,
+                cardWidth: 120,
+                onOpen: widget.onOpenDetail,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// 本地入口卡片：已导入/下载数量 + 管理页入口。
+  Widget _buildLocalCard(List<ComicLibraryEntry> entries) {
+    final cs = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    return Card(
+      key: const Key('comic-home-local-card'),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        key: const Key('comic-home-local-card-tap'),
+        onTap: widget.onOpenLocalLibrary,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+          child: Row(
+            children: <Widget>[
+              Icon(Icons.download_done_outlined, size: 20, color: cs.primary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text('本地', style: textTheme.titleSmall),
+                    const SizedBox(height: 2),
+                    Text(
+                      entries.isEmpty
+                          ? '下载漫画后会出现在这里'
+                          : '已保存 ${entries.length} 部 · 点击管理',
+                      style: textTheme.bodySmall?.apply(
+                        color: cs.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right, size: 20, color: cs.onSurfaceVariant),
+            ],
           ),
         ),
       ),
@@ -444,14 +597,19 @@ class _HomeData {
   const _HomeData({
     this.recent = const <ComicLibraryEntry>[],
     this.local = const <ComicLibraryEntry>[],
+    this.saved = const <ComicLibraryEntry>[],
     this.sources = const <ComicSourceInfo>[],
   });
 
   final List<ComicLibraryEntry> recent;
   final List<ComicLibraryEntry> local;
+
+  /// 稍后阅读（主页卡片的数据源）。
+  final List<ComicLibraryEntry> saved;
+
   final List<ComicSourceInfo> sources;
 
-  bool get isEmpty => recent.isEmpty && local.isEmpty;
+  bool get isEmpty => recent.isEmpty && local.isEmpty && saved.isEmpty;
 }
 
 /// 读本地库失败时的错误态（与收藏页同一形态）。

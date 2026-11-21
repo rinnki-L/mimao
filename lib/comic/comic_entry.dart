@@ -23,12 +23,15 @@ import 'package:mimao/comic/comic_models.dart';
 import 'package:mimao/comic/data/comic_data_source.dart';
 import 'package:mimao/comic/data/comic_models.dart';
 import 'package:mimao/comic/data/engine_comic_data_source.dart';
+import 'package:mimao/comic/download_api.dart';
 import 'package:mimao/comic/engine/engine.dart' show ComicSourceCatalog;
 import 'package:mimao/comic/history_service.dart';
 import 'package:mimao/comic/library_api_impl.dart';
+import 'package:mimao/comic/local_comic_content.dart';
 import 'package:mimao/comic/local_comic_service.dart';
 import 'package:mimao/comic/pages/comic_module_page.dart';
 import 'package:mimao/comic/pages/comic_module_settings.dart';
+import 'package:mimao/comic/read_later_service.dart';
 import 'package:mimao/comic/reader/reader_cache.dart' as reader;
 import 'package:mimao/comic/reader/reader_models.dart' as reader;
 import 'package:mimao/comic/reader/reader_page.dart' as reader;
@@ -58,6 +61,9 @@ class ComicModule implements AppModule {
     required this.searchHistory,
     required this.loadChapterImages,
     this.localService,
+    this.localContent,
+    this.readLater,
+    this.downloads,
     this.browseSource,
     this.sourceCatalog,
     this.imageCacheFactory,
@@ -72,6 +78,15 @@ class ComicModule implements AppModule {
 
   /// 本地漫画服务（主页「本地漫画」区块）；null 时该区块为空。
   final ComicLocalService? localService;
+
+  /// 本地内容读取（本地详情/阅读器）；null 时本地漫画只能列不能读。
+  final ComicLocalContent? localContent;
+
+  /// 稍后阅读服务；null 时主页不显示该卡片。
+  final ComicReadLaterService? readLater;
+
+  /// 在线下载能力；null 时详情页不显示下载按钮。
+  final ComicDownloadApi? downloads;
 
   /// 源仓库目录（浏览 `index.json` 按需导入）。null 时源管理页不显示仓库区块。
   final ComicSourceCatalog? sourceCatalog;
@@ -108,15 +123,21 @@ class ComicModule implements AppModule {
         (dataSource is ComicBrowseSource
             ? dataSource as ComicBrowseSource
             : null);
+    final libraryApi = ComicLibraryApiImpl(
+      collect: collect,
+      history: history,
+      localService: localService,
+      localContent: localContent,
+      readLaterService: readLater,
+    );
     return ComicModulePage(
       dataSource: dataSource,
       sourceRepository: sourceRepository,
       browseSource: browse,
-      library: ComicLibraryApiImpl(
-        collect: collect,
-        history: history,
-        localService: localService,
-      ),
+      library: libraryApi,
+      readLater: readLater == null ? null : libraryApi,
+      localApi: localContent == null ? null : libraryApi,
+      downloads: downloads,
       sourceCatalog: sourceCatalog,
       embedded: true,
       // 各入口的设置放进各入口：模块设置面板收在主页右上角按钮里
@@ -124,8 +145,11 @@ class ComicModule implements AppModule {
       settingsTab: buildSettings(context),
       onOpenDetail: (item) => history.open(refOf(item)),
       isFavorite: (item) => collect.isCollected(refOf(item)),
+      isReadLater: (item) async => readLater?.contains(refOf(item)) ?? false,
       onFavoriteChanged: (item, favorite) =>
           _setFavorite(item, favorite, context),
+      onReadLaterChanged: (item, included) =>
+          _setReadLater(item, included, context),
       onStartReading: (item, detail, chapter) =>
           _openReader(item, detail, chapter, context),
       onImportSource: (url) => _syncSources(),
@@ -176,6 +200,32 @@ class ComicModule implements AppModule {
     }
   }
 
+  /// 稍后阅读切换：写模块内部表（不投影书架）；失败回滚提示。
+  Future<void> _setReadLater(
+    ComicSummary item,
+    bool included,
+    BuildContext context,
+  ) async {
+    final service = readLater;
+    if (service == null) {
+      _showSnack(context, '稍后阅读能力未接线');
+      return;
+    }
+    try {
+      await service.set(
+        refOf(item),
+        included: included,
+        title: item.title,
+        coverUrl: item.coverUrl.isEmpty ? null : item.coverUrl,
+        detailUrl: item.detailUrl,
+      );
+    } catch (e) {
+      if (context.mounted) {
+        _showSnack(context, included ? '加入稍后阅读失败：$e' : '移出稍后阅读失败：$e');
+      }
+    }
+  }
+
   /// 阅读装配方：打开点校正 → 全章预载图片（空章跳过）→ 历史反查初始位置
   /// → push 阅读器。任何一步失败收敛为 SnackBar，不崩导航栈。
   Future<void> _openReader(
@@ -189,17 +239,36 @@ class ComicModule implements AppModule {
       await history.open(ref);
 
       final readerChapters = <reader.ComicChapter>[];
-      for (final dc in detail.chapters) {
-        final urls = await loadChapterImages(item, dc);
-        if (urls.isEmpty) continue;
-        final ep = tryDecodeComicEpisodeUrl(dc.url);
-        readerChapters.add(
-          reader.ComicChapter(
-            title: dc.title,
-            chapterId: ep?.episodeId ?? '',
-            imageUrls: urls,
-          ),
-        );
+      if (ref.sourceName == ComicRef.localSource) {
+        final content = localContent;
+        if (content == null) throw StateError('本地内容读取未接线');
+        final localEntry = await content.find(ref);
+        if (localEntry == null) throw StateError('本地漫画不存在：${item.title}');
+        final chapters = await content.readerChapters(localEntry);
+        for (var i = 0; i < chapters.length; i++) {
+          final localChapter = chapters[i];
+          readerChapters.add(
+            reader.ComicChapter(
+              title: localChapter.title,
+              // 用原章节序号作 id：空章被跳过时也不会错位，且能写进历史。
+              chapterId: localChapterUrl(i),
+              imageUrls: localChapter.imageUrls,
+            ),
+          );
+        }
+      } else {
+        for (final dc in detail.chapters) {
+          final urls = await loadChapterImages(item, dc);
+          if (urls.isEmpty) continue;
+          final ep = tryDecodeComicEpisodeUrl(dc.url);
+          readerChapters.add(
+            reader.ComicChapter(
+              title: dc.title,
+              chapterId: ep?.episodeId ?? '',
+              imageUrls: urls,
+            ),
+          );
+        }
       }
       if (readerChapters.isEmpty) {
         if (context.mounted) {
@@ -214,7 +283,10 @@ class ComicModule implements AppModule {
       var initialChapter = 0;
       var initialPage = 0;
       if (chapter != null) {
-        final tapped = tryDecodeComicEpisodeUrl(chapter.url)?.episodeId;
+        // 在线章：epId；本地章：`mimao-local:///<index>`（与上面 chapterId 一致）。
+        final tapped = ref.sourceName == ComicRef.localSource
+            ? chapter.url
+            : tryDecodeComicEpisodeUrl(chapter.url)?.episodeId;
         final index = readerChapters.indexWhere(
           (c) => tapped != null && c.chapterId == tapped,
         );
@@ -237,7 +309,10 @@ class ComicModule implements AppModule {
         history: history,
         ref: ref,
         title: item.title,
-        coverUrl: item.coverUrl.isEmpty ? null : item.coverUrl,
+        // 本地封面是本机路径，属模块私有：不写进 core 投影的公共 coverUrl。
+        coverUrl: ref.sourceName == ComicRef.localSource
+            ? null
+            : (item.coverUrl.isEmpty ? null : item.coverUrl),
       );
       if (!context.mounted) return;
       await Navigator.of(context).push<void>(

@@ -5,11 +5,15 @@ import 'package:mimao/comic/collect_service.dart';
 import 'package:mimao/comic/comic_db.dart';
 import 'package:mimao/comic/comic_entry.dart';
 import 'package:mimao/comic/comic_models.dart';
+import 'package:mimao/comic/download_store.dart';
 import 'package:mimao/comic/pages/challenge_verify_page.dart';
 import 'package:mimao/comic/data/engine_comic_data_source.dart';
 import 'package:mimao/comic/engine/engine.dart';
 import 'package:mimao/comic/history_service.dart';
+import 'package:mimao/comic/local_comic_content.dart';
 import 'package:mimao/comic/local_comic_service.dart';
+import 'package:mimao/comic/local_download_service.dart';
+import 'package:mimao/comic/read_later_service.dart';
 import 'package:mimao/comic/reader/reader_cache.dart';
 import 'package:mimao/comic/search_history_service.dart';
 import 'package:mimao/core/contract.dart';
@@ -50,6 +54,11 @@ import 'package:mimao/novel/library_api.dart';
 import 'package:mimao/novel/novel_db.dart';
 import 'package:mimao/novel/novel_entry.dart';
 import 'package:mimao/novel/search_history_service.dart';
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 /// 全库**唯一**允许 import 三个模块目录（`comic/`、`music/`、
 /// `novel/`）的文件——第四条铁律的载体（docs/architecture.md §2）。
@@ -221,15 +230,27 @@ Future<void> initAppModules({
       // 源仓库目录与适配器共用同一 client（共享 UA/Cookie 语义）；
       // 浏览清单只读 index.json，导入仍走 adapter.importSource 的既有链路。
       final sourceCatalog = ComicSourceCatalog(client: client);
+      // 稍后阅读 / 本地下载 / 本地内容读取：全部共享同一内部库与抓取客户端。
+      final localService = ComicLocalService(db, library);
+      final localContent = ComicLocalContent(localService);
+      final downloads = ComicLocalDownloadService(
+        local: localService,
+        store: ComicDownloadStore(db),
+        rootDirectory: defaultComicDownloadDirectory,
+        loadBytes: (url) => _fetchComicImageBytes(client, url),
+        loadChapterImages: adapter.loadImagesForChapter,
+      );
       appModules[MediaType.comic] = ComicModule(
         dataSource: adapter,
         sourceRepository: adapter,
         sourceCatalog: sourceCatalog,
         collect: ComicCollectService(db, library),
         history: ComicHistoryService(db, library),
-        // 本地漫画（主页「本地漫画」区块）：导入走 C′ 的 ComicLocalService，
-        // 当前没有下载器/文件夹导入 UI，区块为空但不崩。
-        localService: ComicLocalService(db, library),
+        // 本地漫画（主页「本地漫画」区块/本地详情/阅读）：下载与导入共用。
+        localService: localService,
+        localContent: localContent,
+        readLater: ComicReadLaterService(db),
+        downloads: downloads,
         searchHistory: searchHistory,
         // 统一书架入口保留在壳层顶栏，漫画主页不再重复放快捷入口。
         loadChapterImages: adapter.loadImagesForChapter,
@@ -472,6 +493,35 @@ Future<void> resetAppModulesForTest() async {
   appModules.clear();
   appModulesError = null;
   await _resetOwnedDb();
+}
+
+/// 生产下载根目录：应用支持目录下 `comic_downloads/`。
+///
+/// 首次真正下载时才调用（ComicLocalDownloadService 惰性取目录），启动期
+/// 不碰 path_provider。
+Future<Directory> defaultComicDownloadDirectory() async {
+  final support = await getApplicationSupportDirectory();
+  return Directory(p.join(support.path, 'comic_downloads'));
+}
+
+/// 下载图片字节：复用源抓取客户端（同一 UA/Cookie 罐），Referer 取图片
+/// URL 同源——与阅读器默认加载器的兜底策略一致，但多了登录态。
+Future<Uint8List> _fetchComicImageBytes(
+  ComicHttpClient client,
+  String url,
+) async {
+  final uri = Uri.tryParse(url);
+  final referer = uri != null && uri.isAbsolute
+      ? '${uri.scheme}://${uri.authority}/'
+      : null;
+  final response = await client.fetch(
+    url,
+    options: ComicFetchOptions(referer: referer),
+  );
+  if (!response.isSuccessful) {
+    throw HttpException('HTTP ${response.statusCode}', uri: uri);
+  }
+  return Uint8List.fromList(response.bodyBytes);
 }
 
 /// 生产漫画抓取客户端：持久 Cookie（`comic_cookies.json`），装配期加载完成，
