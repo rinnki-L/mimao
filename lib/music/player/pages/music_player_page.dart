@@ -277,109 +277,135 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
             fit: StackFit.expand,
             children: <Widget>[
               _background(song.coverUrl, colorScheme),
-              SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(24, 32, 24, 24),
-                child: Column(
-                  children: <Widget>[
-                    // 唱片封面在左，歌名/歌手在右，整体位于屏幕偏上。
-                    Row(
-                      children: <Widget>[
-                        _Cover(url: song.coverUrl, playing: snapshot.playing),
-                        const SizedBox(width: 20),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+              SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+                  child: Center(
+                    child: ConstrainedBox(
+                      // 超宽桌面窗口下收拢内容宽度，避免控件被拉得太散。
+                      constraints: const BoxConstraints(maxWidth: 560),
+                      child: Column(
+                        children: <Widget>[
+                          // 封面 + 歌名留在上方；高度不够时只有这一块滚动，
+                          // 底部控件组始终贴底且不会被挤溢出。
+                          Expanded(
+                            child: SingleChildScrollView(
+                              padding: const EdgeInsets.only(
+                                top: 8,
+                                bottom: 16,
+                              ),
+                              child: Row(
+                                children: <Widget>[
+                                  _Cover(
+                                    url: song.coverUrl,
+                                    playing: snapshot.playing,
+                                  ),
+                                  const SizedBox(width: 20),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: <Widget>[
+                                        Text(
+                                          _displayTitle(song.title),
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .titleLarge
+                                              ?.copyWith(color: Colors.white),
+                                        ),
+                                        const SizedBox(height: 6),
+                                        Text(
+                                          song.artistText,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodyMedium
+                                              ?.copyWith(color: Colors.white70),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          // 底部一整组：错误/重试 + 传输控件 + 进度条 + 时间。
+                          if (failure != null) ...<Widget>[
+                            Text(
+                              failure,
+                              textAlign: TextAlign.center,
+                              style: Theme.of(context).textTheme.bodyMedium
+                                  ?.copyWith(color: Colors.red),
+                            ),
+                            const SizedBox(height: 8),
+                            OutlinedButton.icon(
+                              onPressed: player.retry,
+                              icon: const Icon(Icons.refresh),
+                              label: const Text('重试'),
+                            ),
+                            const SizedBox(height: 12),
+                          ],
+                          // 传输控件（上一首/播放暂停/下一首）位于进度条上方。
+                          if (player.isResolving)
+                            const Padding(
+                              padding: EdgeInsets.all(16),
+                              child: CircularProgressIndicator(),
+                            )
+                          else
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: <Widget>[
+                                IconButton.filledTonal(
+                                  tooltip: '上一首',
+                                  iconSize: 32,
+                                  icon: const Icon(Icons.skip_previous),
+                                  onPressed: player.previous,
+                                ),
+                                const SizedBox(width: 16),
+                                IconButton.filled(
+                                  tooltip: snapshot.playing ? '暂停' : '播放',
+                                  iconSize: 40,
+                                  icon: Icon(
+                                    snapshot.playing
+                                        ? Icons.pause
+                                        : Icons.play_arrow,
+                                  ),
+                                  onPressed: player.toggle,
+                                ),
+                                const SizedBox(width: 16),
+                                IconButton.filledTonal(
+                                  tooltip: '下一首',
+                                  iconSize: 32,
+                                  icon: const Icon(Icons.skip_next),
+                                  onPressed: player.next,
+                                ),
+                              ],
+                            ),
+                          const SizedBox(height: 16),
+                          // 波浪进度条：保留 Slider 语义/点击 seek/无障碍，拖动跟手；
+                          // 高潮区间通过 theme 的 climaxSpans 直接画在轨道上。
+                          // 外包 SliderTheme 只影响本条，不改全局主题。
+                          slider,
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: <Widget>[
                               Text(
-                                _displayTitle(song.title),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: Theme.of(context).textTheme.titleLarge
-                                    ?.copyWith(color: Colors.white),
+                                _formatDuration(snapshot.position),
+                                style: const TextStyle(color: Colors.white70),
                               ),
-                              const SizedBox(height: 6),
                               Text(
-                                song.artistText,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: Theme.of(context).textTheme.bodyMedium
-                                    ?.copyWith(color: Colors.white70),
+                                _formatDuration(snapshot.duration),
+                                style: const TextStyle(color: Colors.white70),
                               ),
                             ],
                           ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 28),
-                    if (failure != null) ...<Widget>[
-                      Text(
-                        failure,
-                        textAlign: TextAlign.center,
-                        style: Theme.of(
-                          context,
-                        ).textTheme.bodyMedium?.copyWith(color: Colors.red),
-                      ),
-                      const SizedBox(height: 8),
-                      OutlinedButton.icon(
-                        onPressed: player.retry,
-                        icon: const Icon(Icons.refresh),
-                        label: const Text('重试'),
-                      ),
-                    ],
-                    const SizedBox(height: 8),
-                    // 传输控件（上一首/播放暂停/下一首）位于进度条上方。
-                    if (player.isResolving)
-                      const Padding(
-                        padding: EdgeInsets.all(16),
-                        child: CircularProgressIndicator(),
-                      )
-                    else
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: <Widget>[
-                          IconButton.filledTonal(
-                            tooltip: '上一首',
-                            iconSize: 32,
-                            icon: const Icon(Icons.skip_previous),
-                            onPressed: player.previous,
-                          ),
-                          const SizedBox(width: 16),
-                          IconButton.filled(
-                            tooltip: snapshot.playing ? '暂停' : '播放',
-                            iconSize: 40,
-                            icon: Icon(
-                              snapshot.playing ? Icons.pause : Icons.play_arrow,
-                            ),
-                            onPressed: player.toggle,
-                          ),
-                          const SizedBox(width: 16),
-                          IconButton.filledTonal(
-                            tooltip: '下一首',
-                            iconSize: 32,
-                            icon: const Icon(Icons.skip_next),
-                            onPressed: player.next,
-                          ),
                         ],
                       ),
-                    const SizedBox(height: 16),
-                    // 波浪进度条：保留 Slider 语义/点击 seek/无障碍，拖动跟手；
-                    // 高潮区间通过 theme 的 climaxSpans 直接画在轨道上。
-                    // 外包 SliderTheme 只影响本条，不改全局主题。
-                    slider,
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: <Widget>[
-                        Text(
-                          _formatDuration(snapshot.position),
-                          style: const TextStyle(color: Colors.white70),
-                        ),
-                        Text(
-                          _formatDuration(snapshot.duration),
-                          style: const TextStyle(color: Colors.white70),
-                        ),
-                      ],
                     ),
-                  ],
+                  ),
                 ),
               ),
             ],
@@ -390,11 +416,13 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
   }
 }
 
-/// 圆形「黑胶唱片」封面：播放时缓慢旋转，暂停时静止。
+/// 圆形「黑胶唱片」封面：播放时旋转（5 秒一圈），暂停时静止。
 ///
-/// 旋转用 [AnimationController.repeat] 无限动画，而 widget 测试里的
-/// `pumpAndSettle` 永远等不到收敛。因此在测试绑定下完全不启动动画（只显示
-/// 静止封面）；真机按 [playing] 起停。dispose 必须释放控制器。
+/// 盘面叠了一道非对称反光（两道相对扇形高光 + 边缘标记点），否则同心对称
+/// 的封面图案转起来和静止几乎没有区别。旋转用 [AnimationController.repeat]
+/// 无限动画，而 widget 测试里的 `pumpAndSettle` 永远等不到收敛。因此在测试
+/// 绑定下完全不启动动画（只显示静止封面）；真机按 [playing] 起停。dispose
+/// 必须释放控制器。
 class _Cover extends StatefulWidget {
   const _Cover({required this.url, required this.playing});
 
@@ -414,9 +442,10 @@ class _CoverState extends State<_Cover> with SingleTickerProviderStateMixin {
       .toString()
       .contains('TestWidgetsFlutterBinding');
 
+  /// 5 秒一圈：比真实 33 转黑胶快，慢于「转太快看不清」，肉眼一眼能看出。
   late final AnimationController _spin = AnimationController(
     vsync: this,
-    duration: const Duration(seconds: 14),
+    duration: const Duration(seconds: 5),
   );
 
   @override
@@ -502,6 +531,39 @@ class _CoverState extends State<_Cover> with SingleTickerProviderStateMixin {
             fit: StackFit.expand,
             children: <Widget>[
               artwork,
+              // 非对称反光：两道相对的扇形高光 + 边缘标记点，全部放在
+              // RotationTransition 内部随盘面一起转。封面本身可能是同心对称
+              // 图案（转起来和静止一样），这层反光是「看得出在转」的关键。
+              const IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: SweepGradient(
+                      colors: <Color>[
+                        Color(0x00FFFFFF),
+                        Color(0x2EFFFFFF),
+                        Color(0x00FFFFFF),
+                        Color(0x00FFFFFF),
+                        Color(0x1FFFFFFF),
+                        Color(0x00FFFFFF),
+                      ],
+                      stops: <double>[0.0, 0.07, 0.16, 0.5, 0.57, 0.66],
+                    ),
+                  ),
+                ),
+              ),
+              Align(
+                alignment: const Alignment(0, -0.82),
+                child: IgnorePointer(
+                  child: Container(
+                    width: 10,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.white.withValues(alpha: 0.45),
+                    ),
+                  ),
+                ),
+              ),
               // 中心轴孔 + 一圈深色盘芯，纯装饰、不参与命中。
               Center(
                 child: IgnorePointer(

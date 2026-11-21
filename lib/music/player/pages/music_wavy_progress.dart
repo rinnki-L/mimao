@@ -27,7 +27,7 @@ class ClimaxSpan {
   final double end;
 }
 
-/// 已播放波形的振幅（逻辑像素，峰-峰值约 5px）。
+/// 未播放波形的振幅（逻辑像素，峰-峰值约 5px）。
 const double kWavyAmplitude = 2.5;
 
 /// 波形波长（一个完整正弦周期的水平长度，逻辑像素）。
@@ -110,10 +110,10 @@ class MiniWavyProgress extends StatelessWidget {
   }
 }
 
-/// 波形绘制核心：未播放段是圆角低透明度直条，已播放段是真实正弦波。
+/// 波形绘制核心：未播放段是低透明度正弦波，已播放段是 active 色直线。
 ///
-/// [progress] 决定波形终点与相位：终点 = left + progress * width，
-/// 相位 = progress * 6π，因此播放推进时波形会「流动」。
+/// [progress] 是直线与波浪的分界点：直线画到 left + progress * width，
+/// 波浪从该点延伸到右端；相位 = progress * 6π，播放推进时波浪被向左「拉直」。
 class WavyProgressPainter extends CustomPainter {
   WavyProgressPainter({required this.progress, required this.style});
 
@@ -125,41 +125,43 @@ class WavyProgressPainter extends CustomPainter {
     if (size.width <= 0 || size.height <= 0) return;
     final p = progress.clamp(0.0, 1.0);
     final midY = size.height / 2;
-    final rRect = RRect.fromLTRBR(
-      0,
-      midY - style.trackHeight / 2,
-      size.width,
-      midY + style.trackHeight / 2,
-      Radius.circular(style.trackHeight / 2),
-    );
-
-    // 未播放轨道：低透明度圆角直条，铺满整宽（即便 progress=0 也可见）。
-    canvas.drawRRect(rRect, Paint()..color = style.inactiveColor);
-
-    if (p <= 0) return;
-
     final endX = p * size.width;
-    final phase = p * kWavyPhaseTurns;
-    final activePaint = Paint()
-      ..color = style.activeColor
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = style.strokeWidth
-      ..strokeCap = StrokeCap.round
-      ..isAntiAlias = true;
+    final stroke = style.strokeWidth;
 
-    // 裁剪到轨道水平范围内（避免左端圆帽溢出画布），但不过度裁到右端——
-    // 让 progress 终点的圆头端帽完整可见，已播放段与未播放段自然衔接。
+    // 水平方向向右多留半个描边，让右端圆帽完整可见；纵向仍按画布高度。
     canvas.save();
-    canvas.clipRect(Rect.fromLTRB(0, 0, size.width, size.height));
-    final path = _buildWavePath(
-      startX: 0,
-      endX: endX,
-      midY: midY,
-      amplitude: style.amplitude,
-      wavelength: style.wavelength,
-      phase: phase,
-    );
-    canvas.drawPath(path, activePaint);
+    canvas.clipRect(Rect.fromLTRB(0, 0, size.width + stroke / 2, size.height));
+
+    // 已播放段：active 色直线（progress=0 时不画，整条都是波浪）。
+    if (p > 0) {
+      final activePaint = Paint()
+        ..color = style.activeColor
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = stroke
+        ..strokeCap = StrokeCap.round
+        ..isAntiAlias = true;
+      canvas.drawLine(Offset(0, midY), Offset(endX, midY), activePaint);
+    }
+
+    // 未播放段：inactive 色低透明度正弦波（progress=1 时不画，整条都是直线）。
+    if (p < 1) {
+      final wavePaint = Paint()
+        ..color = style.inactiveColor
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = stroke
+        ..strokeCap = StrokeCap.round
+        ..isAntiAlias = true;
+      final path = _buildWavePath(
+        startX: endX,
+        endX: size.width,
+        midY: midY,
+        amplitude: style.amplitude,
+        wavelength: style.wavelength,
+        phase: p * kWavyPhaseTurns,
+      );
+      canvas.drawPath(path, wavePaint);
+    }
+
     canvas.restore();
   }
 
@@ -297,8 +299,11 @@ class _WavyThumbShape extends SliderComponentShape {
   }
 }
 
-/// 在给定轨道矩形内画波浪：与 [WavyProgressPainter.paint] 同款算法，
+/// 在给定轨道矩形内画进度：与 [WavyProgressPainter.paint] 同款算法，
 /// 区别只是坐标由 trackRect 提供（Slider 场景）。
+///
+/// 已播放段是 active 色直线，未播放段是 inactive 色低透明度波浪；高潮区间
+/// 只在 start/end 两端各画一个暖橙色圆点，且画在最上层。
 void _drawWaveOnTrack(
   Canvas canvas,
   Rect trackRect,
@@ -311,80 +316,79 @@ void _drawWaveOnTrack(
   List<ClimaxSpan> climaxSpans = const [],
 }) {
   final midY = trackRect.center.dy;
-  final rRect = RRect.fromLTRBR(
-    trackRect.left,
-    midY - kWavyTrackHeight / 2,
-    trackRect.right,
-    midY + kWavyTrackHeight / 2,
-    Radius.circular(kWavyTrackHeight / 2),
-  );
-  canvas.drawRRect(rRect, Paint()..color = inactiveColor);
-
-  // 高潮区间标记：暖橙色半透明圆角块，比轨道略高，叠在未播放轨道之上。
-  // 默认空列表 → 不做任何绘制，现有视觉完全不变。
-  for (final span in climaxSpans) {
-    final start = span.start.clamp(0.0, 1.0);
-    final end = span.end.clamp(0.0, 1.0);
-    final left = trackRect.left + math.min(start, end) * trackRect.width;
-    final right = trackRect.left + math.max(start, end) * trackRect.width;
-    if (right - left <= 0) continue;
-    const markerColor = Color(0xFFFFB74D);
-    const markerHeight = kWavyTrackHeight + 4;
-    final markerRect = RRect.fromLTRBR(
-      left,
-      midY - markerHeight / 2,
-      right,
-      midY + markerHeight / 2,
-      Radius.circular(markerHeight / 2),
-    );
-    canvas.drawRRect(
-      markerRect,
-      Paint()..color = markerColor.withValues(alpha: 0.5),
-    );
-    // 起点强调：一条 1.5px 暖橙竖线。
-    canvas.drawLine(
-      Offset(left, midY - markerHeight / 2),
-      Offset(left, midY + markerHeight / 2),
-      Paint()
-        ..color = markerColor
-        ..strokeWidth = 1.5
-        ..strokeCap = StrokeCap.round,
-    );
-  }
-
-  if (progress <= 0) return;
-
   final endX = trackRect.left + progress * trackRect.width;
-  final phase = progress * kWavyPhaseTurns;
-  final activePaint = Paint()
-    ..color = activeColor
-    ..style = PaintingStyle.stroke
-    ..strokeWidth = strokeWidth
-    ..strokeCap = StrokeCap.round
-    ..isAntiAlias = true;
 
   // 关键：不能用 trackRect 本身裁剪——它只有 kWavyTrackHeight(4) 高，
   // 会把振幅 2.5 + 半描边 2.5 的波峰纵向切掉，只剩一条抖动细线。
-  // 向外撑开 amplitude+strokeWidth，给波峰和两端圆帽留足空间；播放页
-  // 波形由此与迷你条完全同款（清晰的 5px 正弦波，而非被压扁的细絮）。
+  // 向外撑开 amplitude+strokeWidth，给波峰和两端圆帽留足空间。
   canvas.save();
   canvas.clipRect(trackRect.inflate(amplitude + strokeWidth));
-  final path = _buildWavePath(
-    startX: trackRect.left,
-    endX: endX,
-    midY: midY,
-    amplitude: amplitude,
-    wavelength: wavelength,
-    phase: phase,
-  );
-  canvas.drawPath(path, activePaint);
+
+  // 已播放段：active 色直线（progress=0 时不画，整条都是波浪）。
+  if (progress > 0) {
+    final activePaint = Paint()
+      ..color = activeColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.round
+      ..isAntiAlias = true;
+    canvas.drawLine(
+      Offset(trackRect.left, midY),
+      Offset(endX, midY),
+      activePaint,
+    );
+  }
+
+  // 未播放段：inactive 色低透明度波浪（progress=1 时不画，整条都是直线）。
+  // 相位随 progress 推进，波浪像被从右往左「吃掉」，逐步拉直成直线。
+  if (progress < 1) {
+    final wavePaint = Paint()
+      ..color = inactiveColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.round
+      ..isAntiAlias = true;
+    final path = _buildWavePath(
+      startX: endX,
+      endX: trackRect.right,
+      midY: midY,
+      amplitude: amplitude,
+      wavelength: wavelength,
+      phase: progress * kWavyPhaseTurns,
+    );
+    canvas.drawPath(path, wavePaint);
+  }
+
+  // 高潮区间标记：start/end 两端各一个暖橙色圆点（半径比拇指 7px 小），
+  // 不画长条/连线，叠在直线与波浪之上。默认空列表 → 不做任何绘制。
+  for (final span in climaxSpans) {
+    final start = span.start.clamp(0.0, 1.0);
+    final end = span.end.clamp(0.0, 1.0);
+    final low = math.min(start, end);
+    final high = math.max(start, end);
+    final dotPaint = Paint()
+      ..color = const Color(0xFFFFB74D)
+      ..isAntiAlias = true;
+    canvas.drawCircle(
+      Offset(trackRect.left + low * trackRect.width, midY),
+      3,
+      dotPaint,
+    );
+    canvas.drawCircle(
+      Offset(trackRect.left + high * trackRect.width, midY),
+      3,
+      dotPaint,
+    );
+  }
+
   canvas.restore();
 }
 
 /// 在 [startX, endX] 区间按正弦函数采样并构造一条 Path。
 ///
-/// 相位沿 x 递减：相位 [[phase]] 对应 progress 终点，向左逐渐减小，这样
-/// progress 增大时波峰会向轨道右侧推进，呈现「流动」感。
+/// 相位从区间左端开始向右累加，因此相位增大时波峰会向左移动；配合
+/// progress 推导的相位，未播放波浪会呈现被向左「吃掉/拉直」的流动感。
+/// [endX] 不大于 [startX] 时返回空 Path（progress=1 不画波浪）。
 Path _buildWavePath({
   required double startX,
   required double endX,
@@ -394,22 +398,22 @@ Path _buildWavePath({
   required double phase,
 }) {
   final path = Path();
+  if (endX <= startX) return path;
   final step = math.max(wavelength / 12, 1.0);
-  final x0 = startX;
-  path.moveTo(x0, midY + amplitude * math.sin(phase));
-  for (double x = x0 + step; x < endX; x += step) {
-    final distance = x - x0;
+  path.moveTo(startX, midY + amplitude * math.sin(phase));
+  for (double x = startX + step; x < endX; x += step) {
+    final distance = x - startX;
     final y =
         midY +
-        amplitude * math.sin(phase - (distance / wavelength) * 2 * math.pi);
+        amplitude * math.sin(phase + (distance / wavelength) * 2 * math.pi);
     path.lineTo(x, y);
   }
-  // 严格落在 progress 终点，保证圆头端帽对齐精确进度。
-  final endDistance = endX - x0;
+  // 严格落在轨道右端，保证圆头端帽对齐精确边缘。
+  final endDistance = endX - startX;
   path.lineTo(
     endX,
     midY +
-        amplitude * math.sin(phase - (endDistance / wavelength) * 2 * math.pi),
+        amplitude * math.sin(phase + (endDistance / wavelength) * 2 * math.pi),
   );
   return path;
 }
