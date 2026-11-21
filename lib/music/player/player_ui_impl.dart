@@ -20,6 +20,7 @@ import 'package:mimao/music/player/playback_engine.dart';
 import 'package:mimao/music/player/player_progress.dart';
 import 'package:mimao/music/player/player_store.dart';
 import 'package:mimao/music/player/player_ui.dart';
+import 'package:mimao/music/player/song_collection.dart';
 
 class MusicPlayerUiImpl implements MusicPlayerUi {
   MusicPlayerUiImpl(
@@ -27,6 +28,7 @@ class MusicPlayerUiImpl implements MusicPlayerUi {
     this.loadClimax,
     this.loadLyric,
     this.playbackExt,
+    this.songCollection,
   });
 
   final MusicPlayerStore store;
@@ -40,6 +42,9 @@ class MusicPlayerUiImpl implements MusicPlayerUi {
   /// 播放补全接口；非空时播放页显示「歌曲资料」入口。
   final MusicPlaybackExtApi? playbackExt;
 
+  /// 收藏能力；非空时播放页/迷你条显示「加到我喜欢/歌单」入口。
+  final MusicSongCollection? songCollection;
+
   @override
   Widget? buildMiniPlayer(BuildContext context) {
     // 队列为空/未配置播放 → null（调用方不渲染）。队列变化由调用方的
@@ -50,6 +55,7 @@ class MusicPlayerUiImpl implements MusicPlayerUi {
       loadClimax: loadClimax,
       loadLyric: loadLyric,
       playbackExt: playbackExt,
+      songCollection: songCollection,
     );
   }
 
@@ -59,6 +65,7 @@ class MusicPlayerUiImpl implements MusicPlayerUi {
     loadClimax: loadClimax,
     loadLyric: loadLyric,
     playbackExt: playbackExt,
+    songCollection: songCollection,
   );
 
   @override
@@ -87,6 +94,7 @@ MusicPlayerUi createMusicPlayerUi(
   Future<List<MusicSongClimaxSegment>> Function(String hash)? loadClimax,
   LoadLyric? loadLyric,
   MusicPlaybackExtApi? playbackExt,
+  MusicSongCollection? songCollection,
 }) => MusicPlayerUiImpl(
   MusicPlayerStore(
     playbackApi: playbackApi,
@@ -98,4 +106,5 @@ MusicPlayerUi createMusicPlayerUi(
   loadClimax: loadClimax,
   loadLyric: loadLyric,
   playbackExt: playbackExt,
+  songCollection: songCollection,
 );

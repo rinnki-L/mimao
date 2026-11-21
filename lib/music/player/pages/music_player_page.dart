@@ -18,10 +18,12 @@ import 'package:mimao/music/lyric/lyric_view.dart';
 import 'package:mimao/music/models/discovery_models.dart';
 import 'package:mimao/music/models/music_models.dart';
 import 'package:mimao/music/pages/music_song_info_sheet.dart';
+import 'package:mimao/music/player/pages/add_to_playlist_sheet.dart';
 import 'package:mimao/music/player/pages/music_mode_card.dart';
 import 'package:mimao/music/player/pages/music_queue_sheet.dart';
 import 'package:mimao/music/player/pages/music_wavy_progress.dart';
 import 'package:mimao/music/player/player_store.dart';
+import 'package:mimao/music/player/song_collection.dart';
 
 class MusicPlayerPage extends StatefulWidget {
   const MusicPlayerPage({
@@ -30,6 +32,7 @@ class MusicPlayerPage extends StatefulWidget {
     this.loadClimax,
     this.loadLyric,
     this.playbackExt,
+    this.songCollection,
   });
 
   final MusicPlayerStore player;
@@ -43,6 +46,10 @@ class MusicPlayerPage extends StatefulWidget {
 
   /// 播放补全接口：非空时提供「歌曲资料」入口（权益/资料/歌手图片）。
   final MusicPlaybackExtApi? playbackExt;
+
+  /// 收藏/歌单写入接口：非空时才显示「添加到我喜欢」「添加到歌单」按钮
+  ///（未登录/未接线由调用方传 null，与 [playbackExt] 同款门控）。
+  final MusicSongCollection? songCollection;
 
   @override
   State<MusicPlayerPage> createState() => _MusicPlayerPageState();
@@ -68,7 +75,32 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
   /// value 让拇指/波形跟随手指，onChangeEnd 再 seekTo，松手后回到引擎位置。
   double? _dragPositionMs;
 
+  /// 「添加到我喜欢」提交中：禁用按钮防重复点击。
+  bool _favoriteBusy = false;
+
   MusicPlayerStore get player => widget.player;
+
+  /// 把当前曲目加到云歌单「我喜欢」；未接线/无曲目时静默不做事。
+  Future<void> _addFavorite() async {
+    final collection = widget.songCollection;
+    final song = player.currentSong;
+    if (collection == null || song == null || _favoriteBusy) return;
+    // pop/页面销毁后 context 失效，先抓住 messenger 保证提示仍能弹出。
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    setState(() => _favoriteBusy = true);
+    try {
+      await collection.addToFavorite(song);
+      if (!mounted) return;
+      messenger?.showSnackBar(const SnackBar(content: Text('已添加到我喜欢')));
+    } on Object catch (error) {
+      if (!mounted) return;
+      messenger?.showSnackBar(
+        SnackBar(content: Text(musicCollectionErrorText(error))),
+      );
+    } finally {
+      if (mounted) setState(() => _favoriteBusy = false);
+    }
+  }
 
   /// Observer builder 内检测换歌并按需发起高潮加载。
   ///
@@ -235,6 +267,29 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
             icon: const Icon(Icons.queue_music),
             onPressed: () => showMusicQueueSheet(context, player),
           ),
+          // 收藏/歌单：只在注入 [MusicSongCollection] 时出现（未登录/未接线
+          // 时整组隐藏，与「歌曲资料」按钮同款门控）。
+          if (widget.songCollection != null) ...<Widget>[
+            IconButton(
+              key: const Key('player-add-favorite'),
+              tooltip: '添加到我喜欢',
+              icon: Icon(
+                _favoriteBusy ? Icons.favorite : Icons.favorite_border,
+              ),
+              onPressed: _favoriteBusy ? null : () => unawaited(_addFavorite()),
+            ),
+            IconButton(
+              key: const Key('player-add-playlist'),
+              tooltip: '添加到歌单',
+              icon: const Icon(Icons.playlist_add),
+              onPressed: () {
+                final song = player.currentSong;
+                final collection = widget.songCollection;
+                if (song == null || collection == null) return;
+                unawaited(showAddToPlaylistSheet(context, song, collection));
+              },
+            ),
+          ],
         ],
       ),
       body: Observer(

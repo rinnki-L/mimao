@@ -10,6 +10,7 @@ import 'package:mimao/music/api/music_api.dart';
 import 'package:mimao/music/client/kugou_error.dart';
 import 'package:mimao/music/client/kugou_identity.dart';
 import 'package:mimao/music/models/music_models.dart';
+import 'package:mimao/music/models/user_library_models.dart';
 import 'package:mimao/music/music_store.dart';
 import 'package:mimao/music/pages/music_module_page.dart';
 import 'package:mimao/music/player/pages/music_mini_player.dart';
@@ -18,8 +19,10 @@ import 'package:mimao/music/player/play_mode.dart';
 import 'package:mimao/music/player/playback_engine.dart';
 import 'package:mimao/music/player/player_store.dart';
 import 'package:mimao/music/player/player_ui_impl.dart';
+import 'package:mimao/music/player/song_collection.dart';
 
 import 'player_fakes.dart';
+import 'song_collection_fakes.dart';
 
 class _FakeMusicApi implements MusicApi {
   @override
@@ -48,6 +51,50 @@ MusicSong _withCover(MusicSong song, String coverUrl) => MusicSong(
   albumTitle: song.albumTitle,
   durationMs: song.durationMs,
   coverUrl: coverUrl,
+);
+
+/// 测试用云歌单：只填 UI 需要的字段，其余保持空/未知。
+MusicUserPlaylist _playlist({
+  int? cloudListId = 101,
+  String title = '我的收藏',
+  int? songCount = 3,
+  int? defaultKind,
+}) => MusicUserPlaylist(
+  cloudListId: cloudListId,
+  globalId: 'g-$cloudListId',
+  creatorGlobalId: 'creator',
+  title: title,
+  descriptionPresent: false,
+  tagsPresent: false,
+  description: '',
+  tags: '',
+  coverUrl: '',
+  creatorId: 1,
+  creatorName: '我',
+  creatorListId: 1,
+  songCount: songCount,
+  revision: 0,
+  sortIndex: 0,
+  sourceCode: 0,
+  kind: MusicCloudPlaylistKind.owned,
+  kindCode: 0,
+  editable: true,
+  private: null,
+  published: null,
+  deleted: null,
+  dropped: null,
+  customCover: null,
+  defaultKind: defaultKind,
+  flagCodes: const MusicPlaylistFlagCodes(
+    editable: null,
+    private: null,
+    published: null,
+    deleted: null,
+    dropped: null,
+    customCover: null,
+  ),
+  createdAtSeconds: null,
+  updatedAtSeconds: null,
 );
 
 void main() {
@@ -466,5 +513,205 @@ void main() {
 
     expect(engine.seeks, isNotEmpty);
     expect(engine.seeks.last.inSeconds, greaterThan(0));
+  });
+
+  // ---- 添加到我喜欢 / 添加到歌单（MusicSongCollection）----
+
+  group('添加到我喜欢 / 添加到歌单', () {
+    late FakeSongCollection collection;
+
+    setUp(() {
+      collection = FakeSongCollection(
+        playlists: <MusicUserPlaylist>[
+          _playlist(cloudListId: 101, title: '通勤'),
+          _playlist(cloudListId: 102, title: '睡前', songCount: 7),
+        ],
+      );
+    });
+
+    /// 播放一首歌并直接挂播放页（不经过模块页，聚焦按钮本身）。
+    Future<void> pumpPlayer(
+      WidgetTester tester, {
+      MusicSongCollection? songCollection,
+    }) async {
+      await playerUi.store.playSong(fakeSong());
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MusicPlayerPage(
+            player: playerUi.store,
+            songCollection: songCollection,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('注入时两个按钮出现；未注入时隐藏', (tester) async {
+      await pumpPlayer(tester, songCollection: collection);
+      expect(find.byKey(const Key('player-add-favorite')), findsOneWidget);
+      expect(find.byKey(const Key('player-add-playlist')), findsOneWidget);
+      expect(find.byTooltip('添加到我喜欢'), findsOneWidget);
+      expect(find.byTooltip('添加到歌单'), findsOneWidget);
+
+      await pumpPlayer(tester);
+      expect(find.byKey(const Key('player-add-favorite')), findsNothing);
+      expect(find.byKey(const Key('player-add-playlist')), findsNothing);
+    });
+
+    testWidgets('点「添加到我喜欢」写入当前曲目并给出成功提示', (tester) async {
+      await pumpPlayer(tester, songCollection: collection);
+
+      await tester.tap(find.byKey(const Key('player-add-favorite')));
+      await tester.pumpAndSettle();
+
+      expect(collection.addedToFavorite.single.id, '7301');
+      expect(find.text('已添加到我喜欢'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('点「添加到歌单」列出可编辑歌单，选中后写入并关闭弹窗', (tester) async {
+      await pumpPlayer(tester, songCollection: collection);
+
+      await tester.tap(find.byKey(const Key('player-add-playlist')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('add-to-playlist-sheet')), findsOneWidget);
+      expect(find.text('添加到歌单'), findsOneWidget);
+      expect(find.byKey(const Key('add-to-playlist-item-0')), findsOneWidget);
+      expect(find.byKey(const Key('add-to-playlist-item-1')), findsOneWidget);
+      expect(find.text('通勤'), findsOneWidget);
+      expect(find.text('3 首'), findsOneWidget);
+      expect(find.text('睡前'), findsOneWidget);
+      expect(find.text('7 首'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('add-to-playlist-item-1')));
+      await tester.pumpAndSettle();
+
+      expect(collection.addedToPlaylists.single.id, '7301');
+      expect(collection.lastTargetPlaylist!.cloudListId, 102);
+      expect(find.byKey(const Key('add-to-playlist-sheet')), findsNothing);
+      expect(find.text('已添加到「睡前」'), findsOneWidget);
+    });
+
+    testWidgets('收藏失败（未登录）不崩，提示登录且不记录成功', (tester) async {
+      collection.error = const KugouApiException('authentication', '未登录');
+      await pumpPlayer(tester, songCollection: collection);
+
+      await tester.tap(find.byKey(const Key('player-add-favorite')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('请先登录酷狗账号'), findsOneWidget);
+      expect(collection.addedToFavorite, isEmpty);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('歌单加载失败显示「加载失败」，重试后恢复列表', (tester) async {
+      collection.error = const KugouApiException('http', '网络异常');
+      await pumpPlayer(tester, songCollection: collection);
+
+      await tester.tap(find.byKey(const Key('player-add-playlist')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('加载失败'), findsOneWidget);
+      expect(find.byKey(const Key('add-to-playlist-retry')), findsOneWidget);
+
+      collection.error = null;
+      await tester.tap(find.byKey(const Key('add-to-playlist-retry')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('加载失败'), findsNothing);
+      expect(find.byKey(const Key('add-to-playlist-item-0')), findsOneWidget);
+      expect(find.text('通勤'), findsOneWidget);
+    });
+
+    testWidgets('歌单为空时显示「暂无可添加的歌单」', (tester) async {
+      collection.playlists = <MusicUserPlaylist>[];
+      await pumpPlayer(tester, songCollection: collection);
+
+      await tester.tap(find.byKey(const Key('player-add-playlist')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('暂无可添加的歌单'), findsOneWidget);
+      expect(find.byKey(const Key('add-to-playlist-list')), findsNothing);
+    });
+
+    testWidgets('加歌失败保留弹窗并提示，恢复后可重试成功', (tester) async {
+      await pumpPlayer(tester, songCollection: collection);
+      await tester.tap(find.byKey(const Key('player-add-playlist')));
+      await tester.pumpAndSettle();
+
+      collection.error = const KugouApiException('business', '风控拦截');
+      await tester.tap(find.byKey(const Key('add-to-playlist-item-0')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('操作失败：风控拦截'), findsOneWidget);
+      expect(find.byKey(const Key('add-to-playlist-sheet')), findsOneWidget);
+      expect(collection.addedToPlaylists, isEmpty);
+
+      collection.error = null;
+      await tester.tap(find.byKey(const Key('add-to-playlist-item-0')));
+      await tester.pumpAndSettle();
+
+      expect(collection.addedToPlaylists.single.id, '7301');
+      expect(find.byKey(const Key('add-to-playlist-sheet')), findsNothing);
+      // SnackBar 排队：先等失败提示的 4 秒展示结束，成功提示才轮到。
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+      expect(find.text('已添加到「通勤」'), findsOneWidget);
+    });
+
+    testWidgets('迷你条注入后出现心形收藏按钮，点击写入我喜欢', (tester) async {
+      final miniStore = MusicPlayerStore(
+        playbackApi: playback,
+        engineFactory: () => engine,
+      );
+      addTearDown(miniStore.dispose);
+      await miniStore.playSong(fakeSong());
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Align(
+              alignment: Alignment.bottomCenter,
+              child: MusicMiniPlayer(
+                player: miniStore,
+                songCollection: collection,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('mini-add-favorite')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('mini-add-favorite')));
+      await tester.pumpAndSettle();
+
+      expect(collection.addedToFavorite.single.id, '7301');
+      expect(find.text('已添加到我喜欢'), findsOneWidget);
+    });
+
+    testWidgets('迷你条未注入 songCollection 时不显示收藏按钮', (tester) async {
+      final miniStore = MusicPlayerStore(
+        playbackApi: playback,
+        engineFactory: () => engine,
+      );
+      addTearDown(miniStore.dispose);
+      await miniStore.playSong(fakeSong());
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Align(
+              alignment: Alignment.bottomCenter,
+              child: MusicMiniPlayer(player: miniStore),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('mini-add-favorite')), findsNothing);
+    });
   });
 }

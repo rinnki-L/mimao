@@ -43,6 +43,7 @@ import 'package:mimao/music/player/playback_engine.dart';
 import 'package:mimao/music/player/player_progress.dart';
 import 'package:mimao/music/player/player_ui.dart';
 import 'package:mimao/music/player/player_ui_impl.dart';
+import 'package:mimao/music/player/song_collection.dart';
 import 'package:mimao/music/search_history_service.dart';
 import 'package:mimao/novel/collect_service.dart';
 import 'package:mimao/novel/history_service.dart';
@@ -360,6 +361,11 @@ Future<void> initAppModules({
                 }
               },
               playbackExt: api.playbackExt,
+              // 播放页/迷你条的「加到我喜欢/歌单」：云歌单读 + 加歌写。
+              songCollection: KugouSongCollection(
+                api.userLibrary,
+                api.playlistWrite,
+              ),
             ),
         // ── M4-L 登录 ──
         account: account,

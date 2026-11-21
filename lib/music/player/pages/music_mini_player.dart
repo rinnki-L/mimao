@@ -11,11 +11,13 @@ import 'package:mimao/core/theme.dart';
 import 'package:mimao/music/api/playback_ext_api.dart';
 import 'package:mimao/music/lyric/lyric_models.dart';
 import 'package:mimao/music/models/discovery_models.dart';
+import 'package:mimao/music/player/pages/add_to_playlist_sheet.dart';
 import 'package:mimao/music/player/pages/music_mode_card.dart';
 import 'package:mimao/music/player/pages/music_player_page.dart';
 import 'package:mimao/music/player/pages/music_queue_sheet.dart';
 import 'package:mimao/music/player/pages/music_wavy_progress.dart';
 import 'package:mimao/music/player/player_store.dart';
+import 'package:mimao/music/player/song_collection.dart';
 
 /// 迷你条按钮统一 36×36：三个按钮总宽固定 108，便于在卡片中精确居中。
 const ButtonStyle _miniIconButtonStyle = ButtonStyle(
@@ -31,6 +33,7 @@ class MusicMiniPlayer extends StatelessWidget {
     this.loadClimax,
     this.loadLyric,
     this.playbackExt,
+    this.songCollection,
   });
 
   final MusicPlayerStore player;
@@ -43,6 +46,10 @@ class MusicMiniPlayer extends StatelessWidget {
 
   /// 透传给播放页的歌曲资料入口；null 时播放页不显示资料按钮。
   final MusicPlaybackExtApi? playbackExt;
+
+  /// 透传给播放页的收藏/歌单接口；非空时右侧多一个收藏按钮，播放页也
+  /// 会显示「添加到我喜欢」「添加到歌单」。
+  final MusicSongCollection? songCollection;
 
   @override
   Widget build(BuildContext context) {
@@ -72,6 +79,7 @@ class MusicMiniPlayer extends StatelessWidget {
                     loadClimax: loadClimax,
                     loadLyric: loadLyric,
                     playbackExt: playbackExt,
+                    songCollection: songCollection,
                   ),
                 ),
               ),
@@ -168,9 +176,9 @@ class MusicMiniPlayer extends StatelessWidget {
                                   ],
                                 ),
                         ),
-                        // 右：播放模式（上方弹小卡片）+ 歌曲列表（右侧抽屉）。
-                        // 两个独立按钮仍在同一个固定宽度的 Expanded 里，
-                        // 不参与中段 108 的居中计算。
+                        // 右：播放模式（上方弹小卡片）+ 歌曲列表（右侧抽屉）
+                        // + 收藏（仅注入 songCollection 时）。按钮都在同一个
+                        // 固定宽度的 Expanded 里，不参与中段 108 的居中计算。
                         Expanded(
                           child: Align(
                             alignment: Alignment.centerRight,
@@ -215,6 +223,11 @@ class MusicMiniPlayer extends StatelessWidget {
                                   onPressed: () =>
                                       showMusicQueueSheet(context, player),
                                 ),
+                                if (songCollection != null)
+                                  _MiniFavoriteButton(
+                                    player: player,
+                                    collection: songCollection!,
+                                  ),
                               ],
                             ),
                           ),
@@ -242,6 +255,55 @@ class MusicMiniPlayer extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+/// 迷你条右侧的收藏按钮：点心形把当前曲目加到「我喜欢」。
+///
+/// 独立 StatefulWidget 只为了持有提交中的 busy 标志（整条迷你条仍是
+/// StatelessWidget，不因此改结构）；反馈口径与播放页一致。
+class _MiniFavoriteButton extends StatefulWidget {
+  const _MiniFavoriteButton({required this.player, required this.collection});
+
+  final MusicPlayerStore player;
+  final MusicSongCollection collection;
+
+  @override
+  State<_MiniFavoriteButton> createState() => _MiniFavoriteButtonState();
+}
+
+class _MiniFavoriteButtonState extends State<_MiniFavoriteButton> {
+  bool _busy = false;
+
+  Future<void> _add() async {
+    final song = widget.player.currentSong;
+    if (song == null || _busy) return;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    setState(() => _busy = true);
+    try {
+      await widget.collection.addToFavorite(song);
+      if (!mounted) return;
+      messenger?.showSnackBar(const SnackBar(content: Text('已添加到我喜欢')));
+    } on Object catch (error) {
+      if (!mounted) return;
+      messenger?.showSnackBar(
+        SnackBar(content: Text(musicCollectionErrorText(error))),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      key: const Key('mini-add-favorite'),
+      tooltip: '添加到我喜欢',
+      iconSize: 22,
+      style: _miniIconButtonStyle,
+      icon: Icon(_busy ? Icons.favorite : Icons.favorite_border),
+      onPressed: _busy ? null : _add,
     );
   }
 }
