@@ -20,10 +20,16 @@ import 'package:mimao/music/models/effects_models.dart';
 import 'package:mimao/music/models/music_models.dart';
 import 'package:mimao/music/pages/music_audio_match_page.dart';
 import 'package:mimao/music/pages/music_effects_brand_page.dart';
+import 'package:mimao/music/player/player_ui.dart';
 
 /// 音效页：音效商城 / 耳机品牌 / 设备匹配。
 class MusicEffectsPage extends StatefulWidget {
-  const MusicEffectsPage({super.key, required this.effects, this.playbackExt});
+  const MusicEffectsPage({
+    super.key,
+    required this.effects,
+    this.playbackExt,
+    this.player,
+  });
 
   /// 音效/品牌端点组（品牌列表 / 品牌型号 / 设备匹配）。
   final MusicEffectsApi effects;
@@ -31,6 +37,9 @@ class MusicEffectsPage extends StatefulWidget {
   /// 播放补全端点组：音效商城目录（getModel）与听歌识曲入口都走它；
   /// null 时对应 tab 与入口隐藏。
   final MusicPlaybackExtApi? playbackExt;
+
+  /// 播放 UI（识曲结果可播放）；null 时识曲结果只展示。集成者在入口注入。
+  final MusicPlayerUi? player;
 
   @override
   State<MusicEffectsPage> createState() => _MusicEffectsPageState();
@@ -254,8 +263,10 @@ class _MusicEffectsPageState extends State<MusicEffectsPage>
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         settings: const RouteSettings(name: 'music/audio-match'),
-        builder: (context) =>
-            MusicAudioMatchPage(playbackExt: widget.playbackExt!),
+        builder: (context) => MusicAudioMatchPage(
+          playbackExt: widget.playbackExt!,
+          player: widget.player,
+        ),
       ),
     );
   }
