@@ -1,22 +1,19 @@
 // ignore_for_file: deprecated_member_use — 与页面测试同款说明。
-/// 发现页 widget 测试（U1）：不联网、不碰真实计时器。
+/// 发现页 widget 测试（U1 改版）：不联网、不碰真实计时器。
 ///
-/// 覆盖：
-/// 1. 默认词/热词渲染，点击 chip 触发搜索；
-/// 2. 发现 section 标题与歌曲渲染；
-/// 3. 点歌曲 → fake player.playSong 被调用并 push 播放页占位；
-/// 4. 专辑/歌手/歌单行点击回调拿到正确 id；
-/// 5. 歌词候选 → downloadLyric → 弹出文本（含解码失败「歌词格式不支持」）；
-/// 6. 某个 section 失败时页面仍显示其它 section 与重试按钮（重试后恢复）。
-/// 附：FM 换一批、搜索建议防抖。
-/// L7：风格推荐（标签预选/多选重取/独立失败重试/空数据隐藏）、
-/// 音效商城入口（接线显示+回调 / 未接线隐藏）。
+/// 「发现」tab 改为「入口网格 + 每日推荐长条」后覆盖：
+/// 1. 入口网格渲染（排行榜仅接线时显示），点击导航/回调；
+/// 2. 每日推荐长条渲染、点歌播放、失败独立重试、空数据隐藏、下拉刷新重取；
+/// 3. 旧的内联默认词/热搜/首页发现/风格/AI/FM section 不再出现在发现 tab，
+///    内容收进各自入口页（入口页自身在各自测试文件覆盖）；
+/// 4. 搜索六 tab：点歌播放、专辑/歌手/歌单行回调、歌词候选流程、
+///    建议/历史（原有断言不变）；
+/// 5. 音效商城入口（接线显示+回调 / 未接线隐藏）。
 library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mimao/core/theme.dart';
-import 'package:mimao/music/api/personal_fm.dart';
 import 'package:mimao/music/models/catalog_models.dart';
 import 'package:mimao/music/models/discovery_models.dart';
 import 'package:mimao/music/models/search_models.dart';
@@ -42,6 +39,7 @@ class _Fixture {
     this.collect,
     this.history,
     this.wireEffects = false,
+    this.wireRank = true,
     this.authEpoch,
   }) : searchExt = searchExt ?? FakeSearchExtApi(),
        discovery = discovery ?? FakeDiscoveryApi(),
@@ -57,17 +55,20 @@ class _Fixture {
   final FakeSearchHistoryApi? history;
   final FakePlayerUi player;
 
-  /// 是否给页面接上「音效商城」入口（L7）；默认不接（入口隐藏）。
+  /// 是否给页面接上「音效商城」入口；默认不接（入口隐藏）。
   final bool wireEffects;
   int openEffectsCalls = 0;
 
-  /// 登录态信号；非空时页面监听并自动重拉私人 FM。
+  /// 是否接上「排行榜」回调；默认接线（入口网格显示排行榜入口）。
+  final bool wireRank;
+  int openRankCalls = 0;
+
+  /// 登录态信号；非空时转发给私人 FM 长条页。
   final ValueNotifier<int>? authEpoch;
 
   final List<int> openedAlbums = <int>[];
   final List<int> openedArtists = <int>[];
   final List<String> openedPlaylists = <String>[];
-  int openRankCalls = 0;
 
   Widget get page => MusicDiscoveryPage(
     searchExt: searchExt,
@@ -81,13 +82,23 @@ class _Fixture {
     onOpenAlbum: openedAlbums.add,
     onOpenArtist: openedArtists.add,
     onOpenPlaylist: openedPlaylists.add,
-    onOpenRank: () => openRankCalls++,
+    onOpenRank: wireRank ? () => openRankCalls++ : null,
     onOpenEffects: wireEffects ? () => openEffectsCalls++ : null,
   );
 }
 
 /// 首帧装载：pumpWidget + 一次 pump（异步 sections 装载完成）。
+///
+/// 视口加高而不是加宽：发现 tab 现在有入口网格，默认 800×600 会把每日推荐
+/// 挤出 ListView 的构建窗口（懒构建 → find 找不到、tap 落空）；保持 800 宽
+/// 不影响两列/单列断点断言。
 Future<_Fixture> _pumpPage(WidgetTester tester, _Fixture fixture) async {
+  tester.view.physicalSize = const Size(800, 1800);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(() {
+    tester.view.resetPhysicalSize();
+    tester.view.resetDevicePixelRatio();
+  });
   await tester.pumpWidget(_host(fixture.page));
   await tester.pump();
   return fixture;
@@ -109,52 +120,22 @@ Future<void> _settle(WidgetTester tester) async {
   await tester.pump();
 }
 
+/// 等页面 push/pop 路由动画结束。
+Future<void> _settleRoute(WidgetTester tester) async {
+  await tester.pumpAndSettle();
+}
+
 void main() {
-  testWidgets('默认词渲染，点击 chip 填入并触发搜索', (tester) async {
-    final fixture = await _pumpPage(
+  // ── 发现 tab：入口网格 + 每日推荐长条 ──────────────────────────────────
+
+  testWidgets('发现 tab 改版：入口网格渲染，旧内联 section 移除', (tester) async {
+    await _pumpPage(
       tester,
       _Fixture(
         searchExt: FakeSearchExtApi(
           promotions: <MusicSearchPromotion>[fakePromotion(title: '默认词A')],
-        ),
-      ),
-    );
-
-    expect(find.text('默认词A'), findsOneWidget);
-
-    await tester.tap(find.text('默认词A'));
-    await _settle(tester);
-
-    expect(fixture.store.lastKeyword, '默认词A');
-    // 提交后自动切到「歌曲」tab，结果行渲染出来。
-    expect(find.text('默认词A 之一'), findsOneWidget);
-    expect(find.text('默认词A 之二'), findsOneWidget);
-  });
-
-  testWidgets('热搜分组渲染，点击热词触发搜索', (tester) async {
-    final fixture = await _pumpPage(
-      tester,
-      _Fixture(
-        searchExt: FakeSearchExtApi(
           hotGroups: <MusicHotSearchGroup>[fakeHotGroup()],
         ),
-      ),
-    );
-
-    expect(find.text('飙升榜'), findsOneWidget);
-    expect(find.text('热词B'), findsOneWidget);
-
-    await tester.tap(find.text('热词B'));
-    await _settle(tester);
-
-    expect(fixture.store.lastKeyword, '热词B');
-    expect(find.text('热词B 之一'), findsOneWidget);
-  });
-
-  testWidgets('发现 section 标题与歌曲卡片渲染；排行榜入口回调', (tester) async {
-    final fixture = await _pumpPage(
-      tester,
-      _Fixture(
         discovery: FakeDiscoveryApi(
           homeItems: <MusicDiscoverItem>[
             fakeHomeItem(id: '10', hash: 'd10', title: '发现之歌A'),
@@ -170,36 +151,289 @@ void main() {
               fakeFmSong(id: '40', hash: 'fm40', title: 'FM之歌A'),
             ],
           ],
+          styleBatches: <MusicStyleRecommendations>[
+            fakeStyleRecommendations(
+              songs: <MusicDiscoverySong>[
+                fakeDiscoverySong(id: '50', hash: 'st50', title: '风格之歌A'),
+              ],
+            ),
+          ],
         ),
       ),
     );
 
+    // 入口网格：六个入口（默认接线排行榜）。
+    expect(find.byKey(const Key('discover-entry-grid')), findsOneWidget);
     expect(find.text('首页发现'), findsOneWidget);
-    expect(find.text('发现之歌A'), findsOneWidget);
+    expect(find.text('风格推荐'), findsOneWidget);
+    expect(find.text('AI 免费畅听'), findsOneWidget);
+    expect(find.text('私人 FM'), findsOneWidget);
+    expect(find.text('热门搜索'), findsOneWidget);
+    expect(find.text('排行榜'), findsOneWidget);
+
+    // 旧内联 section 移除：默认词/热搜/首页发现/AI/FM/风格内容不在发现 tab。
+    expect(find.text('默认词A'), findsNothing);
+    expect(find.text('飙升榜'), findsNothing);
+    expect(find.text('热词B'), findsNothing);
+    expect(find.text('发现之歌A'), findsNothing);
+    expect(find.text('AI之歌A'), findsNothing);
+    expect(find.text('FM之歌A'), findsNothing);
+    expect(find.text('风格之歌A'), findsNothing);
+
+    // 每日推荐仍内联，长条行渲染。
     expect(find.text('每日推荐'), findsOneWidget);
     expect(find.text('每日之歌A'), findsOneWidget);
+  });
 
-    // 纵向 ListView 惰性构建：滚动后「AI 免费畅听」「私人 FM」才进树。
-    await tester.dragUntilVisible(
-      find.text('AI之歌A'),
-      find.byKey(const Key('discover-scroll')),
-      const Offset(0, -200),
+  testWidgets('每日推荐长条：歌名/歌手/时长渲染，点歌播放并打开播放页', (tester) async {
+    final fixture = await _pumpPage(
+      tester,
+      _Fixture(
+        discovery: FakeDiscoveryApi(
+          dailySongs: <MusicDiscoverySong>[
+            fakeDiscoverySong(id: '20', hash: 'd20', title: '每日之歌A'),
+            fakeDiscoverySong(id: '21', hash: 'd21', title: '每日之歌B'),
+          ],
+        ),
+      ),
     );
-    expect(find.text('AI 免费畅听'), findsOneWidget);
-    expect(find.text('AI之歌A'), findsOneWidget);
 
-    await tester.dragUntilVisible(
-      find.text('FM之歌A'),
-      find.byKey(const Key('discover-scroll')),
-      const Offset(0, -200),
+    expect(find.text('每日之歌A'), findsOneWidget);
+    expect(find.text('每日之歌B'), findsOneWidget);
+    expect(find.text('推荐歌手'), findsNWidgets(2));
+    // fakeDiscoverySong durationMs 200000 → 3:20；行尾有播放图标。
+    expect(find.text('3:20'), findsNWidgets(2));
+    expect(find.byIcon(Icons.play_circle_outline), findsNWidgets(2));
+
+    await tester.tap(find.text('每日之歌A'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(fixture.player.played, hasLength(1));
+    expect(fixture.player.played.single.id, '20');
+    expect(find.text('播放页占位'), findsOneWidget);
+  });
+
+  testWidgets('每日推荐失败：独立错误与重试，入口网格不受影响', (tester) async {
+    final fixture = await _pumpPage(
+      tester,
+      _Fixture(
+        discovery: FakeDiscoveryApi(
+          dailySongs: <MusicDiscoverySong>[
+            fakeDiscoverySong(id: '20', hash: 'd20', title: '每日之歌A'),
+          ],
+          dailyFailuresLeft: 1,
+        ),
+      ),
     );
-    expect(find.text('私人 FM'), findsOneWidget);
-    expect(find.text('FM之歌A'), findsOneWidget);
 
-    await tester.tap(find.byIcon(Icons.leaderboard_outlined));
+    expect(find.textContaining('每日推荐挂了'), findsOneWidget);
+    final dailyRetry = find.descendant(
+      of: find.byKey(const Key('discover-daily')),
+      matching: find.text('重试'),
+    );
+    expect(dailyRetry, findsOneWidget);
+    expect(find.byKey(const Key('discover-entry-grid')), findsOneWidget);
+
+    await tester.tap(dailyRetry);
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('每日之歌A'), findsOneWidget);
+    expect(fixture.discovery.dailyCalls, 2);
+  });
+
+  testWidgets('每日推荐空数据：整段隐藏', (tester) async {
+    await _pumpPage(tester, _Fixture());
+    expect(find.text('每日推荐'), findsNothing);
+    expect(find.byKey(const Key('discover-daily')), findsNothing);
+  });
+
+  testWidgets('下拉刷新重取每日推荐', (tester) async {
+    final fixture = await _pumpPage(
+      tester,
+      _Fixture(
+        discovery: FakeDiscoveryApi(
+          dailySongs: <MusicDiscoverySong>[
+            fakeDiscoverySong(id: '20', hash: 'd20', title: '每日之歌A'),
+          ],
+        ),
+      ),
+    );
+    expect(fixture.discovery.dailyCalls, 1);
+
+    // 触发 RefreshIndicator 的 onRefresh（下拉手势在测试视口里容易落空；
+    // show() 走的是同一条 onRefresh 链路，断言目标仍是「刷新重取」）。
+    // show() 的 Future 要等指示器动画回弹才完成，必须先 pump 再 await，
+    // 否则动画没有帧驱动会一直挂住。
+    final indicator = tester.state<RefreshIndicatorState>(
+      find.byType(RefreshIndicator),
+    );
+    final refresh = indicator.show();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle(const Duration(milliseconds: 100));
+    await refresh;
+
+    expect(fixture.discovery.dailyCalls, 2);
+    expect(find.text('每日之歌A'), findsOneWidget);
+  });
+
+  testWidgets('排行榜入口：仅接线时显示，点击回调', (tester) async {
+    final fixture = await _pumpPage(tester, _Fixture());
+    expect(find.byKey(const Key('discover-entry-rank')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('discover-entry-rank')));
     await tester.pump();
     expect(fixture.openRankCalls, 1);
+
+    // 未接线（onOpenRank == null）时入口不显示。
+    await _pumpPage(tester, _Fixture(wireRank: false));
+    expect(find.byKey(const Key('discover-entry-rank')), findsNothing);
+    expect(find.text('排行榜'), findsNothing);
   });
+
+  testWidgets('首页发现入口推入长条列表页，点歌播放', (tester) async {
+    final fixture = await _pumpPage(
+      tester,
+      _Fixture(
+        discovery: FakeDiscoveryApi(
+          homeItems: <MusicDiscoverItem>[
+            fakeHomeItem(id: '10', hash: 'd10', title: '发现之歌A'),
+          ],
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('discover-entry-home')));
+    await _settleRoute(tester);
+
+    // 入口页：AppBar 标题 + 长条行（歌名/歌手/时长）。
+    expect(find.text('发现之歌A'), findsOneWidget);
+    expect(find.text('推荐歌手'), findsOneWidget);
+    expect(find.text('3:20'), findsOneWidget);
+
+    await tester.tap(find.text('发现之歌A'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(fixture.player.played, hasLength(1));
+    expect(fixture.player.played.single.id, '10');
+    expect(find.text('播放页占位'), findsOneWidget);
+  });
+
+  testWidgets('AI 免费畅听与私人 FM 入口推入长条列表页', (tester) async {
+    final fixture = await _pumpPage(
+      tester,
+      _Fixture(
+        discovery: FakeDiscoveryApi(
+          aiSongs: <MusicDiscoverySong>[
+            fakeDiscoverySong(id: '30', hash: 'ai30', title: 'AI之歌A'),
+          ],
+          fmBatches: <List<MusicPersonalFmSong>>[
+            <MusicPersonalFmSong>[
+              fakeFmSong(id: '40', hash: 'fm40', title: 'FM之歌A'),
+            ],
+          ],
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('discover-entry-ai')));
+    await _settleRoute(tester);
+    expect(find.text('AI之歌A'), findsOneWidget);
+
+    // 返回发现 tab，再进私人 FM。
+    await tester.pageBack();
+    await _settleRoute(tester);
+
+    await tester.tap(find.byKey(const Key('discover-entry-fm')));
+    await _settleRoute(tester);
+    expect(find.text('FM之歌A'), findsOneWidget);
+    expect(fixture.discovery.fmCalls, 1);
+  });
+
+  testWidgets('登录态变化后私人 FM 长条页自动重拉（authEpoch 转发）', (tester) async {
+    final epoch = ValueNotifier<int>(0);
+    final fixture = _Fixture(
+      discovery: FakeDiscoveryApi(
+        fmBatches: <List<MusicPersonalFmSong>>[
+          <MusicPersonalFmSong>[
+            fakeFmSong(id: '40', hash: 'fm40', title: 'FM之歌A'),
+          ],
+          <MusicPersonalFmSong>[
+            fakeFmSong(id: '41', hash: 'fm41', title: 'FM之歌B'),
+          ],
+        ],
+      ),
+      authEpoch: epoch,
+    );
+    await _pumpPage(tester, fixture);
+    // 发现 tab 不再预载私人 FM（内容在入口页），点进去才请求。
+    expect(fixture.discovery.fmCalls, 0);
+
+    await tester.tap(find.byKey(const Key('discover-entry-fm')));
+    await _settleRoute(tester);
+    expect(find.text('FM之歌A'), findsOneWidget);
+    expect(fixture.discovery.fmCalls, 1);
+
+    // 模拟登录成功：FM 长条页自动重取第二批，用户不必点换一批。
+    epoch.value += 1;
+    await tester.pump();
+    await tester.pump();
+
+    expect(fixture.discovery.fmCalls, 2);
+    expect(find.text('FM之歌B'), findsOneWidget);
+  });
+
+  testWidgets('热门搜索入口：点词触发搜索并返回发现页', (tester) async {
+    final fixture = await _pumpPage(
+      tester,
+      _Fixture(
+        searchExt: FakeSearchExtApi(
+          promotions: <MusicSearchPromotion>[fakePromotion(title: '默认词A')],
+          hotGroups: <MusicHotSearchGroup>[fakeHotGroup()],
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('discover-entry-hot')));
+    await _settleRoute(tester);
+
+    expect(find.text('默认词A'), findsOneWidget);
+    expect(find.text('飙升榜'), findsOneWidget);
+    expect(find.text('热词B'), findsOneWidget);
+
+    // 点词：onSearch → 发现页提交 → 页面 pop 返回。
+    await tester.tap(find.text('默认词A'));
+    await _settleRoute(tester);
+
+    expect(fixture.store.lastKeyword, '默认词A');
+    expect(find.text('默认词A 之一'), findsOneWidget);
+    expect(find.text('默认词A 之二'), findsOneWidget);
+    expect(find.text('默认搜索词'), findsNothing);
+  });
+
+  // ── 音效商城入口 ───────────────────────────────────────────────────────
+
+  testWidgets('音效商城入口：接线后展示入口卡，点击触发回调', (tester) async {
+    final fixture = await _pumpPage(tester, _Fixture(wireEffects: true));
+
+    expect(find.byKey(const Key('discover-effects-entry')), findsOneWidget);
+    expect(find.text('音效商城'), findsOneWidget);
+    expect(find.text('耳机品牌 / 设备匹配'), findsOneWidget);
+
+    await tester.tap(find.text('音效商城'));
+    await tester.pump();
+    expect(fixture.openEffectsCalls, 1);
+  });
+
+  testWidgets('音效商城入口：未接线（onOpenEffects 为 null）时隐藏', (tester) async {
+    await _pumpPage(tester, _Fixture());
+    expect(find.byKey(const Key('discover-effects-entry')), findsNothing);
+    expect(find.text('音效商城'), findsNothing);
+  });
+
+  // ── 搜索六 tab（原有断言不变） ──────────────────────────────────────────
 
   testWidgets('搜索结果点歌：playSong 被调用并 push 播放页占位', (tester) async {
     final fixture = await _pumpPage(
@@ -322,70 +556,6 @@ void main() {
     expect(find.text('歌词格式不支持'), findsOneWidget);
   });
 
-  testWidgets('私人 FM 换一批：重新拉取并替换为下一批', (tester) async {
-    final fixture = await _pumpPage(
-      tester,
-      _Fixture(
-        discovery: FakeDiscoveryApi(
-          fmBatches: <List<MusicPersonalFmSong>>[
-            <MusicPersonalFmSong>[
-              fakeFmSong(id: '40', hash: 'fm40', title: 'FM之歌A'),
-            ],
-            <MusicPersonalFmSong>[
-              fakeFmSong(id: '41', hash: 'fm41', title: 'FM之歌B'),
-            ],
-          ],
-        ),
-      ),
-    );
-
-    expect(find.text('FM之歌A'), findsOneWidget);
-    expect(fixture.discovery.fmCalls, 1);
-
-    await tester.tap(find.text('换一批'));
-    await tester.pump();
-    await tester.pump();
-
-    expect(find.text('FM之歌A'), findsNothing);
-    expect(find.text('FM之歌B'), findsOneWidget);
-    expect(fixture.discovery.fmCalls, 2);
-    // 「换一批」按模型默认参数重拉（action=play）。
-    expect(fixture.discovery.lastFmQuery?.action, MusicPersonalFmAction.play);
-  });
-
-  testWidgets('单个发现 section 失败：其它 section 保留，重试后恢复', (tester) async {
-    final fixture = await _pumpPage(
-      tester,
-      _Fixture(
-        discovery: FakeDiscoveryApi(
-          homeItems: <MusicDiscoverItem>[
-            fakeHomeItem(id: '10', hash: 'd10', title: '发现之歌A'),
-          ],
-          dailySongs: <MusicDiscoverySong>[
-            fakeDiscoverySong(id: '20', hash: 'd20', title: '每日之歌A'),
-          ],
-          dailyFailuresLeft: 1,
-        ),
-      ),
-    );
-
-    // 每日推荐失败，但首页发现照常渲染；失败 section 有重试按钮。
-    expect(find.text('发现之歌A'), findsOneWidget);
-    expect(find.textContaining('每日推荐挂了'), findsOneWidget);
-    final dailyRetry = find.descendant(
-      of: find.byKey(const Key('discover-daily')),
-      matching: find.text('重试'),
-    );
-    expect(dailyRetry, findsOneWidget);
-
-    await tester.tap(dailyRetry);
-    await tester.pump();
-    await tester.pump();
-
-    expect(find.text('每日之歌A'), findsOneWidget);
-    expect(fixture.discovery.dailyCalls, 2);
-  });
-
   testWidgets('搜索历史：未搜索时展示历史词，点击/提交都写入历史', (tester) async {
     final history = FakeSearchHistoryApi(initial: <String>['老关键词']);
     final fixture = await _pumpPage(tester, _Fixture(history: history));
@@ -427,294 +597,5 @@ void main() {
     expect(find.text('周杰伦 之一'), findsOneWidget);
     // 提交后建议条收回：剩下的「周杰伦」只有搜索框里的输入文本。
     expect(find.text('周杰伦'), findsOneWidget);
-  });
-
-  // ── L7：风格推荐 section ───────────────────────────────────────────────
-
-  testWidgets('风格推荐：首载渲染标签 chips（含预选）与歌曲卡，可播放', (tester) async {
-    final fixture = await _pumpPage(
-      tester,
-      _Fixture(
-        discovery: FakeDiscoveryApi(
-          styleBatches: <MusicStyleRecommendations>[
-            fakeStyleRecommendations(
-              groups: <MusicStyleTagGroup>[
-                fakeStyleGroup(
-                  name: '风格',
-                  tags: <MusicStyleTag>[
-                    fakeStyleTag(id: 'pop', name: '流行', selected: 1),
-                    fakeStyleTag(id: 'rock', name: '摇滚'),
-                  ],
-                ),
-              ],
-              songs: <MusicDiscoverySong>[
-                fakeDiscoverySong(id: '50', hash: 'st50', title: '风格之歌A'),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-
-    expect(find.text('风格推荐'), findsOneWidget);
-    expect(find.text('风格'), findsOneWidget, reason: '标签组名渲染');
-    expect(find.text('流行'), findsOneWidget);
-    expect(find.text('摇滚'), findsOneWidget);
-    expect(find.text('风格之歌A'), findsOneWidget);
-
-    expect(fixture.discovery.styleCalls, 1);
-    // 首载不带 tagIds（用 const 空查询）。
-    expect(fixture.discovery.lastStyleQuery?.tagIds, isEmpty);
-
-    // selected == 1 的「流行」预选中，「摇滚」未选中。
-    final popChip = tester.widget<FilterChip>(
-      find.ancestor(of: find.text('流行'), matching: find.byType(FilterChip)),
-    );
-    expect(popChip.selected, isTrue);
-    final rockChip = tester.widget<FilterChip>(
-      find.ancestor(of: find.text('摇滚'), matching: find.byType(FilterChip)),
-    );
-    expect(rockChip.selected, isFalse);
-
-    // 歌曲卡走与其它发现 section 相同的播放链路。
-    await tester.tap(find.text('风格之歌A'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
-    expect(fixture.player.played, hasLength(1));
-    expect(fixture.player.played.single.id, '50');
-  });
-
-  testWidgets('风格推荐：点标签带 tagIds 重取，歌曲刷新且预选保留', (tester) async {
-    final groups = <MusicStyleTagGroup>[
-      fakeStyleGroup(
-        name: '风格',
-        tags: <MusicStyleTag>[
-          fakeStyleTag(id: 'pop', name: '流行', selected: 1),
-          fakeStyleTag(id: 'rock', name: '摇滚'),
-        ],
-      ),
-    ];
-    final fixture = await _pumpPage(
-      tester,
-      _Fixture(
-        discovery: FakeDiscoveryApi(
-          styleBatches: <MusicStyleRecommendations>[
-            fakeStyleRecommendations(
-              groups: groups,
-              songs: <MusicDiscoverySong>[
-                fakeDiscoverySong(id: '50', hash: 'st50', title: '风格之歌A'),
-              ],
-            ),
-            fakeStyleRecommendations(
-              groups: groups,
-              songs: <MusicDiscoverySong>[
-                fakeDiscoverySong(id: '51', hash: 'st51', title: '风格之歌B'),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-
-    await tester.tap(find.text('摇滚'));
-    await tester.pump();
-    await tester.pump();
-
-    expect(fixture.discovery.styleCalls, 2);
-    // 重取 tagIds = 服务端预选（流行）+ 新选（摇滚），顺序与下发一致。
-    expect(fixture.discovery.lastStyleQuery?.tagIds, <String>['pop', 'rock']);
-    expect(find.text('风格之歌A'), findsNothing);
-    expect(find.text('风格之歌B'), findsOneWidget);
-
-    // 重取结果可播放。
-    await tester.tap(find.text('风格之歌B'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
-    expect(fixture.player.played.single.id, '51');
-  });
-
-  testWidgets('风格推荐：再点已选标签取消并带剩余 tagIds 重取', (tester) async {
-    final groups = <MusicStyleTagGroup>[
-      fakeStyleGroup(
-        tags: <MusicStyleTag>[
-          fakeStyleTag(id: 'pop', name: '流行', selected: 1),
-          fakeStyleTag(id: 'rock', name: '摇滚'),
-        ],
-      ),
-    ];
-    final fixture = await _pumpPage(
-      tester,
-      _Fixture(
-        discovery: FakeDiscoveryApi(
-          styleBatches: <MusicStyleRecommendations>[
-            fakeStyleRecommendations(
-              groups: groups,
-              songs: <MusicDiscoverySong>[
-                fakeDiscoverySong(id: '50', hash: 'st50', title: '风格之歌A'),
-              ],
-            ),
-            fakeStyleRecommendations(
-              groups: groups,
-              songs: <MusicDiscoverySong>[
-                fakeDiscoverySong(id: '51', hash: 'st51', title: '风格之歌B'),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-
-    await tester.tap(find.text('摇滚'));
-    await tester.pump();
-    await tester.pump();
-    expect(fixture.discovery.lastStyleQuery?.tagIds, <String>['pop', 'rock']);
-
-    await tester.tap(find.text('流行'));
-    await tester.pump();
-    await tester.pump();
-    expect(fixture.discovery.styleCalls, 3);
-    expect(fixture.discovery.lastStyleQuery?.tagIds, <String>['rock']);
-    expect(find.text('风格之歌B'), findsOneWidget);
-  });
-
-  testWidgets('风格推荐：标签重取失败后重试沿用最近一次 tagIds', (tester) async {
-    final discovery = FakeDiscoveryApi(
-      styleBatches: <MusicStyleRecommendations>[
-        fakeStyleRecommendations(
-          groups: <MusicStyleTagGroup>[
-            fakeStyleGroup(
-              tags: <MusicStyleTag>[
-                fakeStyleTag(id: 'pop', name: '流行', selected: 1),
-                fakeStyleTag(id: 'rock', name: '摇滚'),
-              ],
-            ),
-          ],
-          songs: <MusicDiscoverySong>[
-            fakeDiscoverySong(id: '50', hash: 'st50', title: '风格之歌A'),
-          ],
-        ),
-      ],
-    );
-    final fixture = await _pumpPage(tester, _Fixture(discovery: discovery));
-
-    // 首载成功后注入一次失败，点「摇滚」重取报错。
-    discovery.styleFailuresLeft = 1;
-    await tester.tap(find.text('摇滚'));
-    await tester.pump();
-    await tester.pump();
-    expect(find.textContaining('风格推荐挂了'), findsOneWidget);
-
-    // 重试沿用点选时的 tagIds，成功后错误态恢复、选中态保留。
-    discovery.styleFailuresLeft = 0;
-    final retry = find.descendant(
-      of: find.byKey(const Key('discover-style')),
-      matching: find.text('重试'),
-    );
-    await tester.tap(retry);
-    await tester.pump();
-    await tester.pump();
-
-    expect(fixture.discovery.styleCalls, 3);
-    expect(fixture.discovery.lastStyleQuery?.tagIds, <String>['pop', 'rock']);
-    expect(find.textContaining('风格推荐挂了'), findsNothing);
-    final rockChip = tester.widget<FilterChip>(
-      find.ancestor(of: find.text('摇滚'), matching: find.byType(FilterChip)),
-    );
-    expect(rockChip.selected, isTrue);
-  });
-
-  testWidgets('风格推荐失败：独立错误与重试，不影响其它 section', (tester) async {
-    final fixture = await _pumpPage(
-      tester,
-      _Fixture(
-        discovery: FakeDiscoveryApi(
-          homeItems: <MusicDiscoverItem>[
-            fakeHomeItem(id: '10', hash: 'd10', title: '发现之歌A'),
-          ],
-          styleBatches: <MusicStyleRecommendations>[
-            fakeStyleRecommendations(
-              songs: <MusicDiscoverySong>[
-                fakeDiscoverySong(id: '50', hash: 'st50', title: '风格之歌A'),
-              ],
-            ),
-          ],
-          styleFailuresLeft: 1,
-        ),
-      ),
-    );
-
-    // 风格推荐失败，首页发现照常渲染；失败 section 有重试按钮。
-    expect(find.text('发现之歌A'), findsOneWidget);
-    expect(find.textContaining('风格推荐挂了'), findsOneWidget);
-    final retry = find.descendant(
-      of: find.byKey(const Key('discover-style')),
-      matching: find.text('重试'),
-    );
-    expect(retry, findsOneWidget);
-
-    await tester.tap(retry);
-    await tester.pump();
-    await tester.pump();
-
-    expect(fixture.discovery.styleCalls, 2);
-    expect(find.text('风格之歌A'), findsOneWidget);
-    expect(find.textContaining('风格推荐挂了'), findsNothing);
-  });
-
-  testWidgets('风格推荐空数据：标签与歌曲全空时整段隐藏', (tester) async {
-    await _pumpPage(tester, _Fixture());
-    expect(find.text('风格推荐'), findsNothing);
-  });
-
-  // ── L7：音效商城入口 ───────────────────────────────────────────────────
-
-  testWidgets('音效商城入口：接线后展示入口卡，点击触发回调', (tester) async {
-    final fixture = await _pumpPage(tester, _Fixture(wireEffects: true));
-
-    expect(find.byKey(const Key('discover-effects-entry')), findsOneWidget);
-    expect(find.text('音效商城'), findsOneWidget);
-    expect(find.text('耳机品牌 / 设备匹配'), findsOneWidget);
-
-    await tester.tap(find.text('音效商城'));
-    await tester.pump();
-    expect(fixture.openEffectsCalls, 1);
-  });
-
-  testWidgets('音效商城入口：未接线（onOpenEffects 为 null）时隐藏', (tester) async {
-    await _pumpPage(tester, _Fixture());
-    expect(find.byKey(const Key('discover-effects-entry')), findsNothing);
-    expect(find.text('音效商城'), findsNothing);
-  });
-
-  testWidgets('登录态变化后私人 FM 自动重拉（无需手动重试）', (tester) async {
-    final epoch = ValueNotifier<int>(0);
-    final fixture = _Fixture(
-      discovery: FakeDiscoveryApi(
-        fmBatches: <List<MusicPersonalFmSong>>[
-          <MusicPersonalFmSong>[
-            fakeFmSong(id: '40', hash: 'fm40', title: 'FM之歌A'),
-          ],
-          <MusicPersonalFmSong>[
-            fakeFmSong(id: '41', hash: 'fm41', title: 'FM之歌B'),
-          ],
-        ],
-      ),
-      authEpoch: epoch,
-    );
-    await _pumpPage(tester, fixture);
-    expect(fixture.discovery.fmCalls, 1);
-
-    // 模拟登录成功：FM section 自动重取第二批，用户不必点重试。
-    epoch.value += 1;
-    await tester.pump();
-    await tester.pump();
-
-    expect(fixture.discovery.fmCalls, 2);
-    await tester.dragUntilVisible(
-      find.text('FM之歌B'),
-      find.byKey(const Key('discover-scroll')),
-      const Offset(0, -300),
-    );
-    expect(find.text('FM之歌B'), findsOneWidget);
   });
 }

@@ -1,20 +1,26 @@
 // ignore_for_file: deprecated_member_use — Flutter 3.50 弃用整个 material.dart，
 // 与音乐模块页同款说明。
-/// 音乐发现页（U1）：发现推荐 + 搜索扩展（歌曲/专辑/歌手/歌单/歌词）。
+/// 音乐发现页（U1）：发现入口网格 + 每日推荐长条 + 搜索扩展
+/// （歌曲/专辑/歌手/歌单/歌词）。
 ///
 /// 页面只依赖注入的接口（[MusicSearchExtApi]/[MusicDiscoveryApi]/
 /// [MusicPlayerUi]/[MusicLyricApi]/[MusicCollectApi]/[MusicSearchHistoryApi]），
 /// 不 import 播放器与库服务的实现——与 P/C 线保持编译隔离。
 ///
 /// 结构：顶部 SearchBar + 六个 tab（发现 / 歌曲 / 专辑 / 歌手 / 歌单 / 歌词）。
-/// 「发现」tab 拉取 homeDiscover / everydayRecommend / everydayStyleRecommend
-/// （风格推荐：标签 chips 多选，选中即带 tagIds 重取）/ aiRecommendSongs /
-/// personalFm / searchDefault / searchHot，每个 section 独立 loading/失败重试，
-/// 支持下拉刷新；搜索提交后按关键词填充五个搜索 tab。与模块页（搜索页）的
-/// 区别：本页聚焦发现与扩展搜索，歌曲搜索结果复用 [MusicStore]。
+/// 「发现」tab 不再横向铺开推荐卡片：顶部保留音效商城入口卡，其下是 3 列
+/// 圆角小方块入口网格（首页发现 / 风格推荐 / AI 免费畅听 / 私人 FM /
+/// 热门搜索 / 排行榜），推荐内容收进各自入口页——通用长条列表页
+/// （`music_discovery_list_page.dart`）、风格推荐页
+/// （`music_style_discovery_page.dart`）、热门搜索页
+/// （`music_hot_search_page.dart`）。每日推荐仍留在本 tab，但改为与收藏同款
+/// 的纵向长条列表：独立 loading/error/retry，空数据隐藏，下拉刷新重取。
+/// 搜索提交后按关键词填充五个搜索 tab；热搜页点词同样经
+/// [_applyKeyword] 触发搜索并返回发现页。与模块页（搜索页）的区别：本页
+/// 聚焦发现与扩展搜索，歌曲搜索结果复用 [MusicStore]。
 ///
-/// 模型 → [MusicSong] 的映射全部走本文件私有函数 [_discoverySongToMusicSong]，
-/// 不改共享模型。
+/// 模型 → [MusicSong] 的映射走 `music_discovery_mappers.dart`
+/// （[discoverySongToMusicSong]），不改共享模型。
 library;
 
 import 'dart:async';
@@ -25,7 +31,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:mimao/core/theme.dart';
 import 'package:mimao/music/api/discovery_api.dart';
-import 'package:mimao/music/api/everyday_style_recommend.dart';
 import 'package:mimao/music/api/home_discover.dart';
 import 'package:mimao/music/api/lyric.dart';
 import 'package:mimao/music/api/lyric_api.dart';
@@ -41,10 +46,14 @@ import 'package:mimao/music/models/lyric_models.dart';
 import 'package:mimao/music/models/music_models.dart';
 import 'package:mimao/music/models/search_models.dart';
 import 'package:mimao/music/music_store.dart';
+import 'package:mimao/music/pages/music_discovery_list_page.dart';
+import 'package:mimao/music/pages/music_discovery_mappers.dart';
+import 'package:mimao/music/pages/music_hot_search_page.dart';
+import 'package:mimao/music/pages/music_style_discovery_page.dart';
 import 'package:mimao/music/player/player_ui.dart';
 
-/// 音乐发现页：发现推荐 + 搜索扩展。回调按集成者契约接线，null 时对应
-/// 功能降级（行可点但不跳转 / 按钮不显示）。
+/// 音乐发现页：发现入口网格 + 每日推荐 + 搜索扩展。回调按集成者契约接线，
+/// null 时对应功能降级（入口不显示 / 行可点但不跳转 / 按钮不显示）。
 class MusicDiscoveryPage extends StatefulWidget {
   const MusicDiscoveryPage({
     super.key,
@@ -94,14 +103,14 @@ class MusicDiscoveryPage extends StatefulWidget {
   /// `global_collection_id`；契约原为 `MusicPlaylistDetail`，见交付报告）。
   final ValueChanged<String>? onOpenPlaylist;
 
-  /// 打开榜单页（AppBar 排行榜入口）。
+  /// 打开榜单页（入口网格「排行榜」入口；null 时不显示入口）。
   final VoidCallback? onOpenRank;
 
   /// 打开音效商城（L1 音效页，含耳机品牌/设备匹配）；null 时入口卡整体隐藏。
   final VoidCallback? onOpenEffects;
 
-  /// 登录态变化信号：登录后自动重拉私人 FM（需要账号的唯一推荐 section）。
-  /// null 时保持旧行为（只在首载/下拉刷新取）。
+  /// 登录态变化信号：转发给私人 FM 长条页，登录/切号后自动重拉
+  /// （FM 是唯一要账号的入口）；null 时保持旧行为（只在进入入口页时取）。
   final ValueListenable<int>? authEpoch;
 
   @override
@@ -113,21 +122,11 @@ class _MusicDiscoveryPageState extends State<MusicDiscoveryPage>
   static const int _discoverTabIndex = 0;
   static const int _songsTabIndex = 1;
 
-  /// 响应式断点：歌曲结果 ≥720 双列；发现 sections ≥960 双列（横向列表）。
+  /// 响应式断点：歌曲结果 ≥720 双列。
   static const double _songTwoColumnBreakpoint = 720;
-  static const double _discoverTwoColumnBreakpoint = 960;
-
-  /// 发现歌曲卡尺寸（横向列表行高随之固定，保证嵌套滚动有界）。
-  static const double _cardWidth = 128;
-  static const double _cardHeight = 184;
 
   /// 建议防抖间隔；输入停顿后请求 searchSuggest，取消旧请求靠 cancel + stale 检查。
   static const Duration _suggestDebounce = Duration(milliseconds: 400);
-
-  /// 风格标签 id 的接口约束：仅 ASCII 字母数字（≤32 字节、总数 ≤128，由
-  /// [EverydayStyleRecommendQuery.validate] 兜底）；页面用同一规则做防御性
-  /// 过滤，脏 id 不渲染、不参与重取。
-  static final RegExp _styleTagIdPattern = RegExp(r'^[0-9a-zA-Z]+$');
 
   late final TabController _tabController = TabController(
     length: 6,
@@ -148,38 +147,9 @@ class _MusicDiscoveryPageState extends State<MusicDiscoveryPage>
   /// 收藏态缓存（列表批量判断，避免逐行异步查询导致抖动）。
   final Set<String> _collectedIds = <String>{};
 
-  // —— 发现 sections（互不阻塞，独立 loading/error） ——
-  final _AsyncList<MusicSearchPromotion> _defaultWords =
-      _AsyncList<MusicSearchPromotion>();
-  final _AsyncList<MusicHotSearchGroup> _hotGroups =
-      _AsyncList<MusicHotSearchGroup>();
-  final _AsyncList<MusicDiscoverItem> _homeItems =
-      _AsyncList<MusicDiscoverItem>();
+  // —— 每日推荐（发现 tab 内联的唯一推荐 section，独立 loading/error） ——
   final _AsyncList<MusicDiscoverySong> _dailySongs =
       _AsyncList<MusicDiscoverySong>();
-  final _AsyncList<MusicDiscoverySong> _aiSongs =
-      _AsyncList<MusicDiscoverySong>();
-  final _AsyncList<MusicPersonalFmSong> _fmSongs =
-      _AsyncList<MusicPersonalFmSong>();
-
-  // —— 风格推荐 section（不走 _AsyncList：单响应同时带标签目录与歌曲） ——
-  bool _styleLoading = false;
-  Object? _styleError;
-
-  /// 最近一次成功响应（标签目录 + 命中歌曲）；标签重取期间保留旧值，
-  /// chips 才不会在重取中整块消失。
-  MusicStyleRecommendations? _styleData;
-
-  /// 最近一次请求下发的 tagIds（重试沿用）；首载为空列表。
-  List<String> _styleTagIds = const <String>[];
-
-  /// 本地选中集（chips 选中态与重取 tagIds 的唯一来源）；null 表示还没从
-  /// 服务端预选（selected == 1）初始化过——只同步首次成功响应，之后重取的
-  /// 回显不覆盖用户操作。
-  Set<String>? _styleSelected;
-
-  /// 请求序号：标签连点时丢弃乱序旧响应。
-  int _styleRequestSeq = 0;
 
   // —— 搜索扩展 sections（提交时随 store.search 一起刷新） ——
   final _AsyncList<MusicAlbumSummary> _albums = _AsyncList<MusicAlbumSummary>();
@@ -193,8 +163,7 @@ class _MusicDiscoveryPageState extends State<MusicDiscoveryPage>
   void initState() {
     super.initState();
     _controller.addListener(_onQueryChanged);
-    widget.authEpoch?.addListener(_onAuthChanged);
-    _loadDiscoverySections();
+    _loadDailySongs();
     _loadHistory();
     _loadCollected();
   }
@@ -202,140 +171,19 @@ class _MusicDiscoveryPageState extends State<MusicDiscoveryPage>
   @override
   void dispose() {
     _suggestTimer?.cancel();
-    widget.authEpoch?.removeListener(_onAuthChanged);
     _controller.removeListener(_onQueryChanged);
     _controller.dispose();
     _tabController.dispose();
     super.dispose();
   }
 
-  /// 登录/登出：私人 FM 是发现页里唯一要账号的 section，自动重拉即可，
-  /// 不打扰其它 section 的已加载内容。
-  void _onAuthChanged() {
-    if (!mounted) return;
-    _load(_fmSongs, _fetchFmSongs);
-  }
-
   // ── 数据装载 ──────────────────────────────────────────────────────────
 
-  /// 发现 sections 的首次装载与下拉刷新共用；Future.wait 之外每个 section
-  /// 自带 try/catch，任何一个失败不清空整页（规格功能 6）。
-  Future<void> _loadDiscoverySections() => Future.wait<void>(<Future<void>>[
-    _load(
-      _defaultWords,
-      () async => (await widget.searchExt.searchDefault()).promotions,
-    ),
-    _load(_hotGroups, widget.searchExt.searchHot),
-    _load(
-      _homeItems,
-      () async => (await widget.discovery.homeDiscover(
-        const HomeDiscoverQuery(),
-      )).items,
-    ),
-    _load(
-      _dailySongs,
-      () async => (await widget.discovery.everydayRecommend()).songs,
-    ),
-    _load(
-      _aiSongs,
-      () async => (await widget.discovery.aiRecommendSongs()).songs,
-    ),
-    _load(_fmSongs, _fetchFmSongs),
-    _loadStyle(_styleTagIds),
-  ]);
-
-  /// 私人 FM 批次；「换一批」复用同一默认 query（action=play，参数按模型定义）。
-  Future<List<MusicPersonalFmSong>> _fetchFmSongs() async =>
-      (await widget.discovery.personalFm(const MusicPersonalFmQuery())).songs;
-
-  // ── 风格推荐 ──────────────────────────────────────────────────────────
-
-  /// 风格推荐装载（首载 / 选标签重取 / 下拉刷新 / 重试共用）。
-  /// 与其它 section 一样失败只影响自己；seq 丢弃标签连点时的乱序旧响应。
-  Future<void> _loadStyle(List<String> tagIds) async {
-    final seq = ++_styleRequestSeq;
-    setState(() {
-      _styleLoading = true;
-      _styleError = null;
-      _styleTagIds = tagIds;
-    });
-    try {
-      final result = await widget.discovery.everydayStyleRecommend(
-        EverydayStyleRecommendQuery(tagIds: _filterStyleTagIds(tagIds)),
-      );
-      if (!mounted || seq != _styleRequestSeq) return;
-      setState(() {
-        _styleData = result;
-        _styleLoading = false;
-        // 预选只按首次成功响应同步（selected == 1 是服务端默认勾选态）；
-        // 之后以本地选择为准，重取回显不再覆盖。
-        _styleSelected ??= <String>{
-          for (final group in result.groups)
-            for (final tag in group.child)
-              if (tag.selected == 1) tag.id,
-        };
-      });
-    } on Object catch (error) {
-      if (!mounted || seq != _styleRequestSeq) return;
-      setState(() {
-        _styleError = error;
-        _styleLoading = false;
-      });
-    }
-  }
-
-  /// 重取前过滤 tagIds：接口只收 ASCII 字母数字且总数 ≤128（validate 会抛
-  /// input 错），服务端下发的 id 理应合法，这里兜底过滤避免脏数据把整个
-  /// section 打成错误态。
-  List<String> _filterStyleTagIds(List<String> tagIds) {
-    final valid = tagIds
-        .where((id) => id.isNotEmpty && _styleTagIdPattern.hasMatch(id))
-        .toList();
-    return valid.length > 128 ? valid.sublist(0, 128) : valid;
-  }
-
-  /// 点 / 取消标签：本地集合先行更新（chips 即时反馈），再带最新 tagIds 重取。
-  void _toggleStyleTag(String tagId) {
-    final next = Set<String>.of(_styleSelected ?? const <String>{});
-    if (!next.remove(tagId)) {
-      next.add(tagId);
-    }
-    setState(() => _styleSelected = next);
-    _loadStyle(next.toList());
-  }
-
-  /// 跑一个 section 的加载：独立 loading/错误态，失败只影响自己。
-  Future<void> _load<T>(
-    _AsyncList<T> section,
-    Future<List<T>> Function() task,
-  ) async {
-    section
-      ..loading = true
-      ..error = null;
-    if (mounted) setState(() {});
-    try {
-      final items = await task();
-      section
-        ..items = items
-        ..loading = false;
-    } on Object catch (error) {
-      section
-        ..items = List<T>.empty()
-        ..error = error
-        ..loading = false;
-    }
-    if (mounted) setState(() {});
-  }
-
-  /// 搜索扩展 section 的重试：按最近提交的关键词重跑。
-  void _retrySearchSection<T>(
-    _AsyncList<T> section,
-    Future<List<T>> Function(String keyword) task,
-  ) {
-    final keyword = _submittedKeyword;
-    if (keyword.isEmpty) return;
-    _load(section, () => task(keyword));
-  }
+  /// 每日推荐的首次装载、下拉刷新与重试共用；失败只影响自己。
+  Future<void> _loadDailySongs() => _load(
+    _dailySongs,
+    () async => (await widget.discovery.everydayRecommend()).songs,
+  );
 
   Future<void> _loadHistory() async {
     final history = widget.searchHistory;
@@ -375,6 +223,127 @@ class _MusicDiscoveryPageState extends State<MusicDiscoveryPage>
     } on Object {
       // 收藏态加载失败不挡搜索；图标维持未收藏。
     }
+  }
+
+  // ── 入口网格 / 子页导航 ────────────────────────────────────────────────
+
+  /// 入口网格的条目；排行榜只在回调接线时出现，点击直接回调不建页面。
+  List<_DiscoveryEntry> get _entries => <_DiscoveryEntry>[
+    _DiscoveryEntry(
+      keyName: 'discover-entry-home',
+      icon: Icons.explore_outlined,
+      label: '首页发现',
+      onTap: _openHomeDiscover,
+    ),
+    _DiscoveryEntry(
+      keyName: 'discover-entry-style',
+      icon: Icons.palette_outlined,
+      label: '风格推荐',
+      onTap: _openStylePage,
+    ),
+    _DiscoveryEntry(
+      keyName: 'discover-entry-ai',
+      icon: Icons.smart_toy_outlined,
+      label: 'AI 免费畅听',
+      onTap: _openAiSongs,
+    ),
+    _DiscoveryEntry(
+      keyName: 'discover-entry-fm',
+      icon: Icons.podcasts_outlined,
+      label: '私人 FM',
+      onTap: _openPersonalFm,
+    ),
+    _DiscoveryEntry(
+      keyName: 'discover-entry-hot',
+      icon: Icons.local_fire_department_outlined,
+      label: '热门搜索',
+      onTap: _openHotSearch,
+    ),
+    if (widget.onOpenRank != null)
+      _DiscoveryEntry(
+        keyName: 'discover-entry-rank',
+        icon: Icons.leaderboard_outlined,
+        label: '排行榜',
+        onTap: () => widget.onOpenRank!.call(),
+      ),
+  ];
+
+  /// 首页发现：入口页展示歌曲长条列表。
+  void _openHomeDiscover() => _pushListPage(
+    title: '首页发现',
+    loader: () async => <MusicSong>[
+      for (final item in (await widget.discovery.homeDiscover(
+        const HomeDiscoverQuery(),
+      )).items)
+        discoverySongToMusicSong(item.song.song),
+    ],
+  );
+
+  /// AI 免费畅听：入口页展示歌曲长条列表。
+  void _openAiSongs() => _pushListPage(
+    title: 'AI 免费畅听',
+    loader: () async => <MusicSong>[
+      for (final item in (await widget.discovery.aiRecommendSongs()).songs)
+        discoverySongToMusicSong(item.song),
+    ],
+  );
+
+  /// 私人 FM：长条列表 + 「换一批」刷新；FM 是唯一要账号的入口，长条页
+  /// 监听 authEpoch，登录/切号后自动重拉。
+  void _openPersonalFm() => _pushListPage(
+    title: '私人 FM',
+    refreshLabel: '换一批',
+    authEpoch: widget.authEpoch,
+    loader: () async => <MusicSong>[
+      for (final item in (await widget.discovery.personalFm(
+        const MusicPersonalFmQuery(),
+      )).songs)
+        discoverySongToMusicSong(item.song.song),
+    ],
+  );
+
+  /// push 一个通用长条列表页（首页发现 / AI 畅听 / 私人 FM 共用）。
+  void _pushListPage({
+    required String title,
+    required Future<List<MusicSong>> Function() loader,
+    String? refreshLabel,
+    ValueListenable<int>? authEpoch,
+  }) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => MusicDiscoveryListPage(
+          title: title,
+          player: widget.player,
+          loader: loader,
+          refreshLabel: refreshLabel,
+          authEpoch: authEpoch,
+        ),
+      ),
+    );
+  }
+
+  /// 风格推荐：标签 chips + 歌曲长条（逻辑在风格推荐页内）。
+  void _openStylePage() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => MusicStyleDiscoveryPage(
+          discovery: widget.discovery,
+          player: widget.player,
+        ),
+      ),
+    );
+  }
+
+  /// 热门搜索：默认词 + 热搜榜（chips 点词 → [_applyKeyword] → 返回发现页）。
+  void _openHotSearch() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => MusicHotSearchPage(
+          searchExt: widget.searchExt,
+          onSearch: _applyKeyword,
+        ),
+      ),
+    );
   }
 
   // ── 搜索流程 ──────────────────────────────────────────────────────────
@@ -453,7 +422,7 @@ class _MusicDiscoveryPageState extends State<MusicDiscoveryPage>
       final words = <String>[];
       for (final group in result.groups) {
         for (final item in group.items) {
-          final text = _displayTitle(item.text).trim();
+          final text = displayTitle(item.text).trim();
           if (text.isNotEmpty && !words.contains(text)) {
             words.add(text);
           }
@@ -541,16 +510,7 @@ class _MusicDiscoveryPageState extends State<MusicDiscoveryPage>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('发现音乐'),
-        actions: <Widget>[
-          IconButton(
-            tooltip: '排行榜',
-            icon: const Icon(Icons.leaderboard_outlined),
-            onPressed: widget.onOpenRank,
-          ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('发现音乐')),
       body: Column(
         // stretch 与模块搜索页同构；SearchBar 默认 maxWidth 800 在桌面宽窗
         // 会卡在居中位置，补 stretch 消除左右留白。
@@ -594,10 +554,7 @@ class _MusicDiscoveryPageState extends State<MusicDiscoveryPage>
             child: TabBarView(
               controller: _tabController,
               children: <Widget>[
-                LayoutBuilder(
-                  builder: (context, constraints) =>
-                      _buildDiscoverTab(constraints.maxWidth),
-                ),
+                _buildDiscoverTab(),
                 LayoutBuilder(
                   builder: (context, constraints) =>
                       _buildSongsTab(constraints.maxWidth),
@@ -641,83 +598,19 @@ class _MusicDiscoveryPageState extends State<MusicDiscoveryPage>
 
   // ── 发现 tab ──────────────────────────────────────────────────────────
 
-  Widget _buildDiscoverTab(double width) {
-    final sections = <Widget>[
-      _buildDefaultWordsSection(),
-      _buildSongCardsSection<MusicDiscoverItem>(
-        key: const Key('discover-home'),
-        title: '首页发现',
-        section: _homeItems,
-        songOf: (item) => _discoverySongToMusicSong(item.song.song),
-        onRetry: () => _load(
-          _homeItems,
-          () async => (await widget.discovery.homeDiscover(
-            const HomeDiscoverQuery(),
-          )).items,
-        ),
-      ),
-      _buildStyleSection(),
-      _buildSongCardsSection<MusicDiscoverySong>(
-        key: const Key('discover-daily'),
-        title: '每日推荐',
-        section: _dailySongs,
-        songOf: (song) => _discoverySongToMusicSong(song.song),
-        onRetry: () => _load(
-          _dailySongs,
-          () async => (await widget.discovery.everydayRecommend()).songs,
-        ),
-      ),
-      _buildSongCardsSection<MusicDiscoverySong>(
-        key: const Key('discover-ai'),
-        title: 'AI 免费畅听',
-        section: _aiSongs,
-        songOf: (song) => _discoverySongToMusicSong(song.song),
-        onRetry: () => _load(
-          _aiSongs,
-          () async => (await widget.discovery.aiRecommendSongs()).songs,
-        ),
-      ),
-      _buildSongCardsSection<MusicPersonalFmSong>(
-        key: const Key('discover-fm'),
-        title: '私人 FM',
-        section: _fmSongs,
-        songOf: (item) => _discoverySongToMusicSong(item.song.song),
-        onRetry: () => _load(_fmSongs, _fetchFmSongs),
-        trailing: TextButton.icon(
-          onPressed: () => _load(_fmSongs, _fetchFmSongs),
-          icon: const Icon(Icons.refresh, size: 18),
-          label: const Text('换一批'),
-        ),
-      ),
-      _buildHotGroupsSection(),
-    ];
-    // 宽屏 sections 拆两列提高一屏信息密度；窄屏单列纵向滚动。
-    // 音效商城入口不参与拆列，始终横贯顶部（「发现音乐」区域首屏）。
-    if (width >= _discoverTwoColumnBreakpoint) {
-      return RefreshIndicator(
-        onRefresh: _loadDiscoverySections,
-        child: ListView(
-          key: const Key('discover-scroll'),
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
-          children: <Widget>[
-            _buildEffectsEntry(),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Expanded(child: Column(children: sections.sublist(0, 3))),
-                Expanded(child: Column(children: sections.sublist(3))),
-              ],
-            ),
-          ],
-        ),
-      );
-    }
+  Widget _buildDiscoverTab() {
     return RefreshIndicator(
-      onRefresh: _loadDiscoverySections,
+      onRefresh: _loadDailySongs,
       child: ListView(
         key: const Key('discover-scroll'),
+        // 内容不足一屏时也要能下拉刷新（入口+每日推荐在宽屏很容易填不满）。
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
-        children: <Widget>[_buildEffectsEntry(), ...sections],
+        children: <Widget>[
+          _buildEffectsEntry(),
+          _buildEntryGrid(),
+          _buildDailySection(),
+        ],
       ),
     );
   }
@@ -743,263 +636,76 @@ class _MusicDiscoveryPageState extends State<MusicDiscoveryPage>
     );
   }
 
-  /// 风格推荐：标签 chips（多选，选中即带 tagIds 重取）+ 命中歌曲横向卡。
-  /// 整段独立 loading/error/retry，失败不影响其它 section；
-  /// 首载与重取都拿不到任何标签/歌曲时整段隐藏。
-  Widget _buildStyleSection() {
-    final data = _styleData;
-    final hasContent =
-        data != null && (data.groups.isNotEmpty || data.songs.isNotEmpty);
-    if (!_styleLoading && _styleError == null && !hasContent) {
-      return const SizedBox.shrink();
-    }
-    return _SectionBlock(
-      key: const Key('discover-style'),
-      title: '风格推荐',
-      child: _buildStyleBody(),
+  /// 入口网格：3 列圆角小方块（shrinkWrap + 不滚动，随发现 tab 整体滚动）。
+  /// 推荐内容收进各自入口页，发现 tab 只留「入口 + 每日推荐」。
+  Widget _buildEntryGrid() {
+    return GridView.count(
+      key: const Key('discover-entry-grid'),
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      crossAxisCount: 3,
+      mainAxisSpacing: 8,
+      crossAxisSpacing: 8,
+      childAspectRatio: 1.15,
+      padding: const EdgeInsets.only(bottom: 16),
+      children: <Widget>[for (final entry in _entries) _buildEntryCard(entry)],
     );
   }
 
-  Widget _buildStyleBody() {
-    final error = _styleError;
-    if (error != null) {
-      // 重试沿用最近一次请求的 tagIds（首载失败则是空标签）。
-      return _SectionError(
-        error: error,
-        onRetry: () => _loadStyle(_styleTagIds),
-      );
-    }
-    final data = _styleData;
-    if (_styleLoading) {
-      // 标签重取中：保留旧 chips（选中态由本地集合驱动），歌曲区给占位；
-      // 首载则整块占位。
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          if (data != null)
-            _buildStyleChips(data)
-          else
-            const _ChipPlaceholder(),
-          const SizedBox(height: 8),
-          const _CardsPlaceholder(),
-        ],
-      );
-    }
-    if (data == null) return const SizedBox.shrink();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        if (data.groups.isNotEmpty) _buildStyleChips(data),
-        if (data.songs.isNotEmpty) ...<Widget>[
-          const SizedBox(height: 8),
-          _buildStyleSongs(data.songs),
-        ],
-      ],
-    );
-  }
-
-  /// 标签目录 chips：按组渲染；组名缺失只省略标题行；id 不合法（接口校验
-  /// 仅 ASCII 字母数字）的标签不渲染，避免「可点但永不生效」的死 chip。
-  Widget _buildStyleChips(MusicStyleRecommendations data) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        for (final group in data.groups)
-          if (group.child.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  if (group.name.isNotEmpty) ...<Widget>[
-                    Text(
-                      group.name,
-                      style: Theme.of(context).textTheme.titleSmall,
-                    ),
-                    const SizedBox(height: 8),
-                  ],
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: <Widget>[
-                      for (final tag in group.child)
-                        if (tag.id.isNotEmpty &&
-                            _styleTagIdPattern.hasMatch(tag.id))
-                          FilterChip(
-                            label: Text(tag.name),
-                            selected: _styleSelected?.contains(tag.id) ?? false,
-                            // 不用勾选图标：勾选占宽 20px 会把 label 中心推进
-                            // 框架为「删除按钮」预留的命中区（FilterChip 无
-                            // onDeleted 时该区不可命中），点选中 chip 的文字
-                            // 会落空；选中态由填充底色表达。
-                            showCheckmark: false,
-                            onSelected: (_) => _toggleStyleTag(tag.id),
-                            visualDensity: VisualDensity.compact,
-                          ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-      ],
-    );
-  }
-
-  /// 命中歌曲横向卡：与其它发现 section 同款形态，点卡走统一播放链路。
-  Widget _buildStyleSongs(List<MusicDiscoverySong> songs) {
-    final cards = <MusicSong>[
-      for (final item in songs) _discoverySongToMusicSong(item.song),
-    ];
-    return SizedBox(
-      height: _cardHeight,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: EdgeInsets.zero,
-        children: <Widget>[
-          for (final song in cards)
-            _SongCard(
-              width: _cardWidth,
-              song: song,
-              onTap: () => _openSong(song),
-            ),
-        ],
-      ),
-    );
-  }
-
-  /// 默认搜索词 chips（searchDefault promotions；title 即搜索词）。
-  Widget _buildDefaultWordsSection() {
-    final section = _defaultWords;
-    if (!_sectionVisible(section)) return const SizedBox.shrink();
-    return _SectionBlock(
-      key: const Key('discover-default-words'),
-      title: '默认搜索词',
-      child: _sectionBody(
-        section: section,
-        loading: const _ChipPlaceholder(),
-        empty: const SizedBox.shrink(),
-        content: () => Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: <Widget>[
-            for (final promotion in section.items)
-              if (promotion.title.isNotEmpty || promotion.mainTitle.isNotEmpty)
-                ActionChip(
-                  avatar: const Icon(Icons.campaign_outlined, size: 16),
-                  label: Text(
-                    promotion.title.isNotEmpty
-                        ? promotion.title
-                        : promotion.mainTitle,
-                  ),
-                  onPressed: () => _applyKeyword(
-                    promotion.title.isNotEmpty
-                        ? promotion.title
-                        : promotion.mainTitle,
-                  ),
-                ),
-          ],
-        ),
-        onRetry: () => _load(
-          _defaultWords,
-          () async => (await widget.searchExt.searchDefault()).promotions,
-        ),
-      ),
-    );
-  }
-
-  /// 热搜分组（searchHot）：每组一张卡 + 关键词 chips。
-  Widget _buildHotGroupsSection() {
-    final section = _hotGroups;
-    if (!_sectionVisible(section)) return const SizedBox.shrink();
-    return _SectionBlock(
-      key: const Key('discover-hot'),
-      title: '热搜榜',
-      child: _sectionBody(
-        section: section,
-        loading: const _ChipPlaceholder(),
-        empty: const SizedBox.shrink(),
-        content: () => Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            for (final group in section.items)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
-                        Text(
-                          group.title,
-                          style: Theme.of(context).textTheme.titleSmall,
-                        ),
-                        const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: <Widget>[
-                            for (final keyword in group.keywords)
-                              ActionChip(
-                                avatar: const Icon(
-                                  Icons.local_fire_department_outlined,
-                                  size: 16,
-                                ),
-                                label: Text(keyword.keyword),
-                                tooltip: keyword.reason,
-                                onPressed: () => _applyKeyword(keyword.keyword),
-                              ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        ),
-        onRetry: () => _load(_hotGroups, widget.searchExt.searchHot),
-      ),
-    );
-  }
-
-  /// 横向歌曲卡 section（首页发现/每日推荐/AI 畅听/私人 FM 共用）。
-  /// 数据为空时整个 section 隐藏，不占版面。
-  Widget _buildSongCardsSection<T>({
-    Key? key,
-    required String title,
-    required _AsyncList<T> section,
-    required MusicSong Function(T item) songOf,
-    required VoidCallback onRetry,
-    Widget? trailing,
-  }) {
-    if (!_sectionVisible(section)) return const SizedBox.shrink();
-    return _SectionBlock(
-      key: key,
-      title: title,
-      trailing: trailing,
-      child: _sectionBody(
-        section: section,
-        loading: const _CardsPlaceholder(),
-        empty: const SizedBox.shrink(),
-        content: () => SizedBox(
-          height: _cardHeight,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            padding: EdgeInsets.zero,
+  Widget _buildEntryCard(_DiscoveryEntry entry) {
+    final theme = Theme.of(context);
+    return Card(
+      key: Key(entry.keyName),
+      margin: EdgeInsets.zero,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(borderRadius: MimaoShapes.md),
+      child: InkWell(
+        onTap: entry.onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(8),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
-              for (final item in section.items)
-                _SongCard(
-                  width: _cardWidth,
-                  song: songOf(item),
-                  onTap: () => _openSong(songOf(item)),
-                ),
+              Icon(entry.icon, size: 28),
+              const SizedBox(height: 6),
+              Text(
+                entry.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodyMedium,
+              ),
             ],
           ),
         ),
-        onRetry: onRetry,
       ),
     );
+  }
+
+  /// 每日推荐：留在发现 tab 的唯一推荐 section，改为与收藏同款的纵向长条；
+  /// 独立 loading/error/retry，空数据隐藏；下拉刷新走 tab 的 RefreshIndicator。
+  Widget _buildDailySection() {
+    final section = _dailySongs;
+    if (!_sectionVisible(section)) return const SizedBox.shrink();
+    return _SectionBlock(
+      key: const Key('discover-daily'),
+      title: '每日推荐',
+      child: _sectionBody(
+        section: section,
+        loading: const _ListPlaceholder(),
+        empty: const SizedBox.shrink(),
+        content: () => Column(
+          children: <Widget>[
+            for (final item in section.items) _dailyTile(item),
+          ],
+        ),
+        onRetry: _loadDailySongs,
+      ),
+    );
+  }
+
+  DiscoverySongTile _dailyTile(MusicDiscoverySong item) {
+    final song = discoverySongToMusicSong(item.song);
+    return DiscoverySongTile(song: song, onTap: () => _openSong(song));
   }
 
   // ── 歌曲 tab（MusicStore 的搜索结果，Observer 驱动） ───────────────────
@@ -1110,9 +816,9 @@ class _MusicDiscoveryPageState extends State<MusicDiscoveryPage>
         SearchSongsQuery(keyword: keyword),
       )).items,
       itemBuilder: (context, album) => ListTile(
-        leading: _SquareCover(url: album.coverUrl, size: 56),
+        leading: DiscoverySquareCover(url: album.coverUrl, size: 56),
         title: Text(
-          _displayTitle(album.title),
+          displayTitle(album.title),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
@@ -1154,7 +860,7 @@ class _MusicDiscoveryPageState extends State<MusicDiscoveryPage>
         return ListTile(
           leading: _RoundAvatar(url: artist.avatarUrl, size: 48),
           title: Text(
-            _displayTitle(artist.name),
+            displayTitle(artist.name),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
@@ -1183,9 +889,9 @@ class _MusicDiscoveryPageState extends State<MusicDiscoveryPage>
         SearchSongsQuery(keyword: keyword),
       )).items,
       itemBuilder: (context, playlist) => ListTile(
-        leading: _SquareCover(url: playlist.coverUrl, size: 56),
+        leading: DiscoverySquareCover(url: playlist.coverUrl, size: 56),
         title: Text(
-          _displayTitle(playlist.title),
+          displayTitle(playlist.title),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
@@ -1213,17 +919,17 @@ class _MusicDiscoveryPageState extends State<MusicDiscoveryPage>
       itemBuilder: (context, hit) => ListTile(
         leading: const Icon(Icons.lyrics_outlined),
         title: Text(
-          '${_displayTitle(hit.song.title)} - ${_displayTitle(hit.song.artistText)}',
+          '${displayTitle(hit.song.title)} - ${displayTitle(hit.song.artistText)}',
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
         subtitle: Text(
-          _displayTitle(hit.excerpt),
+          displayTitle(hit.excerpt),
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
         ),
         trailing: Text(
-          _formatDuration(hit.song.durationMs),
+          formatDuration(hit.song.durationMs),
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
             color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
@@ -1280,10 +986,43 @@ class _MusicDiscoveryPageState extends State<MusicDiscoveryPage>
     if (section.loading) return loading;
     final error = section.error;
     if (error != null) {
-      return _SectionError(error: error, onRetry: onRetry);
+      return DiscoverySectionError(error: error, onRetry: onRetry);
     }
     if (section.items.isEmpty) return empty;
     return content();
+  }
+
+  /// 搜索扩展 section 的重试：按最近提交的关键词重跑。
+  void _retrySearchSection<T>(
+    _AsyncList<T> section,
+    Future<List<T>> Function(String keyword) task,
+  ) {
+    final keyword = _submittedKeyword;
+    if (keyword.isEmpty) return;
+    _load(section, () => task(keyword));
+  }
+
+  /// 跑一个 section 的加载：独立 loading/错误态，失败只影响自己。
+  Future<void> _load<T>(
+    _AsyncList<T> section,
+    Future<List<T>> Function() task,
+  ) async {
+    section
+      ..loading = true
+      ..error = null;
+    if (mounted) setState(() {});
+    try {
+      final items = await task();
+      section
+        ..items = items
+        ..loading = false;
+    } on Object catch (error) {
+      section
+        ..items = List<T>.empty()
+        ..error = error
+        ..loading = false;
+    }
+    if (mounted) setState(() {});
   }
 }
 
@@ -1297,7 +1036,23 @@ class _AsyncList<T> {
   List<T> items = List<T>.empty();
 }
 
-/// section 标题行（可选 trailing：换一批 / 清空历史等动作）。
+/// 入口网格的条目。
+class _DiscoveryEntry {
+  const _DiscoveryEntry({
+    required this.keyName,
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  /// 测试定位用 key（`discover-entry-*`）。
+  final String keyName;
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+}
+
+/// section 标题行（可选 trailing：清空历史等动作）。
 class _SectionHeader extends StatelessWidget {
   const _SectionHeader({required this.title, this.trailing});
 
@@ -1317,18 +1072,12 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
-/// 带标题的 section 块（发现 tab 用；key 供测试定位单个 section）。
+/// 带标题的 section 块（发现 tab 每日推荐用；key 供测试定位）。
 class _SectionBlock extends StatelessWidget {
-  const _SectionBlock({
-    super.key,
-    required this.title,
-    required this.child,
-    this.trailing,
-  });
+  const _SectionBlock({super.key, required this.title, required this.child});
 
   final String title;
   final Widget child;
-  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -1337,45 +1086,11 @@ class _SectionBlock extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          _SectionHeader(title: title, trailing: trailing),
+          _SectionHeader(title: title),
           const SizedBox(height: 8),
           child,
         ],
       ),
-    );
-  }
-}
-
-/// section 级错误行：失败只占自己那一块，重试不牵连其它 section。
-class _SectionError extends StatelessWidget {
-  const _SectionError({required this.error, required this.onRetry});
-
-  final Object? error;
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Row(
-      children: <Widget>[
-        Icon(Icons.error_outline, size: 18, color: cs.error),
-        const SizedBox(width: 6),
-        Expanded(
-          child: Text(
-            '加载失败：$error',
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
-          ),
-        ),
-        TextButton.icon(
-          onPressed: onRetry,
-          icon: const Icon(Icons.refresh, size: 18),
-          label: const Text('重试'),
-        ),
-      ],
     );
   }
 }
@@ -1431,55 +1146,31 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
-/// 发现歌曲卡（横向列表项）：方形封面 + 标题 + 歌手。
-class _SongCard extends StatelessWidget {
-  const _SongCard({
-    required this.width,
-    required this.song,
-    required this.onTap,
-  });
-
-  final double width;
-  final MusicSong song;
-  final VoidCallback onTap;
+/// 纵向长条区的加载占位：静态灰块（不用 indeterminate 进度条，
+/// 避免 pumpAndSettle 不收敛、也让占位与真实行高接近不跳版）。
+class _ListPlaceholder extends StatelessWidget {
+  const _ListPlaceholder();
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return SizedBox(
-      width: width,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: MimaoShapes.md,
-        child: Padding(
-          padding: const EdgeInsets.only(right: 8),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              _SquareCover(
-                url: song.coverUrl,
-                size: width,
-                radius: MimaoShapes.md,
-              ),
-              const SizedBox(height: 6),
-              Text(
-                _displayTitle(song.title),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodyMedium,
-              ),
-              Text(
-                song.artistText,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
+    final cs = Theme.of(context).colorScheme;
+    return Column(
+      children: <Widget>[
+        for (final _ in List<int>.generate(3, (index) => index))
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: SizedBox(
+              height: 72,
+              width: double.infinity,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: cs.surfaceContainerHighest,
+                  borderRadius: MimaoShapes.sm,
                 ),
               ),
-            ],
+            ),
           ),
-        ),
-      ),
+      ],
     );
   }
 }
@@ -1505,9 +1196,9 @@ class _SongTile extends StatelessWidget {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     return ListTile(
-      leading: _SquareCover(url: song.coverUrl, size: 44),
+      leading: DiscoverySquareCover(url: song.coverUrl, size: 44),
       title: Text(
-        _displayTitle(song.title),
+        displayTitle(song.title),
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
@@ -1527,54 +1218,12 @@ class _SongTile extends StatelessWidget {
               onPressed: onToggleCollect,
             )
           : Text(
-              _formatDuration(song.durationMs),
+              formatDuration(song.durationMs),
               style: theme.textTheme.bodySmall?.copyWith(
                 color: cs.onSurfaceVariant,
               ),
             ),
       onTap: onTap,
-    );
-  }
-}
-
-/// 方形封面（封面/专辑/歌单）：无 URL / 加载失败回退音符占位。
-/// Image.network 必须同时给 errorBuilder 与 loadingBuilder（规格功能 7）。
-class _SquareCover extends StatelessWidget {
-  const _SquareCover({required this.url, required this.size, this.radius});
-
-  final String url;
-  final double size;
-
-  /// 缺省 sm（10）——行级封面；卡片封面传 md。
-  final BorderRadius? radius;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final shape = radius ?? MimaoShapes.sm;
-    final fallback = Container(
-      width: size,
-      height: size,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: cs.surfaceContainerHighest,
-        borderRadius: shape,
-      ),
-      child: Icon(Icons.music_note, color: cs.primary),
-    );
-    if (url.isEmpty) return fallback;
-    return ClipRRect(
-      borderRadius: shape,
-      child: Image.network(
-        url,
-        width: size,
-        height: size,
-        fit: BoxFit.cover,
-        errorBuilder: (_, _, _) => fallback,
-        // 加载中维持占位（与迷你条/播放页的 loading 模式对齐，不闪空块）。
-        loadingBuilder: (context, child, progress) =>
-            progress == null ? child : fallback,
-      ),
     );
   }
 }
@@ -1610,62 +1259,6 @@ class _RoundAvatar extends StatelessWidget {
         loadingBuilder: (context, child, progress) =>
             progress == null ? child : fallback,
       ),
-    );
-  }
-}
-
-/// 横向歌曲卡区的加载占位：静态灰块（不用 indeterminate 进度条，
-/// 避免 pumpAndSettle 不收敛、也让占位与真实卡片同高不跳版）。
-class _CardsPlaceholder extends StatelessWidget {
-  const _CardsPlaceholder();
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return SizedBox(
-      height: 184,
-      child: Row(
-        children: <Widget>[
-          for (final _ in List<int>.generate(4, (index) => index))
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: Container(
-                width: 128,
-                height: 176,
-                decoration: BoxDecoration(
-                  color: cs.surfaceContainerHighest,
-                  borderRadius: MimaoShapes.md,
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-/// chips 区的加载占位（默认词/热词）。
-class _ChipPlaceholder extends StatelessWidget {
-  const _ChipPlaceholder();
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Row(
-      children: <Widget>[
-        for (final width in const <double>[72, 96, 64, 88])
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: Container(
-              width: width,
-              height: 32,
-              decoration: BoxDecoration(
-                color: cs.surfaceContainerHighest,
-                borderRadius: MimaoShapes.pill,
-              ),
-            ),
-          ),
-      ],
     );
   }
 }
@@ -1758,7 +1351,7 @@ class _LyricCandidateSheetState extends State<_LyricCandidateSheet> {
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text('歌词 · ${_displayTitle(candidate.title)}'),
+        title: Text('歌词 · ${displayTitle(candidate.title)}'),
         content: SizedBox(
           width: 480,
           child: text == null
@@ -1788,7 +1381,7 @@ class _LyricCandidateSheetState extends State<_LyricCandidateSheet> {
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
             child: Text(
-              '歌词候选 · ${_displayTitle(widget.song.title)}',
+              '歌词候选 · ${displayTitle(widget.song.title)}',
               style: theme.textTheme.titleMedium,
             ),
           ),
@@ -1822,7 +1415,7 @@ class _LyricCandidateSheetState extends State<_LyricCandidateSheet> {
         return ListTile(
           leading: const Icon(Icons.lyrics_outlined),
           title: Text(
-            '${_displayTitle(candidate.title)} - ${_displayTitle(candidate.artist)}',
+            '${displayTitle(candidate.title)} - ${displayTitle(candidate.artist)}',
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
@@ -1848,32 +1441,6 @@ class _LyricCandidateSheetState extends State<_LyricCandidateSheet> {
 }
 
 // ── 私有工具 ──────────────────────────────────────────────────────────────
-
-/// 发现组曲目摘要 → 播放链路的 [MusicSong]。发现组保留「专辑名缺失(null)
-/// vs 空串」的 wire 区分，播放链路的骨架模型用空串表达缺失。
-MusicSong _discoverySongToMusicSong(MusicDiscoverySongSummary summary) =>
-    MusicSong(
-      id: summary.id,
-      hash: summary.hash,
-      title: summary.title,
-      artists: summary.artists,
-      albumId: summary.albumId,
-      albumTitle: summary.albumTitle ?? '',
-      durationMs: summary.durationMs,
-      coverUrl: summary.coverUrl,
-      privilege: summary.privilege,
-    );
-
-/// wire 的 SongName 可能带 `<em>` 高亮标签，展示层统一剥掉；模型层保持
-/// 上游 api 的原样语义（与模块页同款）。
-String _displayTitle(String raw) =>
-    raw.replaceAll('<em>', '').replaceAll('</em>', '');
-
-String _formatDuration(int? durationMs) {
-  if (durationMs == null || durationMs <= 0) return '';
-  final seconds = durationMs ~/ 1000;
-  return '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}';
-}
 
 /// 歌词文档 base64 → UTF-8 文本；krc/lrc/text 都按纯文本展示。
 /// 解码失败（非 base64、非法 UTF-8）返回 null，调用方显示「歌词格式不支持」。
