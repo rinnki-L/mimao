@@ -49,6 +49,7 @@ class MusicAccountCenterPage extends StatefulWidget {
     this.imagePicker,
     this.authEpoch,
     this.loadPreferenceTagGroups,
+    this.showAppBar = true,
   });
 
   /// 用户资料组接口（资料头/会员/等级）。
@@ -79,6 +80,10 @@ class MusicAccountCenterPage extends StatefulWidget {
   /// `everydayStyleRecommend` 标签组接进来。null 时候选区静默隐藏，
   /// 不影响偏好的读取与保存。
   final Future<List<MusicStyleTagGroup>> Function()? loadPreferenceTagGroups;
+
+  /// false 时由模块层侧栏/壳顶栏提供标题，本页不再画 AppBar
+  /// （模块层侧栏化后分区页不再自带标题，与漫画分区页同款）。
+  final bool showAppBar;
 
   @override
   State<MusicAccountCenterPage> createState() => _MusicAccountCenterPageState();
@@ -523,7 +528,8 @@ class _MusicAccountCenterPageState extends State<MusicAccountCenterPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('用户中心')),
+      // 模块层侧栏化后，embedded 的分区页不自带标题（与漫画分区页同款）。
+      appBar: widget.showAppBar ? AppBar(title: const Text('用户中心')) : null,
       body: LayoutBuilder(
         builder: (context, constraints) {
           final bool wide = constraints.maxWidth >= _kTwoColumnBreakpoint;

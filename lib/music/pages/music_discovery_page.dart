@@ -55,6 +55,7 @@ class MusicDiscoveryPage extends StatefulWidget {
     this.searchHistory,
     this.onOpenRank,
     this.authEpoch,
+    this.showAppBar = true,
   });
 
   /// 搜索扩展端点组（默认词/热词/建议；搜索页只用建议）。
@@ -80,6 +81,10 @@ class MusicDiscoveryPage extends StatefulWidget {
 
   /// 登录态变化信号：转发给私人 FM 长条页，并重取 FM 入口卡封面预览。
   final ValueListenable<int>? authEpoch;
+
+  /// false 时由模块层侧栏/壳顶栏提供标题，本页不再画 AppBar
+  /// （模块层侧栏化后分区页不再自带标题，与漫画分区页同款）。
+  final bool showAppBar;
 
   @override
   State<MusicDiscoveryPage> createState() => _MusicDiscoveryPageState();
@@ -456,7 +461,8 @@ class _MusicDiscoveryPageState extends State<MusicDiscoveryPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('发现音乐')),
+      // 模块层侧栏化后，embedded 的分区页不自带标题（与漫画分区页同款）。
+      appBar: widget.showAppBar ? AppBar(title: const Text('发现音乐')) : null,
       body: Column(
         // stretch 与模块搜索页同构；SearchBar 默认 maxWidth 800 在桌面宽窗
         // 会卡在居中位置，补 stretch 消除左右留白。

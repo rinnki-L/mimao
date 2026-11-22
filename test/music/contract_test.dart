@@ -160,8 +160,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.widgetWithText(ListTile, '稻香'), findsOneWidget);
-    // 未接线：不显示收藏按钮、不出底部导航、不渲染迷你条。
+    // 未接线：不显示收藏按钮；侧栏只有「搜索」入口、无设置区，
+    // 也不回退到底部导航（2026-11-22 侧栏化，原为 NavigationBar 守卫）。
     expect(find.byIcon(Icons.favorite_border), findsNothing);
+    expect(find.byKey(const Key('music-sidebar')), findsOneWidget);
+    expect(find.byKey(const Key('music-sidebar-settings')), findsNothing);
     expect(find.byType(NavigationBar), findsNothing);
 
     await tester.tap(find.widgetWithText(ListTile, '稻香'));
@@ -171,7 +174,7 @@ void main() {
     expect(find.text('播放功能随播放器切片接入'), findsOneWidget);
   });
 
-  testWidgets('页面提供 libraryTab 时出现「搜索 / 我的」底部导航', (tester) async {
+  testWidgets('页面提供 libraryTab 时侧栏出现「搜索 / 我的」入口', (tester) async {
     final store = MusicStore(_FakeApi());
     await tester.pumpWidget(
       MaterialApp(
@@ -184,7 +187,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.byType(NavigationBar), findsOneWidget);
+    // 侧栏入口出现（2026-11-22 侧栏化，原为 NavigationBar 守卫）。
+    expect(find.byKey(const Key('music-sidebar')), findsOneWidget);
     expect(find.text('搜索'), findsOneWidget);
     expect(find.text('我的'), findsOneWidget);
 

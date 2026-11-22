@@ -202,6 +202,8 @@ class MusicModule implements AppModule {
             onOpenRank: browseApis?.rank == null
                 ? null
                 : () => _openRank(context),
+            // 模块层侧栏化：分区页不自带标题（壳顶栏已有「音乐」）。
+            showAppBar: false,
           )
         : null;
 
@@ -233,6 +235,8 @@ class MusicModule implements AppModule {
                 : () async => (await discovery.everydayStyleRecommend(
                     const EverydayStyleRecommendQuery(),
                   )).groups,
+            // 模块层侧栏化：分区页不自带标题（壳顶栏已有「音乐」）。
+            showAppBar: false,
           )
         : null;
 
@@ -246,7 +250,8 @@ class MusicModule implements AppModule {
       accountTab: accountTab,
       browseTab: discoveryTab,
       onOpenPlaylists: canOpenPlaylists ? () => _openPlaylists(context) : null,
-      // 各入口的设置放进各入口：账号/设备设置作为最右侧「设置」tab。
+      // 各入口的设置放进各入口：设置内容收在侧栏底部项，点击弹底部面板
+      // （2026-11-22 侧栏化，原为最右侧「设置」tab）。
       settingsTab: buildSettings(context),
     );
     // 未登录时每次进入都全屏弹扫码（可跳过）；account 未接线时直接返回主页，

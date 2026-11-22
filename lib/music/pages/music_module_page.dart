@@ -1,6 +1,10 @@
 // ignore_for_file: deprecated_member_use — Flutter 3.50 弃用整个 material.dart，
 // 与 comic 页面同款说明。
-/// 音乐模块主页（M4）：搜索 + 结果列表；可选「我的」页与迷你播放条。
+/// 音乐模块主页（M4）：左侧栏 + 分区内容 + 迷你播放条。
+///
+/// 侧栏骨架与漫画模块同款（2026-11-22 对齐，原为底部 NavigationBar）：
+/// 导航项 + 底部「设置」项弹底部面板，迷你播放条驻内容列底部，
+/// 切分区时播放控制不消失。
 ///
 /// 契约提交后本页只认接口（[MusicPlayerUi]/[MusicCollectApi]/
 /// [MusicSearchHistoryApi]），不 import `player/` 实现，也不认识 C 线的
@@ -59,8 +63,8 @@ class MusicModulePage extends StatefulWidget {
   /// 「我的」页顶部的「我的歌单」入口；null 时不显示。
   final VoidCallback? onOpenPlaylists;
 
-  /// 最右侧「设置」tab 的内容；由模块出口 buildSettings 注入。
-  /// 与 libraryTab 都为 null 时不出底部导航（保持未接线时的行为）。
+  /// 设置面板的内容；由模块出口 buildSettings 注入，收在侧栏底部项
+  /// （点击弹底部面板，不再占一个分区）。null 时侧栏不出设置区。
   final Widget? settingsTab;
 
   @override
@@ -216,28 +220,27 @@ class _MusicModulePageState extends State<MusicModulePage> {
     final browseTab = widget.browseTab;
     final settingsTab = widget.settingsTab;
 
-    // tab 列表：发现页（注入时）或旧搜索页恒在；「我的」「账号」「设置」
-    // 按注入与否出现，设置永远最右。
-    final destinations = <NavigationDestination>[];
+    // 侧栏入口列表：发现页（注入时）或旧搜索页恒在首项；「我的」「账号」
+    // 按注入与否出现。设置不再占分区：收在侧栏底部项，点击弹底部面板
+    // （2026-11-22 对齐漫画模块的侧栏骨架，原为底部 NavigationBar）。
+    final destinations = <_MusicSidebarDestination>[];
     final tabs = <Widget>[];
     if (browseTab != null) {
       tabs.add(browseTab);
-      destinations.add(
-        const NavigationDestination(
-          icon: Icon(Icons.explore_outlined),
-          selectedIcon: Icon(Icons.explore),
-          label: '发现',
-        ),
-      );
+      destinations.add((
+        key: 'music-sidebar-discover',
+        icon: Icons.explore_outlined,
+        selectedIcon: Icons.explore,
+        label: '发现',
+      ));
     } else {
       tabs.add(searchBody);
-      destinations.add(
-        const NavigationDestination(
-          icon: Icon(Icons.search_outlined),
-          selectedIcon: Icon(Icons.search),
-          label: '搜索',
-        ),
-      );
+      destinations.add((
+        key: 'music-sidebar-search',
+        icon: Icons.search_outlined,
+        selectedIcon: Icons.search,
+        label: '搜索',
+      ));
     }
     if (libraryTab != null) {
       final openPlaylists = widget.onOpenPlaylists;
@@ -258,43 +261,32 @@ class _MusicModulePageState extends State<MusicModulePage> {
                 ],
               ),
       );
-      destinations.add(
-        const NavigationDestination(
-          icon: Icon(Icons.library_music_outlined),
-          selectedIcon: Icon(Icons.library_music),
-          label: '我的',
-        ),
-      );
+      destinations.add((
+        key: 'music-sidebar-library',
+        icon: Icons.library_music_outlined,
+        selectedIcon: Icons.library_music,
+        label: '我的',
+      ));
     }
     if (accountTab != null) {
       tabs.add(accountTab);
-      destinations.add(
-        const NavigationDestination(
-          icon: Icon(Icons.person_outline),
-          selectedIcon: Icon(Icons.person),
-          label: '账号',
-        ),
-      );
+      destinations.add((
+        key: 'music-sidebar-account',
+        icon: Icons.person_outline,
+        selectedIcon: Icons.person,
+        label: '账号',
+      ));
     }
-    if (settingsTab != null) {
-      tabs.add(SafeArea(child: SingleChildScrollView(child: settingsTab)));
-      destinations.add(
-        const NavigationDestination(
-          icon: Icon(Icons.settings_outlined),
-          selectedIcon: Icon(Icons.settings),
-          label: '设置',
-        ),
-      );
-    }
-    // 索引防御：libraryTab/settingsTab 在两次 build 之间变化时夹紧，避免越界。
+    // 索引防御：libraryTab/accountTab 在两次 build 之间变化时夹紧，避免越界。
     if (_index >= tabs.length) _index = tabs.length - 1;
     final content = tabs.length == 1
         ? tabs.first
         : IndexedStack(index: _index, children: tabs);
-    // 迷你播放条住各页共用区：切「我的」/「设置」时播放控制不消失（集成收口修正）。
+    // 迷你播放条住各页共用区（内容列底部）：切「我的」/「账号」时播放控制
+    // 不消失（集成收口修正）。
     // Observer 包住调用：buildMiniPlayer 返回 null 时不渲染，队列变化
     // （点歌入队）由 MobX 驱动重建，不需要页面自己 setState。
-    final body = Column(
+    final contentColumn = Column(
       children: <Widget>[
         Expanded(child: content),
         if (widget.playerUi != null)
@@ -308,14 +300,35 @@ class _MusicModulePageState extends State<MusicModulePage> {
 
     return Scaffold(
       appBar: widget.embedded ? null : AppBar(title: const Text('音乐')),
-      body: body,
-      bottomNavigationBar: tabs.length == 1
-          ? null
-          : NavigationBar(
-              selectedIndex: _index,
-              onDestinationSelected: (index) => setState(() => _index = index),
-              destinations: destinations,
-            ),
+      body: Row(
+        children: <Widget>[
+          _MusicSidebar(
+            currentIndex: _index,
+            onSelect: (int index) => setState(() => _index = index),
+            destinations: destinations,
+            settingsTab: settingsTab,
+            onOpenSettings: _openSettings,
+          ),
+          Expanded(child: contentColumn),
+        ],
+      ),
+    );
+  }
+
+  /// 模块设置面板（底部弹出，与漫画模块同款）：设置内容不再占侧栏分区。
+  Future<void> _openSettings() async {
+    final settingsTab = widget.settingsTab;
+    if (settingsTab == null) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (_) => SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+          child: settingsTab,
+        ),
+      ),
     );
   }
 
@@ -349,6 +362,166 @@ class _MusicModulePageState extends State<MusicModulePage> {
           ),
         );
       },
+    );
+  }
+}
+
+/// 侧边栏导航项：图标沿用原底部 NavigationBar（selected 用 filled 版本）。
+typedef _MusicSidebarDestination = ({
+  String key,
+  IconData icon,
+  IconData selectedIcon,
+  String label,
+});
+
+/// 模块层左侧边栏（2026-11-22 对齐漫画模块的自绘侧栏，替代原底部
+/// NavigationBar）。
+///
+/// 中部导航项（图标 + 文字横排，选中态为 M3 rail 式选中指示垫：药丸底色
+/// 只垫在图标后面，文字不笼罩——与漫画/小说模块同款观感），底部一个
+/// 「设置」项（[settingsTab] 为 null 时整块不渲染，含分隔线），点击由
+/// [onOpenSettings] 弹底部面板。窗口宽 ≥ 720 用 240 宽（图标 + 文字）；
+/// 否则收成 84 宽只留图标，用 Tooltip 提示名称。右缘 1px outlineVariant
+/// 与内容区分隔。
+class _MusicSidebar extends StatelessWidget {
+  const _MusicSidebar({
+    required this.currentIndex,
+    required this.onSelect,
+    required this.destinations,
+    required this.settingsTab,
+    required this.onOpenSettings,
+  });
+
+  final int currentIndex;
+  final ValueChanged<int> onSelect;
+
+  /// 与 [MusicModulePage] 的 tabs 一一对应的侧栏入口（顺序即索引）。
+  final List<_MusicSidebarDestination> destinations;
+
+  /// 模块设置面板内容；null 表示没有设置项，底部设置区（含分隔线）不渲染。
+  final Widget? settingsTab;
+
+  final VoidCallback? onOpenSettings;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    // 窗口宽 ≥ 720 走宽形态（图标 + 文字）；否则收窄只留图标。
+    final wide = MediaQuery.sizeOf(context).width >= 720;
+
+    return Container(
+      key: const Key('music-sidebar'),
+      width: wide ? 240.0 : 84.0,
+      decoration: BoxDecoration(
+        color: cs.surface,
+        border: Border(right: BorderSide(color: cs.outlineVariant)),
+      ),
+      child: Column(
+        children: <Widget>[
+          // 顶部不画模块名：壳层顶栏（embedded）已提供「返回 + 标题」，
+          // 侧边栏再画一遍会重复，只留呼吸空隙。
+          const SizedBox(height: 12),
+          for (final (index, destination) in destinations.indexed)
+            _destinationRow(
+              context: context,
+              itemKey: destination.key,
+              icon: destination.icon,
+              selectedIcon: destination.selectedIcon,
+              label: destination.label,
+              selected: index == currentIndex,
+              wide: wide,
+              onTap: () => onSelect(index),
+            ),
+          const Spacer(),
+          if (settingsTab != null) ...<Widget>[
+            Divider(color: cs.outlineVariant, height: 1),
+            // 设置项永不处于选中态；样式与导航项一致。
+            _destinationRow(
+              context: context,
+              itemKey: 'music-sidebar-settings',
+              icon: Icons.settings_outlined,
+              selectedIcon: Icons.settings_outlined,
+              label: '设置',
+              selected: false,
+              wide: wide,
+              onTap: onOpenSettings,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// 一条导航行：Material 提供水波纹底（透明底才有 ink 效果），圆角药丸
+  /// 由 shape + clipBehavior 收住水波纹；行底色与侧边栏同色，选中态的
+  /// 高亮只落在图标后面的指示垫上（56×32 药丸，对齐 M3 NavigationRail
+  /// 的默认指示垫参数），hover/focus 时药丸形状的 ink 反馈照常出现。
+  Widget _destinationRow({
+    required BuildContext context,
+    required String itemKey,
+    required IconData icon,
+    required IconData selectedIcon,
+    required String label,
+    required bool selected,
+    required bool wide,
+    required VoidCallback? onTap,
+  }) {
+    final cs = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final fg = selected ? cs.onSecondaryContainer : cs.onSurfaceVariant;
+    final iconWidget = Icon(
+      selected ? selectedIcon : icon,
+      size: 24,
+      color: fg,
+    );
+    Widget iconPart = iconWidget;
+    if (!wide) iconPart = Tooltip(message: label, child: iconPart);
+    return Padding(
+      key: Key(itemKey),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Material(
+        color: cs.surface,
+        shape: RoundedRectangleBorder(borderRadius: MimaoShapes.pill),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          borderRadius: MimaoShapes.pill,
+          onTap: onTap,
+          child: SizedBox(
+            height: 52,
+            child: Row(
+              mainAxisAlignment: wide
+                  ? MainAxisAlignment.start
+                  : MainAxisAlignment.center,
+              children: <Widget>[
+                // M3 rail 式选中指示垫：药丸底色只垫图标，文字留在外面。
+                AnimatedContainer(
+                  width: 56,
+                  height: 32,
+                  duration: const Duration(milliseconds: 200),
+                  decoration: BoxDecoration(
+                    color: selected ? cs.secondaryContainer : null,
+                    borderRadius: MimaoShapes.pill,
+                  ),
+                  alignment: Alignment.center,
+                  child: iconPart,
+                ),
+                if (wide) ...<Widget>[
+                  const SizedBox(width: 12),
+                  Text(
+                    label,
+                    style: textTheme.labelLarge?.copyWith(
+                      color: fg,
+                      fontWeight: selected
+                          ? MimaoFonts.bold
+                          : MimaoFonts.regular,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
