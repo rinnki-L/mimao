@@ -257,18 +257,89 @@ class ComicWebClient implements ComicHttpClient {
     final fetched = pass.fetchedBody;
     final hasCredential = pass.cookies.any(
       (cookie) =>
-          cookie.value.isNotEmpty && isChallengeCredentialCookie(kind, cookie.name),
+          cookie.value.isNotEmpty &&
+          isChallengeCredentialCookie(kind, cookie.name),
     );
     await _applyChallengePass(uri, pass);
+    // 同主机并发挑战会合并成一次求解：所有请求拿到同一份凭证，但代抓正文
+    // 只属于发起验证的那个 URL。别把搜索页 HTML 当成图片/别的接口的响应。
+    final bodyUsable =
+        fetched != null && _canAdoptChallengeBody(uri, options, fetched);
     // 没拿到凭证 Cookie 却带回正文：站点按 TLS 指纹放行浏览器、拦抓取器，
     // 重试注定还是 403，直接采用代抓正文。
-    if (fetched != null && !hasCredential) return _fromChallengeBody(fetched);
+    if (bodyUsable && !hasCredential) return _fromChallengeBody(fetched);
     final retry = await _send(uri, options);
     // 有凭证但重试仍被拦：Cookie 修不了 TLS 指纹，同样落到代抓正文。
-    if (detectComicChallenge(retry) != null && fetched != null) {
+    if (detectComicChallenge(retry) != null && bodyUsable) {
       return _fromChallengeBody(fetched);
     }
     return retry;
+  }
+
+  /// 验证页代抓的正文能否作为这次请求的响应。
+  ///
+  /// WebView 展示的是"一次 GET 导航后的文档"：非 GET、二进制响应（图片/
+  /// 音视频）和别的 URL 都不能拿它顶包，否则源脚本会拿到 HTML 外壳去解码
+  /// 图片或 JSON。
+  bool _canAdoptChallengeBody(
+    Uri requested,
+    ComicFetchOptions options,
+    ComicChallengeFetchedBody fetched,
+  ) {
+    if (options.method.toUpperCase() != 'GET') return false;
+    if (_isBinaryRequest(requested, options)) return false;
+    return _sameDocumentTarget(requested, fetched.url);
+  }
+
+  /// 请求是否在要二进制体（图片加载器会显式带 `Accept: image/*`）。
+  bool _isBinaryRequest(Uri uri, ComicFetchOptions options) {
+    for (final entry in options.headers.entries) {
+      if (entry.key.toLowerCase() != 'accept') continue;
+      final value = entry.value.toLowerCase();
+      if (value.contains('image/') ||
+          value.contains('audio/') ||
+          value.contains('video/') ||
+          value.contains('application/octet-stream')) {
+        return true;
+      }
+    }
+    final path = uri.path.toLowerCase();
+    const binaryExtensions = <String>{
+      '.png',
+      '.jpg',
+      '.jpeg',
+      '.gif',
+      '.webp',
+      '.avif',
+      '.bmp',
+      '.ico',
+      '.svg',
+      '.mp3',
+      '.m4a',
+      '.mp4',
+      '.webm',
+      '.zip',
+      '.apk',
+    };
+    return binaryExtensions.any(path.endsWith);
+  }
+
+  /// 代抓正文是否来自这次请求的目标文档（忽略 scheme 与末尾斜杠差异，
+  /// 但主机和路径必须一致——重定向到首页/登录页的正文不能顶包）。
+  bool _sameDocumentTarget(Uri requested, String fetchedUrl) {
+    final fetched = Uri.tryParse(fetchedUrl.trim());
+    if (fetched == null || fetched.host.isEmpty) return false;
+    if (fetched.host.toLowerCase() != requested.host.toLowerCase()) {
+      return false;
+    }
+    return _normalizePath(fetched.path) == _normalizePath(requested.path);
+  }
+
+  String _normalizePath(String path) {
+    final value = path.isEmpty ? '/' : path;
+    return value.length > 1 && value.endsWith('/')
+        ? value.substring(0, value.length - 1)
+        : value;
   }
 
   /// 验证页代抓的正文 → 抓取响应（headers 收敛成列表形态）。

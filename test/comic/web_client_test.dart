@@ -398,7 +398,9 @@ void main() {
           fetchedBody: const ComicChallengeFetchedBody(
             statusCode: 200,
             url: 'https://site.test/search',
-            headers: <String, String>{'content-type': 'text/html; charset=utf-8'},
+            headers: <String, String>{
+              'content-type': 'text/html; charset=utf-8',
+            },
             body: '<html>webview 正文</html>',
           ),
         ),
@@ -410,7 +412,9 @@ void main() {
       expect(response.statusCode, 200);
       expect(response.body, contains('webview 正文'));
       expect(utf8.decode(response.bodyBytes), contains('webview 正文'));
-      expect(response.headers['content-type'], <String>['text/html; charset=utf-8']);
+      expect(response.headers['content-type'], <String>[
+        'text/html; charset=utf-8',
+      ]);
       expect(response.url, 'https://site.test/search');
     });
 
@@ -475,6 +479,81 @@ void main() {
 
       expect(response.statusCode, 403);
       expect(adapter.calls, 1);
+    });
+
+    test('代抓正文属于别的 URL：不串用，保留原响应的语义', () async {
+      final adapter = _AlwaysChallengeAdapter();
+      final client = ComicWebClient(
+        dio: Dio()..httpClientAdapter = adapter,
+        cookieJar: ComicCookieJar(),
+        challengeSolver: _FakeChallengeSolver(
+          withCredential: false,
+          fetchedBody: const ComicChallengeFetchedBody(
+            statusCode: 200,
+            url: 'https://site.test/other-page',
+            body: '<html>另一页的正文</html>',
+          ),
+        ),
+      );
+
+      // 同主机并发挑战会合并求解；别的请求不能把 leader 的正文当成自己的。
+      final response = await client.fetch('https://site.test/search');
+
+      expect(adapter.calls, 2, reason: '没有可用正文时仍按原逻辑重试一次');
+      expect(response.statusCode, 403);
+      expect(response.body, isNot(contains('另一页的正文')));
+    });
+
+    test('POST 请求不采用代抓正文（WebView 只能代表 GET 文档）', () async {
+      final adapter = _AlwaysChallengeAdapter();
+      final client = ComicWebClient(
+        dio: Dio()..httpClientAdapter = adapter,
+        cookieJar: ComicCookieJar(),
+        challengeSolver: _FakeChallengeSolver(
+          withCredential: false,
+          fetchedBody: const ComicChallengeFetchedBody(
+            statusCode: 200,
+            url: 'https://site.test/search',
+            body: '<html>WebView 渲染结果</html>',
+          ),
+        ),
+      );
+
+      final response = await client.fetch(
+        'https://site.test/search',
+        options: const ComicFetchOptions(method: 'POST'),
+      );
+
+      expect(response.statusCode, 403);
+      expect(response.body, isNot(contains('WebView 渲染结果')));
+    });
+
+    test('图片请求不采用代抓正文（WebView 给的是查看器 HTML）', () async {
+      final adapter = _AlwaysChallengeAdapter();
+      final client = ComicWebClient(
+        dio: Dio()..httpClientAdapter = adapter,
+        cookieJar: ComicCookieJar(),
+        challengeSolver: _FakeChallengeSolver(
+          withCredential: false,
+          fetchedBody: const ComicChallengeFetchedBody(
+            statusCode: 200,
+            url: 'https://site.test/cover.jpg',
+            body: '<html><img src="cover.jpg"></html>',
+          ),
+        ),
+      );
+
+      final response = await client.fetch(
+        'https://site.test/cover.jpg',
+        options: const ComicFetchOptions(
+          headers: <String, String>{
+            'Accept': 'image/avif,image/webp,image/*,*/*;q=0.8',
+          },
+        ),
+      );
+
+      expect(response.statusCode, 403);
+      expect(response.body, isNot(contains('<img')));
     });
   });
 

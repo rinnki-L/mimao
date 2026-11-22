@@ -94,6 +94,10 @@ class _ChallengeVerifyPageState extends State<_ChallengeVerifyPage> {
   String? _currentUrl;
   DateTime? _cleanSince;
 
+  /// 当前文档是否已经加载完成。快速通过必须在 loadStop 之后开始观察，
+  /// 否则慢网络下会抓到一个尚未渲染的空白文档当成正文。
+  bool _loadStopped = false;
+
   @override
   void initState() {
     super.initState();
@@ -120,7 +124,9 @@ class _ChallengeVerifyPageState extends State<_ChallengeVerifyPage> {
       final probe = await _probePage();
       _noteProbe(probe);
       final cookiePassed = cookies.any(_isPassedCookie);
-      final cleanReady = _cleanSince != null &&
+      final cleanReady =
+          _loadStopped &&
+          _cleanSince != null &&
           DateTime.now().difference(_cleanSince!) >= _cleanGrace &&
           _sameHost(probe?.href);
       if (!cookiePassed && !cleanReady) return;
@@ -152,7 +158,8 @@ class _ChallengeVerifyPageState extends State<_ChallengeVerifyPage> {
     if (controller == null) return null;
     final Object? raw;
     try {
-      raw = await controller.evaluateJavascript(source: r'''
+      raw = await controller.evaluateJavascript(
+        source: r'''
 (() => {
   try {
     return JSON.stringify({
@@ -163,7 +170,8 @@ class _ChallengeVerifyPageState extends State<_ChallengeVerifyPage> {
     });
   } catch (e) { return JSON.stringify({error: String(e)}); }
 })()
-''');
+''',
+      );
     } on Object {
       return null;
     }
@@ -179,12 +187,15 @@ class _ChallengeVerifyPageState extends State<_ChallengeVerifyPage> {
     );
   }
 
-  /// 记录探针结果：无挑战特征从现在起算观察期；出现特征则重置。
+  /// 记录探针结果：加载完成且无挑战特征后从现在起算观察期；出现特征或
+  /// 页面开始新导航则重置。
   void _noteProbe(_PageProbe? probe) {
     if (probe == null || probe.challenged) {
       _cleanSince = null;
+      if (probe?.challenged == true) _loadStopped = false;
       return;
     }
+    if (!_loadStopped) return;
     _cleanSince ??= DateTime.now();
     if (probe.href != null && probe.href!.isNotEmpty) _currentUrl = probe.href;
   }
@@ -197,21 +208,41 @@ class _ChallengeVerifyPageState extends State<_ChallengeVerifyPage> {
   }
 
   /// 抓当前页渲染后的正文（无挑战快速通过路径）。
+  ///
+  /// 只接受文本类文档：直接导航到图片/音视频时，WebView 展示的是内置查看器
+  /// 的 HTML 外壳，把它当响应体交给图片加载器只会得到坏图。这类请求返回
+  /// null，调用方保留原 403。
   Future<ComicChallengeFetchedBody?> _captureBody() async {
     final controller = _controller;
     if (controller == null) return null;
     try {
-      final html = await controller.evaluateJavascript(
-        source: 'document.documentElement.outerHTML',
+      final raw = await controller.evaluateJavascript(
+        source: r'''
+(() => {
+  try {
+    const type = String(document.contentType || 'text/html').toLowerCase();
+    const textual = /^(text\/html|application\/xhtml\+xml|application\/json|text\/json|text\/plain|application\/xml|text\/xml)/.test(type);
+    if (!textual) return JSON.stringify({unsupported: true, contentType: type});
+    const isMarkup = type.indexOf('html') >= 0 || type.indexOf('xml') >= 0;
+    const body = isMarkup
+      ? String(document.documentElement ? document.documentElement.outerHTML : '')
+      : String(document.body ? document.body.innerText : '');
+    return JSON.stringify({contentType: type, body: body});
+  } catch (e) { return JSON.stringify({error: String(e)}); }
+})()
+''',
       );
-      if (html == null || html.toString().isEmpty) return null;
+      final decoded = raw is String ? jsonDecode(raw) : raw;
+      if (decoded is! Map || decoded['unsupported'] == true) return null;
+      final body = decoded['body']?.toString() ?? '';
+      if (body.isEmpty) return null;
+      final contentType =
+          decoded['contentType']?.toString() ?? 'text/html; charset=utf-8';
       return ComicChallengeFetchedBody(
         statusCode: HttpStatus.ok,
         url: _currentUrl ?? widget.challenge.url.toString(),
-        headers: const <String, String>{
-          'content-type': 'text/html; charset=utf-8',
-        },
-        body: html.toString(),
+        headers: <String, String>{'content-type': contentType},
+        body: body,
       );
     } on Object {
       return null;
@@ -351,7 +382,16 @@ class _ChallengeVerifyPageState extends State<_ChallengeVerifyPage> {
                 useHybridComposition: true,
               ),
               onWebViewCreated: (controller) => _controller = controller,
-              onLoadStop: (_, _) => unawaited(_check()),
+              onLoadStart: (_, _) {
+                // 新导航开始：旧的"干净页面"观察作废，等这次加载停稳再算。
+                _loadStopped = false;
+                _cleanSince = null;
+              },
+              onLoadStop: (_, _) {
+                _loadStopped = true;
+                _cleanSince = null;
+                unawaited(_check());
+              },
               onReceivedError: (_, _, error) {
                 if (mounted && !_finished) {
                   setState(() => _error = error.description);
