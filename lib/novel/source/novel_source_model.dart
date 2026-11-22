@@ -80,6 +80,33 @@ class NovelBookSource {
     raw: raw,
   );
 
+  /// Legado 书源分组名：`bookSourceGroup` 是逗号分隔串，个别源用中文顿号/分号。
+  /// 去空白、去重、保序；无分组返回空列表。
+  List<String> get groups {
+    final value = raw['bookSourceGroup'];
+    if (value is! String || value.trim().isEmpty) return const <String>[];
+    final seen = <String>{};
+    final result = <String>[];
+    for (final part in value.split(RegExp(r'[,，、;；]'))) {
+      final name = part.trim();
+      if (name.isEmpty || !seen.add(name)) continue;
+      result.add(name);
+    }
+    return result;
+  }
+
+  /// 分组展示文案（无分组时给"未分组"，用于筛选面板）。
+  String get groupLabel => groups.isEmpty ? '未分组' : groups.join(' · ');
+
+  /// 书源类型文案（Legado `bookSourceType`：0 文本 / 1 音频 / 2 图片 / 3 文件）。
+  String get typeLabel => switch (type) {
+    0 => '文本',
+    1 => '音频',
+    2 => '图片',
+    3 => '文件',
+    _ => '其他',
+  };
+
   @override
   String toString() => 'NovelBookSource($name: $url)';
 }

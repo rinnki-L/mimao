@@ -50,6 +50,17 @@ class $NovelCollectEntriesTable extends NovelCollectEntries
     requiredDuringInsert: false,
     defaultValue: const Constant('{}'),
   );
+  static const VerificationMeta _groupNameMeta = const VerificationMeta(
+    'groupName',
+  );
+  @override
+  late final GeneratedColumn<String> groupName = GeneratedColumn<String>(
+    'group_name',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _collectedAtMeta = const VerificationMeta(
     'collectedAt',
   );
@@ -67,6 +78,7 @@ class $NovelCollectEntriesTable extends NovelCollectEntries
     title,
     coverUrl,
     payload,
+    groupName,
     collectedAt,
   ];
   @override
@@ -106,6 +118,12 @@ class $NovelCollectEntriesTable extends NovelCollectEntries
         payload.isAcceptableOrUnknown(data['payload']!, _payloadMeta),
       );
     }
+    if (data.containsKey('group_name')) {
+      context.handle(
+        _groupNameMeta,
+        groupName.isAcceptableOrUnknown(data['group_name']!, _groupNameMeta),
+      );
+    }
     if (data.containsKey('collected_at')) {
       context.handle(
         _collectedAtMeta,
@@ -142,6 +160,10 @@ class $NovelCollectEntriesTable extends NovelCollectEntries
         DriftSqlType.string,
         data['${effectivePrefix}payload'],
       )!,
+      groupName: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}group_name'],
+      ),
       collectedAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}collected_at'],
@@ -164,12 +186,17 @@ class NovelCollectRow extends DataClass implements Insertable<NovelCollectRow> {
   /// 书籍 JSON（完整 `NovelSummary.toJson`）；投影里的 payload 是进度摘要，
   /// 不是这一列。
   final String payload;
+
+  /// 书架自定义分组名；null = 未分组。单本书只属于一个分组（与书架分组
+  /// 管理的"一组多本"对应，足够覆盖筛选场景，不做多标签）。
+  final String? groupName;
   final DateTime collectedAt;
   const NovelCollectRow({
     required this.id,
     required this.title,
     this.coverUrl,
     required this.payload,
+    this.groupName,
     required this.collectedAt,
   });
   @override
@@ -181,6 +208,9 @@ class NovelCollectRow extends DataClass implements Insertable<NovelCollectRow> {
       map['cover_url'] = Variable<String>(coverUrl);
     }
     map['payload'] = Variable<String>(payload);
+    if (!nullToAbsent || groupName != null) {
+      map['group_name'] = Variable<String>(groupName);
+    }
     map['collected_at'] = Variable<DateTime>(collectedAt);
     return map;
   }
@@ -193,6 +223,9 @@ class NovelCollectRow extends DataClass implements Insertable<NovelCollectRow> {
           ? const Value.absent()
           : Value(coverUrl),
       payload: Value(payload),
+      groupName: groupName == null && nullToAbsent
+          ? const Value.absent()
+          : Value(groupName),
       collectedAt: Value(collectedAt),
     );
   }
@@ -207,6 +240,7 @@ class NovelCollectRow extends DataClass implements Insertable<NovelCollectRow> {
       title: serializer.fromJson<String>(json['title']),
       coverUrl: serializer.fromJson<String?>(json['coverUrl']),
       payload: serializer.fromJson<String>(json['payload']),
+      groupName: serializer.fromJson<String?>(json['groupName']),
       collectedAt: serializer.fromJson<DateTime>(json['collectedAt']),
     );
   }
@@ -218,6 +252,7 @@ class NovelCollectRow extends DataClass implements Insertable<NovelCollectRow> {
       'title': serializer.toJson<String>(title),
       'coverUrl': serializer.toJson<String?>(coverUrl),
       'payload': serializer.toJson<String>(payload),
+      'groupName': serializer.toJson<String?>(groupName),
       'collectedAt': serializer.toJson<DateTime>(collectedAt),
     };
   }
@@ -227,12 +262,14 @@ class NovelCollectRow extends DataClass implements Insertable<NovelCollectRow> {
     String? title,
     Value<String?> coverUrl = const Value.absent(),
     String? payload,
+    Value<String?> groupName = const Value.absent(),
     DateTime? collectedAt,
   }) => NovelCollectRow(
     id: id ?? this.id,
     title: title ?? this.title,
     coverUrl: coverUrl.present ? coverUrl.value : this.coverUrl,
     payload: payload ?? this.payload,
+    groupName: groupName.present ? groupName.value : this.groupName,
     collectedAt: collectedAt ?? this.collectedAt,
   );
   NovelCollectRow copyWithCompanion(NovelCollectEntriesCompanion data) {
@@ -241,6 +278,7 @@ class NovelCollectRow extends DataClass implements Insertable<NovelCollectRow> {
       title: data.title.present ? data.title.value : this.title,
       coverUrl: data.coverUrl.present ? data.coverUrl.value : this.coverUrl,
       payload: data.payload.present ? data.payload.value : this.payload,
+      groupName: data.groupName.present ? data.groupName.value : this.groupName,
       collectedAt: data.collectedAt.present
           ? data.collectedAt.value
           : this.collectedAt,
@@ -254,13 +292,15 @@ class NovelCollectRow extends DataClass implements Insertable<NovelCollectRow> {
           ..write('title: $title, ')
           ..write('coverUrl: $coverUrl, ')
           ..write('payload: $payload, ')
+          ..write('groupName: $groupName, ')
           ..write('collectedAt: $collectedAt')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(id, title, coverUrl, payload, collectedAt);
+  int get hashCode =>
+      Object.hash(id, title, coverUrl, payload, groupName, collectedAt);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -269,6 +309,7 @@ class NovelCollectRow extends DataClass implements Insertable<NovelCollectRow> {
           other.title == this.title &&
           other.coverUrl == this.coverUrl &&
           other.payload == this.payload &&
+          other.groupName == this.groupName &&
           other.collectedAt == this.collectedAt);
 }
 
@@ -277,6 +318,7 @@ class NovelCollectEntriesCompanion extends UpdateCompanion<NovelCollectRow> {
   final Value<String> title;
   final Value<String?> coverUrl;
   final Value<String> payload;
+  final Value<String?> groupName;
   final Value<DateTime> collectedAt;
   final Value<int> rowid;
   const NovelCollectEntriesCompanion({
@@ -284,6 +326,7 @@ class NovelCollectEntriesCompanion extends UpdateCompanion<NovelCollectRow> {
     this.title = const Value.absent(),
     this.coverUrl = const Value.absent(),
     this.payload = const Value.absent(),
+    this.groupName = const Value.absent(),
     this.collectedAt = const Value.absent(),
     this.rowid = const Value.absent(),
   });
@@ -292,6 +335,7 @@ class NovelCollectEntriesCompanion extends UpdateCompanion<NovelCollectRow> {
     required String title,
     this.coverUrl = const Value.absent(),
     this.payload = const Value.absent(),
+    this.groupName = const Value.absent(),
     required DateTime collectedAt,
     this.rowid = const Value.absent(),
   }) : id = Value(id),
@@ -302,6 +346,7 @@ class NovelCollectEntriesCompanion extends UpdateCompanion<NovelCollectRow> {
     Expression<String>? title,
     Expression<String>? coverUrl,
     Expression<String>? payload,
+    Expression<String>? groupName,
     Expression<DateTime>? collectedAt,
     Expression<int>? rowid,
   }) {
@@ -310,6 +355,7 @@ class NovelCollectEntriesCompanion extends UpdateCompanion<NovelCollectRow> {
       if (title != null) 'title': title,
       if (coverUrl != null) 'cover_url': coverUrl,
       if (payload != null) 'payload': payload,
+      if (groupName != null) 'group_name': groupName,
       if (collectedAt != null) 'collected_at': collectedAt,
       if (rowid != null) 'rowid': rowid,
     });
@@ -320,6 +366,7 @@ class NovelCollectEntriesCompanion extends UpdateCompanion<NovelCollectRow> {
     Value<String>? title,
     Value<String?>? coverUrl,
     Value<String>? payload,
+    Value<String?>? groupName,
     Value<DateTime>? collectedAt,
     Value<int>? rowid,
   }) {
@@ -328,6 +375,7 @@ class NovelCollectEntriesCompanion extends UpdateCompanion<NovelCollectRow> {
       title: title ?? this.title,
       coverUrl: coverUrl ?? this.coverUrl,
       payload: payload ?? this.payload,
+      groupName: groupName ?? this.groupName,
       collectedAt: collectedAt ?? this.collectedAt,
       rowid: rowid ?? this.rowid,
     );
@@ -348,6 +396,9 @@ class NovelCollectEntriesCompanion extends UpdateCompanion<NovelCollectRow> {
     if (payload.present) {
       map['payload'] = Variable<String>(payload.value);
     }
+    if (groupName.present) {
+      map['group_name'] = Variable<String>(groupName.value);
+    }
     if (collectedAt.present) {
       map['collected_at'] = Variable<DateTime>(collectedAt.value);
     }
@@ -364,6 +415,7 @@ class NovelCollectEntriesCompanion extends UpdateCompanion<NovelCollectRow> {
           ..write('title: $title, ')
           ..write('coverUrl: $coverUrl, ')
           ..write('payload: $payload, ')
+          ..write('groupName: $groupName, ')
           ..write('collectedAt: $collectedAt, ')
           ..write('rowid: $rowid')
           ..write(')'))
@@ -1158,6 +1210,481 @@ class NovelSearchTermsCompanion extends UpdateCompanion<NovelSearchTermRow> {
   }
 }
 
+class $NovelPrefsTable extends NovelPrefs
+    with TableInfo<$NovelPrefsTable, NovelPrefRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $NovelPrefsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _keyMeta = const VerificationMeta('key');
+  @override
+  late final GeneratedColumn<String> key = GeneratedColumn<String>(
+    'key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _valueMeta = const VerificationMeta('value');
+  @override
+  late final GeneratedColumn<String> value = GeneratedColumn<String>(
+    'value',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [key, value];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'novel_pref';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<NovelPrefRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('key')) {
+      context.handle(
+        _keyMeta,
+        key.isAcceptableOrUnknown(data['key']!, _keyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_keyMeta);
+    }
+    if (data.containsKey('value')) {
+      context.handle(
+        _valueMeta,
+        value.isAcceptableOrUnknown(data['value']!, _valueMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_valueMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {key};
+  @override
+  NovelPrefRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return NovelPrefRow(
+      key: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}key'],
+      )!,
+      value: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}value'],
+      )!,
+    );
+  }
+
+  @override
+  $NovelPrefsTable createAlias(String alias) {
+    return $NovelPrefsTable(attachedDatabase, alias);
+  }
+}
+
+class NovelPrefRow extends DataClass implements Insertable<NovelPrefRow> {
+  final String key;
+  final String value;
+  const NovelPrefRow({required this.key, required this.value});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['key'] = Variable<String>(key);
+    map['value'] = Variable<String>(value);
+    return map;
+  }
+
+  NovelPrefsCompanion toCompanion(bool nullToAbsent) {
+    return NovelPrefsCompanion(key: Value(key), value: Value(value));
+  }
+
+  factory NovelPrefRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return NovelPrefRow(
+      key: serializer.fromJson<String>(json['key']),
+      value: serializer.fromJson<String>(json['value']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'key': serializer.toJson<String>(key),
+      'value': serializer.toJson<String>(value),
+    };
+  }
+
+  NovelPrefRow copyWith({String? key, String? value}) =>
+      NovelPrefRow(key: key ?? this.key, value: value ?? this.value);
+  NovelPrefRow copyWithCompanion(NovelPrefsCompanion data) {
+    return NovelPrefRow(
+      key: data.key.present ? data.key.value : this.key,
+      value: data.value.present ? data.value.value : this.value,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('NovelPrefRow(')
+          ..write('key: $key, ')
+          ..write('value: $value')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(key, value);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is NovelPrefRow &&
+          other.key == this.key &&
+          other.value == this.value);
+}
+
+class NovelPrefsCompanion extends UpdateCompanion<NovelPrefRow> {
+  final Value<String> key;
+  final Value<String> value;
+  final Value<int> rowid;
+  const NovelPrefsCompanion({
+    this.key = const Value.absent(),
+    this.value = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  NovelPrefsCompanion.insert({
+    required String key,
+    required String value,
+    this.rowid = const Value.absent(),
+  }) : key = Value(key),
+       value = Value(value);
+  static Insertable<NovelPrefRow> custom({
+    Expression<String>? key,
+    Expression<String>? value,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (key != null) 'key': key,
+      if (value != null) 'value': value,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  NovelPrefsCompanion copyWith({
+    Value<String>? key,
+    Value<String>? value,
+    Value<int>? rowid,
+  }) {
+    return NovelPrefsCompanion(
+      key: key ?? this.key,
+      value: value ?? this.value,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (key.present) {
+      map['key'] = Variable<String>(key.value);
+    }
+    if (value.present) {
+      map['value'] = Variable<String>(value.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('NovelPrefsCompanion(')
+          ..write('key: $key, ')
+          ..write('value: $value, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $NovelReadingDaysTable extends NovelReadingDays
+    with TableInfo<$NovelReadingDaysTable, NovelReadingDayRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $NovelReadingDaysTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _dayMeta = const VerificationMeta('day');
+  @override
+  late final GeneratedColumn<String> day = GeneratedColumn<String>(
+    'day',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _secondsMeta = const VerificationMeta(
+    'seconds',
+  );
+  @override
+  late final GeneratedColumn<int> seconds = GeneratedColumn<int>(
+    'seconds',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [day, seconds, updatedAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'novel_reading_day';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<NovelReadingDayRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('day')) {
+      context.handle(
+        _dayMeta,
+        day.isAcceptableOrUnknown(data['day']!, _dayMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_dayMeta);
+    }
+    if (data.containsKey('seconds')) {
+      context.handle(
+        _secondsMeta,
+        seconds.isAcceptableOrUnknown(data['seconds']!, _secondsMeta),
+      );
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {day};
+  @override
+  NovelReadingDayRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return NovelReadingDayRow(
+      day: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}day'],
+      )!,
+      seconds: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}seconds'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $NovelReadingDaysTable createAlias(String alias) {
+    return $NovelReadingDaysTable(attachedDatabase, alias);
+  }
+}
+
+class NovelReadingDayRow extends DataClass
+    implements Insertable<NovelReadingDayRow> {
+  /// 本地日期 `yyyy-MM-dd`（阅读时长按用户本地日切分）。
+  final String day;
+  final int seconds;
+  final DateTime updatedAt;
+  const NovelReadingDayRow({
+    required this.day,
+    required this.seconds,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['day'] = Variable<String>(day);
+    map['seconds'] = Variable<int>(seconds);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    return map;
+  }
+
+  NovelReadingDaysCompanion toCompanion(bool nullToAbsent) {
+    return NovelReadingDaysCompanion(
+      day: Value(day),
+      seconds: Value(seconds),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory NovelReadingDayRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return NovelReadingDayRow(
+      day: serializer.fromJson<String>(json['day']),
+      seconds: serializer.fromJson<int>(json['seconds']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'day': serializer.toJson<String>(day),
+      'seconds': serializer.toJson<int>(seconds),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+    };
+  }
+
+  NovelReadingDayRow copyWith({
+    String? day,
+    int? seconds,
+    DateTime? updatedAt,
+  }) => NovelReadingDayRow(
+    day: day ?? this.day,
+    seconds: seconds ?? this.seconds,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  NovelReadingDayRow copyWithCompanion(NovelReadingDaysCompanion data) {
+    return NovelReadingDayRow(
+      day: data.day.present ? data.day.value : this.day,
+      seconds: data.seconds.present ? data.seconds.value : this.seconds,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('NovelReadingDayRow(')
+          ..write('day: $day, ')
+          ..write('seconds: $seconds, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(day, seconds, updatedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is NovelReadingDayRow &&
+          other.day == this.day &&
+          other.seconds == this.seconds &&
+          other.updatedAt == this.updatedAt);
+}
+
+class NovelReadingDaysCompanion extends UpdateCompanion<NovelReadingDayRow> {
+  final Value<String> day;
+  final Value<int> seconds;
+  final Value<DateTime> updatedAt;
+  final Value<int> rowid;
+  const NovelReadingDaysCompanion({
+    this.day = const Value.absent(),
+    this.seconds = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  NovelReadingDaysCompanion.insert({
+    required String day,
+    this.seconds = const Value.absent(),
+    required DateTime updatedAt,
+    this.rowid = const Value.absent(),
+  }) : day = Value(day),
+       updatedAt = Value(updatedAt);
+  static Insertable<NovelReadingDayRow> custom({
+    Expression<String>? day,
+    Expression<int>? seconds,
+    Expression<DateTime>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (day != null) 'day': day,
+      if (seconds != null) 'seconds': seconds,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  NovelReadingDaysCompanion copyWith({
+    Value<String>? day,
+    Value<int>? seconds,
+    Value<DateTime>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return NovelReadingDaysCompanion(
+      day: day ?? this.day,
+      seconds: seconds ?? this.seconds,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (day.present) {
+      map['day'] = Variable<String>(day.value);
+    }
+    if (seconds.present) {
+      map['seconds'] = Variable<int>(seconds.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('NovelReadingDaysCompanion(')
+          ..write('day: $day, ')
+          ..write('seconds: $seconds, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$NovelDb extends GeneratedDatabase {
   _$NovelDb(QueryExecutor e) : super(e);
   $NovelDbManager get managers => $NovelDbManager(this);
@@ -1168,6 +1695,10 @@ abstract class _$NovelDb extends GeneratedDatabase {
   late final $NovelSearchTermsTable novelSearchTerms = $NovelSearchTermsTable(
     this,
   );
+  late final $NovelPrefsTable novelPrefs = $NovelPrefsTable(this);
+  late final $NovelReadingDaysTable novelReadingDays = $NovelReadingDaysTable(
+    this,
+  );
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -1176,6 +1707,8 @@ abstract class _$NovelDb extends GeneratedDatabase {
     novelCollectEntries,
     novelHistoryEntries,
     novelSearchTerms,
+    novelPrefs,
+    novelReadingDays,
   ];
 }
 
@@ -1185,6 +1718,7 @@ typedef $$NovelCollectEntriesTableCreateCompanionBuilder =
       required String title,
       Value<String?> coverUrl,
       Value<String> payload,
+      Value<String?> groupName,
       required DateTime collectedAt,
       Value<int> rowid,
     });
@@ -1194,6 +1728,7 @@ typedef $$NovelCollectEntriesTableUpdateCompanionBuilder =
       Value<String> title,
       Value<String?> coverUrl,
       Value<String> payload,
+      Value<String?> groupName,
       Value<DateTime> collectedAt,
       Value<int> rowid,
     });
@@ -1224,6 +1759,11 @@ class $$NovelCollectEntriesTableFilterComposer
 
   ColumnFilters<String> get payload => $composableBuilder(
     column: $table.payload,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get groupName => $composableBuilder(
+    column: $table.groupName,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -1262,6 +1802,11 @@ class $$NovelCollectEntriesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get groupName => $composableBuilder(
+    column: $table.groupName,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get collectedAt => $composableBuilder(
     column: $table.collectedAt,
     builder: (column) => ColumnOrderings(column),
@@ -1288,6 +1833,9 @@ class $$NovelCollectEntriesTableAnnotationComposer
 
   GeneratedColumn<String> get payload =>
       $composableBuilder(column: $table.payload, builder: (column) => column);
+
+  GeneratedColumn<String> get groupName =>
+      $composableBuilder(column: $table.groupName, builder: (column) => column);
 
   GeneratedColumn<DateTime> get collectedAt => $composableBuilder(
     column: $table.collectedAt,
@@ -1342,6 +1890,7 @@ class $$NovelCollectEntriesTableTableManager
                 Value<String> title = const Value.absent(),
                 Value<String?> coverUrl = const Value.absent(),
                 Value<String> payload = const Value.absent(),
+                Value<String?> groupName = const Value.absent(),
                 Value<DateTime> collectedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => NovelCollectEntriesCompanion(
@@ -1349,6 +1898,7 @@ class $$NovelCollectEntriesTableTableManager
                 title: title,
                 coverUrl: coverUrl,
                 payload: payload,
+                groupName: groupName,
                 collectedAt: collectedAt,
                 rowid: rowid,
               ),
@@ -1358,6 +1908,7 @@ class $$NovelCollectEntriesTableTableManager
                 required String title,
                 Value<String?> coverUrl = const Value.absent(),
                 Value<String> payload = const Value.absent(),
+                Value<String?> groupName = const Value.absent(),
                 required DateTime collectedAt,
                 Value<int> rowid = const Value.absent(),
               }) => NovelCollectEntriesCompanion.insert(
@@ -1365,6 +1916,7 @@ class $$NovelCollectEntriesTableTableManager
                 title: title,
                 coverUrl: coverUrl,
                 payload: payload,
+                groupName: groupName,
                 collectedAt: collectedAt,
                 rowid: rowid,
               ),
@@ -1836,6 +2388,310 @@ typedef $$NovelSearchTermsTableProcessedTableManager =
       NovelSearchTermRow,
       PrefetchHooks Function()
     >;
+typedef $$NovelPrefsTableCreateCompanionBuilder =
+    NovelPrefsCompanion Function({
+      required String key,
+      required String value,
+      Value<int> rowid,
+    });
+typedef $$NovelPrefsTableUpdateCompanionBuilder =
+    NovelPrefsCompanion Function({
+      Value<String> key,
+      Value<String> value,
+      Value<int> rowid,
+    });
+
+class $$NovelPrefsTableFilterComposer
+    extends Composer<_$NovelDb, $NovelPrefsTable> {
+  $$NovelPrefsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get key => $composableBuilder(
+    column: $table.key,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get value => $composableBuilder(
+    column: $table.value,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$NovelPrefsTableOrderingComposer
+    extends Composer<_$NovelDb, $NovelPrefsTable> {
+  $$NovelPrefsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get key => $composableBuilder(
+    column: $table.key,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get value => $composableBuilder(
+    column: $table.value,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$NovelPrefsTableAnnotationComposer
+    extends Composer<_$NovelDb, $NovelPrefsTable> {
+  $$NovelPrefsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get key =>
+      $composableBuilder(column: $table.key, builder: (column) => column);
+
+  GeneratedColumn<String> get value =>
+      $composableBuilder(column: $table.value, builder: (column) => column);
+}
+
+class $$NovelPrefsTableTableManager
+    extends
+        RootTableManager<
+          _$NovelDb,
+          $NovelPrefsTable,
+          NovelPrefRow,
+          $$NovelPrefsTableFilterComposer,
+          $$NovelPrefsTableOrderingComposer,
+          $$NovelPrefsTableAnnotationComposer,
+          $$NovelPrefsTableCreateCompanionBuilder,
+          $$NovelPrefsTableUpdateCompanionBuilder,
+          (
+            NovelPrefRow,
+            BaseReferences<_$NovelDb, $NovelPrefsTable, NovelPrefRow>,
+          ),
+          NovelPrefRow,
+          PrefetchHooks Function()
+        > {
+  $$NovelPrefsTableTableManager(_$NovelDb db, $NovelPrefsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$NovelPrefsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$NovelPrefsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$NovelPrefsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> key = const Value.absent(),
+                Value<String> value = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => NovelPrefsCompanion(key: key, value: value, rowid: rowid),
+          createCompanionCallback:
+              ({
+                required String key,
+                required String value,
+                Value<int> rowid = const Value.absent(),
+              }) => NovelPrefsCompanion.insert(
+                key: key,
+                value: value,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$NovelPrefsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$NovelDb,
+      $NovelPrefsTable,
+      NovelPrefRow,
+      $$NovelPrefsTableFilterComposer,
+      $$NovelPrefsTableOrderingComposer,
+      $$NovelPrefsTableAnnotationComposer,
+      $$NovelPrefsTableCreateCompanionBuilder,
+      $$NovelPrefsTableUpdateCompanionBuilder,
+      (NovelPrefRow, BaseReferences<_$NovelDb, $NovelPrefsTable, NovelPrefRow>),
+      NovelPrefRow,
+      PrefetchHooks Function()
+    >;
+typedef $$NovelReadingDaysTableCreateCompanionBuilder =
+    NovelReadingDaysCompanion Function({
+      required String day,
+      Value<int> seconds,
+      required DateTime updatedAt,
+      Value<int> rowid,
+    });
+typedef $$NovelReadingDaysTableUpdateCompanionBuilder =
+    NovelReadingDaysCompanion Function({
+      Value<String> day,
+      Value<int> seconds,
+      Value<DateTime> updatedAt,
+      Value<int> rowid,
+    });
+
+class $$NovelReadingDaysTableFilterComposer
+    extends Composer<_$NovelDb, $NovelReadingDaysTable> {
+  $$NovelReadingDaysTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get day => $composableBuilder(
+    column: $table.day,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get seconds => $composableBuilder(
+    column: $table.seconds,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$NovelReadingDaysTableOrderingComposer
+    extends Composer<_$NovelDb, $NovelReadingDaysTable> {
+  $$NovelReadingDaysTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get day => $composableBuilder(
+    column: $table.day,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get seconds => $composableBuilder(
+    column: $table.seconds,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$NovelReadingDaysTableAnnotationComposer
+    extends Composer<_$NovelDb, $NovelReadingDaysTable> {
+  $$NovelReadingDaysTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get day =>
+      $composableBuilder(column: $table.day, builder: (column) => column);
+
+  GeneratedColumn<int> get seconds =>
+      $composableBuilder(column: $table.seconds, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$NovelReadingDaysTableTableManager
+    extends
+        RootTableManager<
+          _$NovelDb,
+          $NovelReadingDaysTable,
+          NovelReadingDayRow,
+          $$NovelReadingDaysTableFilterComposer,
+          $$NovelReadingDaysTableOrderingComposer,
+          $$NovelReadingDaysTableAnnotationComposer,
+          $$NovelReadingDaysTableCreateCompanionBuilder,
+          $$NovelReadingDaysTableUpdateCompanionBuilder,
+          (
+            NovelReadingDayRow,
+            BaseReferences<
+              _$NovelDb,
+              $NovelReadingDaysTable,
+              NovelReadingDayRow
+            >,
+          ),
+          NovelReadingDayRow,
+          PrefetchHooks Function()
+        > {
+  $$NovelReadingDaysTableTableManager(
+    _$NovelDb db,
+    $NovelReadingDaysTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$NovelReadingDaysTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$NovelReadingDaysTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$NovelReadingDaysTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> day = const Value.absent(),
+                Value<int> seconds = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => NovelReadingDaysCompanion(
+                day: day,
+                seconds: seconds,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String day,
+                Value<int> seconds = const Value.absent(),
+                required DateTime updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => NovelReadingDaysCompanion.insert(
+                day: day,
+                seconds: seconds,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$NovelReadingDaysTableProcessedTableManager =
+    ProcessedTableManager<
+      _$NovelDb,
+      $NovelReadingDaysTable,
+      NovelReadingDayRow,
+      $$NovelReadingDaysTableFilterComposer,
+      $$NovelReadingDaysTableOrderingComposer,
+      $$NovelReadingDaysTableAnnotationComposer,
+      $$NovelReadingDaysTableCreateCompanionBuilder,
+      $$NovelReadingDaysTableUpdateCompanionBuilder,
+      (
+        NovelReadingDayRow,
+        BaseReferences<_$NovelDb, $NovelReadingDaysTable, NovelReadingDayRow>,
+      ),
+      NovelReadingDayRow,
+      PrefetchHooks Function()
+    >;
 
 class $NovelDbManager {
   final _$NovelDb _db;
@@ -1846,4 +2702,8 @@ class $NovelDbManager {
       $$NovelHistoryEntriesTableTableManager(_db, _db.novelHistoryEntries);
   $$NovelSearchTermsTableTableManager get novelSearchTerms =>
       $$NovelSearchTermsTableTableManager(_db, _db.novelSearchTerms);
+  $$NovelPrefsTableTableManager get novelPrefs =>
+      $$NovelPrefsTableTableManager(_db, _db.novelPrefs);
+  $$NovelReadingDaysTableTableManager get novelReadingDays =>
+      $$NovelReadingDaysTableTableManager(_db, _db.novelReadingDays);
 }

@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart' show ChangeNotifier;
+import 'package:mimao/core/contract.dart' show MediaType;
 import 'package:mimao/core/library.dart';
 import 'package:mimao/novel/library_api.dart';
 import 'package:mimao/novel/models/novel_models.dart';
@@ -38,8 +39,10 @@ class NovelCollectService extends ChangeNotifier implements NovelCollectApi {
     String? coverUrl,
     NovelSummary? book,
     DateTime? collectedAt,
+    String? groupName,
   }) async {
     final at = collectedAt ?? DateTime.now();
+    final existing = await db.collectRow(ref);
     await db
         .into(db.novelCollectEntries)
         .insertOnConflictUpdate(
@@ -48,6 +51,8 @@ class NovelCollectService extends ChangeNotifier implements NovelCollectApi {
             title: title,
             coverUrl: Value(coverUrl),
             payload: Value(book == null ? '{}' : jsonEncode(book.toJson())),
+            // 未显式给分组时保留原分组：重复收藏/更新元数据不该把用户分组清掉。
+            groupName: Value(groupName ?? existing?.groupName),
             collectedAt: at,
           ),
         );
@@ -55,8 +60,11 @@ class NovelCollectService extends ChangeNotifier implements NovelCollectApi {
     notifyListeners();
   }
 
-  /// 取消收藏（幂等）。内部行删除后仍写最后一笔投影，把 starred 校正为 false；
-  /// 若该书有阅读历史，历史行会继续作为投影标题/进度的权威。
+  /// 取消收藏（幂等）。
+  ///
+  /// 内部行删除后：仍有阅读历史 → 重投影把 starred 校正为 false，标题/封面
+  /// 以历史行为权威；连历史也没有 → 投影行再无可重建的数据来源，直接摘掉，
+  /// 不在统一书架留幽灵条目。
   @override
   Future<void> remove(String bookId) async {
     final ref = NovelRef(id: bookId);
@@ -65,14 +73,15 @@ class NovelCollectService extends ChangeNotifier implements NovelCollectApi {
     await (db.delete(
       db.novelCollectEntries,
     )..where((t) => t.id.equals(ref.id))).go();
-    await syncNovelProjection(
-      db: db,
-      library: library,
-      ref: ref,
-      fallbackTitle: existing.title,
-      fallbackCoverUrl: existing.coverUrl,
-      touchedAt: existing.collectedAt,
-    );
+    if (await db.historyRow(ref) != null) {
+      await syncNovelProjection(db: db, library: library, ref: ref);
+    } else {
+      await library.delete(
+        id: ref.id,
+        type: MediaType.novel,
+        sourceName: novelSourceName,
+      );
+    }
     notifyListeners();
   }
 
@@ -95,11 +104,72 @@ class NovelCollectService extends ChangeNotifier implements NovelCollectApi {
     return [for (final row in rows) _fromRow(row)];
   }
 
+  /// 设置一本书的分组；内部行不存在时什么都不做（不凭空造收藏）。
+  @override
+  Future<void> setGroup(String bookId, String? groupName) async {
+    final normalized = _normalizeGroup(groupName);
+    final existing = await db.collectRow(NovelRef(id: bookId));
+    if (existing == null) return;
+    await (db.update(db.novelCollectEntries)..where((t) => t.id.equals(bookId)))
+        .write(NovelCollectEntriesCompanion(groupName: Value(normalized)));
+    notifyListeners();
+  }
+
+  /// 批量设置分组（一次事务，避免选择模式逐本刷新）。
+  @override
+  Future<void> setGroupFor(Iterable<String> bookIds, String? groupName) async {
+    final ids = bookIds.toSet().toList();
+    if (ids.isEmpty) return;
+    final normalized = _normalizeGroup(groupName);
+    await db.transaction(() async {
+      for (final id in ids) {
+        final existing = await db.collectRow(NovelRef(id: id));
+        if (existing == null) continue;
+        await (db.update(db.novelCollectEntries)..where((t) => t.id.equals(id)))
+            .write(NovelCollectEntriesCompanion(groupName: Value(normalized)));
+      }
+    });
+    notifyListeners();
+  }
+
+  /// 已有分组名（去重、按名称排序）。
+  @override
+  Future<List<String>> groups() async {
+    final rows = await db.select(db.novelCollectEntries).get();
+    final names = <String>{
+      for (final row in rows)
+        if (row.groupName != null && row.groupName!.isNotEmpty) row.groupName!,
+    }.toList()..sort();
+    return names;
+  }
+
+  /// 重命名分组；[to] 为空串表示把成员移出分组。
+  @override
+  Future<void> renameGroup(String from, String to) async {
+    final source = from.trim();
+    if (source.isEmpty) return;
+    final target = _normalizeGroup(to);
+    await (db.update(db.novelCollectEntries)
+          ..where((t) => t.groupName.equals(source)))
+        .write(NovelCollectEntriesCompanion(groupName: Value(target)));
+    notifyListeners();
+  }
+
+  /// 删除分组（只解除归属，书仍留在书架）。
+  @override
+  Future<void> deleteGroup(String name) => renameGroup(name, '');
+
+  String? _normalizeGroup(String? value) {
+    final trimmed = value?.trim();
+    return trimmed == null || trimmed.isEmpty ? null : trimmed;
+  }
+
   NovelCollectItem _fromRow(NovelCollectRow row) => NovelCollectItem(
     ref: NovelRef(id: row.id),
     title: row.title,
     coverUrl: row.coverUrl,
     book: novelSummaryFromPayload(row.payload),
+    groupName: row.groupName,
     collectedAt: row.collectedAt,
   );
 }

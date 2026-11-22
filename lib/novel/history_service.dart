@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart' show ChangeNotifier;
+import 'package:mimao/core/contract.dart' show MediaType;
 import 'package:mimao/core/library.dart';
 import 'package:mimao/novel/library_api.dart';
 import 'package:mimao/novel/models/novel_models.dart';
@@ -123,6 +124,47 @@ class NovelHistoryService extends ChangeNotifier implements NovelHistoryApi {
               ..limit(limit))
             .get();
     return [for (final row in rows) _fromRow(row)];
+  }
+
+  /// 删除一本书的阅读记录。
+  ///
+  /// 内部行删掉后按双记账规则收尾：仍有收藏 → 投影改回"未读"；无收藏 →
+  /// 投影行没有数据来源，直接摘掉，避免统一书架留下幽灵条目。
+  @override
+  Future<void> remove(String bookId) async {
+    final ref = NovelRef(id: bookId);
+    final existing = await db.historyRow(ref);
+    if (existing == null) return;
+    await (db.delete(
+      db.novelHistoryEntries,
+    )..where((t) => t.id.equals(ref.id))).go();
+    await _settleProjection(ref);
+    notifyListeners();
+  }
+
+  /// 清空全部阅读记录（收藏行保留）。
+  @override
+  Future<void> clear() async {
+    final rows = await db.select(db.novelHistoryEntries).get();
+    if (rows.isEmpty) return;
+    await db.delete(db.novelHistoryEntries).go();
+    for (final row in rows) {
+      await _settleProjection(NovelRef(id: row.id));
+    }
+    notifyListeners();
+  }
+
+  /// 历史行删除后的投影收尾：有收藏则重投影（进度变未读），否则删投影。
+  Future<void> _settleProjection(NovelRef ref) async {
+    if (await db.collectRow(ref) != null) {
+      await syncNovelProjection(db: db, library: library, ref: ref);
+      return;
+    }
+    await library.delete(
+      id: ref.id,
+      type: MediaType.novel,
+      sourceName: novelSourceName,
+    );
   }
 
   NovelHistoryItem _fromRow(NovelHistoryRow row) => NovelHistoryItem(

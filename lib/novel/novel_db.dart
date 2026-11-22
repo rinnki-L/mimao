@@ -33,6 +33,10 @@ class NovelCollectEntries extends Table {
   /// 不是这一列。
   TextColumn get payload => text().withDefault(const Constant('{}'))();
 
+  /// 书架自定义分组名；null = 未分组。单本书只属于一个分组（与书架分组
+  /// 管理的"一组多本"对应，足够覆盖筛选场景，不做多标签）。
+  TextColumn get groupName => text().nullable()();
+
   DateTimeColumn get collectedAt => dateTime()();
 
   @override
@@ -82,8 +86,47 @@ class NovelSearchTerms extends Table {
   Set<Column> get primaryKey => {keyword};
 }
 
+/// 模块私有 kv（阅读目标、书架布局、排序等）。刻意不进 core `app_settings`：
+/// 那是壳/全局设置表，模块设置留在模块自己的库里（architecture §3.3）。
+@DataClassName('NovelPrefRow')
+class NovelPrefs extends Table {
+  @override
+  String get tableName => 'novel_pref';
+
+  TextColumn get key => text()();
+
+  TextColumn get value => text()();
+
+  @override
+  Set<Column> get primaryKey => {key};
+}
+
+/// 按天聚合的阅读时长（秒）。当前阅读器尚未接入，写入方是未来阅读页；
+/// 统计卡与今日目标都从这里取数，不估算、不造假。
+@DataClassName('NovelReadingDayRow')
+class NovelReadingDays extends Table {
+  @override
+  String get tableName => 'novel_reading_day';
+
+  /// 本地日期 `yyyy-MM-dd`（阅读时长按用户本地日切分）。
+  TextColumn get day => text()();
+
+  IntColumn get seconds => integer().withDefault(const Constant(0))();
+
+  DateTimeColumn get updatedAt => dateTime()();
+
+  @override
+  Set<Column> get primaryKey => {day};
+}
+
 @DriftDatabase(
-  tables: [NovelCollectEntries, NovelHistoryEntries, NovelSearchTerms],
+  tables: [
+    NovelCollectEntries,
+    NovelHistoryEntries,
+    NovelSearchTerms,
+    NovelPrefs,
+    NovelReadingDays,
+  ],
 )
 class NovelDb extends _$NovelDb {
   /// 生产构造：与 core 库同目录，文件名区分（mimao_novel.sqlite）。
@@ -105,7 +148,21 @@ class NovelDb extends _$NovelDb {
   });
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
+
+  /// v1 → v2：书架分组列 + 模块 kv + 阅读时长按天表。三者都是增量，旧行无需
+  /// 回填（groupName 缺省 null、今日/总时长从 0 起算）。
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+    onCreate: (m) => m.createAll(),
+    onUpgrade: (m, from, to) async {
+      if (from < 2) {
+        await m.addColumn(novelCollectEntries, novelCollectEntries.groupName);
+        await m.createTable(novelPrefs);
+        await m.createTable(novelReadingDays);
+      }
+    },
+  );
 
   /// 单行读取辅助（收藏）；null 表示无行。
   Future<NovelCollectRow?> collectRow(NovelRef ref) => (select(
@@ -116,4 +173,17 @@ class NovelDb extends _$NovelDb {
   Future<NovelHistoryRow?> historyRow(NovelRef ref) => (select(
     novelHistoryEntries,
   )..where((t) => t.id.equals(ref.id))).getSingleOrNull();
+
+  /// 模块 kv 读取（服务层另有带类型语义的包装）。
+  Future<String?> readPref(String key) async {
+    final row = await (select(
+      novelPrefs,
+    )..where((t) => t.key.equals(key))).getSingleOrNull();
+    return row?.value;
+  }
+
+  /// 模块 kv 写入。
+  Future<void> writePref(String key, String value) => into(
+    novelPrefs,
+  ).insertOnConflictUpdate(NovelPrefsCompanion.insert(key: key, value: value));
 }
