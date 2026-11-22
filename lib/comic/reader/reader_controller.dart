@@ -19,7 +19,7 @@ class ReaderController extends ChangeNotifier {
     required this.imageCache,
     int initialChapter = 0,
     int initialPage = 0,
-    this.mode = ReaderMode.pagedLtr,
+    this.mode = ReadingMode.paged,
   }) : _chapters = List<ComicChapter>.unmodifiable(chapters),
        _chapterIndex = _validateChapter(chapters, initialChapter),
        _pageIndex = _validatePage(chapters, initialChapter, initialPage);
@@ -50,7 +50,7 @@ class ReaderController extends ChangeNotifier {
 
   int _chapterIndex;
   int _pageIndex;
-  ReaderMode mode;
+  ReadingMode mode;
   double _zoom = 1.0;
   String? _errorMessage;
   bool _disposed = false;
@@ -67,15 +67,9 @@ class ReaderController extends ChangeNotifier {
   ComicChapter get currentChapter => _chapters[_chapterIndex];
   int get pageCount => currentChapter.pageCount;
   String get chapterTitle => currentChapter.title;
-  ReaderImage? get currentImage =>
-      pageCount > 0 ? currentChapter.images[_pageIndex] : null;
-  String? get currentImageUrl => currentImage?.url;
-  List<ReaderImage> get images => currentChapter.images;
-
-  /// 当前章的纯地址列表（调试/联调用；取字节请走 [images] + 缓存）。
-  List<String> get imageUrls => <String>[
-    for (final image in currentChapter.images) image.url,
-  ];
+  String? get currentImageUrl =>
+      pageCount > 0 ? currentChapter.imageUrls[_pageIndex] : null;
+  List<String> get imageUrls => currentChapter.imageUrls;
 
   double get zoom => _zoom;
   String? get errorMessage => _errorMessage;
@@ -129,14 +123,15 @@ class ReaderController extends ChangeNotifier {
   }
 
   /// 切换阅读模式（验收点：模式切换）。不是进度，不触发持久化。
-  void setMode(ReaderMode newMode) {
+  void setMode(ReadingMode newMode) {
     if (_disposed || mode == newMode) return;
     mode = newMode;
     _notify();
   }
 
-  void toggleMode() =>
-      setMode(mode.isPaged ? ReaderMode.continuousTtb : ReaderMode.pagedLtr);
+  void toggleMode() => setMode(
+    mode == ReadingMode.paged ? ReadingMode.continuous : ReadingMode.paged,
+  );
 
   /// 缩放限制在 [minZoom, maxZoom]；非法值抛 [ArgumentError] 且状态不变。
   void setZoom(double value) {
@@ -153,16 +148,16 @@ class ReaderController extends ChangeNotifier {
 
   /// 预取当前章的图片（当前页 + 相邻页）到缓存，让翻页大多命中内存。
   Future<void> preloadAround() async {
-    final images = this.images;
-    if (images.isEmpty) return;
+    final urls = imageUrls;
+    if (urls.isEmpty) return;
     final indices = <int>{
       _pageIndex - 1,
       _pageIndex,
       _pageIndex + 1,
-    }.where((i) => i >= 0 && i < images.length);
+    }.where((i) => i >= 0 && i < urls.length);
     for (final i in indices) {
       try {
-        await imageCache.load(images[i]);
+        await imageCache.load(urls[i]);
       } on Object catch (error) {
         _errorMessage = '预取失败：$error';
         _notify();
@@ -172,11 +167,11 @@ class ReaderController extends ChangeNotifier {
 
   /// 取当前页字节（走缓存；供 UI/联调使用）。
   Future<Uint8List> loadCurrentImage() {
-    final image = currentImage;
-    if (image == null) {
+    final url = currentImageUrl;
+    if (url == null) {
       return Future.error(StateError('当前章节没有图片'));
     }
-    return imageCache.load(image);
+    return imageCache.load(url);
   }
 
   /// 手动持久化点（如退出阅读页时由集成方调用）。

@@ -32,7 +32,7 @@ class ComicReaderPage extends StatefulWidget {
     this.recorder,
     this.initialChapter = 0,
     this.initialPage = 0,
-    this.initialMode = ReaderMode.pagedLtr,
+    this.initialMode = ReadingMode.paged,
     this.controller,
   });
 
@@ -42,7 +42,7 @@ class ComicReaderPage extends StatefulWidget {
   final ProgressRecorder? recorder;
   final int initialChapter;
   final int initialPage;
-  final ReaderMode initialMode;
+  final ReadingMode initialMode;
 
   /// 可选：外部注入控制器（widget 测试用），不传则内部自建。
   final ReaderController? controller;
@@ -129,7 +129,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
             IconButton(
               key: const Key('reader-toggle-mode'),
               icon: Icon(
-                _controller.mode == ReaderMode.pagedLtr
+                _controller.mode == ReadingMode.paged
                     ? Icons.view_agenda_outlined
                     : Icons.auto_stories_outlined,
               ),
@@ -160,7 +160,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
                 onScaleUpdate: (details) => _controller.setZoom(
                   pinchZoom(_pinchBaseZoom, details.scale),
                 ),
-                child: _controller.mode == ReaderMode.pagedLtr
+                child: _controller.mode == ReadingMode.paged
                     ? _PagedView(
                         controller: _controller,
                         pageController: _pageController,
@@ -364,7 +364,7 @@ class _ImageSlotState extends State<_ImageSlot> {
 
   Future<void> _load() async {
     try {
-      final bytes = await widget.cache.load(ReaderImage.plain(widget.url));
+      final bytes = await widget.cache.load(widget.url);
       if (!mounted) return;
       setState(() {
         _bytes = bytes;

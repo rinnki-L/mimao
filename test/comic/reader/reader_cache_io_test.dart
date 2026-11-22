@@ -8,7 +8,6 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mimao/comic/reader/reader_cache.dart';
-import 'package:mimao/comic/reader/reader_models.dart';
 
 void main() {
   late Directory tempDir;
@@ -72,7 +71,7 @@ void main() {
     final bytes = Uint8List.fromList(<int>[7, 8, 9]);
     await file.writeAsBytes(bytes);
 
-    expect(await defaultImageByteLoader(ReaderImage.plain(file.path)), bytes);
+    expect(await defaultImageByteLoader(file.path), bytes);
   });
 
   test('defaultImageByteLoader：读取 file:// URI', () async {
@@ -80,29 +79,26 @@ void main() {
     final bytes = Uint8List.fromList(<int>[4, 5, 6]);
     await file.writeAsBytes(bytes);
 
-    expect(
-      await defaultImageByteLoader(ReaderImage.plain(file.uri.toString())),
-      bytes,
-    );
+    expect(await defaultImageByteLoader(file.uri.toString()), bytes);
   });
 
   test('ReaderImageCache 走真实 DiskByteStore：跨实例命中磁盘', () async {
     final loaderCalls = <String>[];
     ReaderImageCache build() => ReaderImageCache(
-      loader: (ReaderImage image) async {
-        loaderCalls.add(image.url);
-        return Uint8List.fromList(image.url.codeUnits);
+      loader: (url) async {
+        loaderCalls.add(url);
+        return Uint8List.fromList(url.codeUnits);
       },
       disk: DiskByteStore(tempDir, maxEntries: 10),
     );
 
     final first = build();
-    await first.load(ReaderImage.plain('persisted.png'));
+    await first.load('persisted.png');
     expect(loaderCalls, <String>['persisted.png']);
 
     // 新实例内存为空，但磁盘有 → 不重新调 loader。
     final second = build();
-    final bytes = await second.load(ReaderImage.plain('persisted.png'));
+    final bytes = await second.load('persisted.png');
     expect(String.fromCharCodes(bytes), 'persisted.png');
     expect(loaderCalls, <String>['persisted.png']);
     expect(second.hits, 1);
