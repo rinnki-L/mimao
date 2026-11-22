@@ -416,32 +416,33 @@ class EngineComicDataSource
 
   // ── 图片加载（不在 ComicDataSource 契约里，供阅读接线用）─────────
 
-  /// 取一章的图片地址列表。引擎失败/空图返回空列表（调用方跳过空章）。
-  Future<List<String>> loadEpImages({
+  /// 取一章的图片引用（地址 + 源 `onImageLoad` 请求头）。引擎失败/空图返回空
+  /// 列表（阅读控制器负责跳过空章）；诊断照旧收集，不因返回引用而丢。
+  Future<List<source_engine.ComicImageRef>> loadEpImages({
     required String key,
     required String comicId,
     required String episodeId,
   }) async {
     final result = await engine.images(key, comicId, episodeId: episodeId);
     _addDiagnostics(result.diagnostics.map((d) => '$key：$d'));
-    return List<String>.unmodifiable(result.items.map((image) => image.url));
+    return List<source_engine.ComicImageRef>.unmodifiable(result.items);
   }
 
-  /// 按 D′ 章节加载图片：解码章节 URL 反查 epId，按条目来源 key 调引擎。
+  /// 按 D′ 章节加载图片引用：解码章节 URL 反查 epId，按条目来源 key 调引擎。
   /// 返回空列表表示「该章不可加载」（坏 URL / 引擎失败 / 空图）。
-  Future<List<String>> loadImagesForChapter(
+  Future<List<source_engine.ComicImageRef>> loadImagesForChapter(
     ComicSummary item,
     ComicChapter chapter,
   ) async {
     final ep = tryDecodeComicEpisodeUrl(chapter.url);
     if (ep == null) {
       _addDiagnostics(<String>['章节地址无法反查：${chapter.url}']);
-      return const <String>[];
+      return const <source_engine.ComicImageRef>[];
     }
     final key = (item.sourceName ?? '').trim();
     if (key.isEmpty || key != ep.sourceKey) {
       _addDiagnostics(<String>['章节来源不匹配：${ep.sourceKey} vs $key']);
-      return const <String>[];
+      return const <source_engine.ComicImageRef>[];
     }
     return loadEpImages(key: key, comicId: ep.comicId, episodeId: ep.episodeId);
   }

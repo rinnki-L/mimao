@@ -8,6 +8,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mimao/comic/comic_models.dart';
 import 'package:mimao/comic/data/comic_models.dart';
+import 'package:mimao/comic/engine/models.dart' show ComicImageRef;
 import 'package:mimao/comic/download.dart';
 import 'package:mimao/comic/download_api.dart';
 import 'package:mimao/comic/download_store.dart';
@@ -120,10 +121,13 @@ void main() {
     return Uint8List.fromList(utf8.encode('bytes-for:$url'));
   }
 
-  Future<List<String>> fakeLoadChapterImages(
+  Future<List<ComicImageRef>> fakeLoadChapterImages(
     ComicSummary summary,
     ComicChapter chapter,
-  ) async => chapter.url == ch1.url ? images1 : images2;
+  ) async => [
+    for (final url in chapter.url == ch1.url ? images1 : images2)
+      ComicImageRef(url: url),
+  ];
 
   Future<ComicLocalEntry> localEntry() async =>
       (await local.find(ComicRef.local(folderId)))!;

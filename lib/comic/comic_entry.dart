@@ -9,9 +9,11 @@
 /// 接线职责：
 /// - 收藏 → `ComicCollectService`（ref 由 [refOf] 构造，{id, sourceName}）；
 /// - 打开详情 → `ComicHistoryService.open`（打开点校正）；
-/// - 开始阅读 → 装配 `ComicReaderPage`（章节图片经注入的
-///   [ComicModule.loadChapterImages] 从 A′ 引擎拉取；进度经收敛后的
-///   `ComicLibraryProgressRecorder` 写 C′ 权威库）；
+/// - 开始阅读 → 装配 `ComicReaderPage`：传懒加载的
+///   [reader.ReaderChapterSource]（在线按章调 [ComicModule.loadChapterImages]，
+///   本地扫目录）、稳定 chapterId（在线 epId / 本地 mimao-local:///index）
+///   与可选阅读设置注入 [readerSettingsStore]；进度经收敛后的
+///   `ComicLibraryProgressRecorder` 写 C′ 权威库；空章/失败交由控制器处理；
 /// - 源管理写操作 → 执行池幂等对账（`ComicSourcePoolSync.syncPool`）。
 library;
 
@@ -24,7 +26,8 @@ import 'package:mimao/comic/data/comic_data_source.dart';
 import 'package:mimao/comic/data/comic_models.dart';
 import 'package:mimao/comic/data/engine_comic_data_source.dart';
 import 'package:mimao/comic/download_api.dart';
-import 'package:mimao/comic/engine/engine.dart' show ComicSourceCatalog;
+import 'package:mimao/comic/engine/engine.dart'
+    show ComicImageRef, ComicSourceCatalog;
 import 'package:mimao/comic/history_service.dart';
 import 'package:mimao/comic/library_api_impl.dart';
 import 'package:mimao/comic/local_comic_content.dart';
@@ -33,9 +36,11 @@ import 'package:mimao/comic/pages/comic_module_page.dart';
 import 'package:mimao/comic/pages/comic_module_settings.dart';
 import 'package:mimao/comic/read_later_service.dart';
 import 'package:mimao/comic/reader/reader_cache.dart' as reader;
+import 'package:mimao/comic/reader/reader_controller.dart' as reader;
 import 'package:mimao/comic/reader/reader_models.dart' as reader;
 import 'package:mimao/comic/reader/reader_page.dart' as reader;
 import 'package:mimao/comic/reader/reader_progress.dart';
+import 'package:mimao/comic/reader/reader_settings.dart';
 import 'package:mimao/comic/search_history_service.dart';
 import 'package:mimao/core/contract.dart';
 import 'package:path/path.dart' as p;
@@ -67,6 +72,7 @@ class ComicModule implements AppModule {
     this.browseSource,
     this.sourceCatalog,
     this.imageCacheFactory,
+    this.readerSettingsStore,
   });
 
   final ComicDataSource dataSource;
@@ -95,9 +101,16 @@ class ComicModule implements AppModule {
   final ComicHistoryService history;
   final ComicSearchHistoryService searchHistory;
 
-  /// 取一章的图片地址列表（由适配层提供，空列表 = 该章不可加载，跳过）。
-  final Future<List<String>> Function(ComicSummary item, ComicChapter chapter)
+  /// 取一章的图片引用（地址 + 源 onImageLoad 请求头，由适配层提供）；空列表
+  /// 表示该章不可加载。阅读装配不再预载，进页后按章调用。
+  final Future<List<ComicImageRef>> Function(
+    ComicSummary item,
+    ComicChapter chapter,
+  )
   loadChapterImages;
+
+  /// 阅读偏好持久化；null 时阅读器不持久化偏好（模块级测试默认不传）。
+  final ReaderSettingsStore? readerSettingsStore;
 
   /// 阅读器图片缓存工厂；null 时回退内存缓存（不碰 path_provider，
   /// 便于模块级测试）。生产由 app_registry 注入 [defaultComicImageCache]。
@@ -230,8 +243,9 @@ class ComicModule implements AppModule {
     }
   }
 
-  /// 阅读装配方：打开点校正 → 全章预载图片（空章跳过）→ 历史反查初始位置
-  /// → push 阅读器。任何一步失败收敛为 SnackBar，不崩导航栈。
+  /// 阅读装配方：打开点校正 → 构造懒加载章节源（空章/失败交控制器）→
+  /// 历史反查初始位置 → push 阅读器。任何一步失败收敛为 SnackBar，
+  /// 不崩导航栈。章图片不再预载：进页后由阅读器按章调用源加载。
   Future<void> _openReader(
     ComicSummary item,
     ComicDetail detail,
@@ -242,73 +256,57 @@ class ComicModule implements AppModule {
     try {
       await history.open(ref);
 
-      final readerChapters = <reader.ComicChapter>[];
+      final reader.ReaderChapterSource source;
       if (ref.sourceName == ComicRef.localSource) {
         final content = localContent;
         if (content == null) throw StateError('本地内容读取未接线');
         final localEntry = await content.find(ref);
         if (localEntry == null) throw StateError('本地漫画不存在：${item.title}');
+        // 本地目录扫描便宜，一次拿全；仍按懒加载源契约交给阅读器逐章取图。
         final chapters = await content.readerChapters(localEntry);
-        for (final localChapter in chapters) {
-          readerChapters.add(
-            reader.ComicChapter(
-              title: localChapter.title,
-              // 用原章节序号作 id：空章被跳过时也不会错位，且能写进历史。
-              chapterId: localChapterUrl(localChapter.index),
-              images: <reader.ReaderImage>[
-                for (final url in localChapter.imageUrls)
-                  reader.ReaderImage.plain(url),
-              ],
-            ),
-          );
+        if (chapters.isEmpty) {
+          if (context.mounted) {
+            _showSnack(context, '本章暂无图片或章节列表为空');
+          }
+          return;
         }
+        source = _LocalChapterSource(chapters);
       } else {
-        for (final dc in detail.chapters) {
-          final urls = await loadChapterImages(item, dc);
-          if (urls.isEmpty) continue;
-          final ep = tryDecodeComicEpisodeUrl(dc.url);
-          readerChapters.add(
-            reader.ComicChapter(
-              title: dc.title,
-              chapterId: ep?.episodeId ?? '',
-              images: <reader.ReaderImage>[
-                for (final url in urls) reader.ReaderImage.plain(url),
-              ],
-            ),
-          );
+        if (detail.chapters.isEmpty) {
+          if (context.mounted) {
+            _showSnack(context, '本章暂无图片或章节列表为空');
+          }
+          return;
         }
-      }
-      if (readerChapters.isEmpty) {
-        if (context.mounted) {
-          _showSnack(context, '本章暂无图片或章节列表为空');
-        }
-        return;
+        // 在线源只持章节元信息，图片按章懒加载；空章/失败由控制器处理。
+        source = _EngineChapterSource(item, detail.chapters, loadChapterImages);
       }
 
-      // 初始位置：显式点章节 → 该章第 1 页；否则历史进度（按 epId 匹配，
-      // 空章跳过后下标会偏移，不能按位置推）；都拿不到 → 第一章。
+      // 初始位置：显式点章节 → 按稳定 id 反查章下标；否则历史进度按
+      // chapterId（在线 epId / 本地 mimao-local:///index）匹配；都拿不到 → 第一章。
       final entry = await history.latest(ref);
       var initialChapter = 0;
       var initialPage = 0;
       if (chapter != null) {
-        // 在线章：epId；本地章：`mimao-local:///<index>`（与上面 chapterId 一致）。
         final tapped = ref.sourceName == ComicRef.localSource
             ? chapter.url
             : tryDecodeComicEpisodeUrl(chapter.url)?.episodeId;
-        final index = readerChapters.indexWhere(
-          (c) => tapped != null && c.chapterId == tapped,
-        );
-        if (index >= 0) initialChapter = index;
+        if (tapped != null) {
+          for (var i = 0; i < source.chapterCount; i++) {
+            if (source.chapterId(i) == tapped) {
+              initialChapter = i;
+              break;
+            }
+          }
+        }
       } else if (entry != null && entry.chapterId.isNotEmpty) {
-        final index = readerChapters.indexWhere(
-          (c) => c.chapterId == entry.chapterId,
-        );
-        if (index >= 0) {
-          initialChapter = index;
-          initialPage = (entry.page - 1).clamp(
-            0,
-            readerChapters[index].pageCount - 1,
-          );
+        for (var i = 0; i < source.chapterCount; i++) {
+          if (source.chapterId(i) == entry.chapterId) {
+            initialChapter = i;
+            // 章图片数懒加载后未知，不在这里 clamp；页面装载后自行钳制。
+            initialPage = entry.page - 1;
+            break;
+          }
         }
       }
 
@@ -328,9 +326,10 @@ class ComicModule implements AppModule {
           settings: const RouteSettings(name: 'comic/reader'),
           builder: (_) => reader.ComicReaderPage(
             title: item.title,
-            chapters: readerChapters,
+            source: source,
             imageCache: cache,
             recorder: recorder,
+            settingsStore: readerSettingsStore,
             initialChapter: initialChapter,
             initialPage: initialPage,
           ),
@@ -372,5 +371,62 @@ class ComicModule implements AppModule {
         context,
       )?.showSnackBar(SnackBar(content: Text(message)));
     }
+  }
+}
+
+/// 本地章节的懒加载源：目录扫描在装配期已完成（便宜），但图片按 chapterId
+/// 索引延迟返回。空章（imageUrls 为空）与失败交给 [reader.ReaderController]
+/// 处理——控制器会向后/向前找非空章，装配层不再过滤。
+class _LocalChapterSource implements reader.ReaderChapterSource {
+  _LocalChapterSource(this._chapters);
+
+  final List<LocalChapterContent> _chapters;
+
+  @override
+  int get chapterCount => _chapters.length;
+
+  @override
+  String chapterTitle(int index) => _chapters[index].title;
+
+  @override
+  String chapterId(int index) => localChapterUrl(_chapters[index].index);
+
+  @override
+  Future<List<reader.ReaderImage>> loadImages(int index) async => [
+    for (final url in _chapters[index].imageUrls) reader.ReaderImage.plain(url),
+  ];
+}
+
+/// 在线章节的懒加载源：只持章节元信息与取图回调，不预载。每章图片进页后
+/// 由 [reader.ReaderController] 调 [loadImages]，源的 onImageLoad 请求头
+/// 经 [ComicImageRef.headers] 直通到 [reader.ReaderImage]。空章（回调返回
+/// 空列表）/异常一律交控制器跳过与报错，装配层不再过滤空章。
+class _EngineChapterSource implements reader.ReaderChapterSource {
+  _EngineChapterSource(this._item, this._chapters, this._loadChapterImages);
+
+  final ComicSummary _item;
+  final List<ComicChapter> _chapters;
+  final Future<List<ComicImageRef>> Function(
+    ComicSummary item,
+    ComicChapter chapter,
+  )
+  _loadChapterImages;
+
+  @override
+  int get chapterCount => _chapters.length;
+
+  @override
+  String chapterTitle(int index) => _chapters[index].title;
+
+  @override
+  String chapterId(int index) =>
+      tryDecodeComicEpisodeUrl(_chapters[index].url)?.episodeId ?? '';
+
+  @override
+  Future<List<reader.ReaderImage>> loadImages(int index) async {
+    final refs = await _loadChapterImages(_item, _chapters[index]);
+    return [
+      for (final ref in refs) reader.ReaderImage(ref.url, headers: ref.headers),
+    ];
   }
 }

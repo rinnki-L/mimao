@@ -388,18 +388,22 @@ void main() {
       );
     });
 
-    test('loadEpImages：正常返回 URL 列表；故障/坏 URL/来源不匹配返回空', () async {
+    test('loadEpImages：正常返回图片引用（含 url）；故障/坏 URL/来源不匹配返回空', () async {
       final adapter = await env.buildAdapter();
-      final urls = await adapter.loadEpImages(
+      final refs = await adapter.loadEpImages(
         key: 'bilimanga',
         comicId: 'c1',
         episodeId: 'ch-1',
       );
-      expect(urls, <String>[
+      expect(refs.map((ref) => ref.url).toList(), <String>[
         'https://img.test/p1.jpg',
         'https://img.test/p2.jpg',
         'https://img.test/p3.jpg',
       ]);
+      // headers 直通：假宿主回放的图片无 onImageLoad 钩子，默认空头。
+      for (final ref in refs) {
+        expect(ref.headers, isEmpty);
+      }
 
       final broken = await env.buildAdapter(failKeys: <String>{'bilimanga'});
       expect(

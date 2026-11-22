@@ -15,9 +15,11 @@ import 'package:mimao/comic/local_comic_service.dart';
 import 'package:mimao/comic/local_download_service.dart';
 import 'package:mimao/comic/read_later_service.dart';
 import 'package:mimao/comic/reader/reader_cache.dart';
+import 'package:mimao/comic/reader/reader_settings.dart';
 import 'package:mimao/comic/search_history_service.dart';
 import 'package:mimao/core/contract.dart';
 import 'package:mimao/core/library.dart';
+import 'package:mimao/core/settings.dart';
 import 'package:mimao/shell/app.dart';
 import 'package:mimao/shell/dev/dev_capability.dart';
 import 'package:mimao/shell/network_settings.dart';
@@ -254,6 +256,10 @@ Future<void> initAppModules({
         searchHistory: searchHistory,
         // 统一书架入口保留在壳层顶栏，漫画主页不再重复放快捷入口。
         loadChapterImages: adapter.loadImagesForChapter,
+        // 阅读偏好走 core 统一 app_settings：复用 main 已打开的库，不新建连接。
+        readerSettingsStore: SettingsReaderSettingsStore(
+          SettingsRepository(library.db),
+        ),
         imageCacheFactory: comicImageCacheFactory ?? defaultComicImageCache,
       );
     }

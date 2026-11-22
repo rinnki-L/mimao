@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:mimao/comic/comic_models.dart';
 import 'package:mimao/comic/data/comic_models.dart';
+import 'package:mimao/comic/engine/models.dart' show ComicImageRef;
 import 'package:mimao/comic/download.dart';
 import 'package:mimao/comic/download_api.dart';
 import 'package:mimao/comic/download_store.dart';
@@ -45,8 +46,13 @@ class ComicLocalDownloadService implements ComicDownloadApi {
   /// 取一张图的原始字节（生产走 ComicHttpClient，共享 UA/Cookie）。
   final Future<Uint8List> Function(String url) loadBytes;
 
-  /// 取一章的图片地址（由源适配层注入）。
-  final Future<List<String>> Function(ComicSummary item, ComicChapter chapter)
+  /// 取一章的图片引用（地址 + 可选请求头，由源适配层注入）。下载按 url 落盘，
+  /// 请求头当前不参与（loadBytes 只吃 url）——保留引用形态供后续扩展，底线是
+  /// 不破坏既有下载测试与下载器签名。
+  final Future<List<ComicImageRef>> Function(
+    ComicSummary item,
+    ComicChapter chapter,
+  )
   loadChapterImages;
 
   final DateTime Function() _now;
@@ -168,8 +174,8 @@ class ComicLocalDownloadService implements ComicDownloadApi {
       _notify();
       if (_cancelled.contains(taskId)) return;
 
-      final urls = await loadChapterImages(item, chapter);
-      if (urls.isEmpty) {
+      final refs = await loadChapterImages(item, chapter);
+      if (refs.isEmpty) {
         throw StateError('本章暂无图片');
       }
 
@@ -197,19 +203,20 @@ class ComicLocalDownloadService implements ComicDownloadApi {
       await chapterDir.create(recursive: true);
 
       var done = 0;
-      for (var i = 0; i < urls.length; i++) {
+      for (var i = 0; i < refs.length; i++) {
+        final url = refs[i].url;
         if (_cancelled.contains(taskId)) break;
         final file = File(
           p.join(
             chapterDir.path,
-            '${(i + 1).toString().padLeft(4, '0')}${_extensionOf(urls[i])}',
+            '${(i + 1).toString().padLeft(4, '0')}${_extensionOf(url)}',
           ),
         );
         final reusable = await file.exists() && await file.length() > 0
             ? true
             : false;
         if (!reusable) {
-          final bytes = await loadBytes(urls[i]);
+          final bytes = await loadBytes(url);
           if (bytes.isEmpty) throw StateError('第 ${i + 1} 页图片为空');
           await file.writeAsBytes(bytes, flush: true);
         }
@@ -217,7 +224,7 @@ class ComicLocalDownloadService implements ComicDownloadApi {
         await store.updateProgress(
           taskId,
           receivedBytes: done,
-          totalBytes: urls.length,
+          totalBytes: refs.length,
           now: _now(),
         );
         _notify();
@@ -236,7 +243,7 @@ class ComicLocalDownloadService implements ComicDownloadApi {
         id: chapter.url,
         title: chapter.title,
         dir: dirName,
-        pages: urls.length,
+        pages: refs.length,
       );
       final chapters = _mergeChapters(detail, manifest, chapterInfo);
       manifest = LocalComicManifest(
