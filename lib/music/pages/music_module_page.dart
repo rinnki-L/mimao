@@ -617,7 +617,9 @@ class _MusicSidebar extends StatelessWidget {
     if (!wide) iconPart = Tooltip(message: label, child: iconPart);
     return Padding(
       key: Key(itemKey),
-      padding: const EdgeInsets.symmetric(horizontal: 12),
+      // 宽窗 20：药丸底不贴分隔线，且与歌单区封面列（8+12）对齐；窄窗 84px
+      // 保持 12，否则 56 宽的指示垫放不下（内宽只剩 44）。
+      padding: EdgeInsets.symmetric(horizontal: wide ? 20 : 12),
       child: Material(
         color: cs.surface,
         shape: RoundedRectangleBorder(borderRadius: MimaoShapes.pill),
