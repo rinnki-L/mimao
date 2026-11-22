@@ -321,6 +321,7 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage> {
                         builder: (_) => ReaderSettingsPanel(
                           initial: _settings,
                           onChanged: _applySettings,
+                          onClose: () => Navigator.of(context).pop(),
                         ),
                       );
                     },

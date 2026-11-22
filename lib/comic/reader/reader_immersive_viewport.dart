@@ -369,8 +369,8 @@ class _ImmersiveImageSlotState extends State<_ImmersiveImageSlot> {
         key: Key('immersive-image-error-${widget.index}'),
         onTap: _load,
         child: SizedBox(
-          height: widget.isVertical ? 320 : double.infinity,
-          width: widget.isVertical ? double.infinity : 320,
+          height: widget.isVertical ? 320 : 480,
+          width: widget.isVertical ? 320 : 320,
           child: Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -390,12 +390,16 @@ class _ImmersiveImageSlotState extends State<_ImmersiveImageSlot> {
     if (bytes == null) {
       return SizedBox(
         key: const Key('immersive-image-loading'),
-        height: widget.isVertical ? 320 : double.infinity,
-        width: widget.isVertical ? double.infinity : 320,
+        height: widget.isVertical ? 320 : 480,
+        width: widget.isVertical ? 320 : 320,
         child: const Center(child: CircularProgressIndicator()),
       );
     }
 
+    // constrained:false 会把无界高度传给 OverflowBox，在 ListView 的
+    // 纵向 item（0<=h<=Infinity）里直接布局崩。改用 bounded 的显示尺寸：
+    // 图片按可用宽/高给一个确定 extent，高度由宽高比算出（有限），
+    // InteractiveViewer 用默认 constrained:true 在有限框内缩放/平移。
     final effectiveZoom = widget.longPressZoom ? 1.75 : widget.zoom;
     if (effectiveZoom != 1.0) {
       _transform.value = Matrix4.diagonal3Values(
@@ -405,22 +409,34 @@ class _ImmersiveImageSlotState extends State<_ImmersiveImageSlot> {
       );
     }
 
-    return InteractiveViewer(
-      key: Key('immersive-image-${widget.index}'),
-      transformationController: _transform,
-      minScale: 1.0,
-      maxScale: 4.0,
-      constrained: false,
-      onInteractionEnd: (_) =>
-          widget.onZoom(_transform.value.getMaxScaleOnAxis().clamp(1.0, 4.0)),
-      child: Image(
-        image: MemoryImage(bytes),
-        fit: BoxFit.contain,
-        width: widget.isVertical ? (widget.limitWidth ? 720.0 : null) : null,
-        height: widget.isVertical ? null : double.infinity,
-        errorBuilder: (context, error, stack) =>
-            const Center(child: Icon(Icons.broken_image_outlined)),
-      ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final available = widget.isVertical
+            ? constraints.maxWidth
+            : constraints.maxHeight;
+        final extent = available.isFinite ? available : 800.0;
+        final capped = widget.limitWidth ? extent.clamp(0.0, 720.0) : extent;
+        final image = Image(
+          image: MemoryImage(bytes),
+          fit: BoxFit.contain,
+          width: widget.isVertical ? capped : null,
+          height: widget.isVertical ? null : capped,
+          errorBuilder: (context, error, stack) =>
+              const Center(child: Icon(Icons.broken_image_outlined)),
+        );
+        return Center(
+          child: InteractiveViewer(
+            key: Key('immersive-image-${widget.index}'),
+            transformationController: _transform,
+            minScale: 1.0,
+            maxScale: 4.0,
+            onInteractionEnd: (_) => widget.onZoom(
+              _transform.value.getMaxScaleOnAxis().clamp(1.0, 4.0),
+            ),
+            child: image,
+          ),
+        );
+      },
     );
   }
 }
