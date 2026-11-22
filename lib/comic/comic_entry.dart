@@ -33,9 +33,13 @@ import 'package:mimao/comic/pages/comic_module_page.dart';
 import 'package:mimao/comic/pages/comic_module_settings.dart';
 import 'package:mimao/comic/read_later_service.dart';
 import 'package:mimao/comic/reader/reader_cache.dart' as reader;
+import 'package:mimao/comic/reader/reader_chapter_source.dart' as reader;
+import 'package:mimao/comic/reader/reader_image_loader.dart' as reader;
+import 'package:mimao/comic/reader/reader_integration.dart' as reader;
 import 'package:mimao/comic/reader/reader_models.dart' as reader;
 import 'package:mimao/comic/reader/reader_page.dart' as reader;
 import 'package:mimao/comic/reader/reader_progress.dart';
+import 'package:mimao/comic/reader/reader_settings.dart' as reader;
 import 'package:mimao/comic/search_history_service.dart';
 import 'package:mimao/core/contract.dart';
 import 'package:path/path.dart' as p;
@@ -43,10 +47,13 @@ import 'package:path_provider/path_provider.dart';
 
 /// 生产图片缓存：应用支持目录下 `comic_images/` 的磁盘 LRU
 /// （app_registry 生产路径注入；测试注入 MemoryByteStore + 假 loader）。
+/// 同时注入按 [ImageRequest]（Referer/headers/UA + 失败重试）取字节的新加载器，
+/// 让阅读器能带防盗链头取图；旧 [loader] 保留作无请求头时的降级。
 Future<reader.ReaderImageCache> defaultComicImageCache() async {
   final support = await getApplicationSupportDirectory();
   return reader.ReaderImageCache(
     loader: reader.defaultImageByteLoader,
+    requestLoader: reader.defaultImageRequestLoader(),
     disk: reader.DiskByteStore(Directory(p.join(support.path, 'comic_images'))),
   );
 }
@@ -67,6 +74,8 @@ class ComicModule implements AppModule {
     this.browseSource,
     this.sourceCatalog,
     this.imageCacheFactory,
+    this.immersiveReaderBuilder,
+    this.readerSettingsStoreFactory,
   });
 
   final ComicDataSource dataSource;
@@ -102,6 +111,24 @@ class ComicModule implements AppModule {
   /// 阅读器图片缓存工厂；null 时回退内存缓存（不碰 path_provider，
   /// 便于模块级测试）。生产由 app_registry 注入 [defaultComicImageCache]。
   final Future<reader.ReaderImageCache> Function()? imageCacheFactory;
+
+  /// 沉浸式阅读器构造器（新体验）：注入后"开始阅读"改走懒加载 + 瀑布流阅读页。
+  /// null 时保留历史 [ComicReaderPage] 路径——模块测试据此锁定旧行为。
+  /// 生产由 app_registry 提供。
+  final Widget Function({
+    required String title,
+    required reader.ReaderChapterSource source,
+    required reader.ReaderImageCache imageCache,
+    required reader.ReaderSettingsStore settingsStore,
+    required ProgressRecorder recorder,
+    required int initialChapter,
+    required int initialPage,
+    required List<String> chapterTitles,
+  })?
+  immersiveReaderBuilder;
+
+  /// 阅读设置存储工厂；生产注入文件版，测试可注入内存版。
+  final reader.ReaderSettingsStore Function()? readerSettingsStoreFactory;
 
   /// 内存回退缓存（懒创建，整个模块生命周期复用）。
   reader.ReaderImageCache? _fallbackCache;
@@ -318,6 +345,42 @@ class ComicModule implements AppModule {
             : (item.coverUrl.isEmpty ? null : item.coverUrl),
       );
       if (!context.mounted) return;
+
+      // 沉浸式阅读器（生产注入）：复用已拉到的章节数据适配成按章源，
+      // 开书后图片字节仍逐张按需取；测试未注入时保留历史页。
+      final builder = immersiveReaderBuilder;
+      if (builder != null) {
+        final source = reader.EagerChapterSource(
+          episodeIds: [for (final chapter in readerChapters) chapter.chapterId],
+          imageUrlsByChapter: [
+            for (final chapter in readerChapters) chapter.imageUrls,
+          ],
+          titles: [for (final chapter in readerChapters) chapter.title],
+        );
+        final settingsStore = readerSettingsStoreFactory != null
+            ? readerSettingsStoreFactory!()
+            : reader.MemoryReaderSettingsStore();
+        await Navigator.of(context).push<void>(
+          MaterialPageRoute<void>(
+            settings: const RouteSettings(name: 'comic/reader'),
+            builder: (_) => builder(
+              title: item.title,
+              source: source,
+              imageCache: cache,
+              settingsStore: settingsStore,
+              recorder: recorder,
+              // 控制器内部 0 基 → 新阅读页 1 基。
+              initialChapter: initialChapter + 1,
+              initialPage: initialPage + 1,
+              chapterTitles: [
+                for (final chapter in readerChapters) chapter.title,
+              ],
+            ),
+          ),
+        );
+        return;
+      }
+
       await Navigator.of(context).push<void>(
         MaterialPageRoute<void>(
           settings: const RouteSettings(name: 'comic/reader'),

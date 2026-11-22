@@ -15,6 +15,8 @@ import 'package:mimao/comic/local_comic_service.dart';
 import 'package:mimao/comic/local_download_service.dart';
 import 'package:mimao/comic/read_later_service.dart';
 import 'package:mimao/comic/reader/reader_cache.dart';
+import 'package:mimao/comic/reader/reader_immersive_page.dart';
+import 'package:mimao/comic/reader/reader_integration.dart';
 import 'package:mimao/comic/search_history_service.dart';
 import 'package:mimao/core/contract.dart';
 import 'package:mimao/core/library.dart';
@@ -255,6 +257,28 @@ Future<void> initAppModules({
         // 统一书架入口保留在壳层顶栏，漫画主页不再重复放快捷入口。
         loadChapterImages: adapter.loadImagesForChapter,
         imageCacheFactory: comicImageCacheFactory ?? defaultComicImageCache,
+        // 沉浸式阅读器（七模式 + 跨章瀑布 + 手势 + 设置）：生产走这里。
+        immersiveReaderBuilder:
+            ({
+              required title,
+              required source,
+              required imageCache,
+              required settingsStore,
+              required recorder,
+              required initialChapter,
+              required initialPage,
+              required chapterTitles,
+            }) => ImmersiveReaderPage(
+              title: title,
+              source: source,
+              imageCache: imageCache,
+              settingsStore: settingsStore,
+              recorder: recorder,
+              initialChapter: initialChapter,
+              initialPage: initialPage,
+              chapterTitles: chapterTitles,
+            ),
+        readerSettingsStoreFactory: () => FileReaderSettingsStore(),
       );
     }
   } catch (error) {
