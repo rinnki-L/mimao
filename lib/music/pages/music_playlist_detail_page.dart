@@ -69,8 +69,9 @@ class MusicPlaylistDetailPage extends StatefulWidget {
   /// 公开歌单标识；云歌单可传空串。
   final String globalId;
 
-  /// 云歌单 id；非空时优先走 playlistTrackAllNew。
+  /// 云歌单 id；非空且非收藏时优先走 playlistTrackAllNew。
   final int? cloudListId;
+
   final String? title;
   final String? coverUrl;
 
@@ -149,6 +150,13 @@ class _MusicPlaylistDetailPageState extends State<MusicPlaylistDetailPage> {
 
   bool get _isCloud => widget.cloudListId != null;
 
+  /// 自建云歌单。收藏歌单（kind == collected）公开读走 globalId 的公开
+  /// 端点：传入的 globalId 已由调用方选为创作者真 id
+  /// （[MusicUserPlaylist.publicGlobalId]），详情头部也按它取（2026-11-22
+  /// 修复收藏歌单详情空列表——此前取曲对收藏行一直拿到空页）。
+  bool get _isOwnedCloud =>
+      _isCloud && widget.kind != MusicPlaylistKind.collected;
+
   /// 删除歌单（仅可编辑云歌单 + 写端点已接线）。
   bool get _canDelete =>
       _isCloud && widget.write != null && widget.editable == true;
@@ -175,7 +183,7 @@ class _MusicPlaylistDetailPageState extends State<MusicPlaylistDetailPage> {
   Future<void> _load() async {
     setState(() => _phase = _Phase.loading);
     // 公开歌单头部与曲目并行取：头部慢/失败都不挡曲目浏览。
-    if (!_isCloud && widget.globalId.isNotEmpty) {
+    if (!_isOwnedCloud && widget.globalId.isNotEmpty) {
       unawaited(_loadHeader());
     }
     try {
@@ -199,7 +207,9 @@ class _MusicPlaylistDetailPageState extends State<MusicPlaylistDetailPage> {
   Future<MusicPage<MusicPlaylistTrack>> _fetchTracks({
     required int page,
   }) async {
-    final cloudListId = widget.cloudListId;
+    final cloudListId = _isCloud && widget.kind != MusicPlaylistKind.collected
+        ? widget.cloudListId
+        : null;
     if (cloudListId != null) {
       final result = await widget.read.playlistTrackAllNew(
         MusicPlaylistTrackAllNewQuery(
@@ -223,7 +233,7 @@ class _MusicPlaylistDetailPageState extends State<MusicPlaylistDetailPage> {
 
   /// 公开歌单头部；失败/缺失不挡曲目（用传入 title/coverUrl 占位）。
   Future<void> _loadHeader() async {
-    if (_isCloud || widget.globalId.isEmpty) return;
+    if (_isOwnedCloud || widget.globalId.isEmpty) return;
     try {
       final details = await widget.read.playlistDetail(
         MusicPlaylistDetailQuery(globalIds: <String>[widget.globalId]),

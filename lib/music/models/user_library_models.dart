@@ -178,6 +178,17 @@ class MusicUserPlaylist {
   final String creatorGlobalId;
   final String title;
 
+  /// 公开访问（详情/取曲端点）应使用的 global_collection_id。
+  ///
+  /// 收藏条目（kind == collected）自身的 [globalId] 是**订阅架位合成 id**
+  /// （`collection_<kind>_<本人 userid>_<架位 listid>_<序号>`，实测 2026-11-22），
+  /// 公开端点对它只回骨架/空页；创作者的真 id 在 [creatorGlobalId]
+  /// （wire `list_create_gid`）。自建条目两者相同，直接用 [globalId]。
+  String get publicGlobalId {
+    if (kind != MusicCloudPlaylistKind.collected) return globalId;
+    return creatorGlobalId.isNotEmpty ? creatorGlobalId : globalId;
+  }
+
   /// intro/tags 是否存在于 wire（区分「空串」与「服务端没给」）。
   final bool descriptionPresent;
   final bool tagsPresent;

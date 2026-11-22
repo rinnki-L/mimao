@@ -354,7 +354,9 @@ class MusicModule implements AppModule {
         builder: (_) => MusicPlaylistDetailPage(
           read: read,
           player: player,
-          globalId: playlist.globalId,
+          // 收藏条目自身 gcid 是订阅架位合成 id，公开端点要用创作者真 id
+          // （publicGlobalId 选边；2026-11-22 修复收藏歌单详情空列表）。
+          globalId: playlist.publicGlobalId,
           cloudListId: playlist.cloudListId,
           title: playlist.title,
           coverUrl: playlist.coverUrl,

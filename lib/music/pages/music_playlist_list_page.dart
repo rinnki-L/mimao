@@ -256,7 +256,7 @@ class _MusicPlaylistListPageState extends State<MusicPlaylistListPage> {
         builder: (_) => MusicPlaylistDetailPage(
           read: widget.read,
           player: widget.player,
-          globalId: playlist.globalId,
+          globalId: playlist.publicGlobalId,
           cloudListId: playlist.cloudListId,
           title: playlist.title,
           coverUrl: playlist.coverUrl,
