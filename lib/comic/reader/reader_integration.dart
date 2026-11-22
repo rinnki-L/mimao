@@ -26,7 +26,11 @@ class LazyChapterSource implements ReaderChapterSource {
     required this.episodeIds,
     required this.titles,
     required this.loadImages,
-  }) : assert(episodeIds.length == titles.length, '章节 id 与标题长度必须一致');
+    Map<int, List<String>> initialCache = const <int, List<String>>{},
+  }) : assert(episodeIds.length == titles.length, '章节 id 与标题长度必须一致'),
+       // 起始章在进入阅读器前已抓过（验证页在那时弹，不跟阅读器打架），
+       // 预置进缓存，阅读器 start() 直接命中、不再发任何网络请求。
+       _cache = Map<int, List<String>>.from(initialCache);
 
   /// 1 基章号 → 稳定 epId（本地章可为章节地址）。
   final List<String> episodeIds;
@@ -38,7 +42,7 @@ class LazyChapterSource implements ReaderChapterSource {
   final Future<List<String>> Function(int chapter) loadImages;
 
   /// 已抓过的章缓存：翻回去不重复抓。
-  final Map<int, List<String>> _cache = <int, List<String>>{};
+  final Map<int, List<String>> _cache;
 
   @override
   int get chapterCount => episodeIds.length;

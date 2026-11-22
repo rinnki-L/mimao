@@ -275,7 +275,7 @@ void main() {
       required chapterTitles,
     }) => const KeyedSubtree(key: Key('immersive-stub'), child: Text('沉浸式页'));
 
-    testWidgets('注入沉浸式页：开书不预抓任何章图片，且打开即写历史', (tester) async {
+    testWidgets('注入沉浸式页：只预抓起始章（验证在进阅读器前），且打开即写历史', (tester) async {
       var fetchCalls = 0;
       final adapter = await env.buildAdapter();
       module = ComicModule(
@@ -284,7 +284,7 @@ void main() {
         collect: env.collect,
         history: env.history,
         searchHistory: env.searchHistory,
-        // 计数包装：开书前若预抓图片，这里会 >0。
+        // 计数包装：验证在进阅读器前完成，此处应只被调用一次（起始章）。
         loadChapterImages: (item, chapter) async {
           fetchCalls++;
           return adapter.loadImagesForChapter(item, chapter);
@@ -299,8 +299,9 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('immersive-stub')), findsOneWidget);
-      // 关键：开书瞬间不抓任何章图片——这是"源漫画能打开"的前提。
-      expect(fetchCalls, 0, reason: '按章懒加载：开书不该抓图片');
+      // 关键：只抓起始章这一章（验证页在进阅读器前弹，不与阅读器打架），
+      // 其余章节不预抓——绝不退回"全本预抓"把验证页盖到阅读器上。
+      expect(fetchCalls, 1, reason: '只预抓起始章，验证在进阅读器前完成');
       // 关键：打开即写历史，不必等翻页。
       final history = await env.history.latest(
         const ComicRef(id: 'c1', sourceName: 'bilimanga'),

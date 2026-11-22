@@ -503,10 +503,28 @@ class ComicModule implements AppModule {
       isLocal,
       coverUrl,
     );
+
+    // 关键：起始章在进入阅读器之前抓。抓图可能撞反爬 → 弹验证 WebView
+    // （它加载站点章节页，看着像"站点自己的阅读器"）。此刻我们阅读器还没 push，
+    // 验证页在详情页之上弹出、关掉后回到详情页，不会盖住阅读器、更不会让
+    // 阅读器拿不到图变空白。其余章节仍交给阅读器按需懒加载。
+    Map<int, List<String>> initialCache = const <int, List<String>>{};
+    try {
+      final firstImages = await loadImages(chapterNumber);
+      if (firstImages.isNotEmpty) {
+        initialCache = <int, List<String>>{chapterNumber: firstImages};
+      }
+    } on Object {
+      // 抓图失败（含用户取消验证）：仍进阅读器，让其在读该章时按 UI 重试，
+      // 不把整本书卡在打不开的状态。
+    }
+    if (!context.mounted) return;
+
     final source = reader.LazyChapterSource(
       episodeIds: ids,
       titles: titles,
       loadImages: loadImages,
+      initialCache: initialCache,
     );
     final cache = await _resolveCache();
     final recorder = ComicLibraryProgressRecorder(
