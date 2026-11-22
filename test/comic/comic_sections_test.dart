@@ -95,6 +95,44 @@ class _EmptyLibrary implements ComicLibraryApi {
   Future<void> clearHistory() async {}
 }
 
+/// 最小稍后阅读假 API（顺序测试用：让卡片可见即可）。
+class _OneReadLaterApi implements ComicReadLaterApi {
+  const _OneReadLaterApi();
+
+  @override
+  Future<List<ComicLibraryEntry>> readLater() async =>
+      const <ComicLibraryEntry>[
+        ComicLibraryEntry(id: 'yeyu', sourceName: 'fixture', title: '夜雨剑歌'),
+      ];
+
+  @override
+  Future<bool> isReadLater(String id, String sourceName) async => false;
+
+  @override
+  Future<void> setReadLater({
+    required String id,
+    required String sourceName,
+    required String title,
+    String? coverUrl,
+    String detailUrl = '',
+    required bool included,
+  }) async {}
+}
+
+/// 最小本地假 API（顺序测试用：让卡片可见即可）。
+class _OneLocalApi implements ComicLocalApi {
+  const _OneLocalApi();
+
+  @override
+  Future<List<ComicLibraryEntry>> local() async => const <ComicLibraryEntry>[];
+
+  @override
+  Future<ComicDetail> detail(ComicSummary item) => throw UnimplementedError();
+
+  @override
+  Future<void> remove(ComicSummary item) async {}
+}
+
 /// 读数据必抛的假数据（错误态测试）。
 class _BrokenLibrary implements ComicLibraryApi {
   const _BrokenLibrary();
@@ -228,7 +266,7 @@ void _usePhoneSize(WidgetTester tester) {
 
 void main() {
   group('主页分区', () {
-    testWidgets('显示搜索入口、继续阅读与本地漫画', (tester) async {
+    testWidgets('显示搜索入口、阅读历史卡片与源管理卡片（旧海报区块已移除）', (tester) async {
       _usePhoneSize(tester);
       await tester.pumpWidget(
         _app(
@@ -242,24 +280,21 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('comic-home-search')), findsOneWidget);
+      // 四张卡片：阅读历史 / 稍后阅读（未接线时隐藏）/ 本地（未接线时隐藏）/ 源管理。
+      expect(find.byKey(const Key('comic-home-history-card')), findsOneWidget);
       expect(find.text('阅读历史'), findsOneWidget);
       expect(find.text('继续阅读'), findsNothing);
-      expect(find.text('本地漫画'), findsOneWidget);
-      // 历史行带进度文案；本地行带页数。
+      // 历史卡片内嵌海报带进度文案（旧的「本地漫画」大海报区已删除）。
       expect(find.text('第 1 章 · 看到第 3 页'), findsOneWidget);
-      expect(find.text('12 页'), findsOneWidget);
       expect(
         find.byKey(const ValueKey<String>('home-recent-xingzhou')),
         findsOneWidget,
       );
-      expect(
-        find.byKey(const ValueKey<String>('home-local-local-1')),
-        findsOneWidget,
-      );
+      expect(find.byKey(const Key('comic-home-source-card')), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('空数据时显示空态提示', (tester) async {
+    testWidgets('空数据时历史卡片常显并给出引导文案（无整页空态）', (tester) async {
       _usePhoneSize(tester);
       await tester.pumpWidget(
         _app(
@@ -271,8 +306,12 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      // 历史卡片常显（即使无记录），空态收进卡片，不再有整页空态。
+      expect(find.byKey(const Key('comic-home-history-card')), findsOneWidget);
+      expect(find.text('阅读历史'), findsOneWidget);
+      expect(find.text('0 条'), findsOneWidget);
+      expect(find.text('搜索并阅读漫画后，会在这里按最近阅读汇总。'), findsOneWidget);
       expect(find.text('还没有阅读记录或本地漫画'), findsOneWidget);
-      expect(find.text('阅读历史'), findsNothing);
       expect(tester.takeException(), isNull);
     });
 
@@ -291,6 +330,97 @@ void main() {
 
       expect(find.byKey(const Key('comic-home-library')), findsNothing);
       expect(find.text('统一书架'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('四卡片固定顺序：历史 → 稍后阅读 → 本地 → 源管理 → 快捷 chips', (tester) async {
+      _usePhoneSize(tester);
+      await tester.pumpWidget(
+        _app(
+          ComicHomePage(
+            dataSource: comicFixture,
+            library: _FakeLibrary(),
+            readLater: const _OneReadLaterApi(),
+            localApi: const _OneLocalApi(),
+            onOpenSettings: () {},
+            showAppBar: false,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // 从主页 ListView 出发按 DFS 先序遍历收集 key：兄弟节点的 DFS 顺序即
+      // 屏幕自上而下的顺序，比对各卡 key 出现的先后即可断言固定顺序。
+      late Element listElement;
+      tester
+          .element(find.byKey(const Key('comic-home-search')))
+          .visitAncestorElements((ancestor) {
+            if (ancestor.widget is ListView) {
+              listElement = ancestor;
+              return false;
+            }
+            return true;
+          });
+      final keysInOrder = <String>[];
+      void collect(Element element) {
+        final key = element.widget.key;
+        if (key is ValueKey<String>) keysInOrder.add(key.value);
+        element.visitChildren(collect);
+      }
+
+      listElement.visitChildren(collect);
+
+      const expected = <String>[
+        'comic-home-search',
+        'comic-home-history-card',
+        'comic-home-read-later-card',
+        'comic-home-local-card',
+        'comic-home-source-card',
+        'comic-home-settings-chip',
+      ];
+      final indexes = <int>[
+        for (final key in expected) keysInOrder.indexOf(key),
+      ];
+      // 全部找得到，且 index 严格递增（顺序即列表自上而下）。
+      for (final index in indexes) {
+        expect(index, isNonNegative, reason: '有卡片 key 未在树中找到');
+      }
+      for (var i = 1; i < indexes.length; i++) {
+        expect(
+          indexes[i],
+          greaterThan(indexes[i - 1]),
+          reason: '「${expected[i]}」应排在「${expected[i - 1]}」之后',
+        );
+      }
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('历史卡片最多展示 8 条海报，但计数是完整条数', (tester) async {
+      _usePhoneSize(tester);
+      final library = _MutableHistoryLibrary([
+        for (var i = 0; i < 12; i++)
+          ComicLibraryEntry(id: 'h$i', sourceName: 'fixture', title: '历史$i'),
+      ]);
+      await tester.pumpWidget(
+        _app(ComicHomePage(dataSource: comicFixture, library: library)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('12 条'), findsOneWidget);
+      // 历史卡片内嵌的横向 ComicPosterRow 是懒加载 ListView：直接读它的
+      // itemCount 才能稳定验证截断（滚到底后屏外子项会被回收，数挂在树上的
+      // 卡片不可靠）。数据 12 条 → 行 itemCount 恰为 8。
+      final rowWidget = tester.widget<ListView>(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is ListView && widget.scrollDirection == Axis.horizontal,
+        ),
+      );
+      expect(rowWidget.semanticChildCount, 8, reason: '最多展示 8 条海报');
+      expect(
+        find.byKey(const ValueKey<String>('home-recent-h0')),
+        findsOneWidget,
+      );
       expect(tester.takeException(), isNull);
     });
 
@@ -335,7 +465,7 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('长按取消不删除；点清空 → 确认 → 阅读历史区消失并出空态', (tester) async {
+    testWidgets('长按取消不删除；点清空 → 确认 → 历史卡片保留但转空态', (tester) async {
       _usePhoneSize(tester);
       final library = _MutableHistoryLibrary(const <ComicLibraryEntry>[
         ComicLibraryEntry(id: 'xingzhou', sourceName: 'fixture', title: '星舟漫游'),
@@ -365,8 +495,14 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(library.cleared, 1);
-      expect(find.text('阅读历史'), findsNothing);
-      expect(find.text('还没有阅读记录或本地漫画'), findsOneWidget);
+      // 卡片保留，海报变空态引导；计数归零。
+      expect(find.byKey(const Key('comic-home-history-card')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey<String>('home-recent-xingzhou')),
+        findsNothing,
+      );
+      expect(find.text('0 条'), findsOneWidget);
+      expect(find.text('搜索并阅读漫画后，会在这里按最近阅读汇总。'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 

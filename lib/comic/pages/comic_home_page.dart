@@ -1,9 +1,9 @@
 // ignore_for_file: deprecated_member_use — 见 lib/comic/pages/comic_cover.dart 同款说明。
-/// 漫画模块「主页」分区：搜索 + 跨源阅读历史 + 本地漫画 + 源管理入口。
+/// 漫画模块「主页」分区：搜索 + 四张卡片（历史/稍后阅读/本地/源管理）+ 快捷 chips。
 ///
 /// 分工（用户拍板）：
-/// - 主页 = 搜索框 + 跨源汇总的阅读历史（可单条删/一键清空）+ 本地漫画
-///   + 源管理入口（「我的」式枢纽）；
+/// - 主页 = 搜索框 + 跨源汇总的阅读历史（可单条删/一键清空）+ 稍后阅读
+///   + 本地漫画 + 源管理入口（「我的」式枢纽），四张卡片固定顺序、各带空态；
 /// - 收藏 = 用户收藏的漫画；
 /// - 发现 / 分类 = 各源站点的探索流与分类树。
 ///
@@ -114,8 +114,8 @@ class _ComicHomePageState extends State<ComicHomePage> {
         ? const <ComicLibraryEntry>[]
         : await readLater.readLater();
     final localApi = widget.localApi;
-    // 本地卡片与「本地漫画」区块共用同一数据源：有本地写能力时读它，
-    // 避免两个入口（卡片计数 / 区块列表）因来源不同而不一致。
+    // 本地入口只有「本地」卡片：有本地写能力时读它，否则退回只读库，
+    // 不再另起一份「本地漫画」海报区（重复入口已移除）。
     final local = localApi != null
         ? await localApi.local()
         : (library == null
@@ -246,13 +246,18 @@ class _ComicHomePageState extends State<ComicHomePage> {
               return _HomeErrorState(onRetry: _reload);
             }
             final data = snapshot.data ?? const _HomeData();
+            // 固定顺序（用户拍板）：搜索框 → 历史 → 稍后阅读 → 本地 → 源管理
+            // → 快捷 chips。旧的「阅读历史」「本地漫画」大海报区已并入卡片/删除。
+            // 历史卡片常显（library 存在即可）——空态收进卡片，不给整页空态。
             return ListView(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
               children: <Widget>[
                 _buildSearchEntry(),
                 const SizedBox(height: 8),
-                _buildSourceCard(data.sources),
-                const SizedBox(height: 8),
+                if (widget.library != null) ...<Widget>[
+                  _buildHistoryCard(data.recent),
+                  const SizedBox(height: 8),
+                ],
                 if (widget.readLater != null) ...<Widget>[
                   _buildReadLaterCard(data.saved),
                   const SizedBox(height: 8),
@@ -261,32 +266,9 @@ class _ComicHomePageState extends State<ComicHomePage> {
                   _buildLocalCard(data.local),
                   const SizedBox(height: 8),
                 ],
+                _buildSourceCard(data.sources),
+                const SizedBox(height: 8),
                 _buildQuickActions(),
-                if (data.recent.isNotEmpty) ...<Widget>[
-                  ComicSectionHeader(
-                    title: '阅读历史',
-                    trailing: TextButton(
-                      key: const Key('comic-home-clear-history'),
-                      onPressed: _clearHistory,
-                      child: const Text('清空'),
-                    ),
-                  ),
-                  ComicPosterRow(
-                    items: [for (final entry in data.recent) entry.asSummary()],
-                    keyPrefix: 'home-recent',
-                    onOpen: widget.onOpenDetail,
-                    onItemLongPress: _deleteHistory,
-                  ),
-                ],
-                if (data.local.isNotEmpty) ...<Widget>[
-                  const ComicSectionHeader(title: '本地漫画'),
-                  ComicPosterRow(
-                    items: [for (final entry in data.local) entry.asSummary()],
-                    keyPrefix: 'home-local',
-                    onOpen: widget.onOpenDetail,
-                  ),
-                ],
-                if (data.isEmpty) _buildEmptyHint(),
               ],
             );
           },
@@ -313,6 +295,81 @@ class _ComicHomePageState extends State<ComicHomePage> {
             onOpenDetail: widget.onOpenDetail,
           ),
         ),
+      ),
+    );
+  }
+
+  /// 阅读历史卡片：跨源最近阅读，横向预览（最多 8 条）+ 单条删 / 一键清空。
+  ///
+  /// 形态镜像稍后阅读卡片：header（history 图标 + 标题 + N 条计数 + 清空
+  /// TextButton）+ body（海报预览或空态引导）。卡片常显——空历史时也保留入口
+  /// 与清空按钮，不给整页空态；清空/长按删除沿用 [_clearHistory]/[_deleteHistory]
+  /// 的确认框与 SnackBar 错误处理。
+  Widget _buildHistoryCard(List<ComicLibraryEntry> entries) {
+    final cs = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    // 数据仍是 recent(limit: 20)，卡片只做概览：最多展示 8 条，避免历史过多
+    // 时横向列表过长；计数用完整 entries 长度，展示才截断。
+    final items = [for (final entry in entries.take(8)) entry.asSummary()];
+    return Card(
+      key: const Key('comic-home-history-card'),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 12, 8),
+            child: Row(
+              children: <Widget>[
+                Icon(Icons.history, size: 20, color: cs.primary),
+                const SizedBox(width: 8),
+                Text('阅读历史', style: textTheme.titleSmall),
+                const SizedBox(width: 8),
+                Text(
+                  '${entries.length} 条',
+                  style: textTheme.bodySmall?.apply(color: cs.onSurfaceVariant),
+                ),
+                const Spacer(),
+                TextButton(
+                  key: const Key('comic-home-clear-history'),
+                  onPressed: _clearHistory,
+                  child: const Text('清空'),
+                ),
+              ],
+            ),
+          ),
+          if (items.isEmpty)
+            // 空态收进卡片：首行沿用旧整页空态的标题文案（壳层回归用例据此
+            // 判断模块已接线），下一行是本卡片的引导说明。
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text('还没有阅读记录或本地漫画', style: textTheme.bodyMedium),
+                  const SizedBox(height: 4),
+                  Text(
+                    '搜索并阅读漫画后，会在这里按最近阅读汇总。',
+                    style: textTheme.bodySmall?.apply(
+                      color: cs.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              child: ComicPosterRow(
+                items: items,
+                keyPrefix: 'home-recent',
+                height: 200,
+                cardWidth: 120,
+                onOpen: widget.onOpenDetail,
+                onItemLongPress: _deleteHistory,
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -516,32 +573,6 @@ class _ComicHomePageState extends State<ComicHomePage> {
       ],
     );
   }
-
-  Widget _buildEmptyHint() {
-    final cs = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.only(top: 48),
-      child: Column(
-        children: <Widget>[
-          Icon(
-            Icons.auto_stories_outlined,
-            size: 56,
-            color: cs.onSurfaceVariant,
-          ),
-          const SizedBox(height: 12),
-          Text('还没有阅读记录或本地漫画', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 6),
-          Text(
-            '搜索并阅读漫画后，会在这里按最近阅读汇总。',
-            textAlign: TextAlign.center,
-            style: Theme.of(
-              context,
-            ).textTheme.bodyMedium?.apply(color: cs.onSurfaceVariant),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 /// 源管理卡片里的单个源：名称 + 启用状态小圆点。
@@ -608,8 +639,6 @@ class _HomeData {
   final List<ComicLibraryEntry> saved;
 
   final List<ComicSourceInfo> sources;
-
-  bool get isEmpty => recent.isEmpty && local.isEmpty && saved.isEmpty;
 }
 
 /// 读本地库失败时的错误态（与收藏页同一形态）。
