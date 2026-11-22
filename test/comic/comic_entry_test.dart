@@ -262,6 +262,55 @@ void main() {
     });
   });
 
+  group('沉浸式阅读接线', () {
+    /// 注入一个最小沉浸式页：只显示章数，便于断言"进了新阅读页"。
+    Widget fakeImmersive({
+      required String title,
+      required source,
+      required imageCache,
+      required settingsStore,
+      required recorder,
+      required initialChapter,
+      required initialPage,
+      required chapterTitles,
+    }) => const KeyedSubtree(key: Key('immersive-stub'), child: Text('沉浸式页'));
+
+    testWidgets('注入沉浸式页：开书不预抓任何章图片，且打开即写历史', (tester) async {
+      var fetchCalls = 0;
+      final adapter = await env.buildAdapter();
+      module = ComicModule(
+        dataSource: adapter,
+        sourceRepository: adapter,
+        collect: env.collect,
+        history: env.history,
+        searchHistory: env.searchHistory,
+        // 计数包装：开书前若预抓图片，这里会 >0。
+        loadChapterImages: (item, chapter) async {
+          fetchCalls++;
+          return adapter.loadImagesForChapter(item, chapter);
+        },
+        imageCacheFactory: () async =>
+            ReaderImageCache(loader: fakeLoader(), disk: MemoryByteStore()),
+        immersiveReaderBuilder: fakeImmersive,
+      );
+      await openDetail(tester);
+
+      await tester.tap(find.byKey(const Key('start-reading-button')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('immersive-stub')), findsOneWidget);
+      // 关键：开书瞬间不抓任何章图片——这是"源漫画能打开"的前提。
+      expect(fetchCalls, 0, reason: '按章懒加载：开书不该抓图片');
+      // 关键：打开即写历史，不必等翻页。
+      final history = await env.history.latest(
+        const ComicRef(id: 'c1', sourceName: 'bilimanga'),
+      );
+      expect(history, isNotNull, reason: '打开阅读器即应写入历史');
+      expect(history!.chapterId, isNotEmpty);
+      expect(history.page, 1);
+    });
+  });
+
   group('设置面板', () {
     testWidgets('清除历史生效；打开源管理 push 源页', (tester) async {
       await env.searchHistory.record('海贼王');

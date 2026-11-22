@@ -12,6 +12,55 @@ import 'package:path_provider/path_provider.dart';
 import 'reader_chapter_source.dart';
 import 'reader_settings.dart';
 
+/// 真·按章懒加载章节源：只持有章节的轻量描述（标题 / 稳定 epId），
+/// 图片地址在真正读到某章时才通过 [loadImages] 抓那一章。
+///
+/// 与 [EagerChapterSource] 的区别：后者吃的是开书前已全本抓好的图片列表，
+/// 任一章抓图失败（反爬 / 验证页）就会拖垮整本书；本源把抓图推迟到阅读时，
+/// 单章失败只影响该章，且开书瞬间不需要任何网络请求。
+///
+/// [loadImages] 由集成层提供（按 1 基章号抓，闭包捕获章节列表与源），返回
+/// 该章图片地址；空列表 = 该章不可读。[scope] 取消后调用方应尽快返回空。
+class LazyChapterSource implements ReaderChapterSource {
+  LazyChapterSource({
+    required this.episodeIds,
+    required this.titles,
+    required this.loadImages,
+  }) : assert(episodeIds.length == titles.length, '章节 id 与标题长度必须一致');
+
+  /// 1 基章号 → 稳定 epId（本地章可为章节地址）。
+  final List<String> episodeIds;
+
+  /// 1 基章号 → 章节标题。
+  final List<String> titles;
+
+  /// 按 1 基章号抓该章图片地址；在真正读到该章时才调用。
+  final Future<List<String>> Function(int chapter) loadImages;
+
+  /// 已抓过的章缓存：翻回去不重复抓。
+  final Map<int, List<String>> _cache = <int, List<String>>{};
+
+  @override
+  int get chapterCount => episodeIds.length;
+
+  @override
+  String chapterId(int chapter) => chapter >= 1 && chapter <= episodeIds.length
+      ? episodeIds[chapter - 1]
+      : '';
+
+  @override
+  Future<List<String>> load(int chapter, ReaderLoadScope scope) async {
+    if (chapter < 1 || chapter > episodeIds.length) return const <String>[];
+    final cached = _cache[chapter];
+    if (cached != null) return cached;
+    final urls = await loadImages(chapter);
+    if (scope.isCancelled) return const <String>[];
+    final result = List<String>.unmodifiable(urls);
+    _cache[chapter] = result;
+    return result;
+  }
+}
+
 /// 按章懒加载章节源：集成层把 ComicModule.loadChapterImages + 章节列表
 /// 适配成本端口。图片只在真正读到该章时才解析地址（不再开书就全本拉一遍）。
 class EagerChapterSource implements ReaderChapterSource {

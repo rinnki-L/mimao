@@ -45,6 +45,19 @@ import 'package:mimao/core/contract.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+/// 沉浸式阅读页构造器（生产由 app_registry 注入，测试可不注入走历史页）。
+typedef ImmersiveReaderBuilder =
+    Widget Function({
+      required String title,
+      required reader.ReaderChapterSource source,
+      required reader.ReaderImageCache imageCache,
+      required reader.ReaderSettingsStore settingsStore,
+      required ProgressRecorder recorder,
+      required int initialChapter,
+      required int initialPage,
+      required List<String> chapterTitles,
+    });
+
 /// 生产图片缓存：应用支持目录下 `comic_images/` 的磁盘 LRU
 /// （app_registry 生产路径注入；测试注入 MemoryByteStore + 假 loader）。
 /// 同时注入按 [ImageRequest]（Referer/headers/UA + 失败重试）取字节的新加载器，
@@ -115,17 +128,7 @@ class ComicModule implements AppModule {
   /// 沉浸式阅读器构造器（新体验）：注入后"开始阅读"改走懒加载 + 瀑布流阅读页。
   /// null 时保留历史 [ComicReaderPage] 路径——模块测试据此锁定旧行为。
   /// 生产由 app_registry 提供。
-  final Widget Function({
-    required String title,
-    required reader.ReaderChapterSource source,
-    required reader.ReaderImageCache imageCache,
-    required reader.ReaderSettingsStore settingsStore,
-    required ProgressRecorder recorder,
-    required int initialChapter,
-    required int initialPage,
-    required List<String> chapterTitles,
-  })?
-  immersiveReaderBuilder;
+  final ImmersiveReaderBuilder? immersiveReaderBuilder;
 
   /// 阅读设置存储工厂；生产注入文件版，测试可注入内存版。
   final reader.ReaderSettingsStore Function()? readerSettingsStoreFactory;
@@ -257,8 +260,12 @@ class ComicModule implements AppModule {
     }
   }
 
-  /// 阅读装配方：打开点校正 → 全章预载图片（空章跳过）→ 历史反查初始位置
-  /// → push 阅读器。任何一步失败收敛为 SnackBar，不崩导航栈。
+  /// 阅读装配方：打开点校正 → 装配章节源 → 历史反查初始位置 → push 阅读器。
+  ///
+  /// 沉浸式阅读器（生产）走真·按章懒加载：开书不抓任何图片，读到哪章才抓哪章，
+  /// 单章撞反爬/验证只影响该章；历史在打开时即落一条，不再等翻页。
+  /// 历史页（测试注入缺失时）保持旧的全章预载行为，不动锁定测试。
+  /// 任何一步失败收敛为 SnackBar，不崩导航栈。
   Future<void> _openReader(
     ComicSummary item,
     ComicDetail detail,
@@ -268,9 +275,31 @@ class ComicModule implements AppModule {
     final ref = refOf(item);
     try {
       await history.open(ref);
+      final isLocal = ref.sourceName == ComicRef.localSource;
+      final coverUrl = isLocal
+          ? null
+          : (item.coverUrl.isEmpty ? null : item.coverUrl);
 
+      // ── 沉浸式阅读器（生产注入）────────────────────────────
+      final builder = immersiveReaderBuilder;
+      if (builder != null) {
+        if (!context.mounted) return;
+        await _openImmersiveReader(
+          item,
+          detail,
+          chapter,
+          context,
+          ref,
+          isLocal,
+          coverUrl,
+          builder,
+        );
+        return;
+      }
+
+      // ── 历史页（测试注入缺失时保留旧行为）─────────────────
       final readerChapters = <reader.ComicChapter>[];
-      if (ref.sourceName == ComicRef.localSource) {
+      if (isLocal) {
         final content = localContent;
         if (content == null) throw StateError('本地内容读取未接线');
         final localEntry = await content.find(ref);
@@ -280,7 +309,6 @@ class ComicModule implements AppModule {
           readerChapters.add(
             reader.ComicChapter(
               title: localChapter.title,
-              // 用原章节序号作 id：空章被跳过时也不会错位，且能写进历史。
               chapterId: localChapterUrl(localChapter.index),
               imageUrls: localChapter.imageUrls,
             ),
@@ -306,81 +334,20 @@ class ComicModule implements AppModule {
         }
         return;
       }
-
-      // 初始位置：显式点章节 → 该章第 1 页；否则历史进度（按 epId 匹配，
-      // 空章跳过后下标会偏移，不能按位置推）；都拿不到 → 第一章。
-      final entry = await history.latest(ref);
-      var initialChapter = 0;
-      var initialPage = 0;
-      if (chapter != null) {
-        // 在线章：epId；本地章：`mimao-local:///<index>`（与上面 chapterId 一致）。
-        final tapped = ref.sourceName == ComicRef.localSource
-            ? chapter.url
-            : tryDecodeComicEpisodeUrl(chapter.url)?.episodeId;
-        final index = readerChapters.indexWhere(
-          (c) => tapped != null && c.chapterId == tapped,
-        );
-        if (index >= 0) initialChapter = index;
-      } else if (entry != null && entry.chapterId.isNotEmpty) {
-        final index = readerChapters.indexWhere(
-          (c) => c.chapterId == entry.chapterId,
-        );
-        if (index >= 0) {
-          initialChapter = index;
-          initialPage = (entry.page - 1).clamp(
-            0,
-            readerChapters[index].pageCount - 1,
-          );
-        }
-      }
-
+      final pos = await _resolveInitialPosition(
+        ref,
+        readerChapters,
+        chapter,
+        isLocal,
+      );
       final cache = await _resolveCache();
       final recorder = ComicLibraryProgressRecorder(
         history: history,
         ref: ref,
         title: item.title,
-        // 本地封面是本机路径，属模块私有：不写进 core 投影的公共 coverUrl。
-        coverUrl: ref.sourceName == ComicRef.localSource
-            ? null
-            : (item.coverUrl.isEmpty ? null : item.coverUrl),
+        coverUrl: coverUrl,
       );
       if (!context.mounted) return;
-
-      // 沉浸式阅读器（生产注入）：复用已拉到的章节数据适配成按章源，
-      // 开书后图片字节仍逐张按需取；测试未注入时保留历史页。
-      final builder = immersiveReaderBuilder;
-      if (builder != null) {
-        final source = reader.EagerChapterSource(
-          episodeIds: [for (final chapter in readerChapters) chapter.chapterId],
-          imageUrlsByChapter: [
-            for (final chapter in readerChapters) chapter.imageUrls,
-          ],
-          titles: [for (final chapter in readerChapters) chapter.title],
-        );
-        final settingsStore = readerSettingsStoreFactory != null
-            ? readerSettingsStoreFactory!()
-            : reader.MemoryReaderSettingsStore();
-        await Navigator.of(context).push<void>(
-          MaterialPageRoute<void>(
-            settings: const RouteSettings(name: 'comic/reader'),
-            builder: (_) => builder(
-              title: item.title,
-              source: source,
-              imageCache: cache,
-              settingsStore: settingsStore,
-              recorder: recorder,
-              // 控制器内部 0 基 → 新阅读页 1 基。
-              initialChapter: initialChapter + 1,
-              initialPage: initialPage + 1,
-              chapterTitles: [
-                for (final chapter in readerChapters) chapter.title,
-              ],
-            ),
-          ),
-        );
-        return;
-      }
-
       await Navigator.of(context).push<void>(
         MaterialPageRoute<void>(
           settings: const RouteSettings(name: 'comic/reader'),
@@ -389,8 +356,8 @@ class ComicModule implements AppModule {
             chapters: readerChapters,
             imageCache: cache,
             recorder: recorder,
-            initialChapter: initialChapter,
-            initialPage: initialPage,
+            initialChapter: pos.$1,
+            initialPage: pos.$2,
           ),
         ),
       );
@@ -399,6 +366,209 @@ class ComicModule implements AppModule {
         _showSnack(context, '打开阅读器失败：$e');
       }
     }
+  }
+
+  /// 沉浸式阅读器装配：只装配章节元数据，图片地址推迟到读到该章时才抓。
+  /// 打开时先写一条历史，让"正在读的漫画"立刻出现在历史里。
+  Future<void> _openImmersiveReader(
+    ComicSummary item,
+    ComicDetail detail,
+    ComicChapter? chapter,
+    BuildContext context,
+    ComicRef ref,
+    bool isLocal,
+    String? coverUrl,
+    ImmersiveReaderBuilder builder,
+  ) async {
+    // 章节元数据：标题 + 稳定 id。在线用 epId，本地用章节地址（作 id）。
+    final titles = <String>[];
+    final ids = <String>[];
+    final dataChapters = <ComicChapter>[];
+    if (isLocal) {
+      final content = localContent;
+      if (content == null) throw StateError('本地内容读取未接线');
+      final localEntry = await content.find(ref);
+      if (localEntry == null) throw StateError('本地漫画不存在：${item.title}');
+      final localChapters = await content.readerChapters(localEntry);
+      for (final c in localChapters) {
+        titles.add(c.title);
+        ids.add(localChapterUrl(c.index));
+      }
+      // 本地图片走磁盘，抓图闭包按章号从已读清单取（无网络）。
+      final localImages = localChapters;
+      sourceForLocal(int chapter) async =>
+          chapter >= 1 && chapter <= localImages.length
+          ? localImages[chapter - 1].imageUrls
+          : const <String>[];
+      if (!context.mounted) return;
+      await _pushImmersive(
+        item,
+        ref,
+        coverUrl,
+        context,
+        builder,
+        titles,
+        ids,
+        sourceForLocal,
+        chapter,
+        isLocal,
+      );
+      return;
+    }
+
+    // 在线：详情里的章节列表即元数据，抓图闭包按章号现抓该章。
+    for (final dc in detail.chapters) {
+      titles.add(dc.title);
+      ids.add(tryDecodeComicEpisodeUrl(dc.url)?.episodeId ?? dc.url);
+      dataChapters.add(dc);
+    }
+    if (titles.isEmpty) {
+      if (context.mounted) _showSnack(context, '章节列表为空');
+      return;
+    }
+    Future<List<String>> sourceForOnline(int chapter) async {
+      if (chapter < 1 || chapter > dataChapters.length) return const <String>[];
+      return loadChapterImages(item, dataChapters[chapter - 1]);
+    }
+
+    await _pushImmersive(
+      item,
+      ref,
+      coverUrl,
+      context,
+      builder,
+      titles,
+      ids,
+      sourceForOnline,
+      chapter,
+      isLocal,
+    );
+  }
+
+  /// 计算起始章/页（1 基），并写一条历史。返回 (chapter, page)。
+  Future<(int, int)> _openingPosition(
+    ComicRef ref,
+    String title,
+    List<String> ids,
+    ComicChapter? chapter,
+    bool isLocal,
+    String? coverUrl,
+  ) async {
+    final entry = await history.latest(ref);
+    var chapterNumber = 1; // 1 基
+    var page = 1; // 1 基
+    if (chapter != null) {
+      final tapped = isLocal
+          ? chapter.url
+          : tryDecodeComicEpisodeUrl(chapter.url)?.episodeId ?? chapter.url;
+      final index = ids.indexOf(tapped);
+      if (index >= 0) chapterNumber = index + 1;
+    } else if (entry != null && entry.chapterId.isNotEmpty) {
+      final index = ids.indexOf(entry.chapterId);
+      if (index >= 0) {
+        chapterNumber = index + 1;
+        if (entry.page >= 1) page = entry.page;
+      }
+    }
+    // 打开即写历史（新书立刻进历史；老书刷新打开时间）。pageCount 未知传 0，
+    // 读到该章后 reader 会用真实总数覆盖。
+    await history.saveProgress(
+      ref,
+      title: title,
+      coverUrl: coverUrl,
+      chapterId: ids[chapterNumber - 1],
+      page: page,
+      pageCount: 0,
+    );
+    return (chapterNumber, page);
+  }
+
+  Future<void> _pushImmersive(
+    ComicSummary item,
+    ComicRef ref,
+    String? coverUrl,
+    BuildContext context,
+    ImmersiveReaderBuilder builder,
+    List<String> titles,
+    List<String> ids,
+    Future<List<String>> Function(int) loadImages,
+    ComicChapter? chapter,
+    bool isLocal,
+  ) async {
+    final (chapterNumber, page) = await _openingPosition(
+      ref,
+      item.title,
+      ids,
+      chapter,
+      isLocal,
+      coverUrl,
+    );
+    final source = reader.LazyChapterSource(
+      episodeIds: ids,
+      titles: titles,
+      loadImages: loadImages,
+    );
+    final cache = await _resolveCache();
+    final recorder = ComicLibraryProgressRecorder(
+      history: history,
+      ref: ref,
+      title: item.title,
+      coverUrl: coverUrl,
+    );
+    final settingsStore = readerSettingsStoreFactory != null
+        ? readerSettingsStoreFactory!()
+        : reader.MemoryReaderSettingsStore();
+    if (!context.mounted) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'comic/reader'),
+        builder: (_) => builder(
+          title: item.title,
+          source: source,
+          imageCache: cache,
+          settingsStore: settingsStore,
+          recorder: recorder,
+          initialChapter: chapterNumber,
+          initialPage: page,
+          chapterTitles: titles,
+        ),
+      ),
+    );
+  }
+
+  /// 历史页用的初始位置解析（0 基章/页），保持旧行为。
+  Future<(int, int)> _resolveInitialPosition(
+    ComicRef ref,
+    List<reader.ComicChapter> chapters,
+    ComicChapter? chapter,
+    bool isLocal,
+  ) async {
+    var initialChapter = 0;
+    var initialPage = 0;
+    if (chapter != null) {
+      final tapped = isLocal
+          ? chapter.url
+          : tryDecodeComicEpisodeUrl(chapter.url)?.episodeId;
+      final index = chapters.indexWhere(
+        (c) => tapped != null && c.chapterId == tapped,
+      );
+      if (index >= 0) initialChapter = index;
+    } else {
+      final entry = await history.latest(ref);
+      if (entry != null && entry.chapterId.isNotEmpty) {
+        final index = chapters.indexWhere(
+          (c) => c.chapterId == entry.chapterId,
+        );
+        if (index >= 0) {
+          initialChapter = index;
+          initialPage = (entry.page - 1).clamp(
+            0,
+            chapters[index].pageCount - 1,
+          );
+        }
+      }
+    }
+    return (initialChapter, initialPage);
   }
 
   /// 源管理写操作后的幂等对账：执行池按 store 现状补注册/释放
