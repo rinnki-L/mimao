@@ -155,7 +155,7 @@ void main() {
         expect(find.text(label), findsOneWidget, reason: '缺少分区 $label');
       }
       expect(find.byKey(const Key('comic-home-search')), findsOneWidget);
-      expect(find.text('还没有阅读记录或本地漫画'), findsOneWidget);
+      expect(find.text('还没有阅读记录'), findsOneWidget);
 
       await tester.tap(find.byTooltip('返回'));
       await tester.pumpAndSettle();

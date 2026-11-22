@@ -339,14 +339,14 @@ class _ComicHomePageState extends State<ComicHomePage> {
             ),
           ),
           if (items.isEmpty)
-            // 空态收进卡片：首行沿用旧整页空态的标题文案（壳层回归用例据此
-            // 判断模块已接线），下一行是本卡片的引导说明。
+            // 空态收进卡片：首行标题文案被壳层接线回归用例断言
+            // （test/shell/home_test.dart），改文案须两处同步；下一行是引导说明。
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
-                  Text('还没有阅读记录或本地漫画', style: textTheme.bodyMedium),
+                  Text('还没有阅读记录', style: textTheme.bodyMedium),
                   const SizedBox(height: 4),
                   Text(
                     '搜索并阅读漫画后，会在这里按最近阅读汇总。',

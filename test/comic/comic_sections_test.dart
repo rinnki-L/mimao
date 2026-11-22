@@ -311,7 +311,7 @@ void main() {
       expect(find.text('阅读历史'), findsOneWidget);
       expect(find.text('0 条'), findsOneWidget);
       expect(find.text('搜索并阅读漫画后，会在这里按最近阅读汇总。'), findsOneWidget);
-      expect(find.text('还没有阅读记录或本地漫画'), findsOneWidget);
+      expect(find.text('还没有阅读记录'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 
@@ -672,7 +672,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('阅读记录加载失败'), findsOneWidget);
-      expect(find.text('还没有阅读记录或本地漫画'), findsNothing);
+      expect(find.text('还没有阅读记录'), findsNothing);
       expect(tester.takeException(), isNull);
     });
 
