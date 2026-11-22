@@ -26,7 +26,6 @@ void main() {
   Future<void> pumpReader(
     WidgetTester tester, {
     Set<String> errorUrls = const <String>{},
-    ReaderMode mode = ReaderMode.pagedLtr,
   }) async {
     if (errorUrls.isNotEmpty) {
       await env.close();
@@ -38,7 +37,6 @@ void main() {
           title: '尖帽子的魔法工坊',
           chapters: sampleChapters(),
           imageCache: env.cache,
-          initialMode: mode,
         ),
       ),
     );

@@ -1,8 +1,7 @@
-// 阅读器 Widget：样式从简，核心是翻页/滚动手势 + 加载态/失败占位 + 缩放。
+// 阅读器 Widget：过渡实现（保持旧布局，接到新 ReaderController 契约）。
 //
-// 每张图都经 [ReaderImageCache.load] 取字节（缓存命中/落盘逻辑不被绕过），拿到字节后
-// 用 Image.memory 显示。图片的"取字节"由 ReaderImageCache 的 loader 决定，测试注入
-// 返回固定字节的假 loader 即可，不碰真实网络与 A′ 源引擎。
+// 沉浸式工具栏 / 三区手势 / 六模式视图 / 键盘滚轮由后续提交整体重写；
+// 本版本只保证"新契约下旧行为不回退"，页面测试继续作为回归哨兵。
 
 // ignore_for_file: deprecated_member_use — 见 lib/main.dart 文件头同款说明
 // （Flutter 3.50 弃用整个 material.dart，M1 起全仓沿用）。
@@ -22,6 +21,27 @@ double pinchZoom(double baseZoom, double scale) => (baseZoom * scale)
     .clamp(ReaderController.minZoom, ReaderController.maxZoom)
     .toDouble();
 
+/// 内存章节源：把现成的章列表包成 [ReaderChapterSource]（过渡期装配用）。
+class ListChapterSource implements ReaderChapterSource {
+  ListChapterSource(List<ComicChapter> chapters)
+    : _chapters = List<ComicChapter>.unmodifiable(chapters);
+
+  final List<ComicChapter> _chapters;
+
+  @override
+  int get chapterCount => _chapters.length;
+
+  @override
+  String chapterTitle(int index) => _chapters[index].title;
+
+  @override
+  String chapterId(int index) => _chapters[index].chapterId;
+
+  @override
+  Future<List<ReaderImage>> loadImages(int index) async =>
+      _chapters[index].images;
+}
+
 /// 最小可运行阅读页。自己创建并持有 [ReaderController]。
 class ComicReaderPage extends StatefulWidget {
   const ComicReaderPage({
@@ -32,7 +52,6 @@ class ComicReaderPage extends StatefulWidget {
     this.recorder,
     this.initialChapter = 0,
     this.initialPage = 0,
-    this.initialMode = ReaderMode.pagedLtr,
     this.controller,
   });
 
@@ -42,7 +61,6 @@ class ComicReaderPage extends StatefulWidget {
   final ProgressRecorder? recorder;
   final int initialChapter;
   final int initialPage;
-  final ReaderMode initialMode;
 
   /// 可选：外部注入控制器（widget 测试用），不传则内部自建。
   final ReaderController? controller;
@@ -66,14 +84,17 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
       _controller = widget.controller!;
     } else {
       _controller = ReaderController(
-        chapters: widget.chapters,
+        source: ListChapterSource(widget.chapters),
         recorder: widget.recorder,
         imageCache: widget.imageCache,
         initialChapter: widget.initialChapter,
-        initialPage: widget.initialPage,
-        mode: widget.initialMode,
       );
       _ownsController = true;
+      _controller.open().then((_) {
+        if (widget.initialPage > 0) {
+          _controller.goToPage(widget.initialPage);
+        }
+      });
     }
   }
 
@@ -129,7 +150,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
             IconButton(
               key: const Key('reader-toggle-mode'),
               icon: Icon(
-                _controller.mode == ReaderMode.pagedLtr
+                _controller.settings.mode.isPaged
                     ? Icons.view_agenda_outlined
                     : Icons.auto_stories_outlined,
               ),
@@ -160,7 +181,7 @@ class _ComicReaderPageState extends State<ComicReaderPage> {
                 onScaleUpdate: (details) => _controller.setZoom(
                   pinchZoom(_pinchBaseZoom, details.scale),
                 ),
-                child: _controller.mode == ReaderMode.pagedLtr
+                child: _controller.settings.mode.isPaged
                     ? _PagedView(
                         controller: _controller,
                         pageController: _pageController,
@@ -196,7 +217,7 @@ class _InfoBar extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       child: Text(
         '${controller.chapterTitle} · ${controller.pageNumber}/${controller.pageCount}'
-        ' · ${controller.mode.name} · ${controller.zoom.toStringAsFixed(2)}x',
+        ' · ${controller.settings.mode.name} · ${controller.zoom.toStringAsFixed(2)}x',
         key: const Key('reader-info'),
       ),
     );
@@ -264,12 +285,12 @@ class _PagedView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final urls = controller.imageUrls;
-    if (urls.isEmpty) return const _EmptyChapter();
+    final images = controller.images;
+    if (images.isEmpty) return const _EmptyChapter();
     return PageView.builder(
       key: const Key('reader-paged-view'),
       controller: pageController,
-      itemCount: urls.length,
+      itemCount: images.length,
       onPageChanged: (index) {
         if (index != controller.pageIndex) {
           onTurn(index > controller.pageIndex ? 1 : -1);
@@ -282,7 +303,7 @@ class _PagedView extends StatelessWidget {
           onTurn(details.globalPosition.dx > width / 2 ? 1 : -1);
         },
         child: _ImageSlot(
-          url: urls[index],
+          image: images[index],
           cache: controller.imageCache,
           zoom: controller.zoom,
           slotIndex: index,
@@ -300,13 +321,13 @@ class _ContinuousView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final urls = controller.imageUrls;
-    if (urls.isEmpty) return const _EmptyChapter();
+    final images = controller.images;
+    if (images.isEmpty) return const _EmptyChapter();
     return ListView.builder(
       key: const Key('reader-continuous-list'),
-      itemCount: urls.length,
+      itemCount: images.length,
       itemBuilder: (context, index) => _ImageSlot(
-        url: urls[index],
+        image: images[index],
         cache: controller.imageCache,
         zoom: controller.zoom,
         slotIndex: index,
@@ -327,13 +348,13 @@ class _EmptyChapter extends StatelessWidget {
 /// 字节统一经 [ReaderImageCache.load] 获取。
 class _ImageSlot extends StatefulWidget {
   const _ImageSlot({
-    required this.url,
+    required this.image,
     required this.cache,
     required this.zoom,
     required this.slotIndex,
   });
 
-  final String url;
+  final ReaderImage image;
   final ReaderImageCache cache;
   final double zoom;
   final int slotIndex;
@@ -355,7 +376,7 @@ class _ImageSlotState extends State<_ImageSlot> {
   @override
   void didUpdateWidget(covariant _ImageSlot oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.url != widget.url) {
+    if (oldWidget.image != widget.image) {
       _bytes = null;
       _error = null;
       _load();
@@ -364,7 +385,7 @@ class _ImageSlotState extends State<_ImageSlot> {
 
   Future<void> _load() async {
     try {
-      final bytes = await widget.cache.load(ReaderImage.plain(widget.url));
+      final bytes = await widget.cache.load(widget.image);
       if (!mounted) return;
       setState(() {
         _bytes = bytes;

@@ -10,6 +10,7 @@ import 'dart:typed_data';
 import 'package:drift/native.dart';
 import 'package:mimao/comic/comic_models.dart';
 import 'package:mimao/comic/reader/reader_cache.dart';
+import 'package:mimao/comic/reader/reader_controller.dart';
 import 'package:mimao/comic/reader/reader_models.dart';
 import 'package:mimao/comic/reader/reader_progress.dart';
 import 'package:mimao/core/db.dart';
@@ -47,6 +48,7 @@ ImageByteLoader fakeLoader({
 List<ComicChapter> sampleChapters() => const <ComicChapter>[
   ComicChapter(
     title: '第 1 章',
+    chapterId: 'ep-1',
     images: <ReaderImage>[
       ReaderImage('p1-1.png'),
       ReaderImage('p1-2.png'),
@@ -55,6 +57,7 @@ List<ComicChapter> sampleChapters() => const <ComicChapter>[
   ),
   ComicChapter(
     title: '第 2 章',
+    chapterId: 'ep-2',
     images: <ReaderImage>[
       ReaderImage('p2-1.png'),
       ReaderImage('p2-2.png'),
@@ -107,5 +110,33 @@ class RecordingRecorder implements ProgressRecorder {
   @override
   Future<void> persist(ReadingProgress progress) async {
     events.add(progress);
+  }
+}
+
+/// 内存章节源：章节列表来自 [chapters]，[failing] 里的章下标抛异常，
+/// 其余直接返回章自带图片（空章 = images 为空列表）。
+class FakeChapterSource implements ReaderChapterSource {
+  FakeChapterSource(this.chapters, {this.failing = const <int>{}});
+
+  final List<ComicChapter> chapters;
+  final Set<int> failing;
+  final List<int> loadCalls = <int>[];
+
+  @override
+  int get chapterCount => chapters.length;
+
+  @override
+  String chapterTitle(int index) => chapters[index].title;
+
+  @override
+  String chapterId(int index) => chapters[index].chapterId;
+
+  @override
+  Future<List<ReaderImage>> loadImages(int index) async {
+    loadCalls.add(index);
+    if (failing.contains(index)) {
+      throw StateError('章节加载失败：$index');
+    }
+    return chapters[index].images;
   }
 }
