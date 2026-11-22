@@ -13,6 +13,7 @@ import 'package:flutter/material.dart';
 import 'package:mimao/novel/library_api.dart';
 import 'package:mimao/novel/pages/novel_placeholder.dart';
 import 'package:mimao/novel/pages/novel_routes.dart';
+import 'package:mimao/novel/source/novel_source_importer.dart';
 
 class NovelModulePage extends StatefulWidget {
   const NovelModulePage({
@@ -23,6 +24,7 @@ class NovelModulePage extends StatefulWidget {
     this.collect,
     this.history,
     this.searchHistory,
+    this.sourceImporter,
   });
 
   /// true 时由壳提供顶部「返回 + 标题」，本页不画自己的 AppBar。
@@ -41,6 +43,9 @@ class NovelModulePage extends StatefulWidget {
   final NovelCollectApi? collect;
   final NovelHistoryApi? history;
   final NovelSearchHistoryApi? searchHistory;
+
+  /// 书源导入门面（由 NovelModule 注入）。null 时书源 tab 显示能力边界说明。
+  final NovelSourceImporter? sourceImporter;
 
   @override
   State<NovelModulePage> createState() => _NovelModulePageState();
@@ -115,15 +120,7 @@ class _NovelModulePageState extends State<NovelModulePage> {
         description: '书源提供的发现/榜单将在这里展示。\n发现规则解析随书源引擎切片接入。',
       ),
       _buildSearchTab(),
-      NovelPlaceholderScreen(
-        title: '书源',
-        icon: Icons.source,
-        description: '书源的导入、启停与调试将在这里管理。\n书源仓库随书源引擎切片接入。',
-        action: NovelPlaceholderImportButton(
-          key: const Key('novel-source-import'),
-          onPressed: () => _openRoute(NovelRoute.sourceManage),
-        ),
-      ),
+      _buildSourceTab(),
       SafeArea(child: SingleChildScrollView(child: settings)),
     ];
     // 索引防御：settingsTab 在两次 build 之间变化时夹紧，避免越界。
@@ -137,6 +134,32 @@ class _NovelModulePageState extends State<NovelModulePage> {
         onDestinationSelected: (index) => setState(() => _index = index),
         destinations: _destinations,
       ),
+    );
+  }
+
+  /// 书源 tab：接线后显示已导入源数量 + 导入入口；未接线时展示能力边界。
+  Widget _buildSourceTab() {
+    final importer = widget.sourceImporter;
+    return FutureBuilder<int>(
+      future: importer == null
+          ? Future<int>.value(0)
+          : importer.store.loadAll().then((sources) => sources.length),
+      builder: (context, snapshot) {
+        final count = importer == null ? 0 : (snapshot.data ?? 0);
+        final description = importer == null
+            ? '书源的导入、启停与调试将在这里管理。\n书源仓库随书源引擎切片接入。'
+            : '已导入 $count 个书源。\n'
+                  '打开书源网站，点网页里的「一键导入」即可导入书源。';
+        return NovelPlaceholderScreen(
+          title: '书源',
+          icon: Icons.source,
+          description: description,
+          action: NovelPlaceholderImportButton(
+            key: const Key('novel-source-import'),
+            onPressed: () => _openRoute(NovelRoute.sourceManage),
+          ),
+        );
+      },
     );
   }
 

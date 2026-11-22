@@ -35,7 +35,29 @@ enum NovelRoute {
 typedef NovelRouteOpener =
     void Function(NovelRoute route, {Map<String, Object?> args});
 
-/// Push 一个 typed 路由占位屏。
+/// typed 路由 → 真实页面构造器注册表。
+///
+/// 骨架期所有路由都落到 [NovelRoutePage] 占位屏；某路由实现就绪后（如书源管理）
+/// 在装配处调 [registerNovelRoutePage] 注入构造器，路由名与参数契约保持不变。
+/// 构造器接收路由参数，返回该路由的真实页面。
+typedef NovelRoutePageBuilder = Widget Function(Map<String, Object?> args);
+
+final Map<NovelRoute, NovelRoutePageBuilder> _novelRoutePages =
+    <NovelRoute, NovelRoutePageBuilder>{};
+
+/// 注册/替换某路由的真实页面构造器（传 null 撤销，回到占位屏）。
+void registerNovelRoutePage(NovelRoute route, NovelRoutePageBuilder? builder) {
+  if (builder == null) {
+    _novelRoutePages.remove(route);
+  } else {
+    _novelRoutePages[route] = builder;
+  }
+}
+
+/// 仅供测试：清空路由构造器注册表。
+void resetNovelRoutePagesForTest() => _novelRoutePages.clear();
+
+/// Push 一个 typed 路由：注册了真实页面就打开它，否则落到占位屏。
 ///
 /// [args] 同时进 `RouteSettings.arguments` 与占位屏的参数展示区——后续真实页面
 /// 按同样契约读取参数（如 `keyword` / `bookId`），骨架期即可验证传参链路。
@@ -44,10 +66,12 @@ Future<T?> pushNovelRoute<T extends Object?>(
   NovelRoute route, {
   Map<String, Object?> args = const <String, Object?>{},
 }) {
+  final pageBuilder = _novelRoutePages[route];
   return Navigator.of(context).push<T>(
     MaterialPageRoute<T>(
       settings: RouteSettings(name: route.routeName, arguments: args),
-      builder: (_) => NovelRoutePage(route: route, args: args),
+      builder: (_) =>
+          pageBuilder?.call(args) ?? NovelRoutePage(route: route, args: args),
     ),
   );
 }

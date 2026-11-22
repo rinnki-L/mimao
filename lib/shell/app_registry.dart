@@ -56,6 +56,9 @@ import 'package:mimao/novel/library_api.dart';
 import 'package:mimao/novel/novel_db.dart';
 import 'package:mimao/novel/novel_entry.dart';
 import 'package:mimao/novel/search_history_service.dart';
+import 'package:mimao/novel/source/novel_source_importer.dart';
+import 'package:mimao/novel/source/novel_source_repository.dart';
+import 'package:mimao/novel/source/novel_source_store.dart';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -167,6 +170,11 @@ Future<void> initAppModules({
   NovelCollectApi? novelCollect,
   NovelHistoryApi? novelHistory,
   NovelSearchHistoryApi? novelSearchHistory,
+
+  /// 书源导入缝：测试注入整门面/假抓取器，生产走惰性默认目录 + dio。
+  /// 注册期零 I/O——用户不点书源功能就不碰 path_provider。
+  NovelSourceImporter? novelSourceImporter,
+  NovelSourceFetcher? novelSourceFetcher,
 }) async {
   // 每次装配都是一次干净开始；避免旧的已关闭 DB 残留在表里。
   await _resetOwnedDb();
@@ -358,7 +366,7 @@ Future<void> initAppModules({
       // 播放器上报开关与设置页共享同一实例。
       final settings =
           musicSettings ?? LazyMusicSettings(MusicFileSettings.openDefault);
-      // 三个切片的依赖全部来自注入缝（契约提交）；各线在自己的标记块里
+            // 三个切片的依赖全部来自注入缝（契约提交）；各线在自己的标记块里
       // 补生产构造，本文件不需要再改签名。
       appModules[MediaType.music] = MusicModule(
         api: api,
@@ -421,7 +429,7 @@ Future<void> initAppModules({
         browse: api.browseApis,
         // ── 本地设置（设置页的听歌上报开关）──
         settings: settings,
-        // 登录/登出信号：账号页与发现页（私人 FM）据此自动重拉。
+                // 登录/登出信号：账号页与发现页（私人 FM）据此自动重拉。
         authEpoch: api.authEpoch,
       );
     }
@@ -458,10 +466,20 @@ Future<void> initAppModules({
       final historyApi = novelHistory ?? NovelHistoryService(db, library);
       final searchHistoryApi =
           novelSearchHistory ?? NovelSearchHistoryService(db);
+
+      // 书源导入：测试注入整门面；生产用惰性仓库（首个真实读写才解析
+      // path_provider，装配期零 I/O）+ dio 抓取器。
+      final sourceImporter =
+          novelSourceImporter ??
+          NovelSourceImporter(
+            NovelSourceRepository(NovelSourceStore.openDefault),
+            novelSourceFetcher ?? DioNovelSourceFetcher(),
+          );
       appModules[MediaType.novel] = NovelModule(
         collect: collectApi,
         history: historyApi,
         searchHistory: searchHistoryApi,
+        sourceImporter: sourceImporter,
       );
     }
   } catch (error) {

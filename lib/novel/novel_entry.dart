@@ -9,7 +9,12 @@ import 'package:mimao/novel/engine/engine.dart';
 import 'package:mimao/novel/library_api.dart';
 import 'package:mimao/novel/pages/novel_module_page.dart'
     show NovelModulePage, NovelSettingsPlaceholder;
-import 'package:mimao/novel/pages/novel_routes.dart' show pushNovelRoute;
+import 'package:mimao/novel/pages/novel_source_manage_page.dart'
+    show NovelSourceManagePage;
+import 'package:mimao/novel/pages/novel_routes.dart'
+    show NovelRoute, pushNovelRoute, registerNovelRoutePage;
+import 'package:mimao/novel/source/novel_source_importer.dart'
+    show NovelSourceImporter;
 
 class NovelModule implements AppModule {
   NovelModule({
@@ -19,6 +24,7 @@ class NovelModule implements AppModule {
     this.history,
     this.searchHistory,
     this.sourceStore,
+    this.sourceImporter,
   });
 
   final NovelEngine? engine;
@@ -26,7 +32,8 @@ class NovelModule implements AppModule {
   final NovelCollectApi? collect;
   final NovelHistoryApi? history;
   final NovelSearchHistoryApi? searchHistory;
-  final Object? sourceStore; // 书源仓库缝，后续切片替换为具体类型
+  final Object? sourceStore; // 书源仓库缝（保留旧注入点）
+  final NovelSourceImporter? sourceImporter;
 
   @override
   MediaType get type => MediaType.novel;
@@ -38,14 +45,31 @@ class NovelModule implements AppModule {
   @override
   Widget buildHome(BuildContext context) {
     // 数据层三服务已接线：书架/继续阅读/搜索历史真实读本地库并投影统一书架。
-    // 抓取流水线（engine/dataSource/源仓库）仍是纯接口零实现，搜索结果页与
-    // 阅读页保持占位——这是能力边界，不再假装"搜索已联通"。
+    // 书源导入已接线：网站「一键导入」深链 → 下载 Legado 书源文件 → 本地书源仓库。
+    // 抓取流水线（engine/dataSource）仍是纯接口零实现，搜索结果页与阅读页保持
+    // 占位——这是能力边界，不再假装"搜索已联通"。
+
+    // 书源管理页：注入真实 WebView + 导入页（依赖齐全时），否则沿用占位屏。
+    // 构造器是静态全局注册，按当前模块的依赖解析——多模块实例场景以最后一次
+    // buildHome 为准（应用只有一个小说模块实例）。
+    final importer = sourceImporter;
+    registerNovelRoutePage(
+      NovelRoute.sourceManage,
+      importer == null
+          ? null
+          : (_) => NovelSourceManagePage(
+              store: importer.store,
+              importer: importer,
+            ),
+    );
+
     return NovelModulePage(
       embedded: true,
       settingsTab: buildSettings(context),
       collect: collect,
       history: history,
       searchHistory: searchHistory,
+      sourceImporter: importer,
       onOpenRoute: (route, {args = const <String, Object?>{}}) =>
           pushNovelRoute<void>(context, route, args: args),
     );
