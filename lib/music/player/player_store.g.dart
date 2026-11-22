@@ -125,6 +125,42 @@ mixin _$MusicPlayerStore on _MusicPlayerStore, Store {
     });
   }
 
+  late final _$volumeAtom = Atom(
+    name: '_MusicPlayerStore.volume',
+    context: context,
+  );
+
+  @override
+  double get volume {
+    _$volumeAtom.reportRead();
+    return super.volume;
+  }
+
+  @override
+  set volume(double value) {
+    _$volumeAtom.reportWrite(value, super.volume, () {
+      super.volume = value;
+    });
+  }
+
+  late final _$mutedAtom = Atom(
+    name: '_MusicPlayerStore.muted',
+    context: context,
+  );
+
+  @override
+  bool get muted {
+    _$mutedAtom.reportRead();
+    return super.muted;
+  }
+
+  @override
+  set muted(bool value) {
+    _$mutedAtom.reportWrite(value, super.muted, () {
+      super.muted = value;
+    });
+  }
+
   late final _$playAtAsyncAction = AsyncAction(
     '_MusicPlayerStore.playAt',
     context: context,
@@ -191,6 +227,16 @@ mixin _$MusicPlayerStore on _MusicPlayerStore, Store {
     return _$seekToAsyncAction.run(() => super.seekTo(position));
   }
 
+  late final _$setVolumeAsyncAction = AsyncAction(
+    '_MusicPlayerStore.setVolume',
+    context: context,
+  );
+
+  @override
+  Future<void> setVolume(double value) {
+    return _$setVolumeAsyncAction.run(() => super.setVolume(value));
+  }
+
   late final _$retryAsyncAction = AsyncAction(
     '_MusicPlayerStore.retry',
     context: context,
@@ -251,6 +297,8 @@ snapshot: ${snapshot},
 isResolving: ${isResolving},
 playMode: ${playMode},
 error: ${error},
+volume: ${volume},
+muted: ${muted},
 currentSong: ${currentSong}
     ''';
   }

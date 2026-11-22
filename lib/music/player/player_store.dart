@@ -274,6 +274,42 @@ abstract class _MusicPlayerStore with Store {
     await _writeCurrentProgress();
   }
 
+  /// 当前音量（0.0~1.0）；引擎尚未构造时返回默认满音量。
+  @observable
+  double volume = 1.0;
+
+  /// 静音前的音量，用于「取消静音」还原。
+  double _volumeBeforeMute = 1.0;
+
+  @observable
+  bool muted = false;
+
+  /// 设置音量；同时解除静音。引擎不存在时只更新状态（首次起播后生效）。
+  @action
+  Future<void> setVolume(double value) async {
+    final clamped = value.clamp(0.0, 1.0);
+    volume = clamped;
+    if (clamped > 0) muted = false;
+    final engine = _engine;
+    if (engine == null) return;
+    await engine.setVolume(clamped);
+  }
+
+  /// 音量增减（步长 0.1），clamp 到 0.0~1.0。快捷键「音量 +/-」调用。
+  Future<void> adjustVolume(double delta) => setVolume(volume + delta);
+
+  /// 静音切换：静音时记住当前音量，取消时还原。
+  Future<void> toggleMute() async {
+    if (muted) {
+      muted = false;
+      await setVolume(_volumeBeforeMute > 0 ? _volumeBeforeMute : 1.0);
+      return;
+    }
+    _volumeBeforeMute = volume;
+    muted = true;
+    await setVolume(0.0);
+  }
+
   /// 失败态「重试」：重走同一首的解析链路（不重复入队）。
   @action
   Future<void> retry() async {

@@ -50,6 +50,8 @@ class FakeMusicEngine implements MusicPlaybackEngine {
   Duration? openedStartAt;
   final List<Duration> seeks = <Duration>[];
   final List<double> speeds = <double>[];
+  double _volume = 1.0;
+  final List<double> volumes = <double>[];
   int playCalls = 0;
   int pauseCalls = 0;
   bool disposed = false;
@@ -87,6 +89,15 @@ class FakeMusicEngine implements MusicPlaybackEngine {
   @override
   Future<void> setSpeed(double speed) async {
     speeds.add(speed);
+  }
+
+  @override
+  double get volume => _volume;
+
+  @override
+  Future<void> setVolume(double volume) async {
+    _volume = volume.clamp(0.0, 1.0);
+    volumes.add(_volume);
   }
 
   @override

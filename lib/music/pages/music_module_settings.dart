@@ -23,8 +23,10 @@ import 'package:mimao/music/api/music_api.dart';
 import 'package:mimao/music/api/search_ext_api.dart';
 import 'package:mimao/music/api/verify_api.dart';
 import 'package:mimao/music/client/kugou_identity.dart';
+import 'package:mimao/music/hotkey/music_hotkey_controller.dart';
 import 'package:mimao/music/lyric/lyric_models.dart';
 import 'package:mimao/music/music_settings.dart';
+import 'package:mimao/music/pages/music_hotkey_settings_card.dart';
 import 'package:mimao/music/pages/music_login_methods_page.dart';
 import 'package:mimao/music/pages/music_security_verify_page.dart';
 import 'package:mimao/music/pages/qr_login_controller.dart';
@@ -40,6 +42,7 @@ class MusicModuleSettings extends StatefulWidget {
     this.verify,
     this.searchExt,
     this.settings,
+    this.hotKeyController,
   });
 
   final MusicApi api;
@@ -61,6 +64,9 @@ class MusicModuleSettings extends StatefulWidget {
 
   /// 本地设置（听歌上报 / 歌词开关与显示模式）；null 时隐藏设置条目。
   final MusicSettings? settings;
+
+  /// 快捷键控制器；null 时隐藏快捷键分组（未注入/未接线环境）。
+  final MusicHotKeyController? hotKeyController;
 
   @override
   State<MusicModuleSettings> createState() => _MusicModuleSettingsState();
@@ -388,6 +394,8 @@ class _MusicModuleSettingsState extends State<MusicModuleSettings> {
                     ],
                   ),
                 ),
+              if (widget.hotKeyController != null)
+                MusicHotKeySettingsCard(controller: widget.hotKeyController!),
               _SettingsCard(
                 icon: Icons.info_outline,
                 title: '关于',

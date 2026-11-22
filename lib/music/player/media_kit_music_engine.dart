@@ -111,6 +111,19 @@ class MediaKitMusicEngine implements MusicPlaybackEngine {
   @override
   Future<void> setSpeed(double speed) => _player.setRate(speed);
 
+  // 本仓音量契约是 0.0~1.0，media_kit 是 0.0~100.0——在引擎边界换算，
+  // 不把媒体内核的量纲泄漏给上层。
+  double _volume = 1.0;
+
+  @override
+  double get volume => _volume;
+
+  @override
+  Future<void> setVolume(double volume) async {
+    _volume = volume.clamp(0.0, 1.0);
+    await _player.setVolume(_volume * 100.0);
+  }
+
   @override
   Future<void> dispose() async {
     if (_disposed) return;

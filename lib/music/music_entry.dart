@@ -13,6 +13,8 @@
 /// - 收藏历史（C）：[collect] / [history] / [searchHistory] + [libraryBuilder]。
 library;
 
+import 'dart:async' show unawaited;
+
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:mimao/core/contract.dart';
@@ -21,6 +23,10 @@ import 'package:mimao/music/api/music_account_api.dart';
 import 'package:mimao/music/api/music_api.dart';
 import 'package:mimao/music/api/music_browse_apis.dart';
 import 'package:mimao/music/api/music_playback_api.dart';
+import 'package:mimao/music/hotkey/music_hotkey_actions.dart';
+import 'package:mimao/music/hotkey/music_hotkey_controller.dart';
+import 'package:mimao/music/hotkey/music_hotkey_model.dart';
+import 'package:mimao/music/hotkey/music_hotkey_settings.dart';
 import 'package:mimao/music/library_api.dart';
 import 'package:mimao/music/models/music_models.dart';
 import 'package:mimao/music/models/playlist_write_models.dart';
@@ -57,6 +63,7 @@ class MusicModule implements AppModule {
     this.libraryBuilder,
     this.browse,
     this.settings,
+    this.hotKeySettings,
     this.authEpoch,
   }) : _api = api,
        store = store ?? MusicStore(api);
@@ -90,6 +97,10 @@ class MusicModule implements AppModule {
   /// 实例由 registry 注入（见 app_registry 的 createMusicPlayerUi 闭包）。
   final MusicSettings? settings;
 
+  /// 快捷键设置（应用内 + 全局的绑定表）；null 时设置页不显示快捷键分组、
+  /// 也不注册任何快捷键。生产由 registry 注入惰性文件实现。
+  final MusicHotKeySettings? hotKeySettings;
+
   /// 登录态变化信号；页面监听后自动重拉账号数据。null 时不监听（旧行为）。
   final ValueListenable<int>? authEpoch;
 
@@ -97,6 +108,11 @@ class MusicModule implements AppModule {
   /// 保持 null，绝不触碰 media_kit。
   MusicPlayerUi? _playerUi;
   bool _playerUiResolved = false;
+
+  /// 快捷键控制器：模块级单例，由首次 buildHome 惰性创建并初始化。全局快捷键
+  /// 是系统级注册，生命周期绑模块而非某个页面，切页/弹播放页都不卸载。
+  MusicHotKeyController? _hotKeyController;
+  bool _hotKeyInitStarted = false;
 
   MusicPlayerUi? get _resolvePlayerUi {
     if (_playerUiResolved) return _playerUi;
@@ -119,8 +135,43 @@ class MusicModule implements AppModule {
   @override
   IconData get icon => MediaType.music.icon;
 
+  /// 惰性创建快捷键控制器并注册全部绑定；重复调用幂等。
+  /// 动作派发给真播放器（实现了 [MusicHotKeyActionHandler] 时），否则静默。
+  MusicHotKeyController? _resolveHotKeys() {
+    final hotKeySettings = this.hotKeySettings;
+    if (hotKeySettings == null) return null;
+    final controller = _hotKeyController ??= MusicHotKeyController(
+      settings: hotKeySettings,
+      registrar: HotKeyManagerRegistrar(),
+      onAction: (action) {
+        final handler = _resolvePlayerUi;
+        if (handler == null) return;
+        if (handler case final MusicHotKeyActionHandler hotKeyHandler) {
+          unawaited(hotKeyHandler.handleHotKeyAction(action));
+        }
+      },
+      shouldHandle: (scope) {
+        // 应用内快捷键在输入框聚焦时让位给打字（空格/方向键要照常输入）；
+        // 全局快捷键仍响应——那正是它存在的意义。
+        if (scope != MusicHotKeyScope.inApp) return true;
+        final focus = FocusManager.instance.primaryFocus;
+        if (focus == null) return true;
+        // EditableText 的可编辑节点会以 itself 作为 focusNode；命中即在打字。
+        return focus.context?.widget is! EditableText;
+      },
+    );
+    if (!_hotKeyInitStarted) {
+      _hotKeyInitStarted = true;
+      unawaited(controller.initialize());
+    }
+    return controller;
+  }
+
   @override
   Widget buildHome(BuildContext context) {
+    // 进入音乐模块即注册快捷键（含全局）——放在 buildHome 而非 buildSettings，
+    // 让用户不点进设置页也能用快捷键切歌/调音量。
+    _resolveHotKeys();
     final player = _resolvePlayerUi;
     final collect = this.collect;
     final history = this.history;
@@ -335,6 +386,16 @@ class MusicModule implements AppModule {
       verify: browse?.verify,
       searchExt: browse?.searchExt,
       settings: settings,
+      hotKeyController: _resolveHotKeys(),
     );
+  }
+
+  /// 释放模块持有的快捷键注册；供宿主在模块卸载时调用（当前壳生命周期内
+  /// 模块常驻，无调用点；测试可显式调用验证收尾）。
+  void disposeHotKeys() {
+    final controller = _hotKeyController;
+    _hotKeyController = null;
+    _hotKeyInitStarted = false;
+    if (controller != null) unawaited(controller.dispose());
   }
 }

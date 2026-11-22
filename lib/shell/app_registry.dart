@@ -36,6 +36,7 @@ import 'package:mimao/music/client/kugou_client.dart';
 import 'package:mimao/music/client/kugou_identity.dart';
 import 'package:mimao/music/collect_service.dart';
 import 'package:mimao/music/history_service.dart';
+import 'package:mimao/music/hotkey/music_hotkey_settings.dart';
 import 'package:mimao/music/library_api.dart';
 import 'package:mimao/music/lyric/lyric_parser.dart';
 import 'package:mimao/music/music_db.dart';
@@ -145,6 +146,10 @@ Future<void> initAppModules({
   /// 音乐本地设置；测试注入内存 fake，生产走惰性文件实现（首个读写才碰
   /// path_provider，注册期零插件调用）。
   MusicSettings? musicSettings,
+
+  /// 音乐快捷键设置；测试注入内存 fake，生产走惰性文件实现（首个读写才碰
+  /// path_provider，注册期零插件调用）。
+  MusicHotKeySettings? musicHotKeySettings,
 
   // ── M4-L 登录（契约缝）──
   MusicAccountApi? musicAccount,
@@ -366,7 +371,11 @@ Future<void> initAppModules({
       // 播放器上报开关与设置页共享同一实例。
       final settings =
           musicSettings ?? LazyMusicSettings(MusicFileSettings.openDefault);
-            // 三个切片的依赖全部来自注入缝（契约提交）；各线在自己的标记块里
+      // 快捷键设置：与音乐设置同款惰性代理，注册期不碰 path_provider/native。
+      final hotKeySettings =
+          musicHotKeySettings ??
+          LazyMusicHotKeySettings(MusicHotKeyFileSettings.openDefault);
+      // 三个切片的依赖全部来自注入缝（契约提交）；各线在自己的标记块里
       // 补生产构造，本文件不需要再改签名。
       appModules[MediaType.music] = MusicModule(
         api: api,
@@ -429,7 +438,9 @@ Future<void> initAppModules({
         browse: api.browseApis,
         // ── 本地设置（设置页的听歌上报开关）──
         settings: settings,
-                // 登录/登出信号：账号页与发现页（私人 FM）据此自动重拉。
+        // ── 快捷键设置（应用内 + 全局快捷键绑定表）──
+        hotKeySettings: hotKeySettings,
+        // 登录/登出信号：账号页与发现页（私人 FM）据此自动重拉。
         authEpoch: api.authEpoch,
       );
     }

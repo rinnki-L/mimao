@@ -10,6 +10,8 @@ import 'package:flutter/material.dart';
 import 'package:mimao/music/api/listen_report_api.dart';
 import 'package:mimao/music/api/music_playback_api.dart';
 import 'package:mimao/music/api/playback_ext_api.dart';
+import 'package:mimao/music/hotkey/music_hotkey_actions.dart';
+import 'package:mimao/music/hotkey/music_hotkey_model.dart';
 import 'package:mimao/music/lyric/lyric_models.dart';
 import 'package:mimao/music/models/discovery_models.dart';
 import 'package:mimao/music/models/music_models.dart';
@@ -22,7 +24,7 @@ import 'package:mimao/music/player/player_store.dart';
 import 'package:mimao/music/player/player_ui.dart';
 import 'package:mimao/music/player/song_collection.dart';
 
-class MusicPlayerUiImpl implements MusicPlayerUi {
+class MusicPlayerUiImpl implements MusicPlayerUi, MusicHotKeyActionHandler {
   MusicPlayerUiImpl(
     this.store, {
     this.loadClimax,
@@ -78,6 +80,16 @@ class MusicPlayerUiImpl implements MusicPlayerUi {
     int startIndex = 0,
     Duration startAt = Duration.zero,
   }) => store.playList(songs, startIndex: startIndex, startAt: startAt);
+
+  @override
+  Future<void> handleHotKeyAction(MusicHotKeyAction action) => switch (action) {
+    MusicHotKeyAction.playPause => store.toggle(),
+    MusicHotKeyAction.next => store.next(),
+    MusicHotKeyAction.previous => store.previous(),
+    MusicHotKeyAction.volumeUp => store.adjustVolume(0.1),
+    MusicHotKeyAction.volumeDown => store.adjustVolume(-0.1),
+    MusicHotKeyAction.toggleMute => store.toggleMute(),
+  };
 
   @override
   void dispose() => store.dispose();

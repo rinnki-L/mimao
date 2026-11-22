@@ -62,6 +62,11 @@ dependencies:
   # 纯 Dart 实现，无平台插件，CI 安全）。MD5 走上面的 crypto 包。
   pointycastle: ^3.9.0
 
+  # 音乐快捷键：应用内快捷键走 Flutter 原生 Shortcuts/Actions，全局（系统级）
+  # 快捷键走 hotkey_manager（Windows 首发桌面端；Android 无系统级快捷键）。
+  # 0.4.0 要求 Dart ^3.14 / Flutter >=3.50，与本项目 3.14/3.50 基线一致。
+  hotkey_manager: ^0.4.0
+
   # D 线 · 主题跟随系统强调色：system_theme 读 Windows/Android 系统 accent
   # 并监听变化（main.dart 里 load + onChange）；CI/Linux 测试不触发插件。
   # 用 3.3.0：2.3.1 的 android/build.gradle 仍在用已移除的 jcenter()，

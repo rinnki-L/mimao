@@ -55,5 +55,12 @@ abstract interface class MusicPlaybackEngine {
   Future<void> pause();
   Future<void> seek(Duration position);
   Future<void> setSpeed(double speed);
+
+  /// 当前音量（0.0 静音 ~ 1.0 最大）。音量/静音快捷键经此读写。
+  double get volume;
+
+  /// 设置音量；实现方把 [volume] clamp 到 0.0~1.0。
+  Future<void> setVolume(double volume);
+
   Future<void> dispose();
 }
