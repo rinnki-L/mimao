@@ -373,45 +373,68 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
                                 bottom: 16,
                               ),
                               child: Row(
-                                // 封面（左）与右侧文字列垂直居中对齐。
+                                // 左列：唱片 + 唱片下方的歌名/歌手（2026-11-22
+                                // 用户拍板，原在右列顶部）；右侧一列只剩歌词
+                                // （占满剩余高度并内部滚动）。
                                 crossAxisAlignment: CrossAxisAlignment.center,
                                 children: <Widget>[
-                                  _Cover(
-                                    url: song.coverUrl,
-                                    playing: snapshot.playing,
+                                  // 短窗整列等比缩小避免溢出；正常高度原样渲染。
+                                  FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.center,
+                                      children: <Widget>[
+                                        _Cover(
+                                          url: song.coverUrl,
+                                          playing: snapshot.playing,
+                                        ),
+                                        // 盘面视觉以中心锚溢出布局占位 30px，
+                                        // 下方留 48：露出盘缘再加呼吸间距。
+                                        const SizedBox(height: 48),
+                                        SizedBox(
+                                          // 歌名/歌手限宽唱片同宽，超出省略。
+                                          width: _Cover.layoutSize,
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.center,
+                                            children: <Widget>[
+                                              Text(
+                                                _displayTitle(song.title),
+                                                maxLines: 2,
+                                                overflow: TextOverflow.ellipsis,
+                                                textAlign: TextAlign.center,
+                                                style: Theme.of(context)
+                                                    .textTheme
+                                                    .titleLarge
+                                                    ?.copyWith(
+                                                      color: Colors.white,
+                                                    ),
+                                              ),
+                                              const SizedBox(height: 6),
+                                              Text(
+                                                song.artistText,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: Theme.of(context)
+                                                    .textTheme
+                                                    .bodyMedium
+                                                    ?.copyWith(
+                                                      color: Colors.white70,
+                                                    ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                   const SizedBox(width: 20),
                                   Expanded(
                                     child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      // 关闭歌词时列高收缩到文字高度，唱片与
-                                      // 歌名/歌手仍按 Row 的 center 对齐。
-                                      mainAxisSize: lyricEnabled
-                                          ? MainAxisSize.max
-                                          : MainAxisSize.min,
                                       children: <Widget>[
-                                        Text(
-                                          _displayTitle(song.title),
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .titleLarge
-                                              ?.copyWith(color: Colors.white),
-                                        ),
-                                        const SizedBox(height: 6),
-                                        Text(
-                                          song.artistText,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .bodyMedium
-                                              ?.copyWith(color: Colors.white70),
-                                        ),
-                                        if (lyricEnabled) ...<Widget>[
-                                          const SizedBox(height: 12),
+                                        if (lyricEnabled)
                                           Expanded(
                                             child: LyricView(
                                               lyric: _lyric,
@@ -425,7 +448,6 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
                                               ),
                                             ),
                                           ),
-                                        ],
                                       ],
                                     ),
                                   ),
