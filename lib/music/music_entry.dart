@@ -15,7 +15,7 @@ library;
 
 import 'dart:async' show unawaited;
 
-import 'package:flutter/foundation.dart' show ValueListenable;
+import 'package:flutter/foundation.dart' show ValueListenable, ValueNotifier;
 import 'package:flutter/material.dart';
 import 'package:mimao/core/contract.dart';
 import 'package:mimao/music/api/everyday_style_recommend.dart';
@@ -23,6 +23,7 @@ import 'package:mimao/music/api/music_account_api.dart';
 import 'package:mimao/music/api/music_api.dart';
 import 'package:mimao/music/api/music_browse_apis.dart';
 import 'package:mimao/music/api/music_playback_api.dart';
+import 'package:mimao/music/api/playlist_read_api.dart';
 import 'package:mimao/music/hotkey/music_hotkey_actions.dart';
 import 'package:mimao/music/hotkey/music_hotkey_controller.dart';
 import 'package:mimao/music/hotkey/music_hotkey_model.dart';
@@ -42,6 +43,7 @@ import 'package:mimao/music/pages/music_module_page.dart';
 import 'package:mimao/music/pages/music_module_settings.dart';
 import 'package:mimao/music/pages/music_playlist_detail_page.dart';
 import 'package:mimao/music/pages/music_playlist_list_page.dart';
+import 'package:mimao/music/pages/music_playlist_inline_view.dart';
 import 'package:mimao/music/pages/music_rank_page.dart';
 import 'package:mimao/music/pages/music_sidebar_account_card.dart';
 import 'package:mimao/music/pages/music_sidebar_playlists.dart';
@@ -115,6 +117,11 @@ class MusicModule implements AppModule {
   /// 是系统级注册，生命周期绑模块而非某个页面，切页/弹播放页都不卸载。
   MusicHotKeyController? _hotKeyController;
   bool _hotKeyInitStarted = false;
+
+  /// 侧栏歌单行的选中桥：侧栏点行写入，模块页内嵌视图据此切换内容；
+  /// 模块实例级持有（与快捷键控制器同生命周期）。
+  final ValueNotifier<MusicUserPlaylist?> _sidebarPlaylistFocus =
+      ValueNotifier<MusicUserPlaylist?>(null);
 
   MusicPlayerUi? get _resolvePlayerUi {
     if (_playerUiResolved) return _playerUi;
@@ -263,11 +270,22 @@ class MusicModule implements AppModule {
 
     // 侧栏歌单区：列云歌单（点行进详情）+「全部」进歌单管理页
     // （新建/导入在管理页）。缺播放/读端点就整个隐藏，避免死链。
+    final MusicPlaylistReadApi? playlistReadFinal = playlistRead;
+    final MusicPlayerUi? playerFinal = player;
+    final MusicPlaylistInlineView Function(MusicUserPlaylist)?
+    playlistViewBuilder = (playerFinal != null && playlistReadFinal != null)
+        ? (playlist) => MusicPlaylistInlineView(
+            read: playlistReadFinal,
+            player: playerFinal,
+            playlist: playlist,
+          )
+        : null;
     final sidebarPlaylists =
         (player != null && userLibrary != null && playlistRead != null)
         ? MusicSidebarPlaylists(
             library: userLibrary,
-            onOpenPlaylist: (playlist) => _openUserPlaylist(context, playlist),
+            // 内嵌模式：点行写选中桥，模块页在内容区切视图（不 push）。
+            selected: _sidebarPlaylistFocus,
             onOpenAll: () => _openPlaylists(context),
             authEpoch: authEpoch,
           )
@@ -284,6 +302,8 @@ class MusicModule implements AppModule {
       accountCard: sidebarAccountCard,
       accountTab: accountTab,
       playlists: sidebarPlaylists,
+      selectedPlaylist: _sidebarPlaylistFocus,
+      playlistViewBuilder: playlistViewBuilder,
       browseTab: discoveryTab,
       // 各入口的设置放进各入口：设置内容收在侧栏底部项，点击弹底部面板
       // （2026-11-22 侧栏化，原为最右侧「设置」tab）。

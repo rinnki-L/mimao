@@ -2,9 +2,13 @@
 // 与音乐模块页同款说明。
 /// 侧栏下半部的「歌单」区（2026-11-22 侧栏信息架构升级）。
 ///
-/// 列当前账号的云歌单（首页分页），点行 push 歌单详情（回调由模块出口
-/// 装配，与账号中心「我的歌单」行同款路径）；头部「全部」进歌单管理页
-/// （新建/导入都在那里）。窄侧栏不渲染本区（模块层控制）。
+/// 列当前账号的云歌单（首页分页）；头部「全部」进歌单管理页（新建/导入
+/// 都在那里）。窄侧栏不渲染本区（模块层控制）。
+///
+/// 点行行为由 [selected] 分岔（2026-11-22 侧栏主从化）：提供 [selected]
+/// 时为**内嵌模式**——点行把行事实写入 selected，模块层在内容区切出对应
+/// 内嵌视图并高亮本行；未提供时保持旧行为，点行走 [onOpenPlaylist]
+/// push 详情页。
 ///
 /// 登录态变化（[authEpoch]）自动重拉；未登录画「登录后同步云歌单」提示，
 /// 其他失败给紧凑重试——不假装空列表。
@@ -12,7 +16,7 @@ library;
 
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show ValueListenable;
+import 'package:flutter/foundation.dart' show ValueListenable, ValueNotifier;
 import 'package:flutter/material.dart';
 import 'package:mimao/core/theme.dart';
 import 'package:mimao/music/api/user_library_api.dart';
@@ -24,7 +28,8 @@ class MusicSidebarPlaylists extends StatefulWidget {
   const MusicSidebarPlaylists({
     super.key,
     required this.library,
-    required this.onOpenPlaylist,
+    this.onOpenPlaylist,
+    this.selected,
     this.onOpenAll,
     this.authEpoch,
   });
@@ -32,8 +37,12 @@ class MusicSidebarPlaylists extends StatefulWidget {
   /// 用户库接口（user_playlist 云歌单分页）。
   final MusicUserLibraryApi library;
 
-  /// 点歌单行 → 打开详情（模块出口接 music/playlist 路由）。
-  final ValueChanged<MusicUserPlaylist> onOpenPlaylist;
+  /// 点歌单行 → 打开详情（push；仅未提供 [selected] 的旧形态使用）。
+  final ValueChanged<MusicUserPlaylist>? onOpenPlaylist;
+
+  /// 内嵌模式的选中桥：点行写入行事实，模块层据此在内容区切视图；
+  /// 行高亮也读它（按 listid 对比，重拉后对象换新仍能对上）。
+  final ValueNotifier<MusicUserPlaylist?>? selected;
 
   /// 头部「全部」→ 歌单管理页；null 时不显示（管理能力未接线）。
   final VoidCallback? onOpenAll;
@@ -61,6 +70,7 @@ class _MusicSidebarPlaylistsState extends State<MusicSidebarPlaylists> {
   void initState() {
     super.initState();
     widget.authEpoch?.addListener(_reload);
+    widget.selected?.addListener(_onSelectionChanged);
     unawaited(_reload());
   }
 
@@ -72,12 +82,22 @@ class _MusicSidebarPlaylistsState extends State<MusicSidebarPlaylists> {
       widget.authEpoch?.addListener(_reload);
       unawaited(_reload());
     }
+    if (widget.selected != oldWidget.selected) {
+      oldWidget.selected?.removeListener(_onSelectionChanged);
+      widget.selected?.addListener(_onSelectionChanged);
+    }
   }
 
   @override
   void dispose() {
     widget.authEpoch?.removeListener(_reload);
+    widget.selected?.removeListener(_onSelectionChanged);
     super.dispose();
+  }
+
+  void _onSelectionChanged() {
+    if (!mounted) return;
+    setState(() {});
   }
 
   Future<void> _reload() async {
@@ -155,37 +175,58 @@ class _MusicSidebarPlaylistsState extends State<MusicSidebarPlaylists> {
     }
     final playlists = _playlists!;
     if (playlists.isEmpty) return _hint(theme, '还没有云歌单');
+    final focusedId = widget.selected?.value?.cloudListId;
     return ListView.builder(
       padding: const EdgeInsets.only(top: 4, bottom: 12),
       itemCount: playlists.length,
       itemBuilder: (context, index) {
         final playlist = playlists[index];
-        return InkWell(
-          onTap: () => widget.onOpenPlaylist(playlist),
-          child: SizedBox(
-            height: 44,
-            child: Row(
-              children: <Widget>[
-                const SizedBox(width: 12),
-                _CoverThumb(url: playlist.coverUrl),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    playlist.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodyMedium,
-                  ),
+        final isSelected =
+            focusedId != null && playlist.cloudListId == focusedId;
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: Material(
+            // 内嵌模式下选中行垫 secondaryContainer（M3 语言，与导航项一致）。
+            color: isSelected ? theme.colorScheme.secondaryContainer : null,
+            shape: RoundedRectangleBorder(borderRadius: MimaoShapes.sm),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: () {
+                final selected = widget.selected;
+                if (selected != null) {
+                  // 内嵌模式：把行事实写回选中桥，模块层切视图；重复点同行
+                  // 不回切（回分区走导航行/卡片）。
+                  selected.value = playlist;
+                  return;
+                }
+                widget.onOpenPlaylist?.call(playlist);
+              },
+              child: SizedBox(
+                height: 44,
+                child: Row(
+                  children: <Widget>[
+                    const SizedBox(width: 12),
+                    _CoverThumb(url: playlist.coverUrl),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        playlist.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyMedium,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '${playlist.songCount}',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: cs.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                  ],
                 ),
-                const SizedBox(width: 8),
-                Text(
-                  '${playlist.songCount}',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: cs.onSurfaceVariant,
-                  ),
-                ),
-                const SizedBox(width: 12),
-              ],
+              ),
             ),
           ),
         );

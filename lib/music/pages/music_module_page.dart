@@ -16,6 +16,8 @@ import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:mimao/core/theme.dart';
 import 'package:mimao/music/library_api.dart';
 import 'package:mimao/music/models/music_models.dart';
+import 'package:mimao/music/models/user_library_models.dart'
+    show MusicUserPlaylist;
 import 'package:mimao/music/music_store.dart';
 import 'package:mimao/music/player/player_ui.dart';
 import 'package:mimao/music/widgets/music_song_card.dart';
@@ -34,6 +36,8 @@ class MusicModulePage extends StatefulWidget {
     this.accountCard,
     this.accountTab,
     this.playlists,
+    this.selectedPlaylist,
+    this.playlistViewBuilder,
     this.browseTab,
     this.settingsTab,
   });
@@ -71,6 +75,15 @@ class MusicModulePage extends StatefulWidget {
   /// null 或窄侧栏时不渲染。
   final Widget? playlists;
 
+  /// 侧栏歌单行的选中桥（出口装配的 ValueNotifier）：侧栏点行写入行
+  /// 事实，本页监听后把内容区切到对应内嵌视图；导航行/卡片选中时由本页
+  /// 清空（回常规分区）。null 时歌单行保持 push 详情页的旧行为。
+  final ValueNotifier<MusicUserPlaylist?>? selectedPlaylist;
+
+  /// 内嵌歌单视图构造器（出口装配，接读端点等出口私有缝）；与
+  /// [selectedPlaylist] 配套。null 时选中桥不生效。
+  final Widget Function(MusicUserPlaylist playlist)? playlistViewBuilder;
+
   /// 发现页（搜索扩展 + 推荐）；非空时作为首 tab 并取代独立的搜索 tab
   /// （发现页自身带歌曲搜索）。null 时保持旧的「搜索」首 tab。
   final Widget? browseTab;
@@ -91,10 +104,47 @@ class _MusicModulePageState extends State<MusicModulePage> {
   /// 收藏态缓存（列表批量判断，避免逐行异步查询导致抖动）。
   final Set<String> _collectedIds = <String>{};
 
+  /// 已打开的内嵌歌单视图（按打开顺序缓存）：IndexedStack 保活，切走再
+  /// 切回不重拉；键取行 id（listid，收藏行各自唯一）。
+  final Map<String, Widget> _playlistViews = <String, Widget>{};
+
+  MusicUserPlaylist? get _focusedPlaylist => widget.selectedPlaylist?.value;
+
+  String _viewKey(MusicUserPlaylist playlist) =>
+      'listid:${playlist.cloudListId ?? playlist.globalId}';
+
+  void _onPlaylistFocusChanged() {
+    if (!mounted) return;
+    final focus = _focusedPlaylist;
+    final builder = widget.playlistViewBuilder;
+    if (focus != null && builder != null) {
+      _playlistViews.putIfAbsent(_viewKey(focus), () => builder(focus));
+    }
+    setState(() {});
+  }
+
+  /// 选中常规分区（导航行/账号卡片）：清掉歌单聚焦，回常规分区内容。
+  void _select(int index) {
+    if (widget.selectedPlaylist?.value != null) {
+      widget.selectedPlaylist!.value = null;
+    }
+    setState(() => _index = index);
+  }
+
   @override
   void initState() {
     super.initState();
+    widget.selectedPlaylist?.addListener(_onPlaylistFocusChanged);
     _loadCollected();
+  }
+
+  @override
+  void didUpdateWidget(covariant MusicModulePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.selectedPlaylist != oldWidget.selectedPlaylist) {
+      oldWidget.selectedPlaylist?.removeListener(_onPlaylistFocusChanged);
+      widget.selectedPlaylist?.addListener(_onPlaylistFocusChanged);
+    }
   }
 
   Future<void> _loadCollected() async {
@@ -115,6 +165,7 @@ class _MusicModulePageState extends State<MusicModulePage> {
 
   @override
   void dispose() {
+    widget.selectedPlaylist?.removeListener(_onPlaylistFocusChanged);
     _controller.dispose();
     super.dispose();
   }
@@ -282,9 +333,21 @@ class _MusicModulePageState extends State<MusicModulePage> {
     // 索引防御：favoritesTab/historyTab/accountTab 在两次 build 之间变化时
     // 夹紧，避免越界。
     if (_index >= tabs.length) _index = tabs.length - 1;
-    final content = tabs.length == 1
-        ? tabs.first
-        : IndexedStack(index: _index, children: tabs);
+    // 内嵌歌单视图（按打开顺序）排在常规分区之后：聚焦侧栏歌单行时内容
+    // 区切到对应视图，清焦（点导航行/卡片）回常规分区。IndexedStack 整体
+    // 保活——切走再切回不重拉（2026-11-22 侧栏主从化，原为 push 详情页）。
+    final focus = _focusedPlaylist;
+    final viewKeys = _playlistViews.keys.toList(growable: false);
+    final int contentIndex;
+    if (focus != null && viewKeys.contains(_viewKey(focus))) {
+      contentIndex = tabs.length + viewKeys.indexOf(_viewKey(focus));
+    } else {
+      contentIndex = _index;
+    }
+    final content = IndexedStack(
+      index: contentIndex,
+      children: <Widget>[...tabs, ..._playlistViews.values],
+    );
     // 迷你播放条住各页共用区（内容列底部）：切「我的」/「账号」时播放控制
     // 不消失（集成收口修正）。
     // Observer 包住调用：buildMiniPlayer 返回 null 时不渲染，队列变化
@@ -307,10 +370,11 @@ class _MusicModulePageState extends State<MusicModulePage> {
         children: <Widget>[
           _MusicSidebar(
             currentIndex: _index,
-            onSelect: (int index) => setState(() => _index = index),
+            onSelect: _select,
             destinations: destinations,
             accountCard: widget.accountCard,
             accountIndex: accountIndex,
+            playlistFocused: focus != null,
             playlists: widget.playlists,
             settingsTab: settingsTab,
             onOpenSettings: _openSettings,
@@ -400,6 +464,7 @@ class _MusicSidebar extends StatelessWidget {
     required this.onSelect,
     required this.destinations,
     required this.accountIndex,
+    required this.playlistFocused,
     required this.settingsTab,
     required this.onOpenSettings,
     this.accountCard,
@@ -411,6 +476,10 @@ class _MusicSidebar extends StatelessWidget {
 
   /// 导航行入口（与 [MusicModulePage] 的 tabs 前段一一对应）。
   final List<_MusicSidebarDestination> destinations;
+
+  /// 侧栏歌单行正被聚焦（内容区展示内嵌歌单视图）：此时导航行与账号卡片
+  /// 不再显示选中态，选中指示让给歌单行。
+  final bool playlistFocused;
 
   /// 账号小卡片展示内容；null 不渲染。
   final Widget? accountCard;
@@ -451,7 +520,10 @@ class _MusicSidebar extends StatelessWidget {
               child: _accountCard(
                 context,
                 child: card,
-                selected: accountIndex != null && currentIndex == accountIndex,
+                selected:
+                    !playlistFocused &&
+                    accountIndex != null &&
+                    currentIndex == accountIndex,
                 wide: wide,
               ),
             ),
@@ -462,7 +534,7 @@ class _MusicSidebar extends StatelessWidget {
               icon: destination.icon,
               selectedIcon: destination.selectedIcon,
               label: destination.label,
-              selected: index == currentIndex,
+              selected: !playlistFocused && index == currentIndex,
               wide: wide,
               onTap: () => onSelect(index),
             ),
