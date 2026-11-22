@@ -52,6 +52,8 @@ class MusicLibraryPage extends StatefulWidget {
     this.userLibrary,
     this.playlistRead,
     this.authEpoch,
+    this.initialTab = 0,
+    this.showTabSwitch = true,
   });
 
   final MusicCollectService collect;
@@ -70,11 +72,22 @@ class MusicLibraryPage extends StatefulWidget {
   /// 登录态变化信号；非空时登录/切号自动重拉账号收藏。
   final ValueListenable<int>? authEpoch;
 
+  /// 初始分段（0 = 收藏，1 = 历史）；侧栏化后由入口决定，默认收藏。
+  final int initialTab;
+
+  /// 是否画「我喜欢 / 历史」分段切换；侧栏把两段拆成两个入口时传 false，
+  /// 本页只渲染 [initialTab] 锁定的分段。
+  final bool showTabSwitch;
+
   @override
   State<MusicLibraryPage> createState() => _MusicLibraryPageState();
 }
 
 class _MusicLibraryPageState extends State<MusicLibraryPage> {
+  /// 本页是否承载收藏段（含账号「我喜欢」云拉取）：锁定到历史段的实例
+  /// 不再拉账号收藏，避免两实例重复翻页（侧栏化时两实例共享服务）。
+  bool get _showsFavorites => widget.showTabSwitch || widget.initialTab == 0;
+
   /// 「我喜欢」曲目分页大小（playlist_track_all_new 上限 300）。
   ///
   /// 账号收藏要求「自动全量」：首屏循环翻页直到取完，不提供「加载更多」；
@@ -109,8 +122,10 @@ class _MusicLibraryPageState extends State<MusicLibraryPage> {
     widget.collect.addListener(_onLibraryChanged);
     widget.history.addListener(_onLibraryChanged);
     widget.authEpoch?.addListener(_onAuthChanged);
-    _store.refresh();
-    if (_accountFavoritesEnabled) {
+    _store
+      ..selectTab(widget.initialTab)
+      ..refresh();
+    if (_accountFavoritesEnabled && _showsFavorites) {
       unawaited(_loadFavorites());
     }
   }
@@ -131,6 +146,7 @@ class _MusicLibraryPageState extends State<MusicLibraryPage> {
   /// 登录/登出/切号：缓存里的 listid 属于旧账号，必须清掉重定位。
   void _onAuthChanged() {
     if (!mounted) return;
+    if (!_showsFavorites) return;
     unawaited(_loadFavorites(clearListId: true));
   }
 
@@ -259,27 +275,31 @@ class _MusicLibraryPageState extends State<MusicLibraryPage> {
           padding: const EdgeInsets.fromLTRB(16, 12, 8, 4),
           child: Row(
             children: <Widget>[
-              Expanded(
-                child: Observer(
-                  builder: (_) => SegmentedButton<int>(
-                    segments: const <ButtonSegment<int>>[
-                      ButtonSegment<int>(
-                        value: 0,
-                        icon: Icon(Icons.favorite_outline),
-                        label: Text('我喜欢'),
-                      ),
-                      ButtonSegment<int>(
-                        value: 1,
-                        icon: Icon(Icons.history),
-                        label: Text('历史'),
-                      ),
-                    ],
-                    selected: <int>{_store.libraryTab},
-                    onSelectionChanged: (selection) =>
-                        _store.selectTab(selection.first),
+              // 锁定分段（侧栏入口）时不画切换钮，只留刷新。
+              if (widget.showTabSwitch)
+                Expanded(
+                  child: Observer(
+                    builder: (_) => SegmentedButton<int>(
+                      segments: const <ButtonSegment<int>>[
+                        ButtonSegment<int>(
+                          value: 0,
+                          icon: Icon(Icons.favorite_outline),
+                          label: Text('我喜欢'),
+                        ),
+                        ButtonSegment<int>(
+                          value: 1,
+                          icon: Icon(Icons.history),
+                          label: Text('历史'),
+                        ),
+                      ],
+                      selected: <int>{_store.libraryTab},
+                      onSelectionChanged: (selection) =>
+                          _store.selectTab(selection.first),
+                    ),
                   ),
-                ),
-              ),
+                )
+              else
+                const Spacer(),
               IconButton.filledTonal(
                 tooltip: '刷新',
                 icon: const Icon(Icons.refresh),

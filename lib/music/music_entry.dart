@@ -43,6 +43,8 @@ import 'package:mimao/music/pages/music_module_settings.dart';
 import 'package:mimao/music/pages/music_playlist_detail_page.dart';
 import 'package:mimao/music/pages/music_playlist_list_page.dart';
 import 'package:mimao/music/pages/music_rank_page.dart';
+import 'package:mimao/music/pages/music_sidebar_account_card.dart';
+import 'package:mimao/music/pages/music_sidebar_playlists.dart';
 import 'package:mimao/music/player/playback_engine.dart';
 import 'package:mimao/music/player/player_progress.dart';
 import 'package:mimao/music/player/player_ui.dart';
@@ -177,12 +179,30 @@ class MusicModule implements AppModule {
     final history = this.history;
     final builder = libraryBuilder;
     final browseApis = browse;
-    final libraryTab =
-        (builder != null &&
-            player != null &&
-            collect != null &&
-            history != null)
-        ? builder(context, player, collect, history)
+    // 侧栏化后「我的」拆成两个锁定分段的入口（我喜欢 / 播放历史）：
+    // builder 各建一份独立库页；历史实例不拉账号收藏（见
+    // MusicLibraryPage._showsFavorites），避免两实例重复翻页。
+    final libraryWired =
+        builder != null && player != null && collect != null && history != null;
+    final favoritesTab = libraryWired
+        ? builder(
+            context,
+            player,
+            collect,
+            history,
+            initialTab: 0,
+            showTabSwitch: false,
+          )
+        : null;
+    final historyTab = libraryWired
+        ? builder(
+            context,
+            player,
+            collect,
+            history,
+            initialTab: 1,
+            showTabSwitch: false,
+          )
         : null;
 
     // 发现页（搜索扩展 + 推荐）：只有搜索扩展/发现/播放三者都就绪才替换
@@ -207,14 +227,9 @@ class MusicModule implements AppModule {
           )
         : null;
 
-    // 「我的」页顶部的歌单入口；缺任何一项就隐藏，避免死链。
-    final canOpenPlaylists =
-        player != null &&
-        browseApis?.userLibrary != null &&
-        browseApis?.playlistRead != null;
-
     final userProfile = browseApis?.userProfile;
     final userLibrary = browseApis?.userLibrary;
+    final playlistRead = browseApis?.playlistRead;
     final accountTab =
         (player != null && userProfile != null && userLibrary != null)
         ? MusicAccountCenterPage(
@@ -240,16 +255,36 @@ class MusicModule implements AppModule {
           )
         : null;
 
+    // 侧栏顶部账号小卡片：与账号分区同一接线条件（有目标才画卡片）。
+    final sidebarAccountCard =
+        (player != null && userProfile != null && userLibrary != null)
+        ? MusicSidebarAccountCard(profile: userProfile, authEpoch: authEpoch)
+        : null;
+
+    // 侧栏歌单区：列云歌单（点行进详情）+「全部」进歌单管理页
+    // （新建/导入在管理页）。缺播放/读端点就整个隐藏，避免死链。
+    final sidebarPlaylists =
+        (player != null && userLibrary != null && playlistRead != null)
+        ? MusicSidebarPlaylists(
+            library: userLibrary,
+            onOpenPlaylist: (playlist) => _openUserPlaylist(context, playlist),
+            onOpenAll: () => _openPlaylists(context),
+            authEpoch: authEpoch,
+          )
+        : null;
+
     final home = MusicModulePage(
       store: store,
       embedded: true,
       playerUi: player,
       collect: collect,
       searchHistory: searchHistory,
-      libraryTab: libraryTab,
+      favoritesTab: favoritesTab,
+      historyTab: historyTab,
+      accountCard: sidebarAccountCard,
       accountTab: accountTab,
+      playlists: sidebarPlaylists,
       browseTab: discoveryTab,
-      onOpenPlaylists: canOpenPlaylists ? () => _openPlaylists(context) : null,
       // 各入口的设置放进各入口：设置内容收在侧栏底部项，点击弹底部面板
       // （2026-11-22 侧栏化，原为最右侧「设置」tab）。
       settingsTab: buildSettings(context),

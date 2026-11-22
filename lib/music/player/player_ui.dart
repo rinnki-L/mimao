@@ -22,13 +22,20 @@ typedef MusicPlayerUiFactory =
     );
 
 /// 「我的」页构造器（C 线提供）：需要能触发播放（续播带起始位置）。
+///
+/// 2026-11-22 侧栏化后「我的」拆成侧栏两个入口（我喜欢 / 播放历史），
+/// 入口各建一份锁定分段的页面：[initialTab] 锁定渲染的分段
+/// （0 = 收藏，1 = 历史），[showTabSwitch] 为 false 时不画分段切换钮
+/// （分段由侧栏入口决定）。默认值保持旧的「我的」单页形态。
 typedef MusicLibraryBuilder =
     Widget Function(
       BuildContext context,
       MusicPlayerUi playerUi,
       MusicCollectApi collect,
-      MusicHistoryApi history,
-    );
+      MusicHistoryApi history, {
+      int initialTab,
+      bool showTabSwitch,
+    });
 
 abstract interface class MusicPlayerUi {
   /// 底部迷你播放条；队列为空/未配置播放时返回 null（不渲染）。

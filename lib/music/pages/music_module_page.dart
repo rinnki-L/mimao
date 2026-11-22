@@ -29,10 +29,12 @@ class MusicModulePage extends StatefulWidget {
     this.playerUi,
     this.collect,
     this.searchHistory,
-    this.libraryTab,
+    this.favoritesTab,
+    this.historyTab,
+    this.accountCard,
     this.accountTab,
+    this.playlists,
     this.browseTab,
-    this.onOpenPlaylists,
     this.settingsTab,
   });
 
@@ -50,18 +52,28 @@ class MusicModulePage extends StatefulWidget {
   /// C 线搜索历史；null 时搜索不做记录。
   final MusicSearchHistoryApi? searchHistory;
 
-  /// C 线「我的」页；null 时不显示「我的」tab。
-  final Widget? libraryTab;
+  /// C 线「我喜欢」页（锁定收藏段的库页）；null 时侧栏不出「我喜欢」入口。
+  final Widget? favoritesTab;
 
-  /// 账号中心页（用户资料/等级/会员/历史/已购）；null 时不显示「账号」tab。
+  /// C 线「播放历史」页（锁定历史段的库页）；null 时侧栏不出「播放历史」
+  /// 入口（2026-11-22 侧栏信息架构升级：原「我的」tab 的两段拆成两个入口）。
+  final Widget? historyTab;
+
+  /// 侧栏顶部账号小卡片（展示层，出口装配）；null 时不画卡片，
+  /// 也不出「账号」分区入口（[accountTab] 随之不可达）。
+  final Widget? accountCard;
+
+  /// 账号中心页（用户资料/等级/会员/历史/已购）；点侧栏账号卡片时
+  /// 在内容区展示。null 时卡片无目标。
   final Widget? accountTab;
+
+  /// 侧栏下半部的歌单区（出口装配：云歌单列表 + 「全部」入口）；
+  /// null 或窄侧栏时不渲染。
+  final Widget? playlists;
 
   /// 发现页（搜索扩展 + 推荐）；非空时作为首 tab 并取代独立的搜索 tab
   /// （发现页自身带歌曲搜索）。null 时保持旧的「搜索」首 tab。
   final Widget? browseTab;
-
-  /// 「我的」页顶部的「我的歌单」入口；null 时不显示。
-  final VoidCallback? onOpenPlaylists;
 
   /// 设置面板的内容；由模块出口 buildSettings 注入，收在侧栏底部项
   /// （点击弹底部面板，不再占一个分区）。null 时侧栏不出设置区。
@@ -215,14 +227,16 @@ class _MusicModulePageState extends State<MusicModulePage> {
       ],
     );
 
-    final libraryTab = widget.libraryTab;
+    final favoritesTab = widget.favoritesTab;
+    final historyTab = widget.historyTab;
     final accountTab = widget.accountTab;
     final browseTab = widget.browseTab;
     final settingsTab = widget.settingsTab;
 
-    // 侧栏入口列表：发现页（注入时）或旧搜索页恒在首项；「我的」「账号」
-    // 按注入与否出现。设置不再占分区：收在侧栏底部项，点击弹底部面板
-    // （2026-11-22 对齐漫画模块的侧栏骨架，原为底部 NavigationBar）。
+    // 侧栏入口列表：发现页（注入时）或旧搜索页恒在首项；「我喜欢」「播放
+    // 历史」按注入与否出现；「账号」由顶部卡片进入（2026-11-22 侧栏信息
+    // 架构升级：原「我的」tab 拆成两个入口，原「账号」导航行换成卡片）。
+    // 设置收在侧栏底部项，点击弹底部面板。
     final destinations = <_MusicSidebarDestination>[];
     final tabs = <Widget>[];
     if (browseTab != null) {
@@ -242,42 +256,31 @@ class _MusicModulePageState extends State<MusicModulePage> {
         label: '搜索',
       ));
     }
-    if (libraryTab != null) {
-      final openPlaylists = widget.onOpenPlaylists;
-      tabs.add(
-        openPlaylists == null
-            ? libraryTab
-            : Column(
-                children: <Widget>[
-                  ListTile(
-                    leading: const Icon(Icons.queue_music),
-                    title: const Text('我的歌单'),
-                    subtitle: const Text('云歌单与收藏歌单'),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: openPlaylists,
-                  ),
-                  const Divider(height: 1),
-                  Expanded(child: libraryTab),
-                ],
-              ),
-      );
+    if (favoritesTab != null) {
+      tabs.add(favoritesTab);
       destinations.add((
-        key: 'music-sidebar-library',
-        icon: Icons.library_music_outlined,
-        selectedIcon: Icons.library_music,
-        label: '我的',
+        key: 'music-sidebar-favorites',
+        icon: Icons.favorite_outline,
+        selectedIcon: Icons.favorite,
+        label: '我喜欢',
+      ));
+    }
+    if (historyTab != null) {
+      tabs.add(historyTab);
+      destinations.add((
+        key: 'music-sidebar-history',
+        icon: Icons.history_outlined,
+        selectedIcon: Icons.history,
+        label: '播放历史',
       ));
     }
     if (accountTab != null) {
       tabs.add(accountTab);
-      destinations.add((
-        key: 'music-sidebar-account',
-        icon: Icons.person_outline,
-        selectedIcon: Icons.person,
-        label: '账号',
-      ));
     }
-    // 索引防御：libraryTab/accountTab 在两次 build 之间变化时夹紧，避免越界。
+    // 账号分区的目标索引（侧栏顶部卡片进入，不在导航行里）。
+    final accountIndex = accountTab == null ? null : tabs.length - 1;
+    // 索引防御：favoritesTab/historyTab/accountTab 在两次 build 之间变化时
+    // 夹紧，避免越界。
     if (_index >= tabs.length) _index = tabs.length - 1;
     final content = tabs.length == 1
         ? tabs.first
@@ -306,6 +309,9 @@ class _MusicModulePageState extends State<MusicModulePage> {
             currentIndex: _index,
             onSelect: (int index) => setState(() => _index = index),
             destinations: destinations,
+            accountCard: widget.accountCard,
+            accountIndex: accountIndex,
+            playlists: widget.playlists,
             settingsTab: settingsTab,
             onOpenSettings: _openSettings,
           ),
@@ -375,28 +381,45 @@ typedef _MusicSidebarDestination = ({
 });
 
 /// 模块层左侧边栏（2026-11-22 对齐漫画模块的自绘侧栏，替代原底部
-/// NavigationBar）。
+/// NavigationBar；同日信息架构升级：顶部账号卡片 + 导航行 + 歌单区）。
 ///
-/// 中部导航项（图标 + 文字横排，选中态为 M3 rail 式选中指示垫：药丸底色
-/// 只垫在图标后面，文字不笼罩——与漫画/小说模块同款观感），底部一个
-/// 「设置」项（[settingsTab] 为 null 时整块不渲染，含分隔线），点击由
-/// [onOpenSettings] 弹底部面板。窗口宽 ≥ 720 用 240 宽（图标 + 文字）；
-/// 否则收成 84 宽只留图标，用 Tooltip 提示名称。右缘 1px outlineVariant
-/// 与内容区分隔。
+/// 结构自上而下：
+/// - 账号小卡片（[accountCard]，点按进 [accountIndex] 分区，选中时垫
+///   secondaryContainer；null 不渲染）；
+/// - 导航行（图标 + 文字横排，选中态为 M3 rail 式选中指示垫：药丸底色
+///   只垫在图标后面，文字不笼罩——与漫画/小说模块同款观感）；
+/// - 歌单区（[playlists]，占剩余高度自带滚动；null 或窄侧栏不渲染）；
+/// - 底部「设置」项（[settingsTab] 为 null 时整块不渲染，含分隔线），
+///   点击由 [onOpenSettings] 弹底部面板。
+///
+/// 窗口宽 ≥ 720 用 240 宽（图标 + 文字）；否则收成 84 宽只留图标，
+/// 用 Tooltip 提示名称。右缘 1px outlineVariant 与内容区分隔。
 class _MusicSidebar extends StatelessWidget {
   const _MusicSidebar({
     required this.currentIndex,
     required this.onSelect,
     required this.destinations,
+    required this.accountIndex,
     required this.settingsTab,
     required this.onOpenSettings,
+    this.accountCard,
+    this.playlists,
   });
 
   final int currentIndex;
   final ValueChanged<int> onSelect;
 
-  /// 与 [MusicModulePage] 的 tabs 一一对应的侧栏入口（顺序即索引）。
+  /// 导航行入口（与 [MusicModulePage] 的 tabs 前段一一对应）。
   final List<_MusicSidebarDestination> destinations;
+
+  /// 账号小卡片展示内容；null 不渲染。
+  final Widget? accountCard;
+
+  /// 账号分区目标索引；null 时卡片无目标（不可点）。
+  final int? accountIndex;
+
+  /// 歌单区内容；null 或窄侧栏不渲染。
+  final Widget? playlists;
 
   /// 模块设置面板内容；null 表示没有设置项，底部设置区（含分隔线）不渲染。
   final Widget? settingsTab;
@@ -408,6 +431,7 @@ class _MusicSidebar extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     // 窗口宽 ≥ 720 走宽形态（图标 + 文字）；否则收窄只留图标。
     final wide = MediaQuery.sizeOf(context).width >= 720;
+    final card = accountCard;
 
     return Container(
       key: const Key('music-sidebar'),
@@ -421,6 +445,16 @@ class _MusicSidebar extends StatelessWidget {
           // 顶部不画模块名：壳层顶栏（embedded）已提供「返回 + 标题」，
           // 侧边栏再画一遍会重复，只留呼吸空隙。
           const SizedBox(height: 12),
+          if (card != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+              child: _accountCard(
+                context,
+                child: card,
+                selected: accountIndex != null && currentIndex == accountIndex,
+                wide: wide,
+              ),
+            ),
           for (final (index, destination) in destinations.indexed)
             _destinationRow(
               context: context,
@@ -432,7 +466,10 @@ class _MusicSidebar extends StatelessWidget {
               wide: wide,
               onTap: () => onSelect(index),
             ),
-          const Spacer(),
+          if (playlists != null && wide)
+            Expanded(child: playlists!)
+          else
+            const Spacer(),
           if (settingsTab != null) ...<Widget>[
             Divider(color: cs.outlineVariant, height: 1),
             // 设置项永不处于选中态；样式与导航项一致。
@@ -448,6 +485,36 @@ class _MusicSidebar extends StatelessWidget {
             ),
           ],
         ],
+      ),
+    );
+  }
+
+  /// 账号卡片外框：圆角卡片（形态走卡片语言：surfaceContainerLow，
+  /// 选中垫 secondaryContainer），点按进入账号分区。
+  Widget _accountCard(
+    BuildContext context, {
+    required Widget child,
+    required bool selected,
+    required bool wide,
+  }) {
+    final cs = Theme.of(context).colorScheme;
+    return Material(
+      color: selected ? cs.secondaryContainer : cs.surfaceContainerLow,
+      shape: RoundedRectangleBorder(borderRadius: MimaoShapes.md),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        borderRadius: MimaoShapes.md,
+        onTap: () {
+          final index = accountIndex;
+          if (index != null) onSelect(index);
+        },
+        child: SizedBox(
+          height: wide ? 56 : 48,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Center(child: child),
+          ),
+        ),
       ),
     );
   }

@@ -160,10 +160,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.widgetWithText(ListTile, '稻香'), findsOneWidget);
-    // 未接线：不显示收藏按钮；侧栏只有「搜索」入口、无设置区，
-    // 也不回退到底部导航（2026-11-22 侧栏化，原为 NavigationBar 守卫）。
+    // 未接线：不显示收藏按钮；侧栏只有「搜索」入口，无账号卡片/歌单区/
+    // 设置区，也不回退到底部导航（2026-11-22 侧栏化，原为 NavigationBar 守卫）。
     expect(find.byIcon(Icons.favorite_border), findsNothing);
     expect(find.byKey(const Key('music-sidebar')), findsOneWidget);
+    expect(find.text('歌单'), findsNothing);
     expect(find.byKey(const Key('music-sidebar-settings')), findsNothing);
     expect(find.byType(NavigationBar), findsNothing);
 
@@ -174,27 +175,47 @@ void main() {
     expect(find.text('播放功能随播放器切片接入'), findsOneWidget);
   });
 
-  testWidgets('页面提供 libraryTab 时侧栏出现「搜索 / 我的」入口', (tester) async {
+  testWidgets('侧栏入口：我喜欢 / 播放历史 / 账号卡片 / 歌单区', (tester) async {
     final store = MusicStore(_FakeApi());
     await tester.pumpWidget(
       MaterialApp(
         home: MusicModulePage(
           store: store,
           embedded: true,
-          libraryTab: const Center(child: Text('我的音乐占位')),
+          favoritesTab: const Center(child: Text('我喜欢占位')),
+          historyTab: const Center(child: Text('播放历史占位')),
+          accountCard: const SizedBox(
+            width: 200,
+            height: 48,
+            child: Center(child: Text('账号卡片占位')),
+          ),
+          accountTab: const Center(child: Text('账号占位')),
+          playlists: const SizedBox(
+            height: 100,
+            child: Center(child: Text('歌单区占位')),
+          ),
         ),
       ),
     );
     await tester.pumpAndSettle();
 
-    // 侧栏入口出现（2026-11-22 侧栏化，原为 NavigationBar 守卫）。
+    // 侧栏入口出现（2026-11-22 侧栏信息架构升级：原「我的」tab 拆两个入口，
+    // 「账号」由顶部卡片进入，歌单区挂在侧栏下半部）。
     expect(find.byKey(const Key('music-sidebar')), findsOneWidget);
     expect(find.text('搜索'), findsOneWidget);
-    expect(find.text('我的'), findsOneWidget);
+    expect(find.text('我喜欢'), findsOneWidget);
+    expect(find.text('播放历史'), findsOneWidget);
+    expect(find.text('账号卡片占位'), findsOneWidget);
+    expect(find.text('歌单区占位'), findsOneWidget);
 
-    await tester.tap(find.text('我的'));
+    await tester.tap(find.text('我喜欢'));
     await tester.pumpAndSettle();
-    expect(find.text('我的音乐占位'), findsOneWidget);
+    expect(find.text('我喜欢占位'), findsOneWidget);
+
+    // 点账号卡片 → 账号分区出现在内容区。
+    await tester.tap(find.text('账号卡片占位'));
+    await tester.pumpAndSettle();
+    expect(find.text('账号占位'), findsOneWidget);
   });
 
   testWidgets('设置分组：account 未接线时保留既有占位锚点', (tester) async {

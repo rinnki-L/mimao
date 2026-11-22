@@ -537,7 +537,14 @@ MusicLibraryBuilder _defaultMusicLibraryBuilder({
   MusicPlaylistReadApi? playlistRead,
   ValueListenable<int>? authEpoch,
 }) {
-  return (context, playerUi, collect, history) {
+  return (
+    context,
+    playerUi,
+    collect,
+    history, {
+    int initialTab = 0,
+    bool showTabSwitch = true,
+  }) {
     final collectService = collect is MusicCollectService ? collect : null;
     final historyService = history is MusicHistoryService ? history : null;
     if (collectService == null || historyService == null) {
@@ -552,6 +559,8 @@ MusicLibraryBuilder _defaultMusicLibraryBuilder({
       userLibrary: userLibrary,
       playlistRead: playlistRead,
       authEpoch: authEpoch,
+      initialTab: initialTab,
+      showTabSwitch: showTabSwitch,
     );
   };
 }

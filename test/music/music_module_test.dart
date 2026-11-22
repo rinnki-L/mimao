@@ -137,8 +137,9 @@ void main() {
     expect(settings, isA<MusicModuleSettings>());
 
     // buildHome 的出口直接进壳层的模块层也能跑：搜索交互可用。
-    // 模块页现在带侧栏（搜索/我的/账号；设置收侧栏底部），搜索框 tooltip
-    // 与侧栏入口都可能叫「搜索」，用提交按钮专属的箭头图标定位，避免歧义。
+    // 模块页现在带侧栏（搜索/我喜欢/播放历史；账号卡片与歌单区随接线出现），
+    // 搜索框 tooltip 与侧栏入口都可能叫「搜索」，用提交按钮专属的箭头图标
+    // 定位，避免歧义。
     await tester.pumpWidget(MaterialApp(home: home));
     await tester.enterText(find.byType(TextField), '出口');
     await tester.tap(find.byIcon(Icons.arrow_forward_rounded));
