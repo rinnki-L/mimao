@@ -17,6 +17,7 @@ import 'package:mimao/novel/models/novel_models.dart';
 import 'package:mimao/novel/novel_db.dart';
 import 'package:mimao/novel/novel_entry.dart';
 import 'package:mimao/novel/pages/novel_module_page.dart';
+import 'package:mimao/novel/pages/novel_search_page.dart';
 import 'package:mimao/novel/search_history_service.dart';
 import 'package:mimao/shell/app_registry.dart';
 
@@ -70,9 +71,12 @@ void main() {
     expect(novel.collect, same(collect));
     expect(novel.history, same(history));
     expect(novel.searchHistory, same(searchHistory));
+    // 统计/偏好由生产装配自建（NovelStatsService），页面拿到非空实例。
+    expect(novel.stats, isNotNull);
+    expect(novel.prefs, isNotNull);
   });
 
-  testWidgets('书架 tab 真实显示收藏与阅读历史（消费注入服务）', (tester) async {
+  testWidgets('首页显示最近阅读，书架显示收藏与阅读进度（消费注入服务）', (tester) async {
     final book = NovelSummary(id: 'b1', title: '三体', author: '刘慈欣');
     await collect.collect(book);
     await history.saveProgress(book, 12, 400);
@@ -89,18 +93,27 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
+    // 首页：最近阅读卡 + 书架横条都读同一份本地数据。
     expect(find.text('三体'), findsWidgets);
+    expect(find.text('刘慈欣'), findsWidgets);
     expect(find.text('继续阅读'), findsOneWidget);
-    expect(find.text('我的收藏'), findsOneWidget);
-    expect(find.textContaining('看到第 12 章'), findsOneWidget);
+    expect(find.textContaining('看到第 12 章'), findsWidgets);
+
+    // 切到书架（index 1）：网格显示收藏/历史并集与章节进度。
+    await tester.tap(find.text('书架').last);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.text('三体'), findsWidgets);
+    expect(find.textContaining('看到第 12 章'), findsWidgets);
   });
 
-  testWidgets('搜索历史真实落库并展示，点回填搜索框', (tester) async {
+  testWidgets('搜索页读真实搜索历史，点历史词启动本地搜索', (tester) async {
     await searchHistory.record('三体');
 
     await tester.pumpWidget(
       MaterialApp(
-        home: NovelModulePage(
+        home: NovelSearchPage(
           collect: collect,
           history: history,
           searchHistory: searchHistory,
@@ -110,12 +123,15 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
-    // 切到搜索 tab（index 2）。
-    await tester.tap(find.text('搜索').last);
+    expect(find.text('搜索历史'), findsOneWidget);
+    expect(find.text('三体'), findsWidgets);
+
+    await tester.tap(find.text('三体').first);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
-    expect(find.text('搜索历史'), findsOneWidget);
-    expect(find.text('三体'), findsWidgets);
+    // 没有本地书/书源匹配 → 明示本地无结果 + 跨源搜索未接入。
+    expect(find.textContaining('本地没有匹配'), findsOneWidget);
+    expect(await searchHistory.recent(), <String>['三体']);
   });
 }

@@ -19,6 +19,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import '../source/novel_source_importer.dart';
 import '../source/novel_source_model.dart';
 import '../source/novel_source_store.dart' show NovelSourceStorage;
+import 'novel_widgets.dart';
 
 /// 打开书源网站页。由 NovelModule 出口接到 Navigator。
 class NovelSourceManagePage extends StatefulWidget {
@@ -106,42 +107,60 @@ class _NovelSourceManagePageState extends State<NovelSourceManagePage> {
           ),
         ],
       ),
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          _buildHeader(theme),
-          if (_showWeb) Expanded(child: _buildWebView()),
-          Expanded(child: _buildSourceList()),
-        ],
+      body: NovelFillContent(
+        maxWidth: 1100,
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            _buildHeader(theme),
+            if (_showWeb) Expanded(child: _buildWebView()),
+            Expanded(child: _buildSourceList()),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildHeader(ThemeData theme) {
+    final cs = theme.colorScheme;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      padding: const EdgeInsets.only(bottom: 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          FilledButton.icon(
-            key: const Key('novel-source-open-site'),
-            onPressed: () => setState(() => _showWeb = true),
-            icon: const Icon(Icons.public),
-            label: const Text('打开书源网站'),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: <Widget>[
+              FilledButton.icon(
+                key: const Key('novel-source-open-site'),
+                onPressed: () => setState(() => _showWeb = true),
+                icon: const Icon(Icons.public),
+                label: const Text('打开书源网站'),
+              ),
+              OutlinedButton.icon(
+                key: const Key('novel-source-paste-import'),
+                onPressed: _importing ? null : _showPasteDialog,
+                icon: const Icon(Icons.link),
+                label: const Text('粘贴书源链接导入'),
+              ),
+              if (_showWeb)
+                TextButton.icon(
+                  onPressed: () => setState(() => _showWeb = false),
+                  icon: const Icon(Icons.close, size: 18),
+                  label: const Text('收起网页'),
+                ),
+            ],
           ),
           const SizedBox(height: 6),
           Text(
-            '打开网站后，点击页面里的「一键导入」，书源会自动下载并存入本应用。',
+            '打开网站后，点击页面里的「一键导入」，书源会自动下载并存入本应用；'
+            '也可以直接粘贴书源文件地址。',
             style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
+              color: cs.onSurfaceVariant,
             ),
-          ),
-          const SizedBox(height: 8),
-          OutlinedButton.icon(
-            key: const Key('novel-source-paste-import'),
-            onPressed: _importing ? null : _showPasteDialog,
-            icon: const Icon(Icons.link),
-            label: const Text('粘贴书源链接导入'),
           ),
           if (_importing)
             const Padding(
@@ -153,9 +172,7 @@ class _NovelSourceManagePageState extends State<NovelSourceManagePage> {
               padding: const EdgeInsets.only(top: 8),
               child: Text(
                 _status!,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.primary,
-                ),
+                style: theme.textTheme.bodyMedium?.copyWith(color: cs.primary),
               ),
             ),
           if (_error != null)
@@ -163,9 +180,7 @@ class _NovelSourceManagePageState extends State<NovelSourceManagePage> {
               padding: const EdgeInsets.only(top: 8),
               child: Text(
                 _error!,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.error,
-                ),
+                style: theme.textTheme.bodyMedium?.copyWith(color: cs.error),
               ),
             ),
         ],
@@ -175,88 +190,73 @@ class _NovelSourceManagePageState extends State<NovelSourceManagePage> {
 
   Widget _buildWebView() {
     final builder = widget.webViewBuilder;
-    if (builder != null) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        child: Card(
-          clipBehavior: Clip.antiAlias,
-          child: builder(context, _importLink),
-        ),
-      );
-    }
+    final child = builder != null
+        ? builder(context, _importLink)
+        : _RealSourceWebView(url: widget.siteUrl, onImportLink: _importLink);
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      child: Card(
-        clipBehavior: Clip.antiAlias,
-        child: _RealSourceWebView(
-          url: widget.siteUrl,
-          onImportLink: _importLink,
-        ),
-      ),
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Card(clipBehavior: Clip.antiAlias, child: child),
     );
   }
 
   Widget _buildSourceList() {
     if (_sources.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              Icon(
-                Icons.source_outlined,
-                size: 48,
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-              const SizedBox(height: 12),
-              const Text(
-                '还没有书源',
-                style: TextStyle(fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 6),
-              const Text(
-                '点上方「打开书源网站」，在网页里点「一键导入」即可。',
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
+      return NovelEmptyState(
+        icon: Icons.source_outlined,
+        title: '还没有书源',
+        message:
+            '点上方「打开书源网站」，在网页里点「一键导入」即可。'
+            '导入后可以在这里启停、删除书源。',
+        action: FilledButton.tonalIcon(
+          onPressed: () => setState(() => _showWeb = true),
+          icon: const Icon(Icons.public),
+          label: const Text('打开书源网站'),
         ),
       );
     }
     return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      padding: const EdgeInsets.only(bottom: 24),
       itemCount: _sources.length,
-      separatorBuilder: (_, _) => const Divider(height: 1),
+      separatorBuilder: (_, _) => const SizedBox(height: 8),
       itemBuilder: (context, index) {
         final source = _sources[index];
-        return SwitchListTile(
-          title: Text(
-            source.name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          subtitle: Text(
-            source.url,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          value: source.enabled,
-          onChanged: (value) async {
+        return NovelSourceCard(
+          source: source,
+          onToggle: (value) async {
             await widget.store.setEnabled(source.key, value);
             await _reloadSources();
           },
-          secondary: IconButton(
-            icon: const Icon(Icons.delete_outline),
+          trailing: IconButton(
             tooltip: '删除书源',
-            onPressed: () async {
-              await widget.store.delete(source.key);
-              await _reloadSources();
-            },
+            icon: const Icon(Icons.delete_outline),
+            onPressed: () => _confirmDelete(source),
           ),
         );
       },
     );
+  }
+
+  Future<void> _confirmDelete(NovelBookSource source) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('删除书源「${source.name}」？'),
+        content: const Text('只会删除本机保存的书源文件，不影响网站上的书源。'),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await widget.store.delete(source.key);
+    await _reloadSources();
   }
 
   void _showPasteDialog() {

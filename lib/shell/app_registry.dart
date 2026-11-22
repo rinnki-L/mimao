@@ -60,6 +60,7 @@ import 'package:mimao/novel/search_history_service.dart';
 import 'package:mimao/novel/source/novel_source_importer.dart';
 import 'package:mimao/novel/source/novel_source_repository.dart';
 import 'package:mimao/novel/source/novel_source_store.dart';
+import 'package:mimao/novel/stats_service.dart';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -175,6 +176,10 @@ Future<void> initAppModules({
   NovelCollectApi? novelCollect,
   NovelHistoryApi? novelHistory,
   NovelSearchHistoryApi? novelSearchHistory,
+
+  /// 阅读统计/模块偏好注入缝；生产由 NovelStatsService 同时实现两者。
+  NovelStatsApi? novelStats,
+  NovelPrefsApi? novelPrefs,
 
   /// 书源导入缝：测试注入整门面/假抓取器，生产走惰性默认目录 + dio。
   /// 注册期零 I/O——用户不点书源功能就不碰 path_provider。
@@ -477,6 +482,15 @@ Future<void> initAppModules({
       final historyApi = novelHistory ?? NovelHistoryService(db, library);
       final searchHistoryApi =
           novelSearchHistory ?? NovelSearchHistoryService(db);
+      // 阅读统计与模块偏好：同一个 NovelStatsService（时长按天表 + 模块 kv）。
+      final statsApi = novelStats ?? NovelStatsService(db);
+      NovelPrefsApi? prefsApi = novelPrefs;
+      if (prefsApi == null) {
+        final candidate = statsApi;
+        if (candidate is NovelPrefsApi) {
+          prefsApi = candidate as NovelPrefsApi;
+        }
+      }
 
       // 书源导入：测试注入整门面；生产用惰性仓库（首个真实读写才解析
       // path_provider，装配期零 I/O）+ dio 抓取器。
@@ -490,6 +504,8 @@ Future<void> initAppModules({
         collect: collectApi,
         history: historyApi,
         searchHistory: searchHistoryApi,
+        stats: statsApi,
+        prefs: prefsApi,
         sourceImporter: sourceImporter,
       );
     }

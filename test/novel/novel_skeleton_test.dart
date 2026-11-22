@@ -1,9 +1,9 @@
 // ignore_for_file: deprecated_member_use — Flutter 3.50 弃用整个 material.dart，
 // 与 test/novel/contract_test.dart 同款说明。
-/// 小说导航骨架测试：五 tab、typed 路由、搜索提交与壳层注册。
+/// 小说导航壳测试：五入口（首页/书架/发现/订阅/我的）、宽窄窗导航形态、
+/// typed 路由与参数、占位屏。
 ///
-/// 只测结构/导航，不碰抓取/解析/IO：占位屏渲染、tab 切换、路由 push 参数、
-/// registry 装配后 moduleFor(MediaType.novel) 非空。
+/// 只测结构与导航，不碰抓取/解析/IO；本地数据页的渲染由 wiring 测试覆盖。
 library;
 
 import 'package:flutter/material.dart';
@@ -12,45 +12,65 @@ import 'package:mimao/novel/pages/novel_module_page.dart';
 import 'package:mimao/novel/pages/novel_routes.dart';
 
 void main() {
-  testWidgets('导航骨架：五 tab 齐全，默认显示书架', (tester) async {
+  setUp(resetNovelRoutePagesForTest);
+
+  testWidgets('导航骨架：五入口齐全，默认首页', (tester) async {
     await tester.pumpWidget(
       const MaterialApp(home: NovelModulePage(embedded: true)),
     );
     await tester.pumpAndSettle();
 
     final bar = tester.widget<NavigationBar>(find.byType(NavigationBar));
-    for (final label in <String>['书架', '发现', '搜索', '书源', '设置']) {
+    for (final label in <String>['首页', '书架', '发现', '订阅', '我的']) {
       expect(find.text(label), findsWidgets);
     }
     expect(bar.selectedIndex, 0);
-    expect(find.text('已收藏的书籍将在这里列出。\n书架与本地缓存随数据层切片接入。'), findsOneWidget);
+    expect(find.text('最近阅读'), findsOneWidget);
+    expect(find.text('还没有最近阅读'), findsOneWidget);
+    expect(find.text('今日阅读目标'), findsWidgets);
   });
 
-  testWidgets('tab 切换：点「书源」显示书源占位与导入按钮', (tester) async {
+  testWidgets('宽窗用左侧 NavigationRail，窄窗用底部 NavigationBar', (tester) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     await tester.pumpWidget(
       const MaterialApp(home: NovelModulePage(embedded: true)),
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('书源'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('书源'), findsWidgets);
-    expect(find.byKey(const Key('novel-source-import')), findsOneWidget);
-    final bar = tester.widget<NavigationBar>(find.byType(NavigationBar));
-    expect(bar.selectedIndex, 3);
+    expect(find.byType(NavigationRail), findsOneWidget);
+    expect(find.byType(NavigationBar), findsNothing);
+    for (final label in <String>['首页', '书架', '发现', '订阅', '我的']) {
+      expect(find.text(label), findsWidgets);
+    }
   });
 
-  testWidgets('typed 路由：书源导入按钮经 onOpenRoute 打开 sourceManage 路由', (
-    tester,
-  ) async {
+  testWidgets('tab 切换：点到「订阅」显示书源仓库未接线空态', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(home: NovelModulePage(embedded: true)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('订阅').last);
+    await tester.pumpAndSettle();
+
+    final bar = tester.widget<NavigationBar>(find.byType(NavigationBar));
+    expect(bar.selectedIndex, 3);
+    expect(find.text('订阅'), findsWidgets);
+    expect(find.text('书源仓库未接线'), findsOneWidget);
+  });
+
+  testWidgets('typed 路由：首页「导入书源」经 onOpenRoute 打开 sourceManage', (tester) async {
     NovelRoute? opened;
     Map<String, Object?>? openedArgs;
     await tester.pumpWidget(
       MaterialApp(
         home: NovelModulePage(
           embedded: true,
-          onOpenRoute: (route, {args = const <String, Object?>{}}) {
+          onOpenRoute: (route, {args = const <String, Object?>{}}) async {
             opened = route;
             openedArgs = args;
           },
@@ -59,39 +79,31 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('书源'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('novel-source-import')));
+    await tester.tap(find.byKey(const Key('novel-home-import-source')));
     await tester.pumpAndSettle();
 
     expect(opened, NovelRoute.sourceManage);
     expect(openedArgs, isEmpty);
   });
 
-  testWidgets('搜索：提交关键词经 onOpenRoute 打开 search 路由并透传 keyword', (tester) async {
+  testWidgets('首页搜索钮经 onOpenRoute 打开 search 路由', (tester) async {
     NovelRoute? opened;
-    Map<String, Object?>? openedArgs;
     await tester.pumpWidget(
       MaterialApp(
         home: NovelModulePage(
           embedded: true,
-          onOpenRoute: (route, {args = const <String, Object?>{}}) {
+          onOpenRoute: (route, {args = const <String, Object?>{}}) async {
             opened = route;
-            openedArgs = args;
           },
         ),
       ),
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('搜索'));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(SearchBar), '三体');
-    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.tap(find.byTooltip('搜索').first);
     await tester.pumpAndSettle();
 
     expect(opened, NovelRoute.search);
-    expect(openedArgs, <String, Object?>{'keyword': '三体'});
   });
 
   test('typed 路由表：routeName/label 稳定且唯一', () {
@@ -99,6 +111,7 @@ void main() {
     expect(names.toSet().length, names.length);
     expect(NovelRoute.read.routeName, 'novel/read');
     expect(NovelRoute.toc.label, '目录');
+    expect(NovelRoute.history.routeName, 'novel/history');
   });
 
   testWidgets('pushNovelRoute：路由名进 RouteSettings，占位屏展示参数', (tester) async {
@@ -119,7 +132,6 @@ void main() {
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
 
-    // 占位屏 AppBar 标题 + 路由名 + 参数 chip 均可见。
     expect(find.text('书籍详情'), findsWidgets);
     expect(find.textContaining('novel/book-info'), findsOneWidget);
     expect(find.textContaining('bookId: b1'), findsOneWidget);

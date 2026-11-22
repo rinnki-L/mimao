@@ -17,6 +17,7 @@ enum NovelRoute {
   search('novel/search', '搜索', Icons.search),
   sourceManage('novel/source-manage', '书源管理', Icons.source),
   sourceEdit('novel/source-edit', '书源编辑', Icons.edit_note),
+  history('novel/history', '阅读记录', Icons.history),
   settings('novel/settings', '设置', Icons.settings);
 
   const NovelRoute(this.routeName, this.label, this.icon);
@@ -32,8 +33,11 @@ enum NovelRoute {
 }
 
 /// 模块内部打开 typed 路由的统一回调签名。
+///
+/// 返回 Future：调用方（书架/首页/详情）据此在路由返回后重读本地数据，
+/// 避免「取消收藏后返回，卡片还在」。
 typedef NovelRouteOpener =
-    void Function(NovelRoute route, {Map<String, Object?> args});
+    Future<void> Function(NovelRoute route, {Map<String, Object?> args});
 
 /// typed 路由 → 真实页面构造器注册表。
 ///
@@ -74,6 +78,17 @@ Future<T?> pushNovelRoute<T extends Object?>(
           pageBuilder?.call(args) ?? NovelRoutePage(route: route, args: args),
     ),
   );
+}
+
+/// 页面内导航的统一入口：注入了 opener 就走它（便于测试观察），否则本地 push。
+Future<void> openNovelRoute(
+  BuildContext context,
+  NovelRouteOpener? opener,
+  NovelRoute route, {
+  Map<String, Object?> args = const <String, Object?>{},
+}) {
+  if (opener != null) return opener(route, args: args);
+  return pushNovelRoute<void>(context, route, args: args);
 }
 
 /// 统一路由占位屏：显示路由身份与说明，并预留参数展示位。

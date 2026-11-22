@@ -19,6 +19,8 @@ void main() {
     expect(module.collect, isNull);
     expect(module.history, isNull);
     expect(module.searchHistory, isNull);
+    expect(module.stats, isNull);
+    expect(module.prefs, isNull);
     expect(module.sourceStore, isNull);
     // 显式给全部字段注入值也不抛。
     expect(NovelModule(sourceStore: Object()), isA<NovelModule>());
@@ -42,20 +44,20 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    // 首页默认「书架」tab；五 tab 的 NavigationBar 已就位。
+    // 默认「首页」；窄窗仍用五入口 NavigationBar。
     expect(find.byType(NavigationBar), findsOneWidget);
-    expect(find.text('书架'), findsWidgets);
+    expect(find.text('首页'), findsWidgets);
+    expect(find.text('最近阅读'), findsOneWidget);
 
-    // buildSettings 是设置占位页，套一层 Scaffold 才能作为 home 渲染。
+    // buildSettings 自带 Scaffold（设置页），直接作为 home 渲染。
     await tester.pumpWidget(
       MaterialApp(
-        home: Builder(
-          builder: (context) => Scaffold(body: module.buildSettings(context)),
-        ),
+        home: Builder(builder: (context) => module.buildSettings(context)),
       ),
     );
     await tester.pumpAndSettle();
     expect(find.byType(Scaffold), findsOneWidget);
+    expect(find.text('小说设置'), findsOneWidget);
   });
 
   test('7 novelProgressText 三种输入：无进度/读到/超 100% 夹取', () {
