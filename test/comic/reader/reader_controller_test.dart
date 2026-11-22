@@ -99,15 +99,15 @@ void main() {
   });
 
   test('模式切换：paged ↔ continuous，幂等且不写进度', () async {
-    expect(controller.mode, ReadingMode.paged);
+    expect(controller.mode, ReaderMode.pagedLtr);
     final before = recorder.events.length;
 
     controller.toggleMode();
-    expect(controller.mode, ReadingMode.continuous);
+    expect(controller.mode, ReaderMode.continuousTtb);
     controller.toggleMode();
-    expect(controller.mode, ReadingMode.paged);
-    controller.setMode(ReadingMode.paged); // 幂等
-    expect(controller.mode, ReadingMode.paged);
+    expect(controller.mode, ReaderMode.pagedLtr);
+    controller.setMode(ReaderMode.pagedLtr); // 幂等
+    expect(controller.mode, ReaderMode.pagedLtr);
 
     expect(recorder.events.length, before, reason: '切模式不是进度，不触发持久化');
   });
@@ -139,7 +139,7 @@ void main() {
     expect(env.loaded.length, loadedBefore);
 
     // 容量只有 3：再加载一张新图，最旧的被淘汰。
-    await env.cache.load('extra-1.png');
+    await env.cache.load(ReaderImage.plain('extra-1.png'));
     expect(env.cache.memoryLength, 3);
     expect(env.cache.evictions, 1);
     expect(env.cache.isInMemory('p1-1.png'), isFalse, reason: '最旧图应被淘汰');
@@ -148,7 +148,7 @@ void main() {
   test('空章：currentImageUrl 为 null，loadCurrentImage 报错且不崩溃', () async {
     final empty = ReaderController(
       chapters: const <ComicChapter>[
-        ComicChapter(title: '空章', imageUrls: <String>[]),
+        ComicChapter(title: '空章', images: <ReaderImage>[]),
       ],
       imageCache: env.cache,
     );

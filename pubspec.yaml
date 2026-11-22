@@ -57,6 +57,11 @@ dependencies:
   html: ^0.15.7
   crypto: ^3.0.8
 
+  # 漫画阅读器：photo_view 出分页模式的捏合/双击缩放；scrollable_positioned_list
+  # 出连续滚动的"当前可见页"跟踪与按页跳转（进度恢复）。都是纯 Dart 包。
+  photo_view: ^0.15.0
+  scrollable_positioned_list: ^0.3.8
+
   # M4 骨架 · 音乐 API 客户端：酷狗概念版信封协议需要 AES-128-CBC（PKCS7）与
   # RSA PKCS#1 v1.5（点对点翻译 EchoMusicNext crates/echo-api util/crypto.rs；
   # 纯 Dart 实现，无平台插件，CI 安全）。MD5 走上面的 crypto 包。

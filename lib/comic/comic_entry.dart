@@ -255,7 +255,10 @@ class ComicModule implements AppModule {
               title: localChapter.title,
               // 用原章节序号作 id：空章被跳过时也不会错位，且能写进历史。
               chapterId: localChapterUrl(localChapter.index),
-              imageUrls: localChapter.imageUrls,
+              images: <reader.ReaderImage>[
+                for (final url in localChapter.imageUrls)
+                  reader.ReaderImage.plain(url),
+              ],
             ),
           );
         }
@@ -268,7 +271,9 @@ class ComicModule implements AppModule {
             reader.ComicChapter(
               title: dc.title,
               chapterId: ep?.episodeId ?? '',
-              imageUrls: urls,
+              images: <reader.ReaderImage>[
+                for (final url in urls) reader.ReaderImage.plain(url),
+              ],
             ),
           );
         }

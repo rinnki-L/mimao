@@ -22,7 +22,7 @@ final Uint8List kBadgePng = base64Decode(
 
 const ComicRef kRef = ComicRef(id: 'local:sample', sourceName: 'local');
 
-/// 假 loader：按 URL 返回字节；带 errorUrls 时对这些地址抛异常（失败占位测试）。
+/// 假 loader：按地址返回字节；带 errorUrls 时对这些地址抛异常（失败占位测试）。
 ImageByteLoader fakeLoader({
   Uint8List? bytes,
   Set<String> errorUrls = const <String>{},
@@ -30,12 +30,12 @@ ImageByteLoader fakeLoader({
   void Function(String)? onLoad,
 }) {
   final effectiveBytes = bytes ?? kBadgePng;
-  return (url) async {
-    onLoad?.call(url);
-    if (errorUrls.contains(url)) {
-      throw StateError('加载失败：$url');
+  return (ReaderImage image) async {
+    onLoad?.call(image.url);
+    if (errorUrls.contains(image.url)) {
+      throw StateError('加载失败：${image.url}');
     }
-    if (pendingUrls.contains(url)) {
+    if (pendingUrls.contains(image.url)) {
       // 永不完成：让 widget 测试能稳定观察加载态。
       return Completer<Uint8List>().future;
     }
@@ -43,15 +43,23 @@ ImageByteLoader fakeLoader({
   };
 }
 
-/// 两章、每章三页的测试数据。
+/// 两章、每章三页的测试数据（全 const；plain 工厂不能进 const 上下文）。
 List<ComicChapter> sampleChapters() => const <ComicChapter>[
   ComicChapter(
     title: '第 1 章',
-    imageUrls: <String>['p1-1.png', 'p1-2.png', 'p1-3.png'],
+    images: <ReaderImage>[
+      ReaderImage('p1-1.png'),
+      ReaderImage('p1-2.png'),
+      ReaderImage('p1-3.png'),
+    ],
   ),
   ComicChapter(
     title: '第 2 章',
-    imageUrls: <String>['p2-1.png', 'p2-2.png', 'p2-3.png'],
+    images: <ReaderImage>[
+      ReaderImage('p2-1.png'),
+      ReaderImage('p2-2.png'),
+      ReaderImage('p2-3.png'),
+    ],
   ),
 ];
 
@@ -69,6 +77,9 @@ class ReaderTestEnv {
     Set<String> pendingUrls = const <String>{},
     int maxMemoryEntries = 24,
     int maxDiskEntries = 1000,
+    // 默认关重试：widget 测试跑在 FakeAsync 里，缓存层重试的 Future.delayed
+    // 会在测试结束时留下 pending timer，触发 binding 不变量断言。
+    int maxRetries = 0,
   }) {
     final loaded = <String>[];
     final cache = ReaderImageCache(
@@ -80,6 +91,7 @@ class ReaderTestEnv {
       ),
       disk: MemoryByteStore(maxEntries: maxDiskEntries),
       maxMemoryEntries: maxMemoryEntries,
+      maxRetries: maxRetries,
     );
     final db = AppDb.forTesting(NativeDatabase.memory());
     return ReaderTestEnv._(db, LibraryRepository(db), cache, loaded);

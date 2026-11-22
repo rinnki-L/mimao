@@ -26,7 +26,7 @@ void main() {
   Future<void> pumpReader(
     WidgetTester tester, {
     Set<String> errorUrls = const <String>{},
-    ReadingMode mode = ReadingMode.paged,
+    ReaderMode mode = ReaderMode.pagedLtr,
   }) async {
     if (errorUrls.isNotEmpty) {
       await env.close();
@@ -151,7 +151,7 @@ void main() {
         ComicReaderPage(
           title: '空章测试',
           chapters: const <ComicChapter>[
-            ComicChapter(title: '空章', imageUrls: <String>[]),
+            ComicChapter(title: '空章', images: <ReaderImage>[]),
           ],
           imageCache: env.cache,
         ),

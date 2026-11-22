@@ -1,14 +1,18 @@
-// 图片缓存：内存 LRU + 磁盘缓存，两侧都限量。
+// 图片缓存：内存 LRU + 磁盘缓存，两侧都限量；瞬时失败自动重试。
 //
 // 设计取舍：
-// - 图片字节的"取字节"动作抽象成 [ImageByteLoader]，默认实现支持本地文件与
-//   http(s) URL；测试注入假 loader 即可，不碰网络也不碰 A′ 源引擎。
+// - 图片字节的"取字节"动作抽象成 [ImageByteLoader]，入参是 [ReaderImage]
+//   （地址 + per-image 请求头）；默认实现支持本地文件与 http(s) URL。测试
+//   注入假 loader 即可，不碰网络也不碰 A′ 源引擎。
 // - 磁盘侧抽象成 [ByteStore]；生产用 [DiskByteStore]（dart:io 文件），测试用
 //   [MemoryByteStore]，从而让"命中/淘汰"变成确定性的纯内存断言。
 // - 缓存键用稳定的 FNV-1a 十六进制串，不用 String.hashCode（跨进程不稳定，
-//   磁盘文件名换次运行就对不上）。
+//   磁盘文件名换次运行就对不上）。键只由 URL 决定——同一图换 headers 不换键。
+// - 网络瞬时错误（5xx / 连接失败）指数退避重试；403/404/410 这类确定性失败
+//   直接放弃，避免给被拒的请求加倍流量。
 
 import 'dart:collection';
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -16,8 +20,11 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart'
     show consolidateHttpClientResponseBytes;
 
-/// 取一张图片原始字节。url 可以是本地文件路径或 http(s) 地址。
-typedef ImageByteLoader = Future<Uint8List> Function(String url);
+import 'reader_models.dart';
+
+/// 取一张图原始字节。可以是本地文件路径或 http(s) 地址；headers 非空时
+/// 直通为请求头（源 `comic.onImageLoad` 钩子产物，常为 Referer/Cookie）。
+typedef ImageByteLoader = Future<Uint8List> Function(ReaderImage image);
 
 /// 稳定的 FNV-1a（63 位，避免负数），输出 16 位十六进制串，用作磁盘文件名。
 String cacheKey(String url) {
@@ -33,15 +40,15 @@ String cacheKey(String url) {
 /// 默认字节加载器：本地路径/`file://` 走 [File]，http(s) 走 [HttpClient]。
 /// 只在真正需要取图时调用，命中缓存时不会触达它。
 ///
-/// 图片 URL 来自 Venera 源的 `images: string[]`（纯直链，无 per-image headers），
-/// 但不少站点对空 UA / 非同源 Referer 的图片请求直接 403。这里补一个桌面
-/// Chrome UA，并以图片 URL 同源作为 Referer——轻量兜底，不改 ComicImageRef/
-/// ImageByteLoader 契约（headers 字段在 Venera 契约下恒为空）。
+/// 不少站点对空 UA / 非同源 Referer 的图片请求直接 403：这里补桌面 Chrome
+/// UA + 图片 URL 同源 Referer 兜底；源钩子给的 [ReaderImage.headers] 在
+/// 兜底之上覆盖（同名字段以源为准）。
 const String _imageDefaultUserAgent =
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
     '(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
-Future<Uint8List> defaultImageByteLoader(String url) async {
+Future<Uint8List> defaultImageByteLoader(ReaderImage image) async {
+  final url = image.url;
   final uri = Uri.tryParse(url);
   if (uri != null &&
       uri.isAbsolute &&
@@ -51,6 +58,7 @@ Future<Uint8List> defaultImageByteLoader(String url) async {
       final request = await client.getUrl(uri);
       request.headers.set('User-Agent', _imageDefaultUserAgent);
       request.headers.set('Referer', '${uri.scheme}://${uri.authority}/');
+      image.headers.forEach(request.headers.set);
       final response = await request.close();
       if (response.statusCode != 200) {
         throw HttpException('HTTP ${response.statusCode}', uri: uri);
@@ -62,6 +70,13 @@ Future<Uint8List> defaultImageByteLoader(String url) async {
   }
   final path = uri != null && uri.scheme == 'file' ? uri.toFilePath() : url;
   return File(path).readAsBytes();
+}
+
+/// 确定性失败（4xx 客户端错）：重试也不会变好，直接放弃。
+/// 判 [HttpException] 的消息文本（`HTTP <code>`），其他异常一律视为瞬时。
+bool _isPermanentFailure(Object error) {
+  final message = error.toString();
+  return RegExp(r'HTTP 4\d\d').hasMatch(message);
 }
 
 /// 磁盘（或测试用的内存替身）字节仓库。
@@ -160,7 +175,7 @@ class MemoryByteStore implements ByteStore {
   Future<void> clear() async => _map.clear();
 }
 
-/// 图片缓存管理器：先查内存 LRU，再查磁盘，最后才走 loader。
+/// 图片缓存管理器：先查内存 LRU，再查磁盘，最后才走 loader（瞬时失败重试）。
 ///
 /// 命中/未命中/淘汰都记数，便于单测与手动排查容量行为。
 class ReaderImageCache {
@@ -169,12 +184,18 @@ class ReaderImageCache {
     ByteStore? disk,
     this.maxMemoryBytes = 48 * 1024 * 1024,
     this.maxMemoryEntries = 24,
+    this.maxRetries = 2,
+    this.retryDelay = const Duration(milliseconds: 300),
   }) : disk = disk ?? MemoryByteStore();
 
   final ImageByteLoader loader;
   final ByteStore disk;
   final int maxMemoryBytes;
   final int maxMemoryEntries;
+
+  /// 瞬时失败的重试次数（0 = 不重试）与首次退避时长（逐次翻倍）。
+  final int maxRetries;
+  final Duration retryDelay;
 
   /// key → 字节；LinkedHashMap 的插入顺序即 LRU 顺序。
   final LinkedHashMap<String, Uint8List> _memory =
@@ -191,8 +212,9 @@ class ReaderImageCache {
   bool isInMemory(String url) => _memory.containsKey(cacheKey(url));
 
   /// 取图：内存命中 → 磁盘命中 → loader 拉取并回填两级缓存。
-  Future<Uint8List> load(String url) {
-    final key = cacheKey(url);
+  /// 同图并发请求合并成一个 Future（in-flight 去重）。
+  Future<Uint8List> load(ReaderImage image) {
+    final key = cacheKey(image.url);
     final cached = _memory.remove(key);
     if (cached != null) {
       _memory[key] = cached;
@@ -202,12 +224,12 @@ class ReaderImageCache {
     final pending = _inflight[key];
     if (pending != null) return pending;
 
-    final future = _fetch(url, key);
+    final future = _fetch(image, key);
     _inflight[key] = future;
     return future.whenComplete(() => _inflight.remove(key));
   }
 
-  Future<Uint8List> _fetch(String url, String key) async {
+  Future<Uint8List> _fetch(ReaderImage image, String key) async {
     final fromDisk = await disk.read(key);
     if (fromDisk != null) {
       hits++;
@@ -216,9 +238,9 @@ class ReaderImageCache {
     }
 
     misses++;
-    final bytes = await loader(url);
+    final bytes = await _loadWithRetry(image);
     if (bytes.isEmpty) {
-      throw StateError('图片字节为空：$url');
+      throw StateError('图片字节为空：${image.url}');
     }
     try {
       await disk.write(key, bytes);
@@ -227,6 +249,22 @@ class ReaderImageCache {
     }
     _putMemory(key, bytes);
     return bytes;
+  }
+
+  /// loader 拉取 + 瞬时失败指数退避重试；4xx 与空字节不重试。
+  Future<Uint8List> _loadWithRetry(ReaderImage image) async {
+    var delay = retryDelay;
+    var attempt = 0;
+    while (true) {
+      try {
+        return await loader(image);
+      } on Object catch (error) {
+        if (attempt >= maxRetries || _isPermanentFailure(error)) rethrow;
+        attempt++;
+        await Future<void>.delayed(delay);
+        delay *= 2;
+      }
+    }
   }
 
   void _putMemory(String key, Uint8List bytes) {
