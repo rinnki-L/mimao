@@ -617,9 +617,9 @@ class _MusicSidebar extends StatelessWidget {
     if (!wide) iconPart = Tooltip(message: label, child: iconPart);
     return Padding(
       key: Key(itemKey),
-      // 宽窗 20：药丸底不贴分隔线，且与歌单区封面列（8+12）对齐；窄窗 84px
-      // 保持 12，否则 56 宽的指示垫放不下（内宽只剩 44）。
-      padding: EdgeInsets.symmetric(horizontal: wide ? 20 : 12),
+      // 悬停/选中的高亮药丸区域保持从 12 起（贴住分隔线的观感不变）；
+      // 宽窗下内容在药丸内部再缩进 8（见 Row 前 SizedBox），图标垫落到 20。
+      padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Material(
         color: cs.surface,
         shape: RoundedRectangleBorder(borderRadius: MimaoShapes.pill),
@@ -634,6 +634,9 @@ class _MusicSidebar extends StatelessWidget {
                   ? MainAxisAlignment.start
                   : MainAxisAlignment.center,
               children: <Widget>[
+                // 宽窗：内容相对高亮药丸整体右缩进 8——图标垫落到 x=20
+                // （与歌单区封面列对齐），高亮区左缘不动。
+                if (wide) const SizedBox(width: 8),
                 // M3 rail 式选中指示垫：药丸底色只垫图标，文字留在外面。
                 AnimatedContainer(
                   width: 56,
