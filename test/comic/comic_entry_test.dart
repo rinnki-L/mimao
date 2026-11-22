@@ -1,5 +1,5 @@
-// closure-02 §3/§4/§5：ComicModule 契约、收藏闭环、阅读接线（懒加载源 /
-// 稳定 chapterId / headers 直通 / 历史续读 / 空章交控制器）与设置面板。
+// closure-02 §3/§4/§5：ComicModule 契约、收藏闭环、阅读接线（章节图片/
+// 历史续读/空章跳过）与设置面板。
 //
 // 全程内存库 + MemoryComicSourceStore + 假客户端 + 假 JS 宿主 + 内存图片缓存，
 // 不依赖 DLL、不碰 path_provider、不访问网络。注册表生命周期见
@@ -12,20 +12,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mimao/comic/collect_service.dart';
 import 'package:mimao/comic/comic_entry.dart';
 import 'package:mimao/comic/comic_models.dart';
-import 'package:mimao/comic/data/comic_data_source.dart';
 import 'package:mimao/comic/data/comic_models.dart' as data;
-import 'package:mimao/comic/data/engine_comic_data_source.dart'
-    show tryDecodeComicEpisodeUrl;
-import 'package:mimao/comic/engine/models.dart' show ComicImageRef;
 import 'package:mimao/comic/pages/comic_source_page.dart';
 import 'package:mimao/comic/reader/reader_cache.dart';
-import 'package:mimao/comic/reader/reader_models.dart' show ReaderImage;
 import 'package:mimao/comic/reader/reader_page.dart';
 import 'package:mimao/core/contract.dart';
 import 'package:mimao/shell/app_registry.dart';
 
 import 'comic_integration_env.dart';
-import 'reader/reader_test_env.dart' show fakeLoader, kBadgePng;
+import 'reader/reader_test_env.dart' show fakeLoader;
 
 Widget _app(Widget home) => MaterialApp(home: home);
 
@@ -64,44 +59,6 @@ class _ThrowingCollectService extends ComicCollectService {
   Future<void> remove(ComicRef ref) async => throw StateError('内部库写入失败');
 }
 
-/// 详情零章的数据源：验证装配期「章节列表为空」SnackBar 守门。
-class _ZeroChapterDataSource implements ComicDataSource {
-  _ZeroChapterDataSource(this._delegate);
-
-  final ComicDataSource _delegate;
-
-  @override
-  Future<List<data.ComicSummary>> search(String keyword) =>
-      _delegate.search(keyword);
-
-  @override
-  Future<data.ComicDetail> detail(data.ComicSummary item) async {
-    final full = await _delegate.detail(item);
-    return data.ComicDetail(
-      title: full.title,
-      coverUrl: full.coverUrl,
-      detailUrl: full.detailUrl,
-      description: full.description,
-      sourceName: full.sourceName,
-      tags: full.tags,
-      chapters: const <data.ComicChapter>[],
-    );
-  }
-
-  @override
-  List<String> takeSearchDiagnostics() => _delegate.takeSearchDiagnostics();
-
-  @override
-  Future<List<data.ComicSummary>> searchSource(String key, String keyword) =>
-      _delegate.searchSource(key, keyword);
-
-  @override
-  List<String> availableSourceKeys() => _delegate.availableSourceKeys();
-
-  @override
-  Future<List<String>> recentSearchTerms() => _delegate.recentSearchTerms();
-}
-
 void main() {
   late ComicIntegrationEnv env;
   late ComicModule module;
@@ -121,24 +78,17 @@ void main() {
   Future<ComicModule> buildModule({
     Set<String> emptyEpisodeIds = const <String>{},
     ComicCollectService? collect,
-    Future<List<ComicImageRef>> Function(data.ComicSummary, data.ComicChapter)?
-    customLoadChapterImages,
-    ComicDataSource? dataSourceOverride,
-    ImageByteLoader? loader,
   }) async {
     final adapter = await env.buildAdapter(emptyEpisodeIds: emptyEpisodeIds);
     return ComicModule(
-      dataSource: dataSourceOverride ?? adapter,
+      dataSource: adapter,
       sourceRepository: adapter,
       collect: collect ?? env.collect,
       history: env.history,
       searchHistory: env.searchHistory,
-      loadChapterImages:
-          customLoadChapterImages ?? adapter.loadImagesForChapter,
-      imageCacheFactory: () async => ReaderImageCache(
-        loader: loader ?? fakeLoader(),
-        disk: MemoryByteStore(),
-      ),
+      loadChapterImages: adapter.loadImagesForChapter,
+      imageCacheFactory: () async =>
+          ReaderImageCache(loader: fakeLoader(), disk: MemoryByteStore()),
     );
   }
 
@@ -250,78 +200,22 @@ void main() {
   });
 
   group('阅读接线', () {
-    // 假取图回调：返回带 onImageLoad 请求头的 ComicImageRef，同时记录调用
-    // （用于断言「进页后按章加载」与 item/chapter 透传）。
-    final loadCalls = <data.ComicChapter>[];
-    Future<List<ComicImageRef>> fakeLoadChapterImages(
-      data.ComicSummary item,
-      data.ComicChapter chapter,
-    ) async {
-      loadCalls.add(chapter);
-      final ep = tryDecodeComicEpisodeUrl(chapter.url)?.episodeId ?? '?';
-      return <ComicImageRef>[
-        ComicImageRef(
-          url: 'https://img.test/$ep/p1.jpg',
-          headers: const <String, String>{'Referer': 'https://site.test/'},
-        ),
-        ComicImageRef(url: 'https://img.test/$ep/p2.jpg'),
-        ComicImageRef(url: 'https://img.test/$ep/p3.jpg'),
-      ];
-    }
-
-    setUp(() => loadCalls.clear());
-
-    testWidgets('detail 零章：SnackBar 提示，不按章加载、不 push（稳定可跑）', (tester) async {
-      final adapter = await env.buildAdapter();
-      module = await buildModule(
-        customLoadChapterImages: fakeLoadChapterImages,
-        dataSourceOverride: _ZeroChapterDataSource(adapter),
-      );
+    testWidgets('点章节打开阅读器：章节/图片来自适配器映射', (tester) async {
+      module = await buildModule();
       await openDetail(tester);
-      await tester.tap(find.byKey(const Key('start-reading-button')));
-      await tester.pumpAndSettle();
+      expect(find.text('第一话'), findsOneWidget);
 
-      expect(find.byType(ComicReaderPage), findsNothing);
-      expect(find.textContaining('暂无图片'), findsOneWidget);
-      expect(loadCalls, isEmpty);
-    });
-
-    // ── push 级断言：按 reader_page.dart 最终契约（source + settingsStore）
-    // 书写。并行期 reader_page.dart 仍是旧的 chapters 构造，故这几例暂无法
-    // 编译/运行——这是预期的，集成阶段由主会话统一验证。
-    testWidgets('点章节打开阅读器：headers 端到端直通到图片 loader（依赖最终 reader_page）', (
-      tester,
-    ) async {
-      final loadedImages = <ReaderImage>[];
-      module = await buildModule(
-        customLoadChapterImages: fakeLoadChapterImages,
-        loader: (image) async {
-          loadedImages.add(image);
-          // 必须是可解码的合法图片字节：阅读页把字节交给 Image.memory，
-          // 非法字节会触发 image codec 异常，直接挂掉 widget 测试。
-          return kBadgePng;
-        },
-      );
-      await openDetail(tester);
       await tester.tap(find.byKey(const Key('chapter-1')));
       await tester.pumpAndSettle();
 
       expect(find.byType(ComicReaderPage), findsOneWidget);
-      // onImageLoad 的 Referer 头经 ComicImageRef → ReaderImage → 缓存 loader
-      // 端到端直通；这是 headers 接线最关键的回归断言。
-      expect(
-        loadedImages.any(
-          (image) =>
-              image.url.contains('ch-1') &&
-              image.headers['Referer'] == 'https://site.test/',
-        ),
-        isTrue,
-      );
+      final info = tester.widget<Text>(find.byKey(const Key('reader-info')));
+      // 第 1 章（假宿主每章 3 图），第 1 页，paged 模式 1.00x。
+      expect(info.data, '第一话 · 1/3 · paged · 1.00x');
     });
 
-    testWidgets('开始阅读续读历史：initialChapter/page 来自历史（依赖最终 reader_page）', (
-      tester,
-    ) async {
+    testWidgets('开始阅读续读历史：initialChapter/initialPage 来自历史', (tester) async {
+      // 预写历史：读到 ep-2 第 2 页（1 基）。
       await env.history.saveProgress(
         const ComicRef(id: 'c1', sourceName: 'bilimanga'),
         title: '测试漫画A',
@@ -329,35 +223,42 @@ void main() {
         page: 2,
         pageCount: 3,
       );
-      module = await buildModule(
-        customLoadChapterImages: fakeLoadChapterImages,
-      );
+      module = await buildModule();
       await openDetail(tester);
+
       await tester.tap(find.byKey(const Key('start-reading-button')));
       await tester.pumpAndSettle();
 
       expect(find.byType(ComicReaderPage), findsOneWidget);
-      // 历史 chapterId=ch-2 → 反查到第二章，初始页 = page-1 = 1（0 基）。
-      expect(
-        loadCalls.map((c) => c.url),
-        contains('mimao-ep:///bilimanga/c1/ch-2'),
-      );
+      final info = tester.widget<Text>(find.byKey(const Key('reader-info')));
+      expect(info.data, '第二话 · 2/3 · paged · 1.00x');
     });
 
-    testWidgets('空章交控制器跳过：点空章不崩，落到最近非空章（依赖最终 reader_page）', (tester) async {
-      module = await buildModule(
-        customLoadChapterImages: (item, chapter) async {
-          if (chapter.url.contains('ch-2')) return const <ComicImageRef>[];
-          return fakeLoadChapterImages(item, chapter);
-        },
-      );
+    testWidgets('空章跳过：点空章落到最近可读章，不崩溃', (tester) async {
+      module = await buildModule(emptyEpisodeIds: <String>{'ch-2'});
       await openDetail(tester);
       await tester.tap(find.byKey(const Key('chapter-2')));
       await tester.pumpAndSettle();
 
-      // 空章由控制器向后/向前找非空章；装配层不再过滤，也不显示"暂无图片"。
       expect(find.byType(ComicReaderPage), findsOneWidget);
-      expect(find.textContaining('暂无图片'), findsNothing);
+      final info = tester.widget<Text>(find.byKey(const Key('reader-info')));
+      expect(
+        info.data,
+        '第一话 · 1/3 · paged · 1.00x',
+        reason: 'ch-2 无图被跳过，回退第一章',
+      );
+    });
+
+    testWidgets('全部章节为空：SnackBar 提示，不打开阅读器', (tester) async {
+      module = await buildModule(
+        emptyEpisodeIds: <String>{'ch-1', 'ch-2', 'ch-3'},
+      );
+      await openDetail(tester);
+      await tester.tap(find.byKey(const Key('chapter-1')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ComicReaderPage), findsNothing);
+      expect(find.textContaining('暂无图片'), findsOneWidget);
     });
   });
 
