@@ -30,7 +30,7 @@ void main() {
     expect(find.text('今日阅读目标'), findsWidgets);
   });
 
-  testWidgets('宽窗用左侧 NavigationRail，窄窗用底部 NavigationBar', (tester) async {
+  testWidgets('宽窗用左侧自绘侧栏，窄窗用底部 NavigationBar', (tester) async {
     tester.view.physicalSize = const Size(1280, 800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -41,7 +41,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.byType(NavigationRail), findsOneWidget);
+    // 2026-11-22 与漫画/音乐统一为自绘侧栏（原 NavigationRail 移除）。
+    expect(find.byKey(const Key('novel-sidebar')), findsOneWidget);
+    expect(find.byType(NavigationRail), findsNothing);
     expect(find.byType(NavigationBar), findsNothing);
     for (final label in <String>['首页', '书架', '发现', '订阅', '我的']) {
       expect(find.text(label), findsWidgets);

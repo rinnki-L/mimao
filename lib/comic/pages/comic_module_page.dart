@@ -621,6 +621,9 @@ class _ComicSidebar extends StatelessWidget {
                   ? MainAxisAlignment.start
                   : MainAxisAlignment.center,
               children: <Widget>[
+                // 与音乐模块同款：内容相对高亮药丸整体右缩进 8，高亮区
+                // 左缘不动（悬停底不贴分隔线）。
+                if (wide) const SizedBox(width: 8),
                 // M3 rail 式选中指示垫：药丸底色只垫图标，文字留在外面。
                 AnimatedContainer(
                   width: 56,

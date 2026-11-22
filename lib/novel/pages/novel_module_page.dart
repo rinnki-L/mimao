@@ -2,12 +2,14 @@
 // 与其他模块页面同款说明。
 /// 小说模块主页壳：五个一级入口（首页 / 书架 / 发现 / 订阅 / 我的）+ 自适应导航。
 ///
-/// 宽窗（>= 900）用左侧 NavigationRail（>= 1180 展开文字），窄窗仍用底部
+/// 宽窗（>= 900）用左侧自绘侧栏（2026-11-22 与漫画/音乐统一：悬停高亮
+/// 锚定原位、内容在药丸内缩进，原 NavigationRail 移除），窄窗仍用底部
 /// NavigationBar——桌面优先但不牺牲 Android 单手区。内容页只认注入的服务缝，
 /// 书源引擎未接入的入口一律给可操作的能力边界说明，不造假数据。
 library;
 
 import 'package:flutter/material.dart';
+import 'package:mimao/core/theme.dart';
 import 'package:mimao/novel/booklist_io.dart';
 import 'package:mimao/novel/library_api.dart';
 import 'package:mimao/novel/pages/novel_discover_page.dart';
@@ -60,8 +62,7 @@ class NovelModulePage extends StatefulWidget {
 }
 
 class _NovelModulePageState extends State<NovelModulePage> {
-  static const double _railBreakpoint = 900;
-  static const double _extendedRailBreakpoint = 1180;
+  static const double _sidebarBreakpoint = 900;
 
   int _index = 0;
 
@@ -125,35 +126,6 @@ class _NovelModulePageState extends State<NovelModulePage> {
     ];
   }
 
-  static const List<NavigationRailDestination> _railDestinations =
-      <NavigationRailDestination>[
-        NavigationRailDestination(
-          icon: Icon(Icons.home_outlined),
-          selectedIcon: Icon(Icons.home),
-          label: Text('首页'),
-        ),
-        NavigationRailDestination(
-          icon: Icon(Icons.local_library_outlined),
-          selectedIcon: Icon(Icons.local_library),
-          label: Text('书架'),
-        ),
-        NavigationRailDestination(
-          icon: Icon(Icons.explore_outlined),
-          selectedIcon: Icon(Icons.explore),
-          label: Text('发现'),
-        ),
-        NavigationRailDestination(
-          icon: Icon(Icons.rss_feed),
-          selectedIcon: Icon(Icons.rss_feed),
-          label: Text('订阅'),
-        ),
-        NavigationRailDestination(
-          icon: Icon(Icons.person_outline),
-          selectedIcon: Icon(Icons.person),
-          label: Text('我的'),
-        ),
-      ];
-
   static const List<NavigationDestination> _barDestinations =
       <NavigationDestination>[
         NavigationDestination(
@@ -187,8 +159,7 @@ class _NovelModulePageState extends State<NovelModulePage> {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final wide = constraints.maxWidth >= _railBreakpoint;
-        final extended = constraints.maxWidth >= _extendedRailBreakpoint;
+        final wide = constraints.maxWidth >= _sidebarBreakpoint;
         final content = IndexedStack(index: _index, children: _buildTabs());
         if (!wide) {
           return Scaffold(
@@ -210,23 +181,9 @@ class _NovelModulePageState extends State<NovelModulePage> {
               SafeArea(
                 right: false,
                 bottom: false,
-                child: NavigationRail(
-                  extended: extended,
-                  labelType: extended
-                      ? NavigationRailLabelType.none
-                      : NavigationRailLabelType.all,
-                  minWidth: 84,
-                  minExtendedWidth: 200,
-                  selectedIndex: _index,
-                  onDestinationSelected: _selectTab,
-                  leading: Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: Icon(
-                      Icons.menu_book_outlined,
-                      color: theme.colorScheme.primary,
-                    ),
-                  ),
-                  destinations: _railDestinations,
+                child: _NovelSidebar(
+                  currentIndex: _index,
+                  onSelect: _selectTab,
                 ),
               ),
               VerticalDivider(
@@ -239,6 +196,165 @@ class _NovelModulePageState extends State<NovelModulePage> {
           ),
         );
       },
+    );
+  }
+}
+
+/// 侧边栏导航项：与漫画/音乐模块同款记录。
+typedef _NovelSidebarDestination = ({
+  String key,
+  IconData icon,
+  IconData selectedIcon,
+  String label,
+});
+
+const List<_NovelSidebarDestination> _sidebarDestinations =
+    <_NovelSidebarDestination>[
+      (
+        key: 'novel-sidebar-home',
+        icon: Icons.home_outlined,
+        selectedIcon: Icons.home,
+        label: '首页',
+      ),
+      (
+        key: 'novel-sidebar-shelf',
+        icon: Icons.local_library_outlined,
+        selectedIcon: Icons.local_library,
+        label: '书架',
+      ),
+      (
+        key: 'novel-sidebar-discover',
+        icon: Icons.explore_outlined,
+        selectedIcon: Icons.explore,
+        label: '发现',
+      ),
+      (
+        key: 'novel-sidebar-subscribe',
+        icon: Icons.rss_feed,
+        selectedIcon: Icons.rss_feed,
+        label: '订阅',
+      ),
+      (
+        key: 'novel-sidebar-profile',
+        icon: Icons.person_outline,
+        selectedIcon: Icons.person,
+        label: '我的',
+      ),
+    ];
+
+/// 模块层左侧边栏（2026-11-22 与漫画/音乐统一为自绘侧栏，替代
+/// NavigationRail）。
+///
+/// 顶部模块标识图标 + 五个导航行（图标 + 文字横排，选中态为 M3 rail 式
+/// 选中指示垫：药丸底色只垫图标后面）。悬停/选中的高亮药丸区域锚定
+/// 原位（外边距 12），内容在药丸内部再缩进 8——高亮与内容的相对位置
+/// 与音乐模块一致。右缘 1px outlineVariant 与内容区分隔（由模块层的
+/// VerticalDivider 提供）。窗口 < 900 回退底部 NavigationBar（不变）。
+class _NovelSidebar extends StatelessWidget {
+  const _NovelSidebar({required this.currentIndex, required this.onSelect});
+
+  final int currentIndex;
+  final ValueChanged<int> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      key: const Key('novel-sidebar'),
+      width: 240,
+      decoration: BoxDecoration(
+        color: cs.surface,
+        border: Border(right: BorderSide(color: cs.outlineVariant)),
+      ),
+      child: Column(
+        children: <Widget>[
+          // 模块标识：沿用原 NavigationRail 的 leading 图标。
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+            child: Icon(Icons.menu_book_outlined, color: cs.primary),
+          ),
+          for (final (index, destination) in _sidebarDestinations.indexed)
+            _destinationRow(
+              context: context,
+              itemKey: destination.key,
+              icon: destination.icon,
+              selectedIcon: destination.selectedIcon,
+              label: destination.label,
+              selected: index == currentIndex,
+              onTap: () => onSelect(index),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// 一条导航行：与音乐模块 `_destinationRow` 同款——高亮药丸区域从 12
+  /// 起，宽窗内容在药丸内部再缩进 8；选中态为 M3 rail 式选中指示垫
+  /// （56×32 药丸只垫图标）。
+  Widget _destinationRow({
+    required BuildContext context,
+    required String itemKey,
+    required IconData icon,
+    required IconData selectedIcon,
+    required String label,
+    required bool selected,
+    required VoidCallback? onTap,
+  }) {
+    final cs = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final fg = selected ? cs.onSecondaryContainer : cs.onSurfaceVariant;
+    final iconWidget = Icon(
+      selected ? selectedIcon : icon,
+      size: 24,
+      color: fg,
+    );
+    return Padding(
+      key: Key(itemKey),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Material(
+        color: cs.surface,
+        shape: RoundedRectangleBorder(borderRadius: MimaoShapes.pill),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          borderRadius: MimaoShapes.pill,
+          onTap: onTap,
+          child: SizedBox(
+            height: 52,
+            child: Row(
+              children: <Widget>[
+                // 内容相对高亮药丸右缩进 8（与音乐模块一致）。
+                const SizedBox(width: 8),
+                AnimatedContainer(
+                  width: 56,
+                  height: 32,
+                  duration: const Duration(milliseconds: 200),
+                  decoration: BoxDecoration(
+                    color: selected ? cs.secondaryContainer : null,
+                    borderRadius: MimaoShapes.pill,
+                  ),
+                  alignment: Alignment.center,
+                  child: iconWidget,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: textTheme.labelLarge?.copyWith(
+                      color: fg,
+                      fontWeight: selected
+                          ? MimaoFonts.bold
+                          : MimaoFonts.regular,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
