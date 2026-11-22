@@ -121,6 +121,14 @@ class MusicHistoryService extends ChangeNotifier implements MusicHistoryApi {
     return row == null ? null : _fromRow(row);
   }
 
+  /// 全表播放次数映射（songId → 次数；歌单排序用）。
+  ///
+  /// 只读本表（行数 = 播过的不同曲目数），不投影、不通知。
+  Future<Map<String, int>> playCounts() async {
+    final rows = await db.select(db.musicHistoryEntries).get();
+    return {for (final row in rows) row.id: row.playCount};
+  }
+
   /// 最近播放列表，按打开时间倒序（"继续播放"的数据源）。
   @override
   Future<List<MusicHistoryItem>> recent({int limit = 50}) async {

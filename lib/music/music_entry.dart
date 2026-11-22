@@ -28,6 +28,7 @@ import 'package:mimao/music/hotkey/music_hotkey_actions.dart';
 import 'package:mimao/music/hotkey/music_hotkey_controller.dart';
 import 'package:mimao/music/hotkey/music_hotkey_model.dart';
 import 'package:mimao/music/hotkey/music_hotkey_settings.dart';
+import 'package:mimao/music/history_service.dart';
 import 'package:mimao/music/library_api.dart';
 import 'package:mimao/music/models/music_models.dart';
 import 'package:mimao/music/models/playlist_write_models.dart';
@@ -272,12 +273,17 @@ class MusicModule implements AppModule {
     // （新建/导入在管理页）。缺播放/读端点就整个隐藏，避免死链。
     final MusicPlaylistReadApi? playlistReadFinal = playlistRead;
     final MusicPlayerUi? playerFinal = player;
+    // 本地播放次数查询（「按播放次数」排序）：C 线历史服务接线才可用。
+    final historyService = history is MusicHistoryService ? history : null;
+    Future<Map<String, int>> Function()? playCountsLookup =
+        historyService?.playCounts;
     final MusicPlaylistInlineView Function(MusicUserPlaylist)?
     playlistViewBuilder = (playerFinal != null && playlistReadFinal != null)
         ? (playlist) => MusicPlaylistInlineView(
             read: playlistReadFinal,
             player: playerFinal,
             playlist: playlist,
+            playCounts: playCountsLookup,
           )
         : null;
     final sidebarPlaylists =
