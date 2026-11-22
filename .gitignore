@@ -2,14 +2,13 @@
 #   - 这是应用（不是库），pubspec.lock 与 *.g.dart 等生成物必须入库
 #   - JS 源文件（规则引擎的 Node 验证脚本等）必须入库，只忽略 dart2js 产物
 
-# 私人的选型 / 规划材料——只留本地，不进公开仓库
-demos/
-docs/
+# 常驻资料库 doc/——设计文档、选型 demo（doc/demos/）、环境笔记、上游参考都住这里；只留本地，不进公开仓库
+doc/
 # ZCode 工作区配置与本地 skill（mimao-dev dev harness 用法），同样只留本地
 .zcode/
 
-# 本地临时目录：.tmp-* 前缀 = 一次性材料区，用完即删；要长期留的挪进 docs/ 并留一句来历
-.tmp-*/
+# 本地临时区 tmp/：一次性材料放这里，用完即删；要长期留的挪进 doc/ 并留一句来历
+tmp/
 
 # pub / Dart 工具产物
 .dart_tool/
@@ -31,8 +30,7 @@ doc/api/
 # 环境变量 / 密钥
 .env*
 
-# 本机环境搭建日志与私人环境笔记（只留本地，不进公开仓库）
-ENV-SETUP-LOCAL.md
+# 本机环境搭建日志（只留本地，不进公开仓库）
 flutter-download.log
 sdk-licenses.log
 vsbuildtools-install.log

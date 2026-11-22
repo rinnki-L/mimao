@@ -23,7 +23,7 @@ mkdirSync(dirname(out), { recursive: true });
 const buf = await generate({
   prompt,
   size: '1024x1024',
-  outDir: 'C:/da/demos/icons/anima/refs',
+  outDir: 'C:/da/doc/demos/icons/anima/refs',
   log
 });
 writeFileSync(out, buf);

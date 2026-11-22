@@ -27,14 +27,14 @@
 #   构建门          Windows / Android release 构建失败 → 红
 #   合并预演门      与 origin/main 存在合并冲突 → 红（冲突文件写入 Step Summary）
 #   分域说明        格式/分析/dart fix 三扇门覆盖全部自写代码（含 lib/comic；
-#                   R1 已取消镜像豁免）与 tool/ 下已入库脚本；demos/ 不进任何
-#                   门（docs/architecture.md R1）
+#                   R1 已取消镜像豁免）与 tool/ 下已入库脚本；doc/demos/ 不进任何
+#                   门（doc/architecture.md R1）
 #
 # 【现状说明】Flutter 工程已落位（2026-11-17）：pubspec.yaml / pubspec.lock /
 # 生成物均入库，static-checks 与 tests 按真实工程运行；lib/comic 等为自写代码，
 # 已纳入全部严档（R1）。M3 起 rhttp 需要 Rust/NDK：build-windows/build-android
 # 已预置 Rust 工具链步骤；当前依赖未含 rhttp，该步骤幂等无害，接 rhttp 时按
-# docs/architecture.md §11.4 补齐即可。
+# doc/architecture.md §11.4 补齐即可。
 # ==============================================================
 name: CI
 
@@ -68,7 +68,7 @@ env:
   # pub.flutter-io.cn，CI 若用默认 pub.dev 解析，--enforce-lockfile 会判定
   # 全量重解析（"Would change 139 dependencies"）必红（2026-11-18 首次真实
   # CI 验证，此前六轮 run 全红即此因）。更换镜像或改回官方源时，必须同步改
-  # 这里，并重新生成、提交 pubspec.lock（详见 docs/architecture.md §11.5）。
+  # 这里，并重新生成、提交 pubspec.lock（详见 doc/architecture.md §11.5）。
   PUB_HOSTED_URL: https://pub.flutter-io.cn
 
 permissions:
@@ -97,11 +97,11 @@ jobs:
           set -euo pipefail
           flutter pub get --enforce-lockfile
 
-      # 第二扇门：格式漂移即红。R1（docs/architecture.md）已取消镜像豁免：
-      # 引擎移植 + 功能自写，各模块目录也是自写代码，必须过 format。demos/ 是
+      # 第二扇门：格式漂移即红。R1（doc/architecture.md）已取消镜像豁免：
+      # 引擎移植 + 功能自写，各模块目录也是自写代码，必须过 format。doc/demos/ 是
       # 选型材料，不进此门。生成物（*.g.dart 等）同样排除：它们由 build_runner
       # 产出，格式化它们会让第五扇门（重建后 diff 必须干净）自相矛盾。
-      - name: 格式门——自写代码格式漂移即红（demos/、生成物豁免）
+      - name: 格式门——自写代码格式漂移即红（doc/demos/、生成物豁免）
         run: |
           set -euo pipefail
           targets=""
@@ -115,7 +115,7 @@ jobs:
             done
           done
           if [ -z "$targets" ]; then
-            echo "::error::找不到自写代码路径——目录布局与 docs/directory-layout.md 不符"
+            echo "::error::找不到自写代码路径——目录布局与 doc/directory-layout.md 不符"
             exit 1
           fi
           # 路径列表按空格展开是刻意行为；本项目路径不含空格
@@ -125,7 +125,7 @@ jobs:
       # R1（§11.1 的镜像豁免作废）：引擎移植 + 功能自写，各模块也是自写代码，
       # 与 shell/core/test 同档；未来若真有整树镜像目录，必须先在架构文档登记豁免。
       # 强度前提（如实注明）：实际覆盖面取决于 analysis_options.yaml 启用的 lint 集——
-      # docs/directory-layout.md 已拍板「lint 从宽」（不开 always_use_package_imports），
+      # doc/directory-layout.md 已拍板「lint 从宽」（不开 always_use_package_imports），
       # 边界由哨兵测试把守、不靠 lint。因此先校验该文件存在
       # 且非空：文件缺失/被清空时 analyze 会静默降级为默认 lint 集，分析门变弱。
       - name: 分析门——全部自写代码 info/warning 也失败

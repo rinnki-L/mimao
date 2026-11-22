@@ -7,11 +7,11 @@ Copyright (C) 2026 mimao contributors
 本程序按"原样"发布，不提供任何担保；详情见 GPL-3.0。
 
 ────────────────────────────────────────────────────────────────────────
-上游来源与署名（docs/architecture.md §12）
+上游来源与署名（doc/architecture.md §12）
 ────────────────────────────────────────────────────────────────────────
 本项目规划为 GPL-3.0 衍生作品，以下四个上游均以 GPL-3.0 发布。M1 骨架阶段
 尚未搬入任何上游代码；逐里程碑搬入时，会把仓库地址、版权行、搬入目录、改动
-（import 前缀改写、剥离清单）逐条补进本文件，并在 docs/upstream-map.md 记账。
+（import 前缀改写、剥离清单）逐条补进本文件，并在 doc/upstream-map.md 记账。
 
   番剧 (M2)   Kazumi            https://github.com/Predidit/Kazumi
   漫画 (M3)   Venera / Venera-Next
