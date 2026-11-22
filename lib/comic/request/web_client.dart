@@ -254,9 +254,34 @@ class ComicWebClient implements ComicHttpClient {
     if (solver == null || kind == null) return response;
     final pass = await solver.solve(ComicChallenge(url: uri, kind: kind));
     if (pass == null) return response;
+    final fetched = pass.fetchedBody;
+    final hasCredential = pass.cookies.any(
+      (cookie) =>
+          cookie.value.isNotEmpty && isChallengeCredentialCookie(kind, cookie.name),
+    );
     await _applyChallengePass(uri, pass);
-    response = await _send(uri, options);
-    return response;
+    // 没拿到凭证 Cookie 却带回正文：站点按 TLS 指纹放行浏览器、拦抓取器，
+    // 重试注定还是 403，直接采用代抓正文。
+    if (fetched != null && !hasCredential) return _fromChallengeBody(fetched);
+    final retry = await _send(uri, options);
+    // 有凭证但重试仍被拦：Cookie 修不了 TLS 指纹，同样落到代抓正文。
+    if (detectComicChallenge(retry) != null && fetched != null) {
+      return _fromChallengeBody(fetched);
+    }
+    return retry;
+  }
+
+  /// 验证页代抓的正文 → 抓取响应（headers 收敛成列表形态）。
+  ComicHttpResponse _fromChallengeBody(ComicChallengeFetchedBody fetched) {
+    return ComicHttpResponse(
+      statusCode: fetched.statusCode,
+      body: fetched.body,
+      bodyBytes: utf8.encode(fetched.body),
+      url: fetched.url,
+      headers: fetched.headers.map(
+        (key, value) => MapEntry<String, List<String>>(key, <String>[value]),
+      ),
+    );
   }
 
   /// 真正发一次请求（不含挑战重试）。

@@ -387,7 +387,237 @@ void main() {
       expect(response.statusCode, 403);
       expect(adapter.calls, 1);
     });
+
+    test('没拿到凭证但有代抓正文（TLS 型站点）：直接采用，不再重试', () async {
+      final adapter = _ChallengeAdapter();
+      final client = ComicWebClient(
+        dio: Dio()..httpClientAdapter = adapter,
+        cookieJar: ComicCookieJar(),
+        challengeSolver: _FakeChallengeSolver(
+          withCredential: false,
+          fetchedBody: const ComicChallengeFetchedBody(
+            statusCode: 200,
+            url: 'https://site.test/search',
+            headers: <String, String>{'content-type': 'text/html; charset=utf-8'},
+            body: '<html>webview 正文</html>',
+          ),
+        ),
+      );
+
+      final response = await client.fetch('https://site.test/search');
+
+      expect(adapter.calls, 1, reason: '重试注定 403，跳过');
+      expect(response.statusCode, 200);
+      expect(response.body, contains('webview 正文'));
+      expect(utf8.decode(response.bodyBytes), contains('webview 正文'));
+      expect(response.headers['content-type'], <String>['text/html; charset=utf-8']);
+      expect(response.url, 'https://site.test/search');
+    });
+
+    test('拿到凭证且重试通过：用重试响应，不落代抓正文', () async {
+      final adapter = _ChallengeAdapter();
+      final client = ComicWebClient(
+        dio: Dio()..httpClientAdapter = adapter,
+        cookieJar: ComicCookieJar(),
+        challengeSolver: _FakeChallengeSolver(
+          fetchedBody: const ComicChallengeFetchedBody(
+            statusCode: 200,
+            url: 'https://site.test/search',
+            body: '<html>不该被采用</html>',
+          ),
+        ),
+      );
+
+      final response = await client.fetch('https://site.test/search');
+
+      expect(adapter.calls, 2, reason: '有 cf_clearance 时照常重试一次');
+      expect(response.statusCode, 200);
+      expect(response.body, contains('ok'));
+    });
+
+    test('拿到凭证但重试仍被拦：落到代抓正文兜底', () async {
+      final adapter = _AlwaysChallengeAdapter();
+      final client = ComicWebClient(
+        dio: Dio()..httpClientAdapter = adapter,
+        cookieJar: ComicCookieJar(),
+        challengeSolver: _FakeChallengeSolver(
+          fetchedBody: const ComicChallengeFetchedBody(
+            statusCode: 200,
+            url: 'https://site.test/search',
+            body: '<html>webview 兜底</html>',
+          ),
+        ),
+      );
+
+      final response = await client.fetch('https://site.test/search');
+
+      expect(adapter.calls, 2, reason: '有凭证先试一次重试');
+      expect(response.statusCode, 200);
+      expect(response.body, contains('webview 兜底'));
+    });
+
+    test('用户取消且有代抓正文：仍保留原 403（取消就是不采用）', () async {
+      final adapter = _ChallengeAdapter();
+      final client = ComicWebClient(
+        dio: Dio()..httpClientAdapter = adapter,
+        cookieJar: ComicCookieJar(),
+        challengeSolver: _FakeChallengeSolver(
+          cancel: true,
+          fetchedBody: const ComicChallengeFetchedBody(
+            statusCode: 200,
+            url: 'https://site.test/search',
+            body: '<html>不该被采用</html>',
+          ),
+        ),
+      );
+
+      final response = await client.fetch('https://site.test/search');
+
+      expect(response.statusCode, 403);
+      expect(adapter.calls, 1);
+    });
   });
+
+  group('ComicChallengeCoordinator', () {
+    test('同主机并发挑战合并成一次求解', () async {
+      final coordinator = ComicChallengeCoordinator();
+      var calls = 0;
+      const pass = ComicChallengePass(userAgent: 'UA');
+      final results = await Future.wait(<Future<ComicChallengePass?>>[
+        coordinator.join('site.test', () async {
+          calls++;
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+          return pass;
+        }),
+        coordinator.join('site.test', () async {
+          calls++;
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+          return pass;
+        }),
+      ]);
+
+      expect(calls, 1, reason: '后来者 join 先行者的求解');
+      expect(results, <ComicChallengePass?>[pass, pass]);
+    });
+
+    test('不同主机各自求解', () async {
+      final coordinator = ComicChallengeCoordinator();
+      var calls = 0;
+      await Future.wait(<Future<ComicChallengePass?>>[
+        coordinator.join('a.test', () async {
+          calls++;
+          return const ComicChallengePass();
+        }),
+        coordinator.join('b.test', () async {
+          calls++;
+          return const ComicChallengePass();
+        }),
+      ]);
+
+      expect(calls, 2);
+    });
+
+    test('取消后进冷却：冷却期内不弹页，过了冷却恢复', () async {
+      final coordinator = ComicChallengeCoordinator(
+        cooldown: const Duration(milliseconds: 50),
+      );
+      var calls = 0;
+      Future<ComicChallengePass?> solve() async {
+        calls++;
+        return null; // 用户取消
+      }
+
+      expect(await coordinator.join('site.test', solve), isNull);
+      expect(calls, 1);
+
+      expect(await coordinator.join('site.test', solve), isNull);
+      expect(calls, 1, reason: '冷却期内直接返回 null，不再求解');
+
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+      expect(await coordinator.join('site.test', solve), isNull);
+      expect(calls, 2, reason: '冷却过后重新求解');
+    });
+
+    test('成功通过后不进冷却', () async {
+      final coordinator = ComicChallengeCoordinator(
+        cooldown: const Duration(hours: 1),
+      );
+      var calls = 0;
+      Future<ComicChallengePass?> solve() async {
+        calls++;
+        return const ComicChallengePass(userAgent: 'UA');
+      }
+
+      expect(await coordinator.join('site.test', solve), isNotNull);
+      expect(await coordinator.join('site.test', solve), isNotNull);
+      expect(calls, 2);
+    });
+
+    test('求解抛错：join 者一起失败并进冷却', () async {
+      final coordinator = ComicChallengeCoordinator(
+        cooldown: const Duration(milliseconds: 50),
+      );
+      var calls = 0;
+      Future<ComicChallengePass?> solve() async {
+        calls++;
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        throw StateError('boom');
+      }
+
+      // 两个 join 同时在飞：第二个共享同一次失败的求解。
+      final first = coordinator.join('site.test', solve);
+      final joined = coordinator.join('site.test', solve);
+      await expectLater(first, throwsStateError);
+      await expectLater(joined, throwsStateError);
+      expect(calls, 1, reason: '后来者共享同一次失败的求解');
+
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+      await expectLater(coordinator.join('site.test', solve), throwsStateError);
+      expect(calls, 2, reason: '冷却过后重新求解');
+    });
+
+    test('主机大小写不敏感', () async {
+      final coordinator = ComicChallengeCoordinator();
+      var calls = 0;
+      final first = coordinator.join('Site.Test', () async {
+        calls++;
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        return const ComicChallengePass();
+      });
+      final second = coordinator.join('site.test', () async {
+        calls++;
+        return const ComicChallengePass();
+      });
+      await Future.wait(<Future<ComicChallengePass?>>[first, second]);
+      expect(calls, 1);
+    });
+  });
+}
+
+/// 一直 403 + `cf-mitigated: challenge` 的 adapter。
+class _AlwaysChallengeAdapter implements HttpClientAdapter {
+  int calls = 0;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    calls++;
+    return ResponseBody.fromString(
+      '<html>Just a moment</html>',
+      403,
+      headers: <String, List<String>>{
+        Headers.contentTypeHeader: <String>['text/html; charset=utf-8'],
+        'cf-mitigated': <String>['challenge'],
+        'server': <String>['cloudflare'],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
 }
 
 /// 第一次 403 + `cf-mitigated: challenge`，之后返回 200。
@@ -463,9 +693,19 @@ class _GatekeeperAdapter implements HttpClientAdapter {
 }
 
 class _FakeChallengeSolver implements ComicChallengeSolver {
-  _FakeChallengeSolver({this.cancel = false});
+  _FakeChallengeSolver({
+    this.cancel = false,
+    this.fetchedBody,
+    this.withCredential = true,
+  });
 
   final bool cancel;
+
+  /// 随 Pass 返回的代抓正文（模拟验证页「无挑战快速通过」）。
+  final ComicChallengeFetchedBody? fetchedBody;
+
+  /// 是否带回凭证 Cookie；false 模拟 TLS 型站点（浏览器被放行、无凭证可拿）。
+  final bool withCredential;
   int calls = 0;
   ComicChallengeKind? kindSeen;
 
@@ -475,16 +715,19 @@ class _FakeChallengeSolver implements ComicChallengeSolver {
     kindSeen = challenge.kind;
     if (cancel) return null;
     return ComicChallengePass(
-      cookies: <ComicChallengeCookie>[
-        ComicChallengeCookie(
-          name: challenge.kind == ComicChallengeKind.gatekeeper
-              ? 'gk_clearance_test'
-              : 'cf_clearance',
-          value: 'token',
-          domain: 'site.test',
-        ),
-      ],
+      cookies: withCredential
+          ? <ComicChallengeCookie>[
+              ComicChallengeCookie(
+                name: challenge.kind == ComicChallengeKind.gatekeeper
+                    ? 'gk_clearance_test'
+                    : 'cf_clearance',
+                value: 'token',
+                domain: 'site.test',
+              ),
+            ]
+          : const <ComicChallengeCookie>[],
       userAgent: 'WebViewUA/1.0',
+      fetchedBody: fetchedBody,
     );
   }
 }
