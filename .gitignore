@@ -8,6 +8,9 @@ docs/
 # ZCode 工作区配置与本地 skill（mimao-dev dev harness 用法），同样只留本地
 .zcode/
 
+# 本地临时目录：.tmp-* 前缀 = 一次性材料区，用完即删；要长期留的挪进 docs/ 并留一句来历
+.tmp-*/
+
 # pub / Dart 工具产物
 .dart_tool/
 .packages
