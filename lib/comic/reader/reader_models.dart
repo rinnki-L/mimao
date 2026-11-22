@@ -10,7 +10,7 @@ library;
 ///
 /// 旧契约 [ComicChapter.imageUrls] 只是纯地址串；生产环境里不少站点按
 /// Referer / Cookie 防盗链，单靠地址拿不到图。[ImageRequest] 把"地址 + 头"
-/// 绑在一起，交给新的 [ImageRequestLoader](reader_cache.dart) 取字节。
+/// 绑在一起，交给新的 [ImageRequestLoader](reader_image_loader.dart) 取字节。
 /// 测试与本地章节的头为空，走默认加载器即可。
 class ImageRequest {
   const ImageRequest({
@@ -18,6 +18,10 @@ class ImageRequest {
     this.referer,
     this.headers = const <String, String>{},
   });
+
+  /// 按站点 Referer 构造（防盗链常用：图片 URL 同源根）。
+  factory ImageRequest.withReferer({required String url, String? referer}) =>
+      ImageRequest(url: url, referer: referer);
 
   final String url;
 
@@ -49,7 +53,7 @@ class ImageRequest {
 /// [chapterId] 是源的稳定 epId（插入新章不会让进度错位），持久化进
 /// `comic_history.chapterId`；测试用内存章节可留空（默认 `''`）。
 /// 地址可以是本地文件路径，也可以是 http(s) URL——具体如何取字节由
-/// [ImageRequestLoader](reader_cache.dart) 决定，模型本身不解释。
+/// [ImageRequestLoader](reader_image_loader.dart) 决定，模型本身不解释。
 class ComicChapter {
   final String title;
 

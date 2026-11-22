@@ -10,6 +10,8 @@ import 'package:flutter/foundation.dart';
 import 'reader_cache.dart';
 import 'reader_models.dart';
 import 'reader_progress.dart';
+import 'reader_settings.dart';
+import 'reader_view_mode.dart';
 
 /// 阅读控制器：章节下标与页码都用 0 基存储，对外暴露 1 基的展示号。
 class ReaderController extends ChangeNotifier {
@@ -19,10 +21,14 @@ class ReaderController extends ChangeNotifier {
     required this.imageCache,
     int initialChapter = 0,
     int initialPage = 0,
-    this.mode = ReadingMode.paged,
+    ReadingMode mode = ReadingMode.paged,
+    ReaderViewMode? viewMode,
+    ReaderSettings? settings,
   }) : _chapters = List<ComicChapter>.unmodifiable(chapters),
        _chapterIndex = _validateChapter(chapters, initialChapter),
-       _pageIndex = _validatePage(chapters, initialChapter, initialPage);
+       _pageIndex = _validatePage(chapters, initialChapter, initialPage),
+       viewMode = viewMode ?? ReaderViewMode.fromLegacy(mode),
+       settings = settings ?? const ReaderSettings();
 
   static int _validateChapter(List<ComicChapter> chapters, int index) {
     if (chapters.isEmpty) {
@@ -50,7 +56,13 @@ class ReaderController extends ChangeNotifier {
 
   int _chapterIndex;
   int _pageIndex;
-  ReadingMode mode;
+
+  /// 七种视图模式是新契约；[mode] 保留作历史兼容（测试与外部旧调用）。
+  ReaderViewMode viewMode = ReaderViewMode.waterfallTopToBottom;
+
+  /// 当前阅读设置（由集成层注入；控制器只读它来响应手势/显示开关）。
+  ReaderSettings settings = const ReaderSettings();
+
   double _zoom = 1.0;
   String? _errorMessage;
   bool _disposed = false;
@@ -73,6 +85,12 @@ class ReaderController extends ChangeNotifier {
 
   double get zoom => _zoom;
   String? get errorMessage => _errorMessage;
+
+  /// 历史 [ReadingMode] 视图：由 [viewMode] 折算而来，供旧测试/外部调用。
+  /// paged ↔ 任一 gallery；continuous ↔ continuous* / 瀑布。
+  ReadingMode get mode =>
+      viewMode.isGallery ? ReadingMode.paged : ReadingMode.continuous;
+
   bool get hasPreviousChapter => _chapterIndex > 0;
   bool get hasNextChapter => _chapterIndex < _chapters.length - 1;
   bool get hasPreviousPage => _pageIndex > 0;
@@ -122,16 +140,49 @@ class ReaderController extends ChangeNotifier {
     return true;
   }
 
-  /// 切换阅读模式（验收点：模式切换）。不是进度，不触发持久化。
-  void setMode(ReadingMode newMode) {
-    if (_disposed || mode == newMode) return;
-    mode = newMode;
+  /// 切换视图模式（新契约）。不是进度，不触发持久化。
+  void setViewMode(ReaderViewMode newMode) {
+    if (_disposed || viewMode == newMode) return;
+    viewMode = newMode;
     _notify();
   }
+
+  /// 历史模式切换（验收点）：映射到 gallery ↔ 瀑布两种新模式。
+  /// 不是进度，不触发持久化。
+  void setMode(ReadingMode newMode) => setViewMode(
+    newMode == ReadingMode.paged
+        ? ReaderViewMode.galleryLeftToRight
+        : ReaderViewMode.waterfallTopToBottom,
+  );
 
   void toggleMode() => setMode(
     mode == ReadingMode.paged ? ReadingMode.continuous : ReadingMode.paged,
   );
+
+  /// 上报滚动/瀑布流当前可见的真实位置（章节 1 基、页 1 基）。
+  /// 只有章/页真的变化才写进度，避免滚动每帧落库。
+  Future<void> reportVisiblePosition(int chapter, int page) async {
+    if (_disposed) return;
+    final chapterIndex = chapter - 1;
+    if (chapterIndex < 0 || chapterIndex >= _chapters.length) return;
+    final pageIndex = (page - 1).clamp(
+      0,
+      _chapters[chapterIndex].pageCount - 1,
+    );
+    if (chapterIndex == _chapterIndex && pageIndex == _pageIndex) return;
+    _chapterIndex = chapterIndex;
+    _pageIndex = pageIndex;
+    _notify();
+    await _persist();
+  }
+
+  /// 更新设置并通知 UI 重建（设置本身不是进度）。
+  void updateSettings(ReaderSettings newSettings) {
+    if (_disposed) return;
+    settings = newSettings;
+    setViewMode(newSettings.mode);
+    _notify();
+  }
 
   /// 缩放限制在 [minZoom, maxZoom]；非法值抛 [ArgumentError] 且状态不变。
   void setZoom(double value) {

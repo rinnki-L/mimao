@@ -16,7 +16,14 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart'
     show consolidateHttpClientResponseBytes;
 
+import 'reader_image_loader.dart';
+import 'reader_models.dart';
+
 /// 取一张图片原始字节。url 可以是本地文件路径或 http(s) 地址。
+///
+/// 旧契约，只看地址、拿不到请求头。新代码应优先用 [ImageRequestLoader]
+/// （`reader_image_loader.dart`），通过 [ReaderImageCache.loadRequest] 携带
+/// 防盗链 / Cookie 等请求头；本 typedef 保留给渐进迁移与向后兼容。
 typedef ImageByteLoader = Future<Uint8List> Function(String url);
 
 /// 稳定的 FNV-1a（63 位，避免负数），输出 16 位十六进制串，用作磁盘文件名。
@@ -32,6 +39,10 @@ String cacheKey(String url) {
 
 /// 默认字节加载器：本地路径/`file://` 走 [File]，http(s) 走 [HttpClient]。
 /// 只在真正需要取图时调用，命中缓存时不会触达它。
+///
+/// **已废弃（deprecated）**：只看地址，无法携带防盗链 / Cookie 等请求头。
+/// 新代码请用 `reader_image_loader.dart` 的 [defaultImageRequestLoader]，
+/// 并在 [ReaderImageCache] 上注入 `requestLoader`。此处保留仅为不破坏旧调用点。
 ///
 /// 图片 URL 来自 Venera 源的 `images: string[]`（纯直链，无 per-image headers），
 /// 但不少站点对空 UA / 非同源 Referer 的图片请求直接 403。这里补一个桌面
@@ -163,15 +174,25 @@ class MemoryByteStore implements ByteStore {
 /// 图片缓存管理器：先查内存 LRU，再查磁盘，最后才走 loader。
 ///
 /// 命中/未命中/淘汰都记数，便于单测与手动排查容量行为。
+///
+/// 新旧两套取字节契约并存：
+/// - [loader]（旧）：只按 URL 取字节，[load] 用；
+/// - [requestLoader]（新）：按 [ImageRequest] 取字节（含请求头），
+///   [loadRequest] 优先用它；为 null 时降级为 [loader]（丢弃请求头）。
 class ReaderImageCache {
   ReaderImageCache({
     required this.loader,
+    this.requestLoader,
     ByteStore? disk,
     this.maxMemoryBytes = 48 * 1024 * 1024,
     this.maxMemoryEntries = 24,
   }) : disk = disk ?? MemoryByteStore();
 
   final ImageByteLoader loader;
+
+  /// 按完整请求信息取字节的新加载器；null 表示走旧 [loader]。
+  final ImageRequestLoader? requestLoader;
+
   final ByteStore disk;
   final int maxMemoryBytes;
   final int maxMemoryEntries;
@@ -190,9 +211,16 @@ class ReaderImageCache {
   int get currentBytes => _memory.values.fold(0, (sum, e) => sum + e.length);
   bool isInMemory(String url) => _memory.containsKey(cacheKey(url));
 
+  /// 取图（旧契约）：等价于 `loadRequest(ImageRequest(url: url))`。
+  /// 无请求头时 cacheIdentity == url，缓存键与旧行为完全一致。
+  Future<Uint8List> load(String url) => loadRequest(ImageRequest(url: url));
+
   /// 取图：内存命中 → 磁盘命中 → loader 拉取并回填两级缓存。
-  Future<Uint8List> load(String url) {
-    final key = cacheKey(url);
+  ///
+  /// 缓存键由 [ImageRequest.cacheIdentity] 决定——地址 + 头都参与，
+  /// 同一地址不同请求头不会串图；无头时与 [load] 的键一致。
+  Future<Uint8List> loadRequest(ImageRequest request) {
+    final key = cacheKey(request.cacheIdentity);
     final cached = _memory.remove(key);
     if (cached != null) {
       _memory[key] = cached;
@@ -202,12 +230,12 @@ class ReaderImageCache {
     final pending = _inflight[key];
     if (pending != null) return pending;
 
-    final future = _fetch(url, key);
+    final future = _fetch(request, key);
     _inflight[key] = future;
     return future.whenComplete(() => _inflight.remove(key));
   }
 
-  Future<Uint8List> _fetch(String url, String key) async {
+  Future<Uint8List> _fetch(ImageRequest request, String key) async {
     final fromDisk = await disk.read(key);
     if (fromDisk != null) {
       hits++;
@@ -216,9 +244,9 @@ class ReaderImageCache {
     }
 
     misses++;
-    final bytes = await loader(url);
+    final bytes = await _loadBytes(request);
     if (bytes.isEmpty) {
-      throw StateError('图片字节为空：$url');
+      throw StateError('图片字节为空：${request.url}');
     }
     try {
       await disk.write(key, bytes);
@@ -227,6 +255,13 @@ class ReaderImageCache {
     }
     _putMemory(key, bytes);
     return bytes;
+  }
+
+  /// 优先用新契约（带请求头）；未注入时降级为旧 loader（丢弃请求头）。
+  Future<Uint8List> _loadBytes(ImageRequest request) {
+    final requestLoader = this.requestLoader;
+    if (requestLoader != null) return requestLoader(request);
+    return loader(request.url);
   }
 
   void _putMemory(String key, Uint8List bytes) {
