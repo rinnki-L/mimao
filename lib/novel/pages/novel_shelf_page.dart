@@ -921,11 +921,13 @@ class _NovelShelfPageState extends State<NovelShelfPage> {
           );
         }
 
-        final auto = (width / 142).floor().clamp(3, 8).toInt();
-        final columns = _columns == 0 ? auto : _columns.clamp(3, 8).toInt();
+        final auto = (width / 142).floor().clamp(3, 10).toInt();
+        final columns = _columns == 0 ? auto : _columns.clamp(3, 10).toInt();
         const spacing = 16.0;
         final itemWidth = (width - spacing * (columns - 1)) / columns;
-        final extent = itemWidth * 1.5 + 70;
+        // 封面按 2:3 撑满，文字区留 84px：两行书名 + 一行进度，给
+        // Android 字体缩放留余量，避免大字号时底部溢出。
+        final extent = itemWidth * 1.5 + 84;
         return GridView.builder(
           padding: const EdgeInsets.only(bottom: 24),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
@@ -1179,7 +1181,8 @@ class _ShelfCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Expanded(
+                AspectRatio(
+                  aspectRatio: 2 / 3,
                   child: Stack(
                     children: <Widget>[
                       Positioned.fill(
