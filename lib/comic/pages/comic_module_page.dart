@@ -509,7 +509,9 @@ const List<_ComicSidebarDestination> _comicSidebarDestinations =
 
 /// 模块层左侧边栏（2026-11-22 用户拍板，替代原底部 NavigationBar）。
 ///
-/// 中部四个导航项（图标 + 文字横排，选中项为圆角药丸高亮），
+/// 中部四个导航项（图标 + 文字横排，选中态为 M3 rail 式选中指示垫：
+/// 药丸底色只垫在图标后面，文字不笼罩，对齐小说模块 NavigationRail 的
+/// 观感——2026-11-22 用户拍板，原为整行药丸高亮），
 /// 底部一个「设置」项（[settingsTab] 为 null 时整块不渲染，含分隔线）。
 /// 窗口宽 ≥ 720 用 240 宽（图标 + 文字）；否则收成 84 宽只留图标，
 /// 用 Tooltip 提示名称。右缘 1px outlineVariant 与内容区分隔。
@@ -579,8 +581,9 @@ class _ComicSidebar extends StatelessWidget {
   }
 
   /// 一条导航行：Material 提供水波纹底（透明底才有 ink 效果），圆角药丸
-  /// 由 shape + clipBehavior 收住水波纹；未选中行的底色与侧边栏同色，
-  /// 视觉上只剩图标文字，hover/focus 时药丸形状的 ink 反馈照常出现。
+  /// 由 shape + clipBehavior 收住水波纹；行底色与侧边栏同色，选中态的
+  /// 高亮只落在图标后面的指示垫上（56×32 药丸，对齐 M3 NavigationRail
+  /// 的默认指示垫参数），hover/focus 时药丸形状的 ink 反馈照常出现。
   Widget _destinationRow({
     required BuildContext context,
     required String itemKey,
@@ -599,11 +602,13 @@ class _ComicSidebar extends StatelessWidget {
       size: 24,
       color: fg,
     );
+    Widget iconPart = iconWidget;
+    if (!wide) iconPart = Tooltip(message: label, child: iconPart);
     return Padding(
       key: Key(itemKey),
       padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Material(
-        color: selected ? cs.secondaryContainer : cs.surface,
+        color: cs.surface,
         shape: RoundedRectangleBorder(borderRadius: MimaoShapes.pill),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
@@ -616,10 +621,18 @@ class _ComicSidebar extends StatelessWidget {
                   ? MainAxisAlignment.start
                   : MainAxisAlignment.center,
               children: <Widget>[
-                if (wide)
-                  iconWidget
-                else
-                  Tooltip(message: label, child: iconWidget),
+                // M3 rail 式选中指示垫：药丸底色只垫图标，文字留在外面。
+                AnimatedContainer(
+                  width: 56,
+                  height: 32,
+                  duration: const Duration(milliseconds: 200),
+                  decoration: BoxDecoration(
+                    color: selected ? cs.secondaryContainer : null,
+                    borderRadius: MimaoShapes.pill,
+                  ),
+                  alignment: Alignment.center,
+                  child: iconPart,
+                ),
                 if (wide) ...<Widget>[
                   const SizedBox(width: 12),
                   Text(
