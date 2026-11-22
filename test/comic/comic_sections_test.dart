@@ -309,7 +309,8 @@ void main() {
       // 历史卡片常显（即使无记录），空态收进卡片，不再有整页空态。
       expect(find.byKey(const Key('comic-home-history-card')), findsOneWidget);
       expect(find.text('阅读历史'), findsOneWidget);
-      expect(find.text('0 条'), findsOneWidget);
+      // 2026-11-22 排版拍板：计数徽标改纯数字。
+      expect(find.text('0'), findsOneWidget);
       expect(find.text('搜索并阅读漫画后，会在这里按最近阅读汇总。'), findsOneWidget);
       expect(find.text('还没有阅读记录'), findsOneWidget);
       expect(tester.takeException(), isNull);
@@ -406,8 +407,9 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('12 条'), findsOneWidget);
-      // 历史卡片内嵌的横向 ComicPosterRow 是懒加载 ListView：直接读它的
+      // 2026-11-22 排版拍板：计数徽标改纯数字。
+      expect(find.text('12'), findsOneWidget);
+      // 历史卡片内嵌的横向纯封面行（_CoverRow）是懒加载 ListView：直接读它的
       // itemCount 才能稳定验证截断（滚到底后屏外子项会被回收，数挂在树上的
       // 卡片不可靠）。数据 12 条 → 行 itemCount 恰为 8。
       final rowWidget = tester.widget<ListView>(
@@ -501,7 +503,8 @@ void main() {
         find.byKey(const ValueKey<String>('home-recent-xingzhou')),
         findsNothing,
       );
-      expect(find.text('0 条'), findsOneWidget);
+      // 2026-11-22 排版拍板：计数徽标改纯数字。
+      expect(find.text('0'), findsOneWidget);
       expect(find.text('搜索并阅读漫画后，会在这里按最近阅读汇总。'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
@@ -994,13 +997,14 @@ void main() {
       // 主页
       expect(find.byKey(const Key('comic-home-search')), findsOneWidget);
 
-      // 收藏
-      await tester.tap(find.text('收藏'));
+      // 收藏 / 发现 / 分类：按侧边栏行 key 点按（2026-11-22 用户拍板：模块层
+      // 导航改左侧边栏，测试窗口 390 宽走窄形态，只渲染图标不渲染文字）。
+      await tester.tap(find.byKey(const Key('comic-sidebar-favorites')));
       await tester.pumpAndSettle();
       expect(find.text('共 2 部'), findsOneWidget);
 
       // 发现
-      await tester.tap(find.text('发现'));
+      await tester.tap(find.byKey(const Key('comic-sidebar-discover')));
       await tester.pumpAndSettle();
       expect(
         find.byKey(const ValueKey<String>('discover-0-xingzhou')),
@@ -1008,7 +1012,7 @@ void main() {
       );
 
       // 分类
-      await tester.tap(find.text('分类'));
+      await tester.tap(find.byKey(const Key('comic-sidebar-category')));
       await tester.pumpAndSettle();
       expect(find.text('选择一个分类查看漫画'), findsOneWidget);
       expect(tester.takeException(), isNull);
@@ -1066,7 +1070,7 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('设置面板从主页按钮弹出（不占底部 tab）', (tester) async {
+    testWidgets('设置面板从侧边栏底部项弹出（2026-11-22 拍板，原为主页按钮）', (tester) async {
       _usePhoneSize(tester);
       await tester.pumpWidget(
         _app(
@@ -1079,10 +1083,9 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // 底部栏只有四个功能分区，没有「设置」。
+      // 窄窗口侧边栏收成图标栏：没有「设置」文字，入口是底部带 key 的设置项。
       expect(find.text('设置'), findsNothing);
-      // 独立 pump（非 embedded）时设置入口在主页 AppBar 右上角。
-      await tester.tap(find.byKey(const Key('comic-home-settings')));
+      await tester.tap(find.byKey(const Key('comic-sidebar-settings')));
       await tester.pumpAndSettle();
 
       expect(find.text('模块设置内容'), findsOneWidget);

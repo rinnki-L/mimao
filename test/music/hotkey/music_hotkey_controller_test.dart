@@ -56,28 +56,28 @@ void main() {
     );
   });
 
-  test('initialize 默认只注册 6 条快捷键（全局默认关闭），幂等', () async {
+  test('initialize 默认只注册 11 条快捷键（全局默认关闭），幂等', () async {
     await controller.initialize();
-    // 6 条本地快捷键注册；6 条全局因开关关闭不注册。
-    expect(registrar.registered, hasLength(6));
+    // 11 条本地快捷键注册；11 条全局因开关关闭不注册。
+    expect(registrar.registered, hasLength(11));
     expect(
       registrar.registered.keys.every((id) => id.startsWith('inapp.')),
       isTrue,
     );
     await controller.initialize();
-    expect(registrar.registered, hasLength(6));
+    expect(registrar.registered, hasLength(11));
   });
 
-  test('打开全局开关补注册 6 条全局键，关闭后反注册', () async {
+  test('打开全局开关补注册 11 条全局键，关闭后反注册', () async {
     await controller.initialize();
     expect(settings.globalShortcutsEnabled, isFalse);
 
     await controller.setGlobalShortcutsEnabled(true);
-    expect(registrar.registered, hasLength(12));
+    expect(registrar.registered, hasLength(22));
     expect(settings.globalShortcutsEnabled, isTrue);
 
     await controller.setGlobalShortcutsEnabled(false);
-    expect(registrar.registered, hasLength(6));
+    expect(registrar.registered, hasLength(11));
     expect(
       registrar.registered.keys.every((id) => id.startsWith('inapp.')),
       isTrue,
@@ -188,7 +188,7 @@ void main() {
     );
   });
 
-  test('resetToDefaults 恢复 12 条绑定；按开关只重注册 6 条本地键', () async {
+  test('resetToDefaults 恢复 22 条绑定；按开关只重注册 11 条本地键', () async {
     await controller.initialize();
     await controller.rebind(
       scope: MusicHotKeyScope.inApp,
@@ -200,8 +200,8 @@ void main() {
       ),
     );
     await controller.resetToDefaults();
-    expect(settings.bindings, hasLength(12));
-    expect(registrar.registered, hasLength(6));
+    expect(settings.bindings, hasLength(22));
+    expect(registrar.registered, hasLength(11));
   });
 
   test('resetAction 只重置指定动作的两个作用域', () async {
@@ -231,8 +231,8 @@ void main() {
   test('注册失败收集到 issues，不抛', () async {
     registrar.failOnRegister = StateError('system busy');
     await controller.initialize();
-    // 只有 6 条本地键尝试注册并失败。
-    expect(controller.issues.value, hasLength(6));
+    // 只有 11 条本地键尝试注册并失败。
+    expect(controller.issues.value, hasLength(11));
     expect(controller.issues.value.first, contains('注册失败'));
   });
 

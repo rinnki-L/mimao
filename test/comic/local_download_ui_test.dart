@@ -152,7 +152,12 @@ void main() {
         find.descendant(of: card, matching: find.text('本地')),
         findsOneWidget,
       );
-      expect(find.text('已保存 2 部 · 点击管理'), findsOneWidget);
+      // 2026-11-22 排版拍板：本地卡改卡头计数徽标（纯数字）+ 纯封面横排，
+      // 「已保存 N 部 · 点击管理」副标题行移除。
+      expect(
+        find.descendant(of: card, matching: find.text('2')),
+        findsOneWidget,
+      );
 
       await tester.tap(find.byKey(const Key('comic-home-local-card-tap')));
       await tester.pump();

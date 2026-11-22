@@ -1,7 +1,7 @@
 // ignore_for_file: deprecated_member_use — 见 lib/comic/pages/comic_cover.dart 同款说明。
 /// 漫画模块层（壳钻进漫画入口后看到的那一层）。
 ///
-/// 底部 NavigationBar 四个功能分区（用户拍板）：
+/// 左侧边栏四个功能分区（2026-11-22 用户拍板，原为底部 NavigationBar）：
 ///   主页 / 收藏 / 发现 / 分类
 /// - **主页**：搜索入口 + 跨源阅读历史（可删/清空）+ 本地漫画 + 源管理入口；
 /// - **收藏**：用户收藏的漫画；
@@ -9,7 +9,7 @@
 /// - **分类**：各源站点的分类树（无 category 时回退到探索分栏）。
 ///
 /// 模块设置（清搜索历史等）不再占一个 tab：收在主页右上角的设置按钮里，
-/// 弹底部面板展示 [settingsTab]，把底部栏留给四个功能分区。
+/// 弹底部面板展示 [settingsTab]，把侧边栏留给四个功能分区。
 ///
 /// 点任一漫画条目 → push 详情页 → 返回。模块对壳无感知（不 import shell/）。
 library;
@@ -28,6 +28,7 @@ import 'package:mimao/comic/pages/comic_home_page.dart';
 import 'package:mimao/comic/pages/comic_local_page.dart';
 import 'package:mimao/comic/pages/comic_read_later_page.dart';
 import 'package:mimao/comic/pages/comic_source_page.dart';
+import 'package:mimao/core/theme.dart';
 
 class ComicModulePage extends StatefulWidget {
   const ComicModulePage({
@@ -141,6 +142,7 @@ class _ComicModulePageState extends State<ComicModulePage> {
       widget.isReadLater?.call(item),
       fallback: false,
     );
+    final progressText = await _progressTextFor(item);
     if (!mounted) return;
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
@@ -153,6 +155,7 @@ class _ComicModulePageState extends State<ComicModulePage> {
           onFavoriteChanged: (v) => widget.onFavoriteChanged?.call(item, v),
           onReadLaterChanged: (v) => widget.onReadLaterChanged?.call(item, v),
           downloads: widget.downloads,
+          progressText: progressText,
           onStartReading: (detail, chapter) =>
               widget.onStartReading?.call(item, detail, chapter),
         ),
@@ -189,6 +192,7 @@ class _ComicModulePageState extends State<ComicModulePage> {
       _showSnack('本地漫画打开失败：$error');
       return;
     }
+    final progressText = await _progressTextFor(item);
     if (!mounted) return;
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
@@ -201,6 +205,7 @@ class _ComicModulePageState extends State<ComicModulePage> {
           isLocal: true,
           onFavoriteChanged: (v) => widget.onFavoriteChanged?.call(item, v),
           onReadLaterChanged: (v) => widget.onReadLaterChanged?.call(item, v),
+          progressText: progressText,
           onStartReading: (detail, chapter) =>
               widget.onStartReading?.call(item, detail, chapter),
         ),
@@ -213,6 +218,30 @@ class _ComicModulePageState extends State<ComicModulePage> {
     if (value == null) return fallback;
     // 读取失败不应挡住导航：退回安全默认值继续打开详情。
     return value.catchError((Object _) => fallback);
+  }
+
+  /// 详情页「上次阅读」进度文案：在跨源阅读历史里找该条目最近的一条，
+  /// 取其副标题（如「第 1/96 章 - 第1話 - P60」）。
+  ///
+  /// 库未接线 / 没有历史 / 读取失败一律返回 null——这是纯收益动作，不挡
+  /// 导航；详情页随之隐藏进度信息条并把「继续阅读」退回「开始阅读」。
+  Future<String?> _progressTextFor(ComicSummary item) async {
+    final library = widget.library;
+    if (library == null) return null;
+    try {
+      final entries = await library
+          .recent(limit: 50)
+          .catchError((Object _) => const <ComicLibraryEntry>[]);
+      for (final entry in entries) {
+        if (entry.id == item.id &&
+            entry.sourceName == (item.sourceName ?? '')) {
+          return entry.subtitle;
+        }
+      }
+      return null;
+    } on Object {
+      return null;
+    }
   }
 
   void _showSnack(String message) {
@@ -294,90 +323,79 @@ class _ComicModulePageState extends State<ComicModulePage> {
   Widget build(BuildContext context) {
     final library = widget.library;
     final browse = widget.browseSource;
-    final hasSettings = widget.settingsTab != null;
 
     return Scaffold(
-      body: IndexedStack(
-        index: _index,
+      // 左侧边栏 + 细分隔线 + 内容区（2026-11-22 用户拍板，原为
+      // bottomNavigationBar: NavigationBar）。
+      body: Row(
         children: <Widget>[
-          ComicHomePage(
-            dataSource: widget.dataSource,
-            library: library,
-            showAppBar: !widget.embedded,
-            onOpenDetail: _openDetail,
-            onOpenSources: _openSources,
-            // 源管理卡片读同一仓库；返回后随 _libraryRevision 重读。
-            sourceLister: widget.sourceRepository.listSources,
-            onOpenSettings: hasSettings ? _openSettings : null,
-            // 与收藏页同一刷新信号：从详情/阅读器返回后重读历史与本地。
-            refreshKey: _libraryRevision,
-            readLater: widget.readLater,
-            localApi: widget.localApi,
-            onOpenReadLater: _openReadLater,
-            onOpenLocalLibrary: _openLocalLibrary,
+          _ComicSidebar(
+            currentIndex: _index,
+            onSelect: (int index) => setState(() => _index = index),
+            settingsTab: widget.settingsTab,
+            onOpenSettings: _openSettings,
           ),
-          if (library != null)
-            ComicFavoritesPage(
-              library: library,
-              showAppBar: !widget.embedded,
-              onOpenDetail: _openDetail,
-              refreshKey: _libraryRevision,
-            )
-          else
-            const _NotWiredPage(
-              icon: Icons.bookmark_border,
-              title: '收藏',
-              description: '收藏服务尚未接入。',
+          Expanded(
+            child: IndexedStack(
+              index: _index,
+              children: <Widget>[
+                ComicHomePage(
+                  dataSource: widget.dataSource,
+                  library: library,
+                  showAppBar: !widget.embedded,
+                  onOpenDetail: _openDetail,
+                  onOpenSources: _openSources,
+                  // 源管理卡片读同一仓库；返回后随 _libraryRevision 重读。
+                  sourceLister: widget.sourceRepository.listSources,
+                  // 设置入口已收归侧边栏底部项（2026-11-22 拍板），主页不再
+                  // 重复传设置回调——避免「侧边栏 + 快捷 chip」双入口。
+                  onOpenSettings: null,
+                  // 与收藏页同一刷新信号：从详情/阅读器返回后重读历史与本地。
+                  refreshKey: _libraryRevision,
+                  readLater: widget.readLater,
+                  localApi: widget.localApi,
+                  onOpenReadLater: _openReadLater,
+                  onOpenLocalLibrary: _openLocalLibrary,
+                ),
+                if (library != null)
+                  ComicFavoritesPage(
+                    library: library,
+                    showAppBar: !widget.embedded,
+                    onOpenDetail: _openDetail,
+                    refreshKey: _libraryRevision,
+                  )
+                else
+                  const _NotWiredPage(
+                    icon: Icons.bookmark_border,
+                    title: '收藏',
+                    description: '收藏服务尚未接入。',
+                  ),
+                if (browse != null)
+                  ComicDiscoverPage(
+                    browseSource: browse,
+                    showAppBar: !widget.embedded,
+                    onOpenDetail: _openDetail,
+                  )
+                else
+                  const _NotWiredPage(
+                    icon: Icons.explore_outlined,
+                    title: '发现',
+                    description: '源站点浏览能力尚未接入。',
+                  ),
+                if (browse != null)
+                  ComicCategoryPage(
+                    browseSource: browse,
+                    showAppBar: !widget.embedded,
+                    onOpenDetail: _openDetail,
+                  )
+                else
+                  const _NotWiredPage(
+                    icon: Icons.category_outlined,
+                    title: '分类',
+                    description: '源站点浏览能力尚未接入。',
+                  ),
+              ],
             ),
-          if (browse != null)
-            ComicDiscoverPage(
-              browseSource: browse,
-              showAppBar: !widget.embedded,
-              onOpenDetail: _openDetail,
-            )
-          else
-            const _NotWiredPage(
-              icon: Icons.explore_outlined,
-              title: '发现',
-              description: '源站点浏览能力尚未接入。',
-            ),
-          if (browse != null)
-            ComicCategoryPage(
-              browseSource: browse,
-              showAppBar: !widget.embedded,
-              onOpenDetail: _openDetail,
-            )
-          else
-            const _NotWiredPage(
-              icon: Icons.category_outlined,
-              title: '分类',
-              description: '源站点浏览能力尚未接入。',
-            ),
-        ],
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _index,
-        onDestinationSelected: (index) => setState(() => _index = index),
-        destinations: const <NavigationDestination>[
-          NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home),
-            label: '主页',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.bookmark_border),
-            selectedIcon: Icon(Icons.bookmark),
-            label: '收藏',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.explore_outlined),
-            selectedIcon: Icon(Icons.explore),
-            label: '发现',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.category_outlined),
-            selectedIcon: Icon(Icons.category),
-            label: '分类',
           ),
         ],
       ),
@@ -447,6 +465,176 @@ class _NotWiredPage extends StatelessWidget {
               ).textTheme.bodyMedium?.apply(color: cs.onSurfaceVariant),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 侧边栏导航项：图标沿用原底部 NavigationBar（selected 用 filled 版本）。
+typedef _ComicSidebarDestination = ({
+  String key,
+  IconData icon,
+  IconData selectedIcon,
+  String label,
+});
+
+const List<_ComicSidebarDestination> _comicSidebarDestinations =
+    <_ComicSidebarDestination>[
+      (
+        key: 'comic-sidebar-home',
+        icon: Icons.home_outlined,
+        selectedIcon: Icons.home,
+        label: '主页',
+      ),
+      (
+        key: 'comic-sidebar-favorites',
+        icon: Icons.bookmark_border,
+        selectedIcon: Icons.bookmark,
+        label: '收藏',
+      ),
+      (
+        key: 'comic-sidebar-discover',
+        icon: Icons.explore_outlined,
+        selectedIcon: Icons.explore,
+        label: '发现',
+      ),
+      (
+        key: 'comic-sidebar-category',
+        icon: Icons.category_outlined,
+        selectedIcon: Icons.category,
+        label: '分类',
+      ),
+    ];
+
+/// 模块层左侧边栏（2026-11-22 用户拍板，替代原底部 NavigationBar）。
+///
+/// 中部四个导航项（图标 + 文字横排，选中项为圆角药丸高亮），
+/// 底部一个「设置」项（[settingsTab] 为 null 时整块不渲染，含分隔线）。
+/// 窗口宽 ≥ 720 用 240 宽（图标 + 文字）；否则收成 84 宽只留图标，
+/// 用 Tooltip 提示名称。右缘 1px outlineVariant 与内容区分隔。
+class _ComicSidebar extends StatelessWidget {
+  const _ComicSidebar({
+    required this.currentIndex,
+    required this.onSelect,
+    required this.settingsTab,
+    required this.onOpenSettings,
+  });
+
+  final int currentIndex;
+  final ValueChanged<int> onSelect;
+
+  /// 模块设置面板内容；null 表示没有设置项，底部设置区（含分隔线）不渲染。
+  final Widget? settingsTab;
+
+  final VoidCallback? onOpenSettings;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    // 窗口宽 ≥ 720 走宽形态（图标 + 文字）；否则收窄只留图标。
+    final wide = MediaQuery.sizeOf(context).width >= 720;
+
+    return Container(
+      key: const Key('comic-sidebar'),
+      width: wide ? 240.0 : 84.0,
+      decoration: BoxDecoration(
+        color: cs.surface,
+        border: Border(right: BorderSide(color: cs.outlineVariant)),
+      ),
+      child: Column(
+        children: <Widget>[
+          // 顶部不画模块名：壳层顶栏（embedded）与各分区 AppBar 已有标题，
+          // 侧边栏再画一遍会重复（2026-11-22 截图验收后去掉），只留呼吸空隙。
+          const SizedBox(height: 12),
+          for (final (index, destination) in _comicSidebarDestinations.indexed)
+            _destinationRow(
+              context: context,
+              itemKey: destination.key,
+              icon: destination.icon,
+              selectedIcon: destination.selectedIcon,
+              label: destination.label,
+              selected: index == currentIndex,
+              wide: wide,
+              onTap: () => onSelect(index),
+            ),
+          const Spacer(),
+          if (settingsTab != null) ...<Widget>[
+            Divider(color: cs.outlineVariant, height: 1),
+            // 设置项永不处于选中态；样式与导航项一致。
+            _destinationRow(
+              context: context,
+              itemKey: 'comic-sidebar-settings',
+              icon: Icons.settings_outlined,
+              selectedIcon: Icons.settings_outlined,
+              label: '设置',
+              selected: false,
+              wide: wide,
+              onTap: onOpenSettings,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// 一条导航行：Material 提供水波纹底（透明底才有 ink 效果），圆角药丸
+  /// 由 shape + clipBehavior 收住水波纹；未选中行的底色与侧边栏同色，
+  /// 视觉上只剩图标文字，hover/focus 时药丸形状的 ink 反馈照常出现。
+  Widget _destinationRow({
+    required BuildContext context,
+    required String itemKey,
+    required IconData icon,
+    required IconData selectedIcon,
+    required String label,
+    required bool selected,
+    required bool wide,
+    required VoidCallback? onTap,
+  }) {
+    final cs = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final fg = selected ? cs.onSecondaryContainer : cs.onSurfaceVariant;
+    final iconWidget = Icon(
+      selected ? selectedIcon : icon,
+      size: 24,
+      color: fg,
+    );
+    return Padding(
+      key: Key(itemKey),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Material(
+        color: selected ? cs.secondaryContainer : cs.surface,
+        shape: RoundedRectangleBorder(borderRadius: MimaoShapes.pill),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          borderRadius: MimaoShapes.pill,
+          onTap: onTap,
+          child: SizedBox(
+            height: 52,
+            child: Row(
+              mainAxisAlignment: wide
+                  ? MainAxisAlignment.start
+                  : MainAxisAlignment.center,
+              children: <Widget>[
+                if (wide)
+                  iconWidget
+                else
+                  Tooltip(message: label, child: iconWidget),
+                if (wide) ...<Widget>[
+                  const SizedBox(width: 12),
+                  Text(
+                    label,
+                    style: textTheme.labelLarge?.copyWith(
+                      color: fg,
+                      fontWeight: selected
+                          ? MimaoFonts.bold
+                          : MimaoFonts.regular,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
         ),
       ),
     );

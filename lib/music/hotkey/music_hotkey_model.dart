@@ -6,9 +6,10 @@
 /// 一套绑定同时描述「应用内快捷键」([MusicHotKeyScope.inApp]) 与
 /// 「全局快捷键」([MusicHotKeyScope.global])，区别只在注册时传给
 /// `hotKey_manager` 的 scope——inapp 只在应用聚焦时生效，global 是系统级。
-/// 默认值取一套大众方案：应用内用基础组合 Ctrl+键（Ctrl+Space 播放/暂停、
-/// Ctrl+方向切歌/音量、Ctrl+M 静音），全局 = 基础组合再加 Shift
-/// （Ctrl+Shift+Space 等）；用户可在设置里逐条改。
+/// 默认值逐条对照 EchoMusic：Ctrl+Space 播放/暂停、Ctrl+←→ 切歌、
+/// Ctrl+Alt+←→ 快进快退、Ctrl+K 歌词、Ctrl+↑↓ 音量、Ctrl+M 静音、
+/// Ctrl+L 收藏、Ctrl+P 播放模式；全局 = 基础组合再加 Shift。
+/// 修饰键统一写 Ctrl / Alt / Shift（Cmd 键一律显示为 Ctrl）；用户可在设置里逐条改。
 library;
 
 import 'package:flutter/foundation.dart' show immutable;
@@ -16,17 +17,24 @@ import 'package:flutter/services.dart';
 import 'package:hotkey_manager/hotkey_manager.dart';
 
 /// 可被快捷键触发的播放器动作。两种作用域共用同一套动作，模型统一。
+/// 动作集对齐 EchoMusic 的 ShortcutCommand（去掉本应用无对应实现的桌面歌词
+/// /侧边栏/Mini 模式等，保留全部有真实落点的动作）。
 enum MusicHotKeyAction {
   playPause('播放 / 暂停'),
-  next('下一首'),
   previous('上一首'),
+  next('下一首'),
+  seekBackward('快退'),
+  seekForward('快进'),
+  toggleLyric('播放页歌词开关'),
   volumeUp('音量 +'),
   volumeDown('音量 -'),
-  toggleMute('静音 / 取消静音');
+  toggleMute('静音'),
+  toggleFavorite('收藏当前歌曲'),
+  togglePlayMode('切换播放模式');
 
   const MusicHotKeyAction(this.label);
 
-  /// 设置页展示用的中文名。
+  /// 设置页展示用的中文名（对齐 EchoMusic 的 shortcutItems 文案）。
   final String label;
 }
 
@@ -228,25 +236,45 @@ abstract final class _K {
   static const right = LogicalKeyboardKey.arrowRight;
   static const up = LogicalKeyboardKey.arrowUp;
   static const down = LogicalKeyboardKey.arrowDown;
+  static const k = LogicalKeyboardKey.keyK;
+  static const l = LogicalKeyboardKey.keyL;
   static const m = LogicalKeyboardKey.keyM;
+  static const p = LogicalKeyboardKey.keyP;
 }
 
-/// 一套大众方案：应用内用「基础组合」Ctrl+键，全局 = 基础组合再加 Shift。
-/// 例：Ctrl+Space 播放/暂停 → 全局 Ctrl+Shift+Space。
+/// 修饰键组合，全部以 Ctrl 为基础（EchoMusic 的 Cmd 在 Windows 就是 Ctrl，
+/// 本应用统一写成 Ctrl）；全局 = 基础组合再加 Shift。
 const _ctrl = <HotKeyModifier>[HotKeyModifier.control];
 const _ctrlShift = <HotKeyModifier>[
   HotKeyModifier.control,
   HotKeyModifier.shift,
 ];
+const _ctrlAlt = <HotKeyModifier>[HotKeyModifier.control, HotKeyModifier.alt];
+const _ctrlAltShift = <HotKeyModifier>[
+  HotKeyModifier.control,
+  HotKeyModifier.alt,
+  HotKeyModifier.shift,
+];
 
-/// 出厂默认绑定：12 条（6 动作 × 2 作用域）。
-/// 应用内 = Ctrl+键，全局 = Ctrl+Shift+键（基础组合加 Shift 即全局）。
+/// 出厂默认绑定：11 动作 × 2 作用域 = 22 条，键位逐条对照 EchoMusic
+/// `DEFAULT_SHORTCUT_LABELS` / `DEFAULT_GLOBAL_SHORTCUT_LABELS`（Cmd→Ctrl、
+/// Option→Alt、Shift→Shift）：
+///   播放 Ctrl+Space / 切歌 Ctrl+←→ / 快进快退 Ctrl+Alt+←→ /
+///   歌词 Ctrl+K / 音量 Ctrl+↑↓ / 静音 Ctrl+M / 收藏 Ctrl+L / 模式 Ctrl+P；
+///   全局一律在基础组合上再加 Shift。
 const List<MusicHotKeyBinding> defaultMusicHotKeyBindings =
     <MusicHotKeyBinding>[
+      // ── 快捷键（窗口聚焦时生效）──
       MusicHotKeyBinding(
         action: MusicHotKeyAction.playPause,
         scope: MusicHotKeyScope.inApp,
         key: _K.space,
+        modifiers: _ctrl,
+      ),
+      MusicHotKeyBinding(
+        action: MusicHotKeyAction.previous,
+        scope: MusicHotKeyScope.inApp,
+        key: _K.left,
         modifiers: _ctrl,
       ),
       MusicHotKeyBinding(
@@ -256,9 +284,21 @@ const List<MusicHotKeyBinding> defaultMusicHotKeyBindings =
         modifiers: _ctrl,
       ),
       MusicHotKeyBinding(
-        action: MusicHotKeyAction.previous,
+        action: MusicHotKeyAction.seekBackward,
         scope: MusicHotKeyScope.inApp,
         key: _K.left,
+        modifiers: _ctrlAlt,
+      ),
+      MusicHotKeyBinding(
+        action: MusicHotKeyAction.seekForward,
+        scope: MusicHotKeyScope.inApp,
+        key: _K.right,
+        modifiers: _ctrlAlt,
+      ),
+      MusicHotKeyBinding(
+        action: MusicHotKeyAction.toggleLyric,
+        scope: MusicHotKeyScope.inApp,
+        key: _K.k,
         modifiers: _ctrl,
       ),
       MusicHotKeyBinding(
@@ -280,9 +320,28 @@ const List<MusicHotKeyBinding> defaultMusicHotKeyBindings =
         modifiers: _ctrl,
       ),
       MusicHotKeyBinding(
+        action: MusicHotKeyAction.toggleFavorite,
+        scope: MusicHotKeyScope.inApp,
+        key: _K.l,
+        modifiers: _ctrl,
+      ),
+      MusicHotKeyBinding(
+        action: MusicHotKeyAction.togglePlayMode,
+        scope: MusicHotKeyScope.inApp,
+        key: _K.p,
+        modifiers: _ctrl,
+      ),
+      // ── 全局快捷键（基础组合 + Shift）──
+      MusicHotKeyBinding(
         action: MusicHotKeyAction.playPause,
         scope: MusicHotKeyScope.global,
         key: _K.space,
+        modifiers: _ctrlShift,
+      ),
+      MusicHotKeyBinding(
+        action: MusicHotKeyAction.previous,
+        scope: MusicHotKeyScope.global,
+        key: _K.left,
         modifiers: _ctrlShift,
       ),
       MusicHotKeyBinding(
@@ -292,9 +351,21 @@ const List<MusicHotKeyBinding> defaultMusicHotKeyBindings =
         modifiers: _ctrlShift,
       ),
       MusicHotKeyBinding(
-        action: MusicHotKeyAction.previous,
+        action: MusicHotKeyAction.seekBackward,
         scope: MusicHotKeyScope.global,
         key: _K.left,
+        modifiers: _ctrlAltShift,
+      ),
+      MusicHotKeyBinding(
+        action: MusicHotKeyAction.seekForward,
+        scope: MusicHotKeyScope.global,
+        key: _K.right,
+        modifiers: _ctrlAltShift,
+      ),
+      MusicHotKeyBinding(
+        action: MusicHotKeyAction.toggleLyric,
+        scope: MusicHotKeyScope.global,
+        key: _K.k,
         modifiers: _ctrlShift,
       ),
       MusicHotKeyBinding(
@@ -313,6 +384,18 @@ const List<MusicHotKeyBinding> defaultMusicHotKeyBindings =
         action: MusicHotKeyAction.toggleMute,
         scope: MusicHotKeyScope.global,
         key: _K.m,
+        modifiers: _ctrlShift,
+      ),
+      MusicHotKeyBinding(
+        action: MusicHotKeyAction.toggleFavorite,
+        scope: MusicHotKeyScope.global,
+        key: _K.l,
+        modifiers: _ctrlShift,
+      ),
+      MusicHotKeyBinding(
+        action: MusicHotKeyAction.togglePlayMode,
+        scope: MusicHotKeyScope.global,
+        key: _K.p,
         modifiers: _ctrlShift,
       ),
     ];

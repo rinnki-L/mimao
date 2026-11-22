@@ -334,7 +334,8 @@ void main() {
         find.byKey(const Key('comic-home-read-later-card')),
         findsOneWidget,
       );
-      expect(find.text('1 部'), findsOneWidget);
+      // 2026-11-22 排版拍板：计数徽标改纯数字。
+      expect(find.text('1'), findsOneWidget);
       expect(
         find.byKey(const ValueKey<String>('home-read-later-c1')),
         findsOneWidget,
@@ -376,8 +377,16 @@ void main() {
       await tester.pumpAndSettle();
 
       // 主页本地卡片：计数来自真实 localService。
+      // 2026-11-22 排版拍板：本地卡改卡头计数徽标（纯数字）+ 纯封面横排，
+      // 「已保存 N 部 · 点击管理」副标题行移除。
       expect(find.byKey(const Key('comic-home-local-card')), findsOneWidget);
-      expect(find.text('已保存 1 部 · 点击管理'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('comic-home-local-card')),
+          matching: find.text('1'),
+        ),
+        findsOneWidget,
+      );
 
       // 点卡片 → 本地漫画管理页 → 行 key 由条目 id 决定。
       await tester.tap(find.byKey(const Key('comic-home-local-card-tap')));

@@ -122,7 +122,8 @@ void main() {
         find.byKey(const Key('comic-home-read-later-card')),
         findsOneWidget,
       );
-      expect(find.text('2 部'), findsOneWidget);
+      // 2026-11-22 排版拍板：计数徽标改纯数字。
+      expect(find.text('2'), findsOneWidget);
       expect(
         find.byKey(const ValueKey<String>('home-read-later-xingzhou')),
         findsOneWidget,
@@ -155,7 +156,8 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('在漫画详情页点「稍后阅读」，想读的漫画会收在这里。'), findsOneWidget);
-      expect(find.text('0 部'), findsOneWidget);
+      // 2026-11-22 排版拍板：计数徽标改纯数字。
+      expect(find.text('0'), findsOneWidget);
       expect(
         find.byWidgetPredicate(
           (widget) =>

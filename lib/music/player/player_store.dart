@@ -274,6 +274,48 @@ abstract class _MusicPlayerStore with Store {
     await _writeCurrentProgress();
   }
 
+  /// 相对当前位置快进/快退（快捷键用），clamp 到 0~duration。
+  /// 与 EchoMusic 的快进步长一致取 10 秒。
+  Future<void> seekBy(Duration delta) {
+    final target = snapshot.position + delta;
+    final duration = snapshot.duration;
+    final clamped = duration > Duration.zero && target > duration
+        ? duration
+        : (target < Duration.zero ? Duration.zero : target);
+    return seekTo(clamped);
+  }
+
+  /// 循环切换播放模式（快捷键「切换播放模式」用）。
+  @action
+  Future<void> cyclePlayMode() async {
+    final next = switch (playMode) {
+      PlayMode.listLoop => PlayMode.repeatOne,
+      PlayMode.repeatOne => PlayMode.shuffle,
+      PlayMode.shuffle => PlayMode.listLoop,
+    };
+    setPlayMode(next);
+    _bumpLyricEpoch();
+  }
+
+  /// 歌词开关变化后需要让播放页 Observer 重建（settings 不是 observable）。
+  /// 这里递增 epoch 并让 UI 通过 [settingsEpoch] 观察。
+  @observable
+  int settingsEpoch = 0;
+
+  void _bumpLyricEpoch() => settingsEpoch++;
+
+  /// 切换播放页歌词显示（写入本地设置并通知 UI 重建）。
+  Future<void> toggleLyric() async {
+    final settings = _settings;
+    if (settings == null) return;
+    try {
+      await settings.setLyricEnabled(!settings.lyricEnabled);
+      _bumpLyricEpoch();
+    } on Object {
+      // 写盘失败不挡本次会话；不改变内存状态。
+    }
+  }
+
   /// 当前音量（0.0~1.0）；引擎尚未构造时返回默认满音量。
   @observable
   double volume = 1.0;

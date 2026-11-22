@@ -86,10 +86,30 @@ class MusicPlayerUiImpl implements MusicPlayerUi, MusicHotKeyActionHandler {
     MusicHotKeyAction.playPause => store.toggle(),
     MusicHotKeyAction.next => store.next(),
     MusicHotKeyAction.previous => store.previous(),
+    MusicHotKeyAction.seekBackward => store.seekBy(
+      const Duration(seconds: -10),
+    ),
+    MusicHotKeyAction.seekForward => store.seekBy(const Duration(seconds: 10)),
+    MusicHotKeyAction.toggleLyric => store.toggleLyric(),
     MusicHotKeyAction.volumeUp => store.adjustVolume(0.1),
     MusicHotKeyAction.volumeDown => store.adjustVolume(-0.1),
     MusicHotKeyAction.toggleMute => store.toggleMute(),
+    MusicHotKeyAction.toggleFavorite => _toggleFavorite(),
+    MusicHotKeyAction.togglePlayMode => store.cyclePlayMode(),
   };
+
+  /// 「收藏当前歌曲」：复用注入的云歌单能力；未注入/未登录时静默（与收藏
+  /// 按钮的可见性门控一致，快捷键不额外报错）。
+  Future<void> _toggleFavorite() async {
+    final collection = songCollection;
+    final song = store.currentSong;
+    if (collection == null || song == null) return;
+    try {
+      await collection.addToFavorite(song);
+    } on Object {
+      // 收藏失败不打断播放；用户可从播放页的收藏按钮看到明确提示。
+    }
+  }
 
   @override
   void dispose() => store.dispose();

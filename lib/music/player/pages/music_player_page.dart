@@ -315,6 +315,8 @@ class _MusicPlayerPageState extends State<MusicPlayerPage> {
           final colorScheme = Theme.of(context).colorScheme;
           final climaxSpans = _climaxSpans(durationMs);
           // 歌词开关/模式来自本地设置；未注入设置时按默认（显示、原文）。
+          // 读一次 settingsEpoch 让快捷键切换歌词时本 Observer 随之重建。
+          player.settingsEpoch;
           final settings = player.settings;
           final lyricEnabled = settings?.lyricEnabled ?? true;
           final lyricMode = settings?.lyricMode ?? LyricMode.original;

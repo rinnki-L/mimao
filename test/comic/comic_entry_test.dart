@@ -97,6 +97,14 @@ void main() {
   /// 模块主页是「主页」分区（搜索入口 + 历史/本地），搜索是独立一页：
   /// 先点主页搜索入口，再在搜索页里输入并提交。
   Future<void> openDetail(WidgetTester tester) async {
+    // 2026-11-22 详情页排版拍板：详情页按 VeneraNext 参考排版变长
+    // （头部 + 操作行 + 按钮行 + 简介 + 信息区 + 章节网格），默认 800×600
+    // 视口下章节网格已落到折叠线以下，tester.tap 命中不了。这里把视口加高
+    // 让整页可见，点章节/收藏的既有流程保持不变。
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(_app(_HostModule(module: module)));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('comic-home-search')));

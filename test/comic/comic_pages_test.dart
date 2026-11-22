@@ -416,9 +416,16 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // 底部四分区就位（主页/收藏/发现/分类）。
-      for (final label in <String>['主页', '收藏', '发现', '分类']) {
-        expect(find.text(label), findsOneWidget, reason: '缺少分区 $label');
+      // 四分区就位：按侧边栏行 key 断言（2026-11-22 用户拍板：模块层导航改
+      // 左侧边栏；测试窗口 390 宽走窄形态，只渲染图标不渲染文字，见
+      // comic_module_page.dart 的 _ComicSidebar）。
+      for (final key in <String>[
+        'comic-sidebar-home',
+        'comic-sidebar-favorites',
+        'comic-sidebar-discover',
+        'comic-sidebar-category',
+      ]) {
+        expect(find.byKey(Key(key)), findsOneWidget, reason: '缺少分区 $key');
       }
 
       // 主页只有搜索入口；点进完整搜索页。
@@ -479,15 +486,17 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('收藏'));
+      // 按侧边栏行 key 点按（2026-11-22 用户拍板：模块层导航改左侧边栏，
+      // 测试窗口 390 宽走窄形态，只渲染图标不渲染文字）。
+      await tester.tap(find.byKey(const Key('comic-sidebar-favorites')));
       await tester.pumpAndSettle();
       expect(find.text('收藏服务尚未接入。'), findsOneWidget);
 
-      await tester.tap(find.text('发现'));
+      await tester.tap(find.byKey(const Key('comic-sidebar-discover')));
       await tester.pumpAndSettle();
       expect(find.text('源站点浏览能力尚未接入。'), findsOneWidget);
 
-      await tester.tap(find.text('分类'));
+      await tester.tap(find.byKey(const Key('comic-sidebar-category')));
       await tester.pumpAndSettle();
       expect(find.text('源站点浏览能力尚未接入。'), findsOneWidget);
       expect(tester.takeException(), isNull);

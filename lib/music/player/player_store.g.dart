@@ -125,6 +125,24 @@ mixin _$MusicPlayerStore on _MusicPlayerStore, Store {
     });
   }
 
+  late final _$settingsEpochAtom = Atom(
+    name: '_MusicPlayerStore.settingsEpoch',
+    context: context,
+  );
+
+  @override
+  int get settingsEpoch {
+    _$settingsEpochAtom.reportRead();
+    return super.settingsEpoch;
+  }
+
+  @override
+  set settingsEpoch(int value) {
+    _$settingsEpochAtom.reportWrite(value, super.settingsEpoch, () {
+      super.settingsEpoch = value;
+    });
+  }
+
   late final _$volumeAtom = Atom(
     name: '_MusicPlayerStore.volume',
     context: context,
@@ -227,6 +245,16 @@ mixin _$MusicPlayerStore on _MusicPlayerStore, Store {
     return _$seekToAsyncAction.run(() => super.seekTo(position));
   }
 
+  late final _$cyclePlayModeAsyncAction = AsyncAction(
+    '_MusicPlayerStore.cyclePlayMode',
+    context: context,
+  );
+
+  @override
+  Future<void> cyclePlayMode() {
+    return _$cyclePlayModeAsyncAction.run(() => super.cyclePlayMode());
+  }
+
   late final _$setVolumeAsyncAction = AsyncAction(
     '_MusicPlayerStore.setVolume',
     context: context,
@@ -297,6 +325,7 @@ snapshot: ${snapshot},
 isResolving: ${isResolving},
 playMode: ${playMode},
 error: ${error},
+settingsEpoch: ${settingsEpoch},
 volume: ${volume},
 muted: ${muted},
 currentSong: ${currentSong}

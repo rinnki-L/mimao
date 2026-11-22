@@ -297,6 +297,54 @@ void main() {
     expect(settings.playMode, PlayMode.shuffle);
   });
 
+  test('seekBy：相对当前位置快进/快退，clamp 到 0~duration', () async {
+    final store = buildStore();
+    await store.playSong(fakeSong());
+    engine.emit(
+      const MusicPlaybackSnapshot(
+        position: Duration(seconds: 30),
+        duration: Duration(seconds: 180),
+        playing: true,
+      ),
+    );
+    await pumpEventQueue();
+
+    await store.seekBy(const Duration(seconds: 10));
+    expect(engine.seeks.last, const Duration(seconds: 40));
+
+    await store.seekBy(const Duration(seconds: -100));
+    expect(engine.seeks.last, Duration.zero);
+
+    await store.seekBy(const Duration(seconds: 1000));
+    expect(engine.seeks.last, const Duration(seconds: 180));
+  });
+
+  test('cyclePlayMode：listLoop → repeatOne → shuffle → listLoop 循环', () async {
+    final settings = FakeMusicSettings();
+    final store = buildStore(settings: settings);
+    expect(store.playMode, PlayMode.listLoop);
+    await store.cyclePlayMode();
+    expect(store.playMode, PlayMode.repeatOne);
+    await store.cyclePlayMode();
+    expect(store.playMode, PlayMode.shuffle);
+    await store.cyclePlayMode();
+    expect(store.playMode, PlayMode.listLoop);
+    await pumpEventQueue();
+    expect(settings.playMode, PlayMode.listLoop);
+  });
+
+  test('toggleLyric：翻转歌词开关、写设置并 bump epoch', () async {
+    final settings = FakeMusicSettings(lyricEnabled: true);
+    final store = buildStore(settings: settings);
+    expect(store.settingsEpoch, 0);
+    await store.toggleLyric();
+    expect(settings.lyricEnabled, isFalse);
+    expect(store.settingsEpoch, 1);
+    await store.toggleLyric();
+    expect(settings.lyricEnabled, isTrue);
+    expect(store.settingsEpoch, 2);
+  });
+
   test('构造时从 settings 读取初始播放模式', () async {
     final store = buildStore(
       settings: FakeMusicSettings(playMode: PlayMode.repeatOne),

@@ -13,10 +13,10 @@ import 'package:mimao/music/hotkey/music_hotkey_settings.dart';
 
 void main() {
   group('默认绑定', () {
-    test('6 动作 × 2 作用域 = 12 条，id 唯一', () {
-      expect(defaultMusicHotKeyBindings, hasLength(12));
+    test('11 动作 × 2 作用域 = 22 条，id 唯一', () {
+      expect(defaultMusicHotKeyBindings, hasLength(22));
       final ids = defaultMusicHotKeyBindings.map((e) => e.id).toSet();
-      expect(ids, hasLength(12));
+      expect(ids, hasLength(22));
       for (final scope in MusicHotKeyScope.values) {
         final actions = defaultMusicHotKeyBindings
             .where((e) => e.scope == scope)
@@ -63,6 +63,19 @@ void main() {
       }
     });
 
+    test('扩展动作键位对齐 EchoMusic（Ctrl+Alt 快进快退、Ctrl+K/L/P 等）', () {
+      String localLabel(MusicHotKeyAction action) => defaultMusicHotKeyBindings
+          .firstWhere(
+            (e) => e.scope == MusicHotKeyScope.inApp && e.action == action,
+          )
+          .displayText;
+      expect(localLabel(MusicHotKeyAction.seekBackward), 'Ctrl+Alt+Left');
+      expect(localLabel(MusicHotKeyAction.seekForward), 'Ctrl+Alt+Right');
+      expect(localLabel(MusicHotKeyAction.toggleLyric), 'Ctrl+K');
+      expect(localLabel(MusicHotKeyAction.toggleFavorite), 'Ctrl+L');
+      expect(localLabel(MusicHotKeyAction.togglePlayMode), 'Ctrl+P');
+    });
+
     test('toHotKey 保留稳定 id，映射正确作用域', () {
       final binding = defaultMusicHotKeyBindings.first;
       final hotKey = binding.toHotKey();
@@ -90,7 +103,7 @@ void main() {
       final decoded = decodeMusicHotKeyBindings(
         jsonDecode(encoded)['bindings'],
       );
-      expect(decoded, hasLength(12));
+      expect(decoded, hasLength(22));
     });
 
     test('损坏条目跳过；缺失动作回默认（兼容老配置文件）', () {
@@ -103,8 +116,8 @@ void main() {
           'modifiers': <String>['control'],
         },
       ]);
-      // bogus 被跳过；next 命中已有 id（global.next）原地替换 → 仍是 12 条。
-      expect(decoded, hasLength(12));
+      // bogus 被跳过；next 命中已有 id（global.next）原地替换 → 仍是 22 条。
+      expect(decoded, hasLength(22));
       final next = decoded.firstWhere(
         (e) =>
             e.scope == MusicHotKeyScope.global &&
@@ -190,7 +203,7 @@ void main() {
 
     test('无文件回默认；写入后新实例可读回', () async {
       await settings.ensureLoaded();
-      expect(settings.bindings, hasLength(12));
+      expect(settings.bindings, hasLength(22));
 
       final changed = <MusicHotKeyBinding>[...settings.bindings]
         ..[0] = MusicHotKeyBinding(
@@ -226,7 +239,7 @@ void main() {
       await file.writeAsString('{ broken json');
       final reloaded = MusicHotKeyFileSettings(root);
       await reloaded.ensureLoaded();
-      expect(reloaded.bindings, hasLength(12));
+      expect(reloaded.bindings, hasLength(22));
       expect(reloaded.globalShortcutsEnabled, isFalse);
     });
   });

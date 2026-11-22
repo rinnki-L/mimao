@@ -162,7 +162,7 @@ void main() {
       expect(find.byTooltip('统一书架'), findsOneWidget);
     });
 
-    testWidgets('漫画设置收在主页右上角按钮里（底部栏留给四个分区）', (tester) async {
+    testWidgets('漫画设置收在模块侧边栏底部项里（2026-11-22 拍板，原为主页 chip）', (tester) async {
       await initModules();
       await tester.pumpWidget(pumpApp());
       await tester.pumpAndSettle();
@@ -170,10 +170,9 @@ void main() {
       // 一步进入模块。
       await tester.tap(find.text(MediaType.comic.label).first);
       await tester.pumpAndSettle();
-      // 底部四分区不占设置位；设置入口是主页快捷行里的 chip（壳提供顶栏，
-      // 分区页不画 AppBar）。
+      // 侧边栏四个分区不占设置位；设置入口是侧边栏底部「设置」项。
       expect(find.text('设置'), findsOneWidget);
-      await tester.tap(find.byKey(const Key('comic-home-settings-chip')));
+      await tester.tap(find.byKey(const Key('comic-sidebar-settings')));
       await tester.pumpAndSettle();
 
       expect(

@@ -7,6 +7,11 @@
 /// - 收藏 = 用户收藏的漫画；
 /// - 发现 / 分类 = 各源站点的探索流与分类树。
 ///
+/// 排版（2026-11-22 拍板，对齐参考应用 VeneraNext 的主页分区，用本项目
+/// MD3 风格实现）：每张卡 = 卡头（图标 + 标题 + 纯数字计数徽标 + Spacer +
+/// chevron / 清空按钮）+ 卡身（纯封面横排 [_CoverRow] 或空态引导文案），
+/// 封面不带标题文字。
+///
 /// 本页只认 [ComicDataSource]（搜索）与 [ComicLibraryApi]（本地数据）；
 /// 源管理入口经 [onOpenSources] 回调交给模块层 push 源管理页，本页不认识
 /// 源仓库。统一书架入口收归壳层顶栏，主页不再重复放入口。
@@ -17,7 +22,7 @@ import 'package:mimao/comic/data/comic_data_source.dart';
 import 'package:mimao/comic/data/comic_models.dart';
 import 'package:mimao/core/theme.dart';
 import 'package:mimao/comic/library_api.dart';
-import 'package:mimao/comic/pages/comic_poster_card.dart';
+import 'package:mimao/comic/pages/comic_cover.dart';
 import 'package:mimao/comic/pages/comic_search_page.dart' show ComicSearchPage;
 
 /// 主页分区。
@@ -249,25 +254,26 @@ class _ComicHomePageState extends State<ComicHomePage> {
             // 固定顺序（用户拍板）：搜索框 → 历史 → 稍后阅读 → 本地 → 源管理
             // → 快捷 chips。旧的「阅读历史」「本地漫画」大海报区已并入卡片/删除。
             // 历史卡片常显（library 存在即可）——空态收进卡片，不给整页空态。
+            // 卡与卡间距 12（2026-11-22 排版拍板）。
             return ListView(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
               children: <Widget>[
                 _buildSearchEntry(),
-                const SizedBox(height: 8),
+                const SizedBox(height: 12),
                 if (widget.library != null) ...<Widget>[
                   _buildHistoryCard(data.recent),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 12),
                 ],
                 if (widget.readLater != null) ...<Widget>[
                   _buildReadLaterCard(data.saved),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 12),
                 ],
                 if (widget.localApi != null) ...<Widget>[
                   _buildLocalCard(data.local),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 12),
                 ],
                 _buildSourceCard(data.sources),
-                const SizedBox(height: 8),
+                const SizedBox(height: 12),
                 _buildQuickActions(),
               ],
             );
@@ -299,17 +305,17 @@ class _ComicHomePageState extends State<ComicHomePage> {
     );
   }
 
-  /// 阅读历史卡片：跨源最近阅读，横向预览（最多 8 条）+ 单条删 / 一键清空。
+  /// 阅读历史卡片：跨源最近阅读，纯封面横排预览（最多 8 条）+ 单条删 / 一键清空。
   ///
-  /// 形态镜像稍后阅读卡片：header（history 图标 + 标题 + N 条计数 + 清空
-  /// TextButton）+ body（海报预览或空态引导）。卡片常显——空历史时也保留入口
-  /// 与清空按钮，不给整页空态；清空/长按删除沿用 [_clearHistory]/[_deleteHistory]
-  /// 的确认框与 SnackBar 错误处理。
+  /// 卡头（history 图标 + 标题 + 计数徽标 + 清空 TextButton）+ 卡身（纯封面
+  /// 行，右下角 scrim 叠阅读进度；或空态引导）。卡片常显——空历史时也保留
+  /// 入口与清空按钮，不给整页空态；清空/长按删除沿用 [_clearHistory]/
+  /// [_deleteHistory] 的确认框与 SnackBar 错误处理。
   Widget _buildHistoryCard(List<ComicLibraryEntry> entries) {
     final cs = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
     // 数据仍是 recent(limit: 20)，卡片只做概览：最多展示 8 条，避免历史过多
-    // 时横向列表过长；计数用完整 entries 长度，展示才截断。
+    // 时横向列表过长；计数徽标用完整 entries 长度，展示才截断。
     final items = [for (final entry in entries.take(8)) entry.asSummary()];
     return Card(
       key: const Key('comic-home-history-card'),
@@ -319,23 +325,15 @@ class _ComicHomePageState extends State<ComicHomePage> {
         children: <Widget>[
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 12, 8),
-            child: Row(
-              children: <Widget>[
-                Icon(Icons.history, size: 20, color: cs.primary),
-                const SizedBox(width: 8),
-                Text('阅读历史', style: textTheme.titleSmall),
-                const SizedBox(width: 8),
-                Text(
-                  '${entries.length} 条',
-                  style: textTheme.bodySmall?.apply(color: cs.onSurfaceVariant),
-                ),
-                const Spacer(),
-                TextButton(
-                  key: const Key('comic-home-clear-history'),
-                  onPressed: _clearHistory,
-                  child: const Text('清空'),
-                ),
-              ],
+            child: _HomeCardHeader(
+              icon: Icons.history,
+              title: '阅读历史',
+              count: entries.length,
+              trailing: TextButton(
+                key: const Key('comic-home-clear-history'),
+                onPressed: _clearHistory,
+                child: const Text('清空'),
+              ),
             ),
           ),
           if (items.isEmpty)
@@ -359,12 +357,11 @@ class _ComicHomePageState extends State<ComicHomePage> {
             )
           else
             Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-              child: ComicPosterRow(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              child: _CoverRow(
                 items: items,
                 keyPrefix: 'home-recent',
-                height: 200,
-                cardWidth: 120,
+                showProgressScrim: true,
                 onOpen: widget.onOpenDetail,
                 onItemLongPress: _deleteHistory,
               ),
@@ -374,9 +371,10 @@ class _ComicHomePageState extends State<ComicHomePage> {
     );
   }
 
-  /// 稍后阅读卡片：详情页加入的待读队列，横向预览 + 整页入口。
+  /// 稍后阅读卡片：详情页加入的待读队列，纯封面横排预览 + 整页入口。
   ///
-  /// 空队列也保留卡片（显示引导文案）——否则用户不知道有这个功能入口。
+  /// 卡头整行可点（进稍后阅读整页），卡身是纯封面行（无 scrim、无标题文字）
+  /// 或空态引导——空队列也保留卡片，否则用户不知道有这个功能入口。
   Widget _buildReadLaterCard(List<ComicLibraryEntry> entries) {
     final cs = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
@@ -392,29 +390,15 @@ class _ComicHomePageState extends State<ComicHomePage> {
             onTap: widget.onOpenReadLater,
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 12, 8),
-              child: Row(
-                children: <Widget>[
-                  Icon(Icons.watch_later_outlined, size: 20, color: cs.primary),
-                  const SizedBox(width: 8),
-                  Text('稍后阅读', style: textTheme.titleSmall),
-                  const SizedBox(width: 8),
-                  Text(
-                    '${items.length} 部',
-                    style: textTheme.bodySmall?.apply(
-                      color: cs.onSurfaceVariant,
-                    ),
-                  ),
-                  const Spacer(),
-                  Text(
-                    items.isEmpty ? '' : '查看全部',
-                    style: textTheme.labelMedium?.apply(color: cs.primary),
-                  ),
-                  Icon(
-                    Icons.chevron_right,
-                    size: 20,
-                    color: cs.onSurfaceVariant,
-                  ),
-                ],
+              child: _HomeCardHeader(
+                icon: Icons.watch_later_outlined,
+                title: '稍后阅读',
+                count: items.length,
+                trailing: Icon(
+                  Icons.chevron_right,
+                  size: 20,
+                  color: cs.onSurfaceVariant,
+                ),
               ),
             ),
           ),
@@ -428,12 +412,10 @@ class _ComicHomePageState extends State<ComicHomePage> {
             )
           else
             Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-              child: ComicPosterRow(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              child: _CoverRow(
                 items: items,
                 keyPrefix: 'home-read-later',
-                height: 200,
-                cardWidth: 120,
                 onOpen: widget.onOpenDetail,
               ),
             ),
@@ -442,51 +424,63 @@ class _ComicHomePageState extends State<ComicHomePage> {
     );
   }
 
-  /// 本地入口卡片：已导入/下载数量 + 管理页入口。
+  /// 本地入口卡片：卡头（图标 + 标题 + 计数徽标 + chevron，整头可点进管理页）
+  /// + 卡身（有条目时纯封面横排、无 scrim；空时引导文案）。
   Widget _buildLocalCard(List<ComicLibraryEntry> entries) {
     final cs = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
+    final items = [for (final entry in entries) entry.asSummary()];
     return Card(
       key: const Key('comic-home-local-card'),
       clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        key: const Key('comic-home-local-card-tap'),
-        onTap: widget.onOpenLocalLibrary,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
-          child: Row(
-            children: <Widget>[
-              Icon(Icons.download_done_outlined, size: 20, color: cs.primary),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text('本地', style: textTheme.titleSmall),
-                    const SizedBox(height: 2),
-                    Text(
-                      entries.isEmpty
-                          ? '下载漫画后会出现在这里'
-                          : '已保存 ${entries.length} 部 · 点击管理',
-                      style: textTheme.bodySmall?.apply(
-                        color: cs.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          InkWell(
+            key: const Key('comic-home-local-card-tap'),
+            onTap: widget.onOpenLocalLibrary,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 12, 8),
+              child: _HomeCardHeader(
+                icon: Icons.download_done_outlined,
+                title: '本地',
+                count: entries.length,
+                trailing: Icon(
+                  Icons.chevron_right,
+                  size: 20,
+                  color: cs.onSurfaceVariant,
                 ),
               ),
-              Icon(Icons.chevron_right, size: 20, color: cs.onSurfaceVariant),
-            ],
+            ),
           ),
-        ),
+          if (items.isEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+              child: Text(
+                '下载漫画后会出现在这里',
+                style: textTheme.bodySmall?.apply(color: cs.onSurfaceVariant),
+              ),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              child: _CoverRow(
+                items: items,
+                keyPrefix: 'home-local',
+                onOpen: widget.onOpenDetail,
+              ),
+            ),
+        ],
       ),
     );
   }
 
-  /// 源管理卡片：从 chip 升级为搜索框下方的 MD3 卡片，整卡可点。
+  /// 源管理卡片：搜索框下方的 MD3 卡片，整卡可点。
   ///
-  /// 无 [sourceLister]（fixture/未接线）或读取失败时清单为空，显示导入提示
-  /// 而非崩；点卡片仍交给模块层的 [onOpenSources] 处理。
+  /// 卡头与其它卡同款（图标 + 标题 + Spacer + chevron，无计数徽标），卡身
+  /// 保留启用统计副标题与前几个源 chips。无 [sourceLister]（fixture/未接线）
+  /// 或读取失败时清单为空，显示导入提示而非崩；点卡片仍交给模块层的
+  /// [onOpenSources] 处理。
   Widget _buildSourceCard(List<ComicSourceInfo> sources) {
     final onOpenSources = widget.onOpenSources;
     final cs = Theme.of(context).colorScheme;
@@ -512,18 +506,14 @@ class _ComicHomePageState extends State<ComicHomePage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              Row(
-                children: <Widget>[
-                  Icon(Icons.source_outlined, size: 20, color: cs.primary),
-                  const SizedBox(width: 8),
-                  Text('源管理', style: textTheme.titleSmall),
-                  const Spacer(),
-                  Icon(
-                    Icons.chevron_right,
-                    size: 20,
-                    color: cs.onSurfaceVariant,
-                  ),
-                ],
+              _HomeCardHeader(
+                icon: Icons.source_outlined,
+                title: '源管理',
+                trailing: Icon(
+                  Icons.chevron_right,
+                  size: 20,
+                  color: cs.onSurfaceVariant,
+                ),
               ),
               const SizedBox(height: 4),
               Text(
@@ -571,6 +561,187 @@ class _ComicHomePageState extends State<ComicHomePage> {
           onPressed: _reload,
         ),
       ],
+    );
+  }
+}
+
+/// 主页卡头：图标（20，primary）+ 标题（titleMedium）+ 计数徽标 + Spacer +
+/// 尾部内容（chevron / 清空按钮）。
+///
+/// 2026-11-22 排版拍板：四张主页卡统一参考 VeneraNext 的分区卡头形态，
+/// 原先的「titleSmall + N 条/N 部文案」改成本组件。
+class _HomeCardHeader extends StatelessWidget {
+  const _HomeCardHeader({
+    required this.icon,
+    required this.title,
+    this.count,
+    this.trailing,
+  });
+
+  final IconData icon;
+  final String title;
+
+  /// 计数徽标数字；null 不渲染徽标（源管理卡无计数）。
+  final int? count;
+
+  /// Spacer 之后的尾部内容（chevron、清空 TextButton 等）。
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    return Row(
+      children: <Widget>[
+        Icon(icon, size: 20, color: cs.primary),
+        const SizedBox(width: 8),
+        Text(title, style: textTheme.titleMedium),
+        if (count != null) ...<Widget>[
+          const SizedBox(width: 8),
+          _CountBadge(count: count!, cs: cs, textTheme: textTheme),
+        ],
+        const Spacer(),
+        if (trailing != null) trailing!,
+      ],
+    );
+  }
+}
+
+/// 卡头计数徽标：圆角小矩形（MimaoShapes.sm）、弱色底（surfaceContainerHighest）、
+/// 纯数字（labelMedium + onSurfaceVariant）。
+///
+/// 2026-11-22 排版拍板：计数文案从「N 条 / N 部」改为纯数字。
+class _CountBadge extends StatelessWidget {
+  const _CountBadge({
+    required this.count,
+    required this.cs,
+    required this.textTheme,
+  });
+
+  final int count;
+  final ColorScheme cs;
+  final TextTheme textTheme;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerHighest,
+        borderRadius: MimaoShapes.sm,
+      ),
+      child: Text(
+        '$count',
+        style: textTheme.labelMedium?.apply(color: cs.onSurfaceVariant),
+      ),
+    );
+  }
+}
+
+/// 主页卡身的纯封面横排：固定高 150、项宽 110、间距 12 的横向列表，
+/// 每项只有一张圆角封面（MimaoShapes.sm），不带标题文字。
+///
+/// 与 [ComicPosterRow]（封面 + 标题的海报卡行）并存、不改它——收藏/发现/
+/// 分类等页仍用海报卡形态；主页参考 VeneraNext 只露封面，信息由 scrim
+/// （历史进度）与详情页承载。横向拖动走全局 MimaoScrollBehavior，本组件
+/// 不另设 ScrollBehavior。
+class _CoverRow extends StatelessWidget {
+  const _CoverRow({
+    required this.items,
+    this.keyPrefix = 'cover',
+    this.showProgressScrim = false,
+    this.onOpen,
+    this.onItemLongPress,
+  });
+
+  final List<ComicSummary> items;
+
+  /// 条目 key 前缀：历史 `home-recent-<id>`、稍后阅读 `home-read-later-<id>`、
+  /// 本地 `home-local-<id>`。
+  final String keyPrefix;
+
+  /// true 时条目 [ComicSummary.subtitle] 非空则在封面右下角叠加进度 scrim
+  /// （阅读历史专用）；false 为纯封面（稍后阅读 / 本地），subtitle 不上屏。
+  final bool showProgressScrim;
+
+  final ValueChanged<ComicSummary>? onOpen;
+
+  /// 条目长按回调（历史卡删单条）；null 时长按无行为。
+  final ValueChanged<ComicSummary>? onItemLongPress;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    return SizedBox(
+      height: 150,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: items.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 12),
+        itemBuilder: (context, index) {
+          final item = items[index];
+          final onOpen = this.onOpen;
+          final onItemLongPress = this.onItemLongPress;
+          final hasProgress =
+              showProgressScrim && (item.subtitle ?? '').isNotEmpty;
+          return SizedBox(
+            width: 110,
+            child: InkWell(
+              key: ValueKey<String>('$keyPrefix-${item.id}'),
+              onTap: onOpen == null ? null : () => onOpen(item),
+              onLongPress: onItemLongPress == null
+                  ? null
+                  : () => onItemLongPress(item),
+              child: ClipRRect(
+                borderRadius: MimaoShapes.sm,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: <Widget>[
+                    // 外层 ClipRRect 已定圆角：封面自带裁剪的 radius 归零，
+                    // 避免同一张封面叠两层圆角。
+                    ComicCover(
+                      url: item.coverUrl,
+                      title: item.title,
+                      radius: 0,
+                    ),
+                    // 封面上的进度遮罩与文字：AGENTS.md 明示覆盖在封面上的
+                    // 遮罩与文字是唯一允许固定黑白的地方。
+                    if (hasProgress)
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: <Color>[
+                                Colors.transparent,
+                                Colors.black.withValues(alpha: .75),
+                              ],
+                            ),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(8, 16, 8, 6),
+                            child: Text(
+                              item.subtitle!,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: textTheme.bodySmall?.apply(
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 }
