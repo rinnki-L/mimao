@@ -2,19 +2,15 @@
 // 与其他三个模块的页面同款说明：保持类型一致、patch 可重放。
 /// 小说规则管理页：书源 / 订阅源 / 替换规则三个分类，各自导入、启停、删除。
 ///
-/// 书源 tab 保留内嵌 WebView：点「订阅源」里的订阅站点卡片会切到书源分类并
-/// 打开该站点，站点上的「一键导入」（`yuedu://booksource/importonline?src=…`）
-/// 由注入的 JS 改道到 JS Handler，再交给导入服务按类型下载落库。
+/// 点「订阅源」里的订阅站点卡片会 push 满窗口的 [NovelSourceSitePage] 打开该
+/// 站点，站点上的「一键导入」（`yuedu://booksource/importonline?src=…`）由那边
+/// 拦截并落库，返回本页后重新读取列表。
 /// 三个分类各自用固定类型的「导入书源 / 导入订阅源 / 导入替换规则」弹窗粘贴链接。
 ///
-/// WebView 只在用户点订阅站点卡片后构造，页面进场本身零插件调用——
-/// 这样无插件测试环境也能渲染列表与按钮。
+/// 本页不构造 WebView，页面进场零插件调用——无插件测试环境也能渲染列表与按钮。
 library;
 
-import 'dart:async';
-
 import 'package:flutter/material.dart';
-import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 import '../source/novel_rule_model.dart';
 import '../source/novel_source_importer.dart';
@@ -25,6 +21,7 @@ import '../source/novel_subscription.dart'
         NovelSourceSubscription,
         NovelSubscriptionStore,
         defaultNovelSubscription;
+import 'novel_source_site_page.dart';
 import 'novel_rule_import_dialog.dart';
 import 'novel_widgets.dart';
 
@@ -51,7 +48,7 @@ class NovelSourceManagePage extends StatefulWidget {
   /// 进场默认选中的分类（书源 / 订阅源 / 替换规则）。
   final NovelRuleKind initialTab;
 
-  /// 测试注入缝：返回 WebView widget；null 时用真实 [InAppWebView]。
+  /// 测试注入缝：转发给订阅站点页，替换真实 WebView。
   final Widget Function(
     BuildContext context,
     void Function(String link) onImportLink,
@@ -70,9 +67,6 @@ class _NovelSourceManagePageState extends State<NovelSourceManagePage>
     initialIndex: widget.initialTab.index,
   );
 
-  bool _showWeb = false;
-  String? _webSiteUrl;
-  bool _importing = false;
   bool _loading = true;
   String? _status;
   String? _error;
@@ -126,30 +120,6 @@ class _NovelSourceManagePageState extends State<NovelSourceManagePage>
     }
   }
 
-  /// 深链导入（WebView 或粘贴共用）。
-  Future<void> _importLink(String link) async {
-    if (_importing) return;
-    setState(() {
-      _importing = true;
-      _status = '正在导入规则…';
-      _error = null;
-    });
-    try {
-      final result = await widget.importer.importFromLink(link);
-      await _reloadAll();
-      if (!mounted) return;
-      setState(() {
-        _status = result.message ?? '已导入 ${result.saved} 条${result.kind.label}';
-      });
-    } on NovelSourceImportException catch (error) {
-      if (mounted) setState(() => _error = error.message);
-    } on Object catch (error) {
-      if (mounted) setState(() => _error = '导入失败：$error');
-    } finally {
-      if (mounted) setState(() => _importing = false);
-    }
-  }
-
   Future<void> _openImportDialog(NovelRuleKind kind) async {
     final result = await showNovelRuleImportDialog(
       context,
@@ -166,13 +136,23 @@ class _NovelSourceManagePageState extends State<NovelSourceManagePage>
     await _reloadAll();
   }
 
-  /// 点订阅站点卡片：在书源分类里打开这个站点的内嵌网页。
-  void _openSite(String siteUrl) {
-    setState(() {
-      _webSiteUrl = siteUrl.isEmpty ? widget.siteUrl : siteUrl;
-      _showWeb = true;
-    });
-    _tabs.animateTo(NovelRuleKind.bookSource.index);
+  /// 点订阅站点卡片：满窗口打开这个站点；返回后刷新规则列表。
+  Future<void> _openSite(NovelSourceSubscription subscription) async {
+    final url = subscription.siteUrl.isEmpty
+        ? widget.siteUrl
+        : subscription.siteUrl;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'novel/source-site'),
+        builder: (_) => NovelSourceSitePage(
+          title: subscription.name,
+          url: url,
+          importer: widget.importer,
+          webViewBuilder: widget.webViewBuilder,
+        ),
+      ),
+    );
+    if (mounted) await _reloadAll();
   }
 
   @override
@@ -215,33 +195,14 @@ class _NovelSourceManagePageState extends State<NovelSourceManagePage>
             children: <Widget>[
               OutlinedButton.icon(
                 key: const Key('novel-source-paste-import'),
-                onPressed: _importing
-                    ? null
-                    : () => _openImportDialog(NovelRuleKind.bookSource),
+                onPressed: () => _openImportDialog(NovelRuleKind.bookSource),
                 icon: const Icon(Icons.add_link),
                 label: const Text('导入书源'),
               ),
-              if (_showWeb)
-                TextButton.icon(
-                  onPressed: () => setState(() => _showWeb = false),
-                  icon: const Icon(Icons.close, size: 18),
-                  label: const Text('收起网页'),
-                ),
             ],
           ),
           const SizedBox(height: 10),
-          _Feedback(importing: _importing, status: _status, error: _error),
-          if (_showWeb)
-            SizedBox(
-              height: 260,
-              child: Padding(
-                padding: const EdgeInsets.only(top: 10, bottom: 10),
-                child: Card(
-                  clipBehavior: Clip.antiAlias,
-                  child: _buildWebView(),
-                ),
-              ),
-            ),
+          _Feedback(status: _status, error: _error),
           Expanded(child: _buildSourceList()),
         ],
       ),
@@ -259,7 +220,7 @@ class _NovelSourceManagePageState extends State<NovelSourceManagePage>
             kind: NovelRuleKind.rssSource,
             key: const Key('novel-rss-paste-import'),
           ),
-          _Feedback(importing: _importing, status: _status, error: _error),
+          _Feedback(status: _status, error: _error),
           Expanded(child: _buildRssList()),
         ],
       ),
@@ -277,7 +238,7 @@ class _NovelSourceManagePageState extends State<NovelSourceManagePage>
             kind: NovelRuleKind.replaceRule,
             key: const Key('novel-replace-paste-import'),
           ),
-          _Feedback(importing: _importing, status: _status, error: _error),
+          _Feedback(status: _status, error: _error),
           Expanded(child: _buildReplaceList()),
         ],
       ),
@@ -289,23 +250,11 @@ class _NovelSourceManagePageState extends State<NovelSourceManagePage>
       alignment: Alignment.centerLeft,
       child: FilledButton.tonalIcon(
         key: key,
-        onPressed: _importing ? null : () => _openImportDialog(kind),
+        onPressed: () => _openImportDialog(kind),
         icon: const Icon(Icons.add_link),
         label: Text('导入${kind.label}'),
       ),
     );
-  }
-
-  Widget _buildWebView() {
-    final url = _webSiteUrl ?? widget.siteUrl;
-    final builder = widget.webViewBuilder;
-    return builder != null
-        ? builder(context, _importLink)
-        : _RealSourceWebView(
-            key: ValueKey<String>(url),
-            url: url,
-            onImportLink: _importLink,
-          );
   }
 
   Widget _buildSourceList() {
@@ -388,7 +337,7 @@ class _NovelSourceManagePageState extends State<NovelSourceManagePage>
             _SubscriptionSiteCard(
               subscription: subscription,
               sourceCount: _sources.length,
-              onOpen: () => _openSite(subscription.siteUrl),
+              onOpen: () => _openSite(subscription),
             ),
             const SizedBox(height: 8),
           ],
@@ -500,15 +449,10 @@ class _NovelSourceManagePageState extends State<NovelSourceManagePage>
   }
 }
 
-/// 导入进度 / 结果 / 错误，三个 tab 共用同一份状态。
+/// 导入结果 / 读取错误，三个 tab 共用同一份状态。
 class _Feedback extends StatelessWidget {
-  const _Feedback({
-    required this.importing,
-    required this.status,
-    required this.error,
-  });
+  const _Feedback({required this.status, required this.error});
 
-  final bool importing;
   final String? status;
   final String? error;
 
@@ -519,11 +463,6 @@ class _Feedback extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        if (importing)
-          const Padding(
-            padding: EdgeInsets.only(top: 10),
-            child: LinearProgressIndicator(minHeight: 3),
-          ),
         if (status != null)
           Padding(
             padding: const EdgeInsets.only(top: 8),
@@ -693,87 +632,3 @@ class _RuleCard extends StatelessWidget {
     );
   }
 }
-
-/// 真正的内嵌 WebView（仅桌面/移动端有插件的运行环境里被构造）。
-class _RealSourceWebView extends StatefulWidget {
-  const _RealSourceWebView({
-    super.key,
-    required this.url,
-    required this.onImportLink,
-  });
-
-  final String url;
-  final void Function(String link) onImportLink;
-
-  @override
-  State<_RealSourceWebView> createState() => _RealSourceWebViewState();
-}
-
-class _RealSourceWebViewState extends State<_RealSourceWebView> {
-  @override
-  Widget build(BuildContext context) {
-    return InAppWebView(
-      initialUrlRequest: URLRequest(url: WebUri(widget.url)),
-      initialSettings: InAppWebViewSettings(
-        javaScriptEnabled: true,
-        useHybridComposition: true,
-        // 不自动打开外部应用：深链由 shouldOverrideUrlLoading + JS handler 拦截。
-        supportMultipleWindows: false,
-      ),
-      onWebViewCreated: (controller) {
-        controller.addJavaScriptHandler(
-          handlerName: _kJsHandlerName,
-          callback: (args) {
-            if (args.isEmpty) return;
-            final link = args.first?.toString();
-            if (link != null && link.isNotEmpty) widget.onImportLink(link);
-          },
-        );
-      },
-      onLoadStop: (controller, _) =>
-          unawaited(_injectLinkInterceptor(controller)),
-      shouldOverrideUrlLoading: (controller, action) async {
-        final url = action.request.url?.toString() ?? '';
-        if (parseNovelRuleLink(url) != null) {
-          widget.onImportLink(url);
-          return NavigationActionPolicy.CANCEL;
-        }
-        return NavigationActionPolicy.ALLOW;
-      },
-    );
-  }
-
-  /// 注入脚本：给所有 `yuedu://` 的锚点挂 click 拦截，走 JS Handler 回传 Flutter。
-  /// 站点是静态 HTML、不会重绘这些按钮，onLoadStop 注入一次足够；重复导航再注入
-  /// 也幂等（用 dataset 标记防重复挂监听）。
-  Future<void> _injectLinkInterceptor(InAppWebViewController controller) async {
-    try {
-      await controller.evaluateJavascript(
-        source:
-            '''
-(function () {
-  if (window.__mimaoSourceHookInstalled) return;
-  window.__mimaoSourceHookInstalled = true;
-  window.__mimaoOnImport = function (link) {
-    if (window.flutter_inappwebview &&
-        window.flutter_inappwebview.callHandler) {
-      window.flutter_inappwebview.callHandler('$_kJsHandlerName', link);
-    }
-  };
-  document.addEventListener('click', function (e) {
-    var a = e.target && e.target.closest ? e.target.closest('a') : null;
-    if (a && a.href && a.href.indexOf('yuedu://') === 0) {
-      e.preventDefault();
-      window.__mimaoOnImport(a.href);
-    }
-  }, true);
-})();
-''',
-      );
-    } on Object catch (_) {
-      // 注入失败不致命：shouldOverrideUrlLoading 仍是第二道防线。
-    }
-  }
-}
-
-const String _kJsHandlerName = 'mimaoSourceImport';

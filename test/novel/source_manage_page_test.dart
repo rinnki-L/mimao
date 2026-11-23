@@ -65,11 +65,12 @@ void main() {
     expect(find.byKey(const Key('novel-source-paste-import')), findsOneWidget);
     expect(find.text('还没有书源'), findsOneWidget);
 
-    // 打开网站 = 点「订阅源」里的订阅站点卡片（喵公子）。
+    // 打开网站 = 点「订阅源」里的订阅站点卡片（喵公子），满窗口进站点页。
     await tester.tap(find.text('订阅源'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('喵公子书源管理'));
     await tester.pumpAndSettle();
+    expect(find.byTooltip('返回'), findsOneWidget);
     await tester.tap(find.byKey(const Key('fake-web-import')));
     // 导入中 LinearProgressIndicator 是无限动画，pumpAndSettle 会挂死（LESSON.md
     // 已记）；这里都是内存异步，几帧即可推进完成。
@@ -77,12 +78,19 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
     await tester.pump(const Duration(milliseconds: 50));
 
-    expect(find.text('网页导入源'), findsOneWidget);
     expect(find.textContaining('已导入 1 个书源'), findsOneWidget);
     expect(store.sources, hasLength(1));
+
+    // 返回规则管理页后仍停在订阅源分类；切回书源分类看新导入的源。
+    await tester.tap(find.byTooltip('返回'));
+    await tester.pumpAndSettle();
+    expect(find.text('订阅站点'), findsOneWidget);
+    await tester.tap(find.text('书源'));
+    await tester.pumpAndSettle();
+    expect(find.text('网页导入源'), findsOneWidget);
   });
 
-  testWidgets('未点打开网站时不构造 WebView（列表/按钮可离线渲染）', (tester) async {
+  testWidgets('不点订阅卡片不构造 WebView（列表/按钮可离线渲染）', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         home: NovelSourceManagePage(store: store, importer: importer),
