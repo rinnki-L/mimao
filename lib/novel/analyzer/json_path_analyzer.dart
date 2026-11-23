@@ -31,7 +31,10 @@ class JsonPathAnalyzer {
     final splitter = RuleSplitter(rule, code: true);
     final rules = splitter.splitRule(const <String>['&&', '||']);
     if (rules.length == 1) {
-      final inner = splitter.innerRule(r'{$', '}', (expr) {
+      final inner = splitter.innerRule('{', '}', (expr) {
+        if (!expr.startsWith(r'$.') && !expr.startsWith(r'$[')) {
+          return null;
+        }
         final value = getString(expr);
         return value.isEmpty ? null : value;
       });
@@ -56,7 +59,10 @@ class JsonPathAnalyzer {
     final splitter = RuleSplitter(rule, code: true);
     final rules = splitter.splitRule(const <String>['&&', '||', '%%']);
     if (rules.length == 1) {
-      final inner = splitter.innerRule(r'{$', '}', (expr) {
+      final inner = splitter.innerRule('{', '}', (expr) {
+        if (!expr.startsWith(r'$.') && !expr.startsWith(r'$[')) {
+          return null;
+        }
         final value = getString(expr);
         return value.isEmpty ? null : value;
       });

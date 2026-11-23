@@ -27,10 +27,16 @@ abstract interface class SourceRuleHost {
 
 /// 一条切分后的规则。
 class SourceRule {
-  SourceRule(String ruleStr, [RuleMode mode = RuleMode.defaultRule])
-    : _mode = mode {
+  SourceRule(
+    String ruleStr, [
+    RuleMode mode = RuleMode.defaultRule,
+    bool isJson = false,
+  ]) : _mode = mode,
+       _isJson = isJson {
     _parse(ruleStr);
   }
+
+  final bool _isJson;
 
   RuleMode _mode;
   RuleMode get mode => _mode;
@@ -86,7 +92,7 @@ class SourceRule {
     } else if (lower.startsWith('@json:')) {
       _mode = RuleMode.json;
       text = text.substring(6);
-    } else if (text.startsWith(r'$.') || text.startsWith(r'$[')) {
+    } else if (_isJson || text.startsWith(r'$.') || text.startsWith(r'$[')) {
       _mode = RuleMode.json;
     } else if (text.startsWith('/')) {
       _mode = RuleMode.xpath;
@@ -227,8 +233,6 @@ class SourceRule {
       }
       rule = socket.toString();
     }
-
-    if (_mode == RuleMode.js) return;
 
     final parts = rule.split('##');
     rule = parts.first.trim();

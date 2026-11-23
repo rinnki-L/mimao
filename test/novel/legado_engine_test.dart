@@ -23,6 +23,7 @@ class _FixtureTransport implements NovelHttpTransport {
 
   String _bodyFor(String url) {
     if (url.contains('/search')) return _searchHtml;
+    if (url.contains('/api/query')) return _jsonApi;
     if (url.contains('/list/')) return _exploreHtml;
     if (url.endsWith('/toc')) return _tocHtml;
     if (url.endsWith('/toc2')) return _toc2Html;
@@ -91,7 +92,7 @@ NovelBookSource _source() => NovelBookSource(
       'tocUrl': 'a.toc@href',
     },
     'ruleToc': <String, dynamic>{
-      'chapterList': 'class.chapters@li',
+      'chapterList': '-class.chapters@li',
       'chapterName': 'a@text',
       'chapterUrl': 'a@href',
       'nextTocUrl': 'a.nextToc@href',
@@ -103,6 +104,12 @@ NovelBookSource _source() => NovelBookSource(
     },
   },
 );
+
+const String _jsonApi = '''
+{"data":{"list":[
+  {"id":123,"title":"JSON 书名","author":"JSON 作者","imgUrl":"/cover/9.jpg"}
+]}}
+''';
 
 const String _searchHtml = '''
 <html><body>
@@ -162,6 +169,25 @@ const String _content2Html = '''
 </body></html>
 ''';
 
+NovelBookSource _jsonSource() => NovelBookSource(
+  key: 'src2',
+  name: 'JSON 源',
+  url: 'https://api.test',
+  type: 0,
+  enabled: true,
+  raw: <String, dynamic>{
+    'bookSourceUrl': 'https://api.test',
+    'searchUrl': '/api/query?kw={{key}}',
+    'ruleSearch': <String, dynamic>{
+      'bookList': r'$..list[*]',
+      'name': r'$..title',
+      'author': r'$..author',
+      'bookUrl': r'/book/{$..id}',
+      'coverUrl': r'$..imgUrl',
+    },
+  },
+);
+
 void main() {
   late _FixtureTransport transport;
   late LegadoNovelEngine engine;
@@ -190,6 +216,15 @@ void main() {
       transport.requested.single,
       contains('kw=%E5%85%B3%E9%94%AE%E8%AF%8D&page=2'),
     );
+  });
+
+  test(r'JSON API 书源：$..list[*] 列表 + /book/{$..id} 模板', () async {
+    final books = await engine.searchSource(_jsonSource(), '关键词');
+    expect(books.length, 1);
+    expect(books.single.title, 'JSON 书名');
+    expect(books.single.author, 'JSON 作者');
+    expect(books.single.bookUrl, 'https://api.test/book/123');
+    expect(books.single.coverUrl, 'https://api.test/cover/9.jpg');
   });
 
   test('发现：分类目录解析 + 列表抓取', () async {

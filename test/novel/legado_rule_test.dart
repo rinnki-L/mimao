@@ -140,6 +140,14 @@ void main() {
         await analyzer.getString('//div[@class="page"]/a/@href'),
         '/list/2.html',
       );
+      expect(
+        await analyzer.getString('//div[@class="page"]/a[text()="下一页"]/@href'),
+        '/list/2.html',
+      );
+      expect(
+        await analyzer.getStringList('//ul[@id="novel-list"]/li[span]/a/text()'),
+        <String>['书名一', '书名二', '书名三'],
+      );
     });
 
     test('相对 URL 补全与 HTML 实体', () async {

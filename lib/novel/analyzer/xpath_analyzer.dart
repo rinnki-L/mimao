@@ -1,12 +1,16 @@
-/// legado `AnalyzeByXPath` 的 Dart 重译：`//...` 规则交给
-/// `xpath_selector_html_parser`（同一份 `package:html` DOM）。
+/// legado `AnalyzeByXPath` 的 Dart 重译。
+///
+/// 主路径走自写的 [simpleXPath]（覆盖书源常用的 `//`、`/`、`@attr`、`text()`、
+/// 属性/文本谓词与 `contains`）；只有遇到复杂轴/函数时才回落到
+/// `xpath_selector_html_parser`。
 library;
 
 import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html_parser;
+import 'package:mimao/novel/analyzer/jsoup_selector.dart' show jsoupText;
+import 'package:mimao/novel/analyzer/rule_splitter.dart';
+import 'package:mimao/novel/analyzer/simple_xpath.dart';
 import 'package:xpath_selector_html_parser/xpath_selector_html_parser.dart';
-
-import 'rule_splitter.dart';
 
 class XPathAnalyzer {
   XPathAnalyzer(Object content) : _root = _rootOf(content);
@@ -34,7 +38,15 @@ class XPathAnalyzer {
     final rules = splitter.splitRule(const <String>['&&', '||', '%%']);
     final results = <List<String>>[];
     for (final part in rules) {
-      final temp = _query(part);
+      final temp = <String>[
+        for (final value in _query(part))
+          if (value is Element)
+            jsoupText(value)
+          else if (value is Text)
+            value.data.trim()
+          else
+            '$value',
+      ].where((value) => value.isNotEmpty).toList();
       if (temp.isNotEmpty) {
         results.add(temp);
         if (splitter.elementsType == '||') break;
@@ -50,7 +62,7 @@ class XPathAnalyzer {
     final rules = splitter.splitRule(const <String>['&&', '||', '%%']);
     final results = <List<Object>>[];
     for (final part in rules) {
-      final temp = _queryObjects(part);
+      final temp = _query(part);
       if (temp.isNotEmpty) {
         results.add(temp);
         if (splitter.elementsType == '||') break;
@@ -59,24 +71,21 @@ class XPathAnalyzer {
     return _combine(results, splitter.elementsType);
   }
 
-  List<String> _query(String rule) {
+  List<Object> _query(String rule) {
     try {
-      final result = HtmlXPath.node(_root).query(rule);
-      final attrs = <String>[
-        for (final attr in result.attrs)
-          if (attr != null) attr,
+      final values = simpleXPath(_root, rule.trim());
+      return <Object>[
+        for (final value in values)
+          if (value is Element || value is Text) value else '$value',
       ];
-      if (attrs.isNotEmpty) return attrs;
-      return <String>[
-        for (final node in result.nodes)
-          if ((node.text ?? '').isNotEmpty) node.text!,
-      ];
+    } on FormatException {
+      return _queryWithPackage(rule);
     } on Object {
-      return const <String>[];
+      return _queryWithPackage(rule);
     }
   }
 
-  List<Object> _queryObjects(String rule) {
+  List<Object> _queryWithPackage(String rule) {
     try {
       final result = HtmlXPath.node(_root).query(rule);
       final attrs = <Object>[

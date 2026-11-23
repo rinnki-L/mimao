@@ -256,6 +256,9 @@ if (typeof globalThis !== 'undefined') {
   globalThis.cache = cache;
   globalThis.console = console;
   globalThis.Packages = Packages;
+  globalThis.org = Packages.org;
+  globalThis.javax = Packages.javax || {};
+  globalThis.android = Packages.android;
   globalThis.HtmlDocument = { parse: (html) => __element(html) };
   globalThis.HtmlElement = { parse: (html) => __element(html) };
   globalThis.setTimeout = (fn, delay) => { fn(); };

@@ -259,6 +259,13 @@ class DioNovelHttpTransport implements NovelHttpTransport {
     if (normalized == 'utf-8' || normalized == 'utf8') {
       return const Utf8Decoder(allowMalformed: true).convert(bytes);
     }
+    // GBK 站点常夹带非法字节（广告/统计脚本），严格解码会整页失败；
+    // 用 allowMalformed 保住正文。
+    if (normalized == 'gbk' ||
+        normalized == 'gb2312' ||
+        normalized == 'gb18030') {
+      return const GbkCodec(allowMalformed: true).decode(bytes);
+    }
     final encoding = Charset.getByName(normalized) ?? gbk;
     try {
       return encoding.decode(bytes);

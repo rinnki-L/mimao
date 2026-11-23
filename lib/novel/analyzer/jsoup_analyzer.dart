@@ -269,9 +269,12 @@ class _ElementsSingle {
         ? temp.children
         : switch (_beforeRule.split('.').first) {
             'children' => temp.children,
-            'class' => JsoupAnalyzer._descendants(
-              temp,
-            ).where((e) => e.classes.contains(_afterDot(_beforeRule))).toList(),
+            'class' => JsoupAnalyzer._descendants(temp).where((e) {
+              final classes = _afterDot(
+                _beforeRule,
+              ).split(RegExp(r'\s+')).where((c) => c.isNotEmpty);
+              return classes.every(e.classes.contains);
+            }).toList(),
             'tag' => JsoupAnalyzer._descendants(
               temp,
             ).where((e) => e.localName == _afterDot(_beforeRule)).toList(),

@@ -180,7 +180,12 @@ class LegadoNovelEngine implements NovelEngine {
   // ---------------------------------------------------------------------------
   // 详情 + 目录
 
-  Future<NovelDetail> bookDetail(NovelBookSource source, NovelRef ref) async {
+  Future<NovelDetail> bookDetail(
+    NovelBookSource source,
+    NovelRef ref, {
+    String? titleHint,
+    String? authorHint,
+  }) async {
     final rules = source.ruleSet;
     final bookUrl = _bookUrlOf(ref);
     if (bookUrl.isEmpty) {
@@ -200,41 +205,17 @@ class LegadoNovelEngine implements NovelEngine {
         final init = await analyzer.getElement(rules.infoInit);
         if (init != null) analyzer.setContent(init);
       }
-      final name = cleanTitle(
-        await analyzer.getString(
-          rules.infoName.isEmpty ? rules.searchName : rules.infoName,
-        ),
-      );
-      final author = cleanTitle(
-        await analyzer.getString(
-          rules.infoAuthor.isEmpty ? rules.searchAuthor : rules.infoAuthor,
-        ),
-      );
-      final kindList = await analyzer.getStringList(
-        rules.infoKind.isEmpty ? rules.searchKind : rules.infoKind,
-      );
-      final intro = htmlToText(
-        await analyzer.getString(
-          rules.infoIntro.isEmpty ? rules.searchIntro : rules.infoIntro,
-        ),
-      );
+      final name = cleanTitle(await analyzer.getString(rules.infoName));
+      final author = cleanTitle(await analyzer.getString(rules.infoAuthor));
+      final kindList = await analyzer.getStringList(rules.infoKind);
+      final intro = htmlToText(await analyzer.getString(rules.infoIntro));
       final latestChapter = cleanTitle(
-        await analyzer.getString(
-          rules.infoLastChapter.isEmpty
-              ? rules.searchLastChapter
-              : rules.infoLastChapter,
-        ),
+        await analyzer.getString(rules.infoLastChapter),
       );
       final wordCount = cleanTitle(
-        await analyzer.getString(
-          rules.infoWordCount.isEmpty
-              ? rules.searchWordCount
-              : rules.infoWordCount,
-        ),
+        await analyzer.getString(rules.infoWordCount),
       );
-      final coverRaw = await analyzer.getString(
-        rules.infoCoverUrl.isEmpty ? rules.searchCoverUrl : rules.infoCoverUrl,
-      );
+      final coverRaw = await analyzer.getString(rules.infoCoverUrl);
       final coverUrl = coverRaw.isEmpty
           ? ''
           : _absolute(response.url, coverRaw);
@@ -244,8 +225,8 @@ class LegadoNovelEngine implements NovelEngine {
       final detail = _detailBase(
         ref,
         bookUrl: bookUrl,
-        title: name.isEmpty ? ref.id : name,
-        author: author,
+        title: name.isEmpty ? (titleHint ?? '') : name,
+        author: author.isEmpty ? (authorHint ?? '') : author,
         intro: intro,
         kind: kindList == null ? '' : kindList.join(','),
         latestChapter: latestChapter,
@@ -381,7 +362,9 @@ class LegadoNovelEngine implements NovelEngine {
       for (final chapter in chapters)
         if (seen.add(chapter.id)) chapter,
     ];
-    if (!reversed) unique = unique.reversed.toList();
+    // legado 的约定：`-` 前缀表示该源列表是倒序（最新在前），翻成阅读顺序；
+    // 没有前缀就是源的自然顺序（多数站点即最旧在前），不要再翻。
+    if (reversed) unique = unique.reversed.toList();
     return <NovelChapter>[
       for (var i = 0; i < unique.length; i++)
         NovelChapter(
@@ -703,11 +686,7 @@ class LegadoNovelEngine implements NovelEngine {
         source.bookUrlPattern.isEmpty) {
       return null;
     }
-    final title = cleanTitle(
-      await analyzer.getString(
-        rules.infoName.isEmpty ? rules.searchName : rules.infoName,
-      ),
-    );
+    final title = cleanTitle(await analyzer.getString(rules.infoName));
     if (title.isEmpty) return null;
     if (requirePatternMatch && source.bookUrlPattern.isNotEmpty) {
       try {
@@ -716,18 +695,10 @@ class LegadoNovelEngine implements NovelEngine {
         return null;
       }
     }
-    final author = cleanTitle(
-      await analyzer.getString(
-        rules.infoAuthor.isEmpty ? rules.searchAuthor : rules.infoAuthor,
-      ),
-    );
-    final coverRaw = await analyzer.getString(
-      rules.infoCoverUrl.isEmpty ? rules.searchCoverUrl : rules.infoCoverUrl,
-    );
+    final author = cleanTitle(await analyzer.getString(rules.infoAuthor));
+    final coverRaw = await analyzer.getString(rules.infoCoverUrl);
     final coverUrl = coverRaw.isEmpty ? '' : _absolute(baseUrl, coverRaw);
-    final kindList = await analyzer.getStringList(
-      rules.infoKind.isEmpty ? rules.searchKind : rules.infoKind,
-    );
+    final kindList = await analyzer.getStringList(rules.infoKind);
     return NovelSummary(
       id: _bookId(source, baseUrl),
       title: title,
@@ -736,18 +707,10 @@ class LegadoNovelEngine implements NovelEngine {
       sourceName: novelSourceName,
       sourceKey: source.key,
       bookUrl: baseUrl,
-      intro: htmlToText(
-        await analyzer.getString(
-          rules.infoIntro.isEmpty ? rules.searchIntro : rules.infoIntro,
-        ),
-      ),
+      intro: htmlToText(await analyzer.getString(rules.infoIntro)),
       kind: kindList == null ? '' : kindList.join(','),
       latestChapter: cleanTitle(
-        await analyzer.getString(
-          rules.infoLastChapter.isEmpty
-              ? rules.searchLastChapter
-              : rules.infoLastChapter,
-        ),
+        await analyzer.getString(rules.infoLastChapter),
       ),
       type: source.type,
     );

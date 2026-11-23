@@ -193,7 +193,7 @@ class LegadoRuleAnalyzer
     for (final match in _jsPattern.allMatches(ruleStr)) {
       if (match.start > start) {
         final text = ruleStr.substring(start, match.start).trim();
-        if (text.isNotEmpty) result.add(SourceRule(text, mode));
+        if (text.isNotEmpty) result.add(SourceRule(text, mode, _isJson));
       }
       final script = (match.group(2) ?? '').isNotEmpty
           ? match.group(2)!
@@ -204,14 +204,14 @@ class LegadoRuleAnalyzer
     for (final match in _webJsPattern.allMatches(ruleStr)) {
       if (match.start > start) {
         final text = ruleStr.substring(start, match.start).trim();
-        if (text.isNotEmpty) result.add(SourceRule(text, mode));
+        if (text.isNotEmpty) result.add(SourceRule(text, mode, _isJson));
       }
       result.add(SourceRule(match.group(1) ?? '', RuleMode.webJs));
       start = match.end;
     }
     if (ruleStr.length > start) {
       final text = ruleStr.substring(start).trim();
-      if (text.isNotEmpty) result.add(SourceRule(text, mode));
+      if (text.isNotEmpty) result.add(SourceRule(text, mode, _isJson));
     }
     return result;
   }
