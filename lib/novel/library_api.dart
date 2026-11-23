@@ -10,8 +10,12 @@ import 'package:mimao/novel/models/novel_models.dart';
 ///
 /// [NovelSummary.id] 是必填字段，因此这里不像音乐那样需要 hash 回退；
 /// `sourceName` 随书一起带出（内部库主键仍只用 id，sourceName 只进投影）。
-NovelRef novelRefOf(NovelSummary book) =>
-    NovelRef(id: book.id, sourceName: book.sourceName);
+NovelRef novelRefOf(NovelSummary book) => NovelRef(
+  id: book.id,
+  sourceName: book.sourceName,
+  sourceKey: book.sourceKey,
+  bookUrl: book.bookUrl,
+);
 
 /// 一条收藏（权威行 + 可重建的书籍快照）。
 class NovelCollectItem {

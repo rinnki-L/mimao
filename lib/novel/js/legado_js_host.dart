@@ -120,6 +120,17 @@ class LegadoJsHost {
     }
   }
 
+  /// 加载书源 `jsLib`（全局函数库）。只执行一次，失败记录不抛出。
+  Future<void> loadLibrary(String code) async {
+    if (code.trim().isEmpty || _closed) return;
+    await _ensureInitialized();
+    try {
+      JSRef.freeRecursive(_engine.evaluate(code, name: '<legado-js-lib>'));
+    } on Object catch (error) {
+      logs.add('jsLib 加载失败：$error');
+    }
+  }
+
   /// URL 规则等场景的字符串结果。
   Future<String?> evalString(String code, RuleJsContext context) async {
     final value = await evaluate(code, context);

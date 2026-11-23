@@ -15,28 +15,50 @@ const String novelReadText = '读过';
 
 /// 小说模块内部权威主键：源内书 id + 来源名（默认 [novelSourceName]）。
 class NovelRef {
-  const NovelRef({required this.id, this.sourceName = novelSourceName});
+  const NovelRef({
+    required this.id,
+    this.sourceName = novelSourceName,
+    this.sourceKey = '',
+    this.bookUrl = '',
+  });
 
   final String id;
   final String sourceName;
 
+  /// 书源主键（`NovelBookSource.key`，书源 URL 的 base64url）。
+  ///
+  /// 同一本书在不同书源里是不同实体；本地库主键仍只用 [id]，这个字段随书籍
+  /// JSON 落库，供详情/阅读页重新找到源。
+  final String sourceKey;
+
+  /// 详情页绝对地址（legado 书源的 `bookUrl`）。
+  final String bookUrl;
+
   Map<String, Object?> toJson() => <String, Object?>{
     'id': id,
     'sourceName': sourceName,
+    if (sourceKey.isNotEmpty) 'sourceKey': sourceKey,
+    if (bookUrl.isNotEmpty) 'bookUrl': bookUrl,
   };
 
   factory NovelRef.fromJson(Map<String, Object?> json) => NovelRef(
     id: '${json['id'] ?? ''}',
     sourceName: '${json['sourceName'] ?? novelSourceName}',
+    sourceKey: '${json['sourceKey'] ?? ''}',
+    bookUrl: '${json['bookUrl'] ?? ''}',
   );
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      (other is NovelRef && other.id == id && other.sourceName == sourceName);
+      (other is NovelRef &&
+          other.id == id &&
+          other.sourceName == sourceName &&
+          other.sourceKey == sourceKey &&
+          other.bookUrl == bookUrl);
 
   @override
-  int get hashCode => Object.hash(id, sourceName);
+  int get hashCode => Object.hash(id, sourceName, sourceKey, bookUrl);
 
   @override
   String toString() => 'NovelRef($sourceName:$id)';
@@ -63,6 +85,13 @@ class NovelSummary {
     this.coverUrl = '',
     this.author = '',
     this.sourceName = novelSourceName,
+    this.sourceKey = '',
+    this.bookUrl = '',
+    this.intro = '',
+    this.kind = '',
+    this.latestChapter = '',
+    this.wordCount = '',
+    this.type = 0,
   });
 
   final String id;
@@ -71,12 +100,39 @@ class NovelSummary {
   final String author;
   final String sourceName;
 
+  /// 书源主键；老数据为空（无法继续在线抓取，但本地记录仍可展示）。
+  final String sourceKey;
+
+  /// 详情页绝对地址。
+  final String bookUrl;
+  final String intro;
+  final String kind;
+  final String latestChapter;
+  final String wordCount;
+
+  /// legado `bookSourceType`：0 文本 / 1 音频 / 2 图片 / 3 文件 / 4 视频。
+  final int type;
+
+  NovelRef get ref => NovelRef(
+    id: id,
+    sourceName: sourceName,
+    sourceKey: sourceKey,
+    bookUrl: bookUrl,
+  );
+
   Map<String, Object?> toJson() => <String, Object?>{
     'id': id,
     'title': title,
     'coverUrl': coverUrl,
     'author': author,
     'sourceName': sourceName,
+    if (sourceKey.isNotEmpty) 'sourceKey': sourceKey,
+    if (bookUrl.isNotEmpty) 'bookUrl': bookUrl,
+    if (intro.isNotEmpty) 'intro': intro,
+    if (kind.isNotEmpty) 'kind': kind,
+    if (latestChapter.isNotEmpty) 'latestChapter': latestChapter,
+    if (wordCount.isNotEmpty) 'wordCount': wordCount,
+    if (type != 0) 'type': type,
   };
 
   factory NovelSummary.fromJson(Map<String, Object?> json) => NovelSummary(
@@ -85,27 +141,64 @@ class NovelSummary {
     coverUrl: '${json['coverUrl'] ?? ''}',
     author: '${json['author'] ?? ''}',
     sourceName: '${json['sourceName'] ?? novelSourceName}',
+    sourceKey: '${json['sourceKey'] ?? ''}',
+    bookUrl: '${json['bookUrl'] ?? ''}',
+    intro: '${json['intro'] ?? ''}',
+    kind: '${json['kind'] ?? ''}',
+    latestChapter: '${json['latestChapter'] ?? ''}',
+    wordCount: '${json['wordCount'] ?? ''}',
+    type: json['type'] is num ? (json['type']! as num).toInt() : 0,
   );
 }
 
-/// 一本书的目录（含章节列表）。
+/// 一本书的目录（含详情页字段与章节列表）。
 class NovelDetail {
   const NovelDetail({
     required this.ref,
     required this.title,
     this.coverUrl = '',
+    this.author = '',
+    this.intro = '',
+    this.kind = '',
+    this.latestChapter = '',
+    this.wordCount = '',
     this.chapters = const <NovelChapter>[],
   });
 
   final NovelRef ref;
   final String title;
   final String coverUrl;
+  final String author;
+  final String intro;
+  final String kind;
+  final String latestChapter;
+  final String wordCount;
   final List<NovelChapter> chapters;
+
+  NovelSummary get summary => NovelSummary(
+    id: ref.id,
+    title: title,
+    coverUrl: coverUrl,
+    author: author,
+    sourceName: ref.sourceName,
+    sourceKey: ref.sourceKey,
+    bookUrl: ref.bookUrl,
+    intro: intro,
+    kind: kind,
+    latestChapter: latestChapter,
+    wordCount: wordCount,
+    type: 0,
+  );
 
   Map<String, Object?> toJson() => <String, Object?>{
     'ref': ref.toJson(),
     'title': title,
     'coverUrl': coverUrl,
+    if (author.isNotEmpty) 'author': author,
+    if (intro.isNotEmpty) 'intro': intro,
+    if (kind.isNotEmpty) 'kind': kind,
+    if (latestChapter.isNotEmpty) 'latestChapter': latestChapter,
+    if (wordCount.isNotEmpty) 'wordCount': wordCount,
     'chapters': <Object?>[for (final chapter in chapters) chapter.toJson()],
   };
 
@@ -117,6 +210,11 @@ class NovelDetail {
     ),
     title: '${json['title'] ?? ''}',
     coverUrl: '${json['coverUrl'] ?? ''}',
+    author: '${json['author'] ?? ''}',
+    intro: '${json['intro'] ?? ''}',
+    kind: '${json['kind'] ?? ''}',
+    latestChapter: '${json['latestChapter'] ?? ''}',
+    wordCount: '${json['wordCount'] ?? ''}',
     chapters: <NovelChapter>[
       for (final raw
           in (json['chapters'] as List<Object?>? ?? const <Object?>[]))
@@ -132,18 +230,27 @@ class NovelChapter {
     required this.title,
     required this.index,
     this.url = '',
+    this.isVolume = false,
+    this.isVip = false,
+    this.tag = '',
   });
 
   final String id;
   final String title;
   final int index;
   final String url;
+  final bool isVolume;
+  final bool isVip;
+  final String tag;
 
   Map<String, Object?> toJson() => <String, Object?>{
     'id': id,
     'title': title,
     'index': index,
     'url': url,
+    if (isVolume) 'isVolume': true,
+    if (isVip) 'isVip': true,
+    if (tag.isNotEmpty) 'tag': tag,
   };
 
   factory NovelChapter.fromJson(Map<String, Object?> json) => NovelChapter(
@@ -151,6 +258,9 @@ class NovelChapter {
     title: '${json['title'] ?? ''}',
     index: json['index'] is num ? (json['index']! as num).toInt() : 0,
     url: '${json['url'] ?? ''}',
+    isVolume: json['isVolume'] == true,
+    isVip: json['isVip'] == true,
+    tag: '${json['tag'] ?? ''}',
   );
 }
 

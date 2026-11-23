@@ -7,6 +7,8 @@ library;
 
 import 'dart:convert';
 
+import 'package:mimao/novel/analyzer/rule_models.dart';
+
 /// 书源网站地址（应用内 WebView 打开它，点页面里的「一键导入」即可回灌本应用）。
 const String novelSourceSiteUrl = 'https://yuedu.miaogongzi.net/gx.html';
 
@@ -86,7 +88,7 @@ class NovelSourceRules {
 /// 一条已导入的 Legado 书源。
 ///
 /// [raw] 保留书源完整 JSON 对象，后续书源引擎切片直接消费它，不需要二次抓网页。
-class NovelBookSource {
+class NovelBookSource implements BookSource {
   const NovelBookSource({
     required this.key,
     required this.name,
@@ -98,11 +100,23 @@ class NovelBookSource {
 
   /// 稳定文件主键：源地址（大小写不敏感）的 base64url，天然规避路径分隔符。
   final String key;
+
+  @override
   final String name;
+
   final String url;
   final int type;
   final bool enabled;
   final Map<String, dynamic> raw;
+
+  @override
+  String get id => key;
+
+  @override
+  String get baseUrl => url;
+
+  @override
+  Map<String, Rule> get rules => const <String, Rule>{};
 
   static String keyFor(String url) =>
       base64Url.encode(utf8.encode(url.trim().toLowerCase()));
@@ -181,7 +195,7 @@ class NovelBookSource {
   };
 
   /// 规则视图（空串代表规则缺失）。
-  NovelSourceRules get rules => NovelSourceRules(raw);
+  NovelSourceRules get ruleSet => NovelSourceRules(raw);
 
   String get searchUrl => '${raw['searchUrl'] ?? ''}';
   String get exploreUrl => '${raw['exploreUrl'] ?? ''}';
