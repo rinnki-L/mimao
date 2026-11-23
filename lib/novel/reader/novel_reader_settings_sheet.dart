@@ -51,8 +51,6 @@ class NovelReaderSettingsSheet extends StatefulWidget {
     required this.info,
     required this.onChanged,
     required this.onClose,
-    this.onPreview,
-    this.showAutoBrightness = false,
   });
 
   final NovelReaderSettings initial;
@@ -61,8 +59,6 @@ class NovelReaderSettingsSheet extends StatefulWidget {
   final VoidCallback onClose;
 
   /// 背景「预览」：收起面板看效果。
-  final VoidCallback? onPreview;
-  final bool showAutoBrightness;
 
   @override
   State<NovelReaderSettingsSheet> createState() =>
@@ -234,7 +230,7 @@ class _NovelReaderSettingsSheetState extends State<NovelReaderSettingsSheet> {
             ),
             IconButton(
               key: const Key('novel-settings-background-night'),
-              tooltip: '夜间模式',
+              tooltip: _settings.darkBackground ? '日间模式' : '夜间模式',
               visualDensity: VisualDensity.compact,
               icon: const Icon(Icons.dark_mode_outlined, size: 20),
               onPressed: () => _apply(
@@ -626,14 +622,18 @@ class _NovelReaderSettingsSheetState extends State<NovelReaderSettingsSheet> {
   // ── 通用小组件 ────────────────────────────────────────────────────────
   Widget _card({required Widget child}) {
     final scheme = Theme.of(context).colorScheme;
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
-      decoration: BoxDecoration(
+    // 用 Material 承载底色，ListTile/SwitchListTile 的水波纹才不会被 DecoratedBox 挡住。
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
         color: scheme.surfaceContainer,
         borderRadius: MimaoShapes.md,
+        clipBehavior: Clip.antiAlias,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
+          child: child,
+        ),
       ),
-      child: child,
     );
   }
 

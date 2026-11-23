@@ -327,7 +327,7 @@ jobs:
           if command -v nuget >/dev/null 2>&1; then
             echo "nuget 已预装，跳过下载"
           else
-            curl -sSfL -o "$RUNNER_TEMP/nuget.exe" https://dist.nuget.org/win-x86-commandline/latest/nuget.exe
+            curl -sSfL --retry 3 --retry-delay 2 -o "$RUNNER_TEMP/nuget.exe" https://dist.nuget.org/win-x86-commandline/latest/nuget.exe
             printf '%s\n' "$RUNNER_TEMP" >> "$GITHUB_PATH"
           fi
 

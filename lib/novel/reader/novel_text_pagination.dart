@@ -38,8 +38,6 @@ class NovelTextPage {
 
   final List<NovelTextSlice> slices;
 
-  int get textLength => slices.fold<int>(0, (sum, slice) => sum + slice.length);
-
   bool get isEmpty => slices.isEmpty;
 }
 

@@ -404,6 +404,8 @@ class NovelWebDavBackupService {
         novelPrefShelfColumns,
         novelPrefShelfSort,
         novelPrefReaderFontSize,
+        novelPrefReaderSettings,
+        novelPrefReaderPositions,
       ]) {
         final value = await prefsApi.read(key);
         if (value != null) prefsMap[key] = value;

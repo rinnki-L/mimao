@@ -1,6 +1,7 @@
 // 阅读设置模型：序列化、边界收敛、背景明暗与文字色。
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mimao/novel/library_api.dart';
 import 'package:mimao/novel/reader/novel_reader_settings.dart';
 
 void main() {
@@ -51,6 +52,20 @@ void main() {
     expect(restored.autoBrightness, isTrue);
   });
 
+  test('kv 存储往返，老版本字号迁移到新设置', () async {
+    final prefs = _FakePrefs();
+    final store = PrefsNovelReaderSettingsStore(prefs);
+
+    await store.save(const NovelReaderSettings(fontSize: 26));
+    expect((await store.load()).fontSize, 26);
+
+    // 只有旧 reader_font_size 时迁移为字号，其余走默认。
+    final legacy = _FakePrefs()..values[novelPrefReaderFontSize] = '28';
+    final migrated = await PrefsNovelReaderSettingsStore(legacy).load();
+    expect(migrated.fontSize, 28);
+    expect(migrated.pageMode, NovelPageMode.scroll);
+  });
+
   test('坏数据回退默认值，越界值收敛', () {
     expect(NovelReaderSettings.deserialize('not json').fontSize, 20);
     final restored = NovelReaderSettings.fromJson(<String, Object?>{
@@ -91,4 +106,14 @@ void main() {
     final smaller = settings.copyWith(fontSize: -5);
     expect(smaller.fontSize, NovelReaderSettings.minFontSize);
   });
+}
+
+class _FakePrefs implements NovelPrefsApi {
+  final Map<String, String> values = <String, String>{};
+
+  @override
+  Future<String?> read(String key) async => values[key];
+
+  @override
+  Future<void> write(String key, String value) async => values[key] = value;
 }

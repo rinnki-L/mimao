@@ -32,6 +32,7 @@ NovelTtsEngine? createNovelTtsEngine() {
 /// Windows：PowerShell + System.Speech。
 class WindowsSapiTts implements NovelTtsEngine {
   Process? _process;
+  bool _stopped = false;
 
   @override
   Future<void> configure() async {}
@@ -39,15 +40,24 @@ class WindowsSapiTts implements NovelTtsEngine {
   @override
   Future<void> speak(String text) async {
     await stop();
+    _stopped = false;
     final trimmed = text.trim();
     if (trimmed.isEmpty) return;
+    for (final chunk in _chunks(trimmed)) {
+      if (_stopped) return;
+      await _speakChunk(chunk);
+    }
+  }
 
+  Future<void> _speakChunk(String chunk) async {
     // 用 base64 传文本：命令行不需要引号处理，中文按 UTF-8 还原。
-    final payload = base64Encode(utf8.encode(trimmed));
+    final payload = base64Encode(utf8.encode(chunk));
     final script =
         'Add-Type -AssemblyName System.Speech; '
         "\$t=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$payload')); "
         r'$s=New-Object System.Speech.Synthesis.SpeechSynthesizer; '
+        r'$zh=$s.GetInstalledVoices() | Where-Object { $_.VoiceInfo.Culture.Name -eq "zh-CN" } | Select-Object -First 1; '
+        r'if ($zh) { $s.SelectVoice($zh.VoiceInfo.Name) }; '
         r'$s.Rate=0;$s.Volume=100;$s.Speak($t)';
 
     final process = await Process.start('powershell', <String>[
@@ -61,14 +71,32 @@ class WindowsSapiTts implements NovelTtsEngine {
     unawaited(process.stdout.drain<void>());
     unawaited(process.stderr.drain<void>());
     final code = await process.exitCode;
-    if (identical(_process, process)) _process = null;
+    if (!identical(_process, process)) return; // 已被 stop
+    _process = null;
+    if (_stopped) return;
     if (code != 0) {
       throw StateError('朗读进程退出码 $code');
     }
   }
 
+  /// Windows 命令行上限 32k：按 3000 字切片，优先切在句末。
+  Iterable<String> _chunks(String text) sync* {
+    const limit = 3000;
+    var start = 0;
+    while (start < text.length) {
+      var end = (start + limit).clamp(0, text.length);
+      if (end < text.length) {
+        final cut = text.lastIndexOf(RegExp(r'[。！？!?\n]'), end);
+        if (cut > start + limit ~/ 2) end = cut + 1;
+      }
+      yield text.substring(start, end);
+      start = end;
+    }
+  }
+
   @override
   Future<void> stop() async {
+    _stopped = true;
     final process = _process;
     _process = null;
     if (process == null) return;

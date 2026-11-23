@@ -6,7 +6,8 @@
 
 import 'dart:convert';
 
-import 'package:mimao/novel/library_api.dart' show NovelPrefsApi;
+import 'package:mimao/novel/library_api.dart'
+    show NovelPrefsApi, novelPrefReaderPositions;
 
 class NovelReaderPosition {
   const NovelReaderPosition({
@@ -78,7 +79,7 @@ class NovelReaderPositionStore {
   final NovelPrefsApi? prefs;
   final int capacity;
 
-  static const String key = 'reader_positions';
+  static const String key = novelPrefReaderPositions;
 
   Map<String, Object?>? _memory;
 

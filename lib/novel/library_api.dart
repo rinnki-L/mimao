@@ -184,4 +184,7 @@ const String novelPrefGoalMinutes = 'reading_goal_minutes';
 const String novelPrefShelfLayout = 'shelf_layout';
 const String novelPrefShelfColumns = 'shelf_columns';
 const String novelPrefShelfSort = 'shelf_sort';
+// 旧阅读器只存了字号；新阅读器设置整体存在 reader_settings，读取时会迁移。
 const String novelPrefReaderFontSize = 'reader_font_size';
+const String novelPrefReaderSettings = 'reader_settings';
+const String novelPrefReaderPositions = 'reader_positions';

@@ -7,7 +7,8 @@
 
 import 'dart:convert';
 
-import 'package:mimao/novel/library_api.dart' show NovelPrefsApi;
+import 'package:mimao/novel/library_api.dart'
+    show NovelPrefsApi, novelPrefReaderFontSize, novelPrefReaderSettings;
 
 /// 翻页方式：上下滚动（默认）/ 左右翻页。
 enum NovelPageMode { scroll, page }
@@ -181,14 +182,6 @@ class NovelReaderSettings {
 
   /// 页脚、次级文案颜色。
   int get secondaryTextColorArgb => darkBackground ? 0xFF9A9A9A : 0xFF6D6D6D;
-
-  /// 当前字体（名称，用于设置面板回显）。
-  String get fontName {
-    for (final font in novelReaderFonts) {
-      if (font.family == fontFamily) return font.name;
-    }
-    return novelReaderFonts.first.name;
-  }
 
   NovelReaderSettings copyWith({
     double? fontSize,
@@ -433,7 +426,7 @@ class PrefsNovelReaderSettingsStore implements NovelReaderSettingsStore {
 
   final NovelPrefsApi? prefs;
 
-  static const String key = 'reader_settings';
+  static const String key = novelPrefReaderSettings;
 
   NovelReaderSettings _memory = const NovelReaderSettings();
 
@@ -443,7 +436,21 @@ class PrefsNovelReaderSettingsStore implements NovelReaderSettingsStore {
     if (api == null) return _memory;
     try {
       final raw = await api.read(key);
-      if (raw == null || raw.isEmpty) return const NovelReaderSettings();
+      if (raw == null || raw.isEmpty) {
+        // 老版本只存了字号：首次升级时迁移过来，避免字号静默回落到默认 20。
+        final legacy = double.tryParse(
+          await api.read(novelPrefReaderFontSize) ?? '',
+        );
+        if (legacy != null) {
+          return NovelReaderSettings(
+            fontSize: legacy.clamp(
+              NovelReaderSettings.minFontSize,
+              NovelReaderSettings.maxFontSize,
+            ),
+          );
+        }
+        return const NovelReaderSettings();
+      }
       return NovelReaderSettings.deserialize(raw);
     } on Object {
       return const NovelReaderSettings();

@@ -50,7 +50,7 @@ class _NovelSearchSheetState extends State<NovelSearchSheet> {
 
   bool _wholeBook = true;
   bool _searching = false;
-  bool _cancelled = false;
+  int _runId = 0;
   int _done = 0;
   int _total = 0;
   String? _error;
@@ -78,9 +78,9 @@ class _NovelSearchSheetState extends State<NovelSearchSheet> {
       else
         widget.currentChapterIndex,
     ];
+    final runId = ++_runId;
     setState(() {
       _searching = true;
-      _cancelled = false;
       _error = null;
       _hits = const <NovelSearchHit>[];
       _done = 0;
@@ -90,9 +90,10 @@ class _NovelSearchSheetState extends State<NovelSearchSheet> {
     final hits = <NovelSearchHit>[];
     var failures = 0;
     for (final index in indices) {
-      if (_cancelled || !mounted) break;
+      if (!mounted || runId != _runId) break;
       try {
         final paragraphs = await widget.loadChapter(index);
+        if (!mounted || runId != _runId) return;
         for (var p = 0; p < paragraphs.length; p++) {
           final paragraph = paragraphs[p];
           final at = paragraph.indexOf(keyword);
@@ -113,13 +114,13 @@ class _NovelSearchSheetState extends State<NovelSearchSheet> {
         failures++;
       }
       _done++;
-      if (mounted) {
+      if (mounted && runId == _runId) {
         setState(() => _hits = List<NovelSearchHit>.unmodifiable(hits));
       }
       if (hits.length >= _maxHits) break;
     }
 
-    if (!mounted) return;
+    if (!mounted || runId != _runId) return;
     setState(() {
       _searching = false;
       if (hits.isEmpty && failures == indices.length && indices.isNotEmpty) {
@@ -129,7 +130,7 @@ class _NovelSearchSheetState extends State<NovelSearchSheet> {
   }
 
   void _stop() {
-    _cancelled = true;
+    _runId++;
     if (mounted) setState(() => _searching = false);
   }
 

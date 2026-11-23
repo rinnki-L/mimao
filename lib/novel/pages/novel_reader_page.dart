@@ -18,6 +18,7 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/gestures.dart' show PointerScrollEvent;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mimao/core/theme.dart';
@@ -138,6 +139,8 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
   Timer? _saveTimer;
   Timer? _settingsTimer;
   bool _torndown = false;
+  int _loadSeq = 0;
+  bool _ensuringTts = false;
 
   NovelTtsEngine? _tts;
   bool _speaking = false;
@@ -358,6 +361,9 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     final source = _source;
     final detail = _detail;
     if (engine == null || source == null || detail == null) return;
+    final seq = ++_loadSeq;
+    final reopening = _chapter != null && _chapter!.id == chapter.id;
+    final resumeFrom = reopening ? _currentSavedPosition() : null;
     await _stopTts();
     _flushReadingTime();
     _savePositionNow();
@@ -381,16 +387,17 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
           : await engine.contentFor(source, detail.ref, chapter);
       // 规则可能还在读盘；等它落地再展示，避免首屏先出现未净化的正文。
       await _replaceRulesReady;
-      if (!mounted) return;
+      if (!mounted || seq != _loadSeq) return;
       content = _applyReplaceRules(content);
-      final saved = _savedPosition;
+      final saved = resumeFrom ?? _savedPosition;
       final canRestore =
           saved != null &&
-          saved.matches(
-            chapterUrl: chapter.url,
-            chapterId: chapter.id,
-            chapterIndex: chapter.index,
-          );
+          (resumeFrom != null ||
+              saved.matches(
+                chapterUrl: chapter.url,
+                chapterId: chapter.id,
+                chapterIndex: chapter.index,
+              ));
       setState(() {
         _content = content;
         _loadingContent = false;
@@ -400,17 +407,22 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
       // 引擎的 chapter.index 是 0 起（对齐 legado），历史库存的"读到第几章"
       // 是 1 起且 0 表示无进度（novel_db.dart 的契约）。落库前 +1，否则第 1 章
       // （index=0）会被当成"没读"显示"读过"，第 N 章少显示一章。
-      await widget.history?.saveProgress(
-        _historyOverride ?? detail.summary,
-        chapter.index + 1,
-        detail.chapters.length,
-      );
       _session
         ..reset()
         ..start();
+      // 先恢复页内位置，再写历史：历史库慢/失败不该把用户扔回章首。
       _schedulePositionRestore();
+      try {
+        await widget.history?.saveProgress(
+          _historyOverride ?? detail.summary,
+          chapter.index + 1,
+          detail.chapters.length,
+        );
+      } on Object {
+        // 历史写入失败不阻断阅读。
+      }
     } on Object catch (error) {
-      if (!mounted) return;
+      if (!mounted || seq != _loadSeq) return;
       setState(() {
         _loadingContent = false;
         _loadError = '$error';
@@ -569,6 +581,23 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     return page.clamp(1, pageCount);
   }
 
+  /// 章内位置比例：滚动模式以滚动比例为准，翻页模式按页码比例。
+  double _currentPageRatio() {
+    final count = _pages.length;
+    if (_settings.pageMode == NovelPageMode.page) {
+      return count <= 1 ? 0 : _pageIndex / (count - 1);
+    }
+    return _scrollRatio.value;
+  }
+
+  void _scheduleSettingsSave() {
+    _settingsTimer?.cancel();
+    _settingsTimer = Timer(
+      const Duration(milliseconds: 300),
+      () => unawaited(_settingsStore.save(_settings)),
+    );
+  }
+
   double _bookPercent(int page, int pageCount) {
     final chapters = _detail?.chapters.length ?? 0;
     final chapter = _chapter;
@@ -602,23 +631,25 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     _saveTimer = Timer(const Duration(milliseconds: 600), _savePositionNow);
   }
 
-  void _savePositionNow() {
+  NovelReaderPosition? _currentSavedPosition() {
     final chapter = _chapter;
-    if (chapter == null || _torndown) return;
+    if (chapter == null) return null;
     final pageCount = _pages.isEmpty ? 1 : _pages.length;
-    unawaited(
-      _positionStore.save(
-        widget.bookId,
-        NovelReaderPosition(
-          chapterUrl: chapter.url,
-          chapterId: chapter.id,
-          chapterIndex: chapter.index,
-          page: _currentPage(pageCount),
-          pageCount: pageCount,
-          scrollRatio: _scrollRatio.value,
-        ),
-      ),
+    return NovelReaderPosition(
+      chapterUrl: chapter.url,
+      chapterId: chapter.id,
+      chapterIndex: chapter.index,
+      page: _currentPage(pageCount),
+      pageCount: pageCount,
+      scrollRatio: _scrollRatio.value,
     );
+  }
+
+  void _savePositionNow() {
+    final position = _currentSavedPosition();
+    if (position == null || _torndown) return;
+    _savedPosition = position;
+    unawaited(_positionStore.save(widget.bookId, position));
   }
 
   void _schedulePositionRestore() {
@@ -632,9 +663,13 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
       final count = _pages.length;
       if (count == 0) return;
       if (_settings.pageMode == NovelPageMode.page) {
-        final index = restore != null
-            ? (restore.page - 1).clamp(0, count - 1)
-            : count - 1;
+        final restored = restore == null
+            ? count - 1
+            : restore.pageCount <= 1
+            ? 0
+            : ((restore.page - 1) / (restore.pageCount - 1) * (count - 1))
+                  .round();
+        final index = restored.clamp(0, count - 1);
         setState(() {
           _pageDirection = 1;
           _pageIndex = index;
@@ -738,18 +773,22 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
 
   // ── 设置 ──────────────────────────────────────────────────────────────
   void _applySettings(NovelReaderSettings next) {
-    final oldCount = _pages.length;
-    final oldInterval = _settings.autoPageSeconds;
-    final ratio = oldCount <= 1
-        ? _scrollRatio.value
-        : _pageIndex / (oldCount - 1);
-    final modeChanged = next.pageMode != _settings.pageMode;
+    final previous = _settings;
+    final oldInterval = previous.autoPageSeconds;
+    final ratio = _currentPageRatio();
+    final modeChanged = next.pageMode != previous.pageMode;
+    final layoutChanged =
+        next.fontSize != previous.fontSize ||
+        next.lineHeight != previous.lineHeight ||
+        next.paragraphSpacing != previous.paragraphSpacing ||
+        next.horizontalPadding != previous.horizontalPadding ||
+        next.fontFamily != previous.fontFamily;
     setState(() {
       _settings = next;
-      _paginationKey = '';
-      _pendingPageRatio = ratio;
+      if (layoutChanged) _paginationKey = '';
+      if (layoutChanged || modeChanged) _pendingPageRatio = ratio;
     });
-    unawaited(_settingsStore.save(next));
+    _scheduleSettingsSave();
     if (modeChanged && next.pageMode == NovelPageMode.scroll) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || !_scroll.hasClients) return;
@@ -795,6 +834,16 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
   }
 
   // ── 自动翻页 ──────────────────────────────────────────────────────────
+  void _pauseAutoForSheet() {
+    if (!_autoReading) return;
+    _autoTimer?.cancel();
+    _autoTimer = null;
+  }
+
+  void _resumeAutoFromSheet() {
+    if (_autoReading && _autoTimer == null) _startAutoTimer();
+  }
+
   void _toggleAutoReading() {
     if (_autoReading) {
       _stopAutoReading();
@@ -846,9 +895,13 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
       await _stopTts();
       return;
     }
+    if (_ensuringTts) return;
     final content = _content;
     if (content == null) return;
+    _ensuringTts = true;
     final tts = await _ensureTts();
+    _ensuringTts = false;
+    if (!mounted) return;
     if (tts == null) {
       _showSnack('当前平台暂不支持朗读');
       return;
@@ -860,7 +913,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
 
   int _firstParagraphOnPage() {
     if (_pages.isEmpty) return 0;
-    final index = _pageIndex.clamp(0, _pages.length - 1);
+    final index = (_currentPage(_pages.length) - 1).clamp(0, _pages.length - 1);
     for (final slice in _pages[index].slices) {
       if (!slice.isTitle) return slice.paragraph;
     }
@@ -878,6 +931,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
         await tts.speak(content.paragraphs[i]);
       } on Object {
         await _stopTts();
+        if (mounted) _showSnack('朗读失败，已停止');
         return;
       }
     }
@@ -897,8 +951,8 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
 
   // ── 面板入口 ──────────────────────────────────────────────────────────
   Future<void> _openSettings() async {
+    _pauseAutoForSheet();
     _chromeVisible.value = false;
-    var preview = false;
     final info = NovelReaderBookInfo(
       bookTitle: _detail?.title ?? widget.title ?? '',
       author: _detail?.author ?? widget.author ?? '',
@@ -914,9 +968,8 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
       context: context,
       isScrollControlled: true,
       backgroundColor: const Color(0x00000000),
-      barrierColor: const Color(0x66000000),
+      barrierColor: Theme.of(context).colorScheme.scrim.withValues(alpha: 0.4),
       builder: (sheetContext) => _sheetTheme(
-        context,
         Padding(
           padding: EdgeInsets.fromLTRB(
             12,
@@ -929,19 +982,18 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
             info: info,
             onChanged: _applySettings,
             onClose: () => Navigator.of(sheetContext).pop(),
-            onPreview: () {
-              preview = true;
-              Navigator.of(sheetContext).pop();
-            },
-            showAutoBrightness: _supportsAutoBrightness,
           ),
         ),
       ),
     );
-    if (mounted) _chromeVisible.value = preview ? false : true;
+    if (mounted) {
+      _chromeVisible.value = true;
+      _resumeAutoFromSheet();
+    }
   }
 
   Future<void> _openCatalog() async {
+    _pauseAutoForSheet();
     final detail = _detail;
     if (detail == null) return;
     _chromeVisible.value = false;
@@ -959,7 +1011,6 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
       backgroundColor: _sheetThemeData().colorScheme.surfaceContainerLow,
       showDragHandle: false,
       builder: (sheetContext) => _sheetTheme(
-        context,
         NovelCatalogSheet(
           chapters: chapters,
           currentIndex: _chapter?.index ?? 0,
@@ -968,7 +1019,10 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
         ),
       ),
     );
-    if (mounted) _chromeVisible.value = true;
+    if (mounted) {
+      _chromeVisible.value = true;
+      _resumeAutoFromSheet();
+    }
     if (picked != null && mounted && picked < detail.chapters.length) {
       final target = detail.chapters[picked];
       if (!target.isVolume) await _openChapter(target);
@@ -976,6 +1030,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
   }
 
   Future<void> _openSearch() async {
+    _pauseAutoForSheet();
     final engine = widget.onlineEngine;
     final source = _source;
     final detail = _detail;
@@ -990,7 +1045,6 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
       backgroundColor: _sheetThemeData().colorScheme.surfaceContainerLow,
       showDragHandle: false,
       builder: (sheetContext) => _sheetTheme(
-        context,
         NovelSearchSheet(
           chapterTitles: titles,
           currentChapterIndex: _chapter?.index ?? 0,
@@ -1008,13 +1062,16 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
             return content.paragraphs;
           },
           onPick: (chapterIndex, paragraph) {
-            Navigator.of(sheetContext).pop();
+            // 搜索面板自己 pop 回阅读页，这里不能再 pop 一次。
             unawaited(_jumpToParagraph(chapterIndex, paragraph));
           },
         ),
       ),
     );
-    if (mounted) _chromeVisible.value = true;
+    if (mounted) {
+      _chromeVisible.value = true;
+      _resumeAutoFromSheet();
+    }
   }
 
   Future<void> _jumpToParagraph(int chapterIndex, int paragraph) async {
@@ -1041,6 +1098,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
   }
 
   Future<void> _openSourceSwitch() async {
+    _pauseAutoForSheet();
     final engine = widget.onlineEngine;
     final store = widget.sourceStore;
     final detail = _detail;
@@ -1052,6 +1110,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     } on Object catch (error) {
       if (mounted) {
         _chromeVisible.value = true;
+        _resumeAutoFromSheet();
         _showSnack('读取书源失败：$error');
       }
       return;
@@ -1063,7 +1122,6 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
       backgroundColor: _sheetThemeData().colorScheme.surfaceContainerLow,
       showDragHandle: false,
       builder: (sheetContext) => _sheetTheme(
-        context,
         NovelSourceSwitchSheet(
           title: detail.title,
           author: detail.author,
@@ -1073,7 +1131,10 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
         ),
       ),
     );
-    if (mounted) _chromeVisible.value = true;
+    if (mounted) {
+      _chromeVisible.value = true;
+      _resumeAutoFromSheet();
+    }
     if (hit == null || !mounted) return;
     await _switchSource(hit.source, hit.book);
   }
@@ -1149,10 +1210,24 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     final target = _normalizeTitle(oldChapter.title);
     if (target.isNotEmpty) {
       for (var i = 0; i < chapters.length; i++) {
-        if (_normalizeTitle(chapters[i].title) == target) return i;
+        if (!chapters[i].isVolume &&
+            _normalizeTitle(chapters[i].title) == target) {
+          return i;
+        }
       }
     }
-    return oldChapter.index.clamp(0, chapters.length - 1);
+    // 标题对不上时按旧下标兜底，但不能落在卷名行上。
+    final start = oldChapter.index.clamp(0, chapters.length - 1);
+    if (!chapters[start].isVolume) return start;
+    for (var offset = 1; offset < chapters.length; offset++) {
+      final forward = start + offset;
+      if (forward < chapters.length && !chapters[forward].isVolume) {
+        return forward;
+      }
+      final backward = start - offset;
+      if (backward >= 0 && !chapters[backward].isVolume) return backward;
+    }
+    return start;
   }
 
   String _normalizeTitle(String value) => value
@@ -1215,6 +1290,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     final done = ValueNotifier<int>(0);
     final failed = ValueNotifier<int>(0);
     final navigator = Navigator.of(context);
+    var dialogOpen = true;
     unawaited(
       showDialog<void>(
         context: context,
@@ -1250,33 +1326,36 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
             ),
           ],
         ),
-      ),
+      ).then((_) => dialogOpen = false),
     );
 
     for (final chapter in chapters) {
       if (cancelled || !mounted) break;
       try {
-        await engine.contentFor(source, detail.ref, chapter);
+        await engine
+            .contentFor(source, detail.ref, chapter)
+            .timeout(const Duration(seconds: 20));
       } on Object {
         failed.value++;
       }
       done.value++;
     }
     if (!mounted) return;
-    navigator.pop();
+    // 用户可能用系统返回键关了进度框；只有它还在栈顶时才 pop。
+    if (dialogOpen) navigator.pop();
     _showSnack(
       '缓存完成：${done.value} 章${failed.value == 0 ? '' : '，失败 ${failed.value} 章'}',
     );
   }
 
   Future<void> _openMore() async {
+    _pauseAutoForSheet();
     _chromeVisible.value = false;
     final picked = await showModalBottomSheet<String>(
       context: context,
       backgroundColor: _sheetThemeData().colorScheme.surfaceContainerLow,
       showDragHandle: false,
       builder: (sheetContext) => _sheetTheme(
-        context,
         SafeArea(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -1305,7 +1384,10 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
         ),
       ),
     );
-    if (mounted) _chromeVisible.value = true;
+    if (mounted) {
+      _chromeVisible.value = true;
+      _resumeAutoFromSheet();
+    }
     switch (picked) {
       case 'cache':
         await _cacheWholeBook();
@@ -1398,7 +1480,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     );
   }
 
-  Widget _sheetTheme(BuildContext context, Widget child) =>
+  Widget _sheetTheme(Widget child) =>
       Theme(data: _sheetThemeData(), child: child);
 
   // ── 构建 ──────────────────────────────────────────────────────────────
@@ -1617,8 +1699,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
           Text(
             '点击屏幕中间可呼出菜单，点左右两侧翻页',
             textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 12,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
               color: novelReaderSecondaryColor(_settings),
             ),
           ),
@@ -1633,41 +1714,58 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     final duration = _settings.pageAnimation
         ? Duration(milliseconds: _settings.pageAnimationMs)
         : Duration.zero;
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onHorizontalDragEnd: (details) {
-        final velocity = details.primaryVelocity ?? 0;
-        if (velocity > 220) {
-          _turnPage(-1);
-        } else if (velocity < -220) {
+    return Listener(
+      onPointerSignal: (event) {
+        if (event is! PointerScrollEvent) return;
+        if (event.scrollDelta.dy > 0) {
           _turnPage(1);
+        } else if (event.scrollDelta.dy < 0) {
+          _turnPage(-1);
         }
       },
-      child: ClipRect(
-        child: AnimatedSwitcher(
-          duration: duration,
-          switchInCurve: Curves.easeOutCubic,
-          switchOutCurve: Curves.easeInCubic,
-          transitionBuilder: (child, animation) {
-            final offset = Tween<Offset>(
-              begin: Offset(_pageDirection.toDouble() * 0.12, 0),
-              end: Offset.zero,
-            ).animate(animation);
-            return FadeTransition(
-              opacity: animation,
-              child: SlideTransition(position: offset, child: child),
-            );
-          },
-          child: KeyedSubtree(
-            key: ValueKey<String>('page-${_chapter?.id}-$index'),
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(
-                _settings.horizontalPadding,
-                insets.top + _contentTopGap,
-                _settings.horizontalPadding,
-                insets.bottom + _contentBottomGap,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onHorizontalDragEnd: (details) {
+          final velocity = details.primaryVelocity ?? 0;
+          if (velocity > 220) {
+            _turnPage(-1);
+          } else if (velocity < -220) {
+            _turnPage(1);
+          }
+        },
+        child: ClipRect(
+          child: AnimatedSwitcher(
+            duration: duration,
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeInCubic,
+            layoutBuilder: (currentChild, previousChildren) => Stack(
+              fit: StackFit.expand,
+              children: <Widget>[
+                ...previousChildren,
+                if (currentChild != null) currentChild,
+              ],
+            ),
+            transitionBuilder: (child, animation) {
+              final offset = Tween<Offset>(
+                begin: Offset(_pageDirection.toDouble() * 0.12, 0),
+                end: Offset.zero,
+              ).animate(animation);
+              return FadeTransition(
+                opacity: animation,
+                child: SlideTransition(position: offset, child: child),
+              );
+            },
+            child: KeyedSubtree(
+              key: ValueKey<String>('page-${_chapter?.id}-$index'),
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  _settings.horizontalPadding,
+                  insets.top + _contentTopGap,
+                  _settings.horizontalPadding,
+                  insets.bottom + _contentBottomGap,
+                ),
+                child: _buildPageBody(pages[index]),
               ),
-              child: _buildPageBody(pages[index]),
             ),
           ),
         ),
@@ -1738,7 +1836,9 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
             Text(
               message,
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 14, color: secondary),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: secondary),
             ),
             if (actionLabel != null && onAction != null) ...<Widget>[
               const SizedBox(height: 16),
