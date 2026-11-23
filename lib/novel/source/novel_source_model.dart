@@ -10,6 +10,79 @@ import 'dart:convert';
 /// 书源网站地址（应用内 WebView 打开它，点页面里的「一键导入」即可回灌本应用）。
 const String novelSourceSiteUrl = 'https://yuedu.miaogongzi.net/gx.html';
 
+/// 书源规则字段的稳定视图：把 `ruleSearch/ruleExplore/ruleBookInfo/ruleToc/
+/// ruleContent` 里的字符串规则取出来。书源里缺字段时返回空串，调用方按空规则
+/// 走降级路径（与 legado 的 nullable 规则同义）。
+class NovelSourceRules {
+  const NovelSourceRules(this.raw);
+
+  final Map<String, dynamic> raw;
+
+  String _get(String group, String key) {
+    final rules = raw[group];
+    if (rules is! Map) return '';
+    final value = rules[key];
+    return value == null ? '' : '$value';
+  }
+
+  String get searchBookList => _get('ruleSearch', 'bookList');
+  String get searchName => _get('ruleSearch', 'name');
+  String get searchAuthor => _get('ruleSearch', 'author');
+  String get searchIntro => _get('ruleSearch', 'intro');
+  String get searchKind => _get('ruleSearch', 'kind');
+  String get searchLastChapter => _get('ruleSearch', 'lastChapter');
+  String get searchWordCount => _get('ruleSearch', 'wordCount');
+  String get searchUpdateTime => _get('ruleSearch', 'updateTime');
+  String get searchBookUrl => _get('ruleSearch', 'bookUrl');
+  String get searchCoverUrl => _get('ruleSearch', 'coverUrl');
+  String get checkKeyword => _get('ruleSearch', 'checkKeyWord');
+
+  String get exploreBookList => _get('ruleExplore', 'bookList');
+  String get exploreName => _get('ruleExplore', 'name');
+  String get exploreAuthor => _get('ruleExplore', 'author');
+  String get exploreIntro => _get('ruleExplore', 'intro');
+  String get exploreKind => _get('ruleExplore', 'kind');
+  String get exploreLastChapter => _get('ruleExplore', 'lastChapter');
+  String get exploreWordCount => _get('ruleExplore', 'wordCount');
+  String get exploreUpdateTime => _get('ruleExplore', 'updateTime');
+  String get exploreBookUrl => _get('ruleExplore', 'bookUrl');
+  String get exploreCoverUrl => _get('ruleExplore', 'coverUrl');
+  String get explorePageParam => _get('ruleExplore', 'pageParam');
+
+  String get infoInit => _get('ruleBookInfo', 'init');
+  String get infoName => _get('ruleBookInfo', 'name');
+  String get infoAuthor => _get('ruleBookInfo', 'author');
+  String get infoIntro => _get('ruleBookInfo', 'intro');
+  String get infoKind => _get('ruleBookInfo', 'kind');
+  String get infoLastChapter => _get('ruleBookInfo', 'lastChapter');
+  String get infoUpdateTime => _get('ruleBookInfo', 'updateTime');
+  String get infoCoverUrl => _get('ruleBookInfo', 'coverUrl');
+  String get infoTocUrl => _get('ruleBookInfo', 'tocUrl');
+  String get infoWordCount => _get('ruleBookInfo', 'wordCount');
+  String get infoCanRename => _get('ruleBookInfo', 'canReName');
+
+  String get tocPreUpdateJs => _get('ruleToc', 'preUpdateJs');
+  String get tocChapterList => _get('ruleToc', 'chapterList');
+  String get tocChapterName => _get('ruleToc', 'chapterName');
+  String get tocChapterUrl => _get('ruleToc', 'chapterUrl');
+  String get tocFormatJs => _get('ruleToc', 'formatJs');
+  String get tocIsVolume => _get('ruleToc', 'isVolume');
+  String get tocIsVip => _get('ruleToc', 'isVip');
+  String get tocIsPay => _get('ruleToc', 'isPay');
+  String get tocUpdateTime => _get('ruleToc', 'updateTime');
+  String get tocNextUrl => _get('ruleToc', 'nextTocUrl');
+
+  String get contentRule => _get('ruleContent', 'content');
+  String get contentSubContent => _get('ruleContent', 'subContent');
+  String get contentTitle => _get('ruleContent', 'title');
+  String get contentNextUrl => _get('ruleContent', 'nextContentUrl');
+  String get contentWebJs => _get('ruleContent', 'webJs');
+  String get contentSourceRegex => _get('ruleContent', 'sourceRegex');
+  String get contentReplaceRegex => _get('ruleContent', 'replaceRegex');
+  String get contentImageStyle => _get('ruleContent', 'imageStyle');
+  String get contentPayAction => _get('ruleContent', 'payAction');
+}
+
 /// 一条已导入的 Legado 书源。
 ///
 /// [raw] 保留书源完整 JSON 对象，后续书源引擎切片直接消费它，不需要二次抓网页。
@@ -106,6 +179,25 @@ class NovelBookSource {
     3 => '文件',
     _ => '其他',
   };
+
+  /// 规则视图（空串代表规则缺失）。
+  NovelSourceRules get rules => NovelSourceRules(raw);
+
+  String get searchUrl => '${raw['searchUrl'] ?? ''}';
+  String get exploreUrl => '${raw['exploreUrl'] ?? ''}';
+  String get headerRaw => '${raw['header'] ?? ''}';
+  String get jsLib => '${raw['jsLib'] ?? ''}';
+  String get loginUrl => '${raw['loginUrl'] ?? ''}';
+  String get loginCheckJs => '${raw['loginCheckJs'] ?? ''}';
+  String get coverDecodeJs => '${raw['coverDecodeJs'] ?? ''}';
+  String get bookUrlPattern => '${raw['bookUrlPattern'] ?? ''}';
+  int get customOrder =>
+      raw['customOrder'] is num ? (raw['customOrder']! as num).toInt() : 0;
+  int get weight => raw['weight'] is num ? (raw['weight']! as num).toInt() : 0;
+  bool get enabledExplore =>
+      raw['enabledExplore'] is bool ? raw['enabledExplore'] as bool : true;
+  bool get enabledCookieJar =>
+      raw['enabledCookieJar'] is bool ? raw['enabledCookieJar'] as bool : true;
 
   @override
   String toString() => 'NovelBookSource($name: $url)';
