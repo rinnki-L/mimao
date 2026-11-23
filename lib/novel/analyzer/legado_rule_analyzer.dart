@@ -26,8 +26,12 @@ class RuleJsContext {
     this.baseUrl,
     this.bookName,
     this.chapterTitle,
+    this.page,
+    this.key,
     this.variables = const <String, String>{},
     this.sourceInfo = const <String, String>{},
+    this.bookInfo = const <String, String>{},
+    this.chapterInfo = const <String, String>{},
   });
 
   /// 同步规则回调（`java.getString` / `java.setContent` 等）。
@@ -39,12 +43,20 @@ class RuleJsContext {
   final String? baseUrl;
   final String? bookName;
   final String? chapterTitle;
+  final int? page;
+  final String? key;
 
   /// `@put` / `book.putVariable` 写入的变量。
   final Map<String, String> variables;
 
   /// 书源字段（`source.bookSourceUrl` / `getKey` 等）。
   final Map<String, String> sourceInfo;
+
+  /// 书籍字段（`book.name` / `bookUrl` / `tocUrl` …）。
+  final Map<String, String> bookInfo;
+
+  /// 章节字段（`chapter.title` / `index` / `url`）。
+  final Map<String, String> chapterInfo;
 }
 
 /// JS 宿主的执行入口；生产实现是 QuickJS，测试可注入 fake。
@@ -64,6 +76,10 @@ abstract interface class RuleCallbacks {
   void setContent(Object? content);
 
   Object? getContent();
+
+  String getRuleVariable(String key);
+
+  void putRuleVariable(String key, String value);
 }
 
 /// 规则执行器：一个实例绑定一段内容 + 上下文，可在同一段内容上连续取多个字段。
@@ -75,12 +91,18 @@ class LegadoRuleAnalyzer
     this.redirectUrl,
     this.bookName,
     this.chapterTitle,
+    this.page,
+    this.key,
     Map<String, String>? variables,
     Map<String, String>? sourceInfo,
+    Map<String, String>? bookInfo,
+    Map<String, String>? chapterInfo,
     this.jsRunner,
   }) : _content = content,
        _variables = <String, String>{...?variables},
        _sourceInfo = <String, String>{...?sourceInfo},
+       _bookInfo = <String, String>{...?bookInfo},
+       _chapterInfo = <String, String>{...?chapterInfo},
        _isJson = _looksLikeJson(content);
 
   Object? _content;
@@ -90,10 +112,14 @@ class LegadoRuleAnalyzer
   Uri? redirectUrl;
   String? bookName;
   String? chapterTitle;
+  int? page;
+  String? key;
 
   /// 当前章节标题（`get('title')` 用）；与 [chapterTitle] 同步。
   final Map<String, String> _variables;
   final Map<String, String> _sourceInfo;
+  final Map<String, String> _bookInfo;
+  final Map<String, String> _chapterInfo;
   final RuleJsRunner? jsRunner;
 
   @override
@@ -490,12 +516,7 @@ class LegadoRuleAnalyzer
   void _makeUpRuleSync(SourceRule sourceRule, Object? result) {
     // 同步路径不做 JS 插值；没有 {{}} 的规则占绝大多数，JS 回调里再走
     // 规则级 `java.getString` 时也会命中同一约束，失败时退化为空串。
-    if (sourceRule.rule.isEmpty) return;
-    final parts = sourceRule.rule.split('##');
-    sourceRule.rule = parts.first.trim();
-    if (parts.length > 1) sourceRule.replaceRegex = parts[1];
-    if (parts.length > 2) sourceRule.replacement = parts[2];
-    if (parts.length > 3) sourceRule.replaceFirst = true;
+    sourceRule.makeUpRuleSync(this, result);
   }
 
   // ---------------------------------------------------------------------------
@@ -513,8 +534,12 @@ class LegadoRuleAnalyzer
         baseUrl: baseUrl,
         bookName: bookName,
         chapterTitle: chapterTitle,
+        page: page,
+        key: key,
         variables: Map<String, String>.from(_variables),
         sourceInfo: _sourceInfo,
+        bookInfo: _bookInfo,
+        chapterInfo: _chapterInfo,
       ),
     );
   }

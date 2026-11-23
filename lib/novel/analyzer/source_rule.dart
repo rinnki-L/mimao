@@ -164,6 +164,38 @@ class SourceRule {
     }
   }
 
+  /// 同步版 [makeUpRule]：只处理 `$n` / `@get` / 字面量；`{{js}}` 退化为空串
+  /// （JS 宿主从 JS 里回调规则层时不能再递归执行 JS）。
+  void makeUpRuleSync(SourceRuleHost host, Object? result) {
+    if (_params.isEmpty || _mode == RuleMode.js) return;
+    final socket = StringBuffer();
+    for (var i = 0; i < _params.length; i++) {
+      final type = _types[i];
+      final param = _params[i];
+      if (type > _defaultRuleType) {
+        final list = result is List ? result : null;
+        if (list != null && list.length > type) {
+          socket.write(list[type] ?? '');
+        } else {
+          socket.write(param);
+        }
+      } else if (type == _getRuleType) {
+        socket.write(host.getRuleVariable(param.trim()));
+      } else if (type == _jsRuleType) {
+        // 同步路径不执行 JS；`{{}}` 段置空，避免把源码当文本写进选择器。
+        socket.write('');
+      } else {
+        socket.write(param);
+      }
+    }
+    rule = socket.toString();
+    final parts = rule.split('##');
+    rule = parts.first.trim();
+    if (parts.length > 1) replaceRegex = parts[1];
+    if (parts.length > 2) replacement = parts[2];
+    if (parts.length > 3) replaceFirst = true;
+  }
+
   /// 用当前结果替换 `$n` / `@get` / `{{js}}`，并拆出 `##` 正则段。
   Future<void> makeUpRule(SourceRuleHost host, Object? result) async {
     if (_params.isNotEmpty) {
