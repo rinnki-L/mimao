@@ -173,13 +173,13 @@ class _FakeHistory implements NovelHistoryApi {
   @override
   Future<NovelHistoryItem?> latest(String bookId) async =>
       resumeChapterNumber <= 0
-          ? null
-          : NovelHistoryItem(
-              book: _book,
-              chapterIndex: resumeChapterNumber,
-              chapterCount: 2,
-              openedAt: DateTime(2026, 1, 1),
-            );
+      ? null
+      : NovelHistoryItem(
+          book: _book,
+          chapterIndex: resumeChapterNumber,
+          chapterCount: 2,
+          openedAt: DateTime(2026, 1, 1),
+        );
 
   @override
   Future<List<NovelHistoryItem>> recent({int limit = 50}) async =>

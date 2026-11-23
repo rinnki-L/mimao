@@ -20,10 +20,12 @@ bool get _hasNativeJs {
   if (Platform.isLinux) {
     if (File('libflutter_qjs_plugin.so').existsSync()) return true;
     // 兼容放在 /usr/lib 等标准路径的情况。
-    for (final dir in Platform.environment['LD_LIBRARY_PATH']?.split(':') ??
-        const <String>[]) {
-      if (File('${dir.isEmpty ? '.' : dir}/libflutter_qjs_plugin.so')
-          .existsSync()) {
+    for (final dir
+        in Platform.environment['LD_LIBRARY_PATH']?.split(':') ??
+            const <String>[]) {
+      if (File(
+        '${dir.isEmpty ? '.' : dir}/libflutter_qjs_plugin.so',
+      ).existsSync()) {
         return true;
       }
     }
@@ -78,13 +80,18 @@ void main() {
   if (!_hasNativeJs) {
     if (_requireNativeJs) {
       test('CI 缺少 QuickJS native 库——JS 宿主测试必须真跑，不允许 skip', () {
-        fail('MIMAO_REQUIRE_NATIVE_JS=1 但未找到 native QuickJS 库；'
-            '检查 cmake 构建步骤与 LD_LIBRARY_PATH');
+        fail(
+          'MIMAO_REQUIRE_NATIVE_JS=1 但未找到 native QuickJS 库；'
+          '检查 cmake 构建步骤与 LD_LIBRARY_PATH',
+        );
       });
       return;
     }
-    test('skip：缺少 native QuickJS 库（本地运行无需先编译）', () {},
-        skip: '无 native QuickJS');
+    test(
+      'skip：缺少 native QuickJS 库（本地运行无需先编译）',
+      () {},
+      skip: '无 native QuickJS',
+    );
     return;
   }
 
