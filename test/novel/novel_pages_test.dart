@@ -358,10 +358,37 @@ void main() {
     expect(find.text('订阅'), findsWidgets);
     // 订阅页只展示订阅卡片：默认「喵公子书源管理」，不再平铺单个书源。
     expect(find.text('喵公子书源管理'), findsOneWidget);
-    expect(find.textContaining('个书源 · 点按查看与管理'), findsOneWidget);
+    expect(find.textContaining('个书源 · 点按打开网站'), findsOneWidget);
     expect(find.text('源甲'), findsNothing);
     expect(find.text('源丙'), findsNothing);
     expect(find.byType(Switch), findsNothing);
+  });
+
+  testWidgets('订阅页：点订阅卡片满窗口进站点页，返回回到订阅页', (tester) async {
+    final store = _MemorySourceStorage(<NovelBookSource>[]);
+    final importer = NovelSourceImporter(store, _ThrowingFetcher());
+
+    await tester.pumpWidget(
+      wrap(
+        NovelSubscribePage(
+          active: true,
+          sourceImporter: importer,
+          webViewBuilder: (context, onImportLink) =>
+              const Center(child: Text('假站点页')),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('喵公子书源管理'));
+    await tester.pumpAndSettle();
+    expect(find.text('假站点页'), findsOneWidget);
+    expect(find.byTooltip('返回'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('返回'));
+    await tester.pumpAndSettle();
+    expect(find.text('喵公子书源管理'), findsOneWidget);
+    expect(find.text('假站点页'), findsNothing);
   });
 
   testWidgets('订阅页：导入规则弹窗带类型选择，导入后落库并给反馈', (tester) async {

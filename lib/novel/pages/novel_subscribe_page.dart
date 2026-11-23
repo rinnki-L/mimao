@@ -2,16 +2,20 @@
 // 与其他模块页面同款说明。
 /// 小说「订阅」：展示订阅源（书源来源站点的集合），并从这里导入三类规则。
 ///
-/// 每个订阅是一张卡片（默认「喵公子书源管理」），显示它下面的书源数量，
-/// 点卡片进规则管理页看那批书源。导入入口叫「导入规则」而不是「导入书源」：
-/// 书源 / 订阅源 / 替换规则都从同一个弹窗进来，按类型分流落库。
+/// 每个订阅是一张卡片（默认「喵公子书源管理」），显示它下面的书源数量；
+/// 点卡片满窗口打开该订阅站点（与规则管理 → 订阅源里点卡片同一套站点页）。
+/// 导入入口叫「导入规则」而不是「导入书源」：书源 / 订阅源 / 替换规则都从
+/// 同一个弹窗进来，按类型分流落库。
 library;
 
 import 'package:flutter/material.dart';
 import 'package:mimao/novel/pages/novel_rule_import_dialog.dart';
 import 'package:mimao/novel/pages/novel_routes.dart';
+import 'package:mimao/novel/pages/novel_source_site_page.dart';
 import 'package:mimao/novel/pages/novel_widgets.dart';
 import 'package:mimao/novel/source/novel_source_importer.dart';
+import 'package:mimao/novel/source/novel_source_model.dart'
+    show novelSourceSiteUrl;
 import 'package:mimao/novel/source/novel_subscription.dart';
 
 class NovelSubscribePage extends StatefulWidget {
@@ -21,6 +25,7 @@ class NovelSubscribePage extends StatefulWidget {
     this.sourceImporter,
     this.subscriptionStore,
     this.openRoute,
+    this.webViewBuilder,
   });
 
   final bool active;
@@ -29,6 +34,13 @@ class NovelSubscribePage extends StatefulWidget {
   /// 订阅列表仓库；null 时用内置默认订阅（内存，不落盘）。
   final NovelSubscriptionStore? subscriptionStore;
   final NovelRouteOpener? openRoute;
+
+  /// 测试注入缝：转发给订阅站点页，替换真实 WebView。
+  final Widget Function(
+    BuildContext context,
+    void Function(String link) onImportLink,
+  )?
+  webViewBuilder;
 
   @override
   State<NovelSubscribePage> createState() => _NovelSubscribePageState();
@@ -96,6 +108,31 @@ class _NovelSubscribePageState extends State<NovelSubscribePage> {
       args: siteUrl == null
           ? const <String, Object?>{}
           : <String, Object?>{'siteUrl': siteUrl},
+    );
+    if (mounted) await _load();
+  }
+
+  /// 点订阅卡片：满窗口打开订阅站点；返回后刷新书源数量。
+  Future<void> _openSite(NovelSourceSubscription subscription) async {
+    final importer = widget.sourceImporter;
+    if (importer == null) {
+      // 没接线时退回规则管理页，至少能看已有规则。
+      await _openManage(subscription.siteUrl);
+      return;
+    }
+    final url = subscription.siteUrl.isEmpty
+        ? novelSourceSiteUrl
+        : subscription.siteUrl;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'novel/source-site'),
+        builder: (_) => NovelSourceSitePage(
+          title: subscription.name,
+          url: url,
+          importer: importer,
+          webViewBuilder: widget.webViewBuilder,
+        ),
+      ),
     );
     if (mounted) await _load();
   }
@@ -214,7 +251,7 @@ class _NovelSubscribePageState extends State<NovelSubscribePage> {
                 child: _SubscriptionCard(
                   subscription: sub,
                   sourceCount: _sourceCount,
-                  onOpen: () => _openManage(sub.siteUrl),
+                  onOpen: () => _openSite(sub),
                 ),
               ),
             )
@@ -276,7 +313,7 @@ class _SubscriptionCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '$sourceCount 个书源 · 点按查看与管理',
+                      '$sourceCount 个书源 · 点按打开网站',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: cs.onSurfaceVariant,
                       ),
