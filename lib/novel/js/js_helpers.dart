@@ -144,20 +144,18 @@ Uint8List symmetric(
     _ => pc.AESEngine(),
   };
   final blockSize = blockCipher.blockSize;
-  final keyValue = _fitKey(keyBytes, switch (name) {
-    'DES' => 24,
-    'DESEDE' || 'TRIPLEDES' => 24,
-    _ => 16,
-  });
+  final isDes = name == 'DES' || name == 'DESEDE' || name == 'TRIPLEDES';
+  // DESedeEngine 只收 16/24 字节，AES 收 16/24/32；长度合法就原样用，
+  // 别把 24 字节密钥三倍拼成 72——引擎会 ArgumentError，被吞成"正文抓空"。
+  final keyValue = isDes
+      ? _fitDesEdeKey(keyBytes)
+      : _fitKey(keyBytes, _aesKeySize(keyBytes.length));
 
-  final effectiveKey = name == 'DES'
-      ? Uint8List.fromList(<int>[...keyValue, ...keyValue, ...keyValue])
-      : keyValue;
   final cipher = mode == 'ECB' ? blockCipher : pc.CBCBlockCipher(blockCipher);
   final pc.CipherParameters rawParams = mode == 'ECB'
-      ? pc.KeyParameter(effectiveKey)
+      ? pc.KeyParameter(keyValue)
       : pc.ParametersWithIV(
-          pc.KeyParameter(effectiveKey),
+          pc.KeyParameter(keyValue),
           _fitIv(ivBytes, blockSize),
         );
   final inputBytes = Uint8List.fromList(input);
@@ -350,6 +348,25 @@ Uint8List _fitKey(List<int> key, int size) {
   final out = Uint8List(size);
   out.setRange(0, min(key.length, size), key);
   return out;
+}
+
+/// AES 密钥长度：16/24/32 原样用；短了补零，长了截到 32。
+int _aesKeySize(int length) {
+  if (length == 24 || length == 32) return length;
+  if (length > 32) return 32;
+  return 16;
+}
+
+/// DES/DESede 密钥：JCE 的 DESede 接受 16 字节（K1K2K1）或 24 字节
+/// （K1K2K3），pointycastle 同款；单 DES 的 8 字节密钥扩成 K1K1K1。
+Uint8List _fitDesEdeKey(List<int> key) {
+  if (key.length == 16 || key.length == 24) {
+    return Uint8List.fromList(key);
+  }
+  if (key.length == 8) {
+    return Uint8List.fromList(<int>[...key, ...key, ...key]);
+  }
+  return _fitKey(key, 24);
 }
 
 Uint8List _fitIv(List<int> iv, int size) {

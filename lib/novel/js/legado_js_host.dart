@@ -268,6 +268,11 @@ class LegadoJsHost {
     return null;
   }
 
+  /// 预取失败（5xx 或 ERROR: 错误串）不写缓存，下次重放会再抓一次——
+  /// 和 Kotlin 一样"失败不入缓存"，避免一次网络抖动把空/错正文钉死。
+  bool _isFailed(NovelHttpResponse response) =>
+      response.statusCode >= 500 || response.body.startsWith('ERROR:');
+
   Future<void> _prefetch(List<Map<String, Object?>> specs) async {
     for (final spec in specs) {
       final kind = '${spec['kind'] ?? 'body'}';
@@ -277,6 +282,10 @@ class LegadoJsHost {
       if (kind == 'response') {
         if (_responseCache.containsKey(key)) continue;
         final response = await _request(spec, wantResponse: true);
+        if (_isFailed(response)) {
+          logs.add('响应预取失败，不缓存：$url');
+          continue;
+        }
         _responseCache[key] = <String, Object?>{
           'body': response.body,
           'url': response.url,
@@ -285,6 +294,10 @@ class LegadoJsHost {
       } else {
         if (_bodyCache.containsKey(key)) continue;
         final response = await _request(spec, wantResponse: false);
+        if (_isFailed(response)) {
+          logs.add('正文预取失败，不缓存：$url');
+          continue;
+        }
         _bodyCache[key] = response.body;
       }
     }
@@ -348,14 +361,11 @@ class LegadoJsHost {
         ),
       );
     } on Object catch (error) {
-      if (!wantResponse) {
-        return NovelHttpResponse(url: url, statusCode: 500, body: '');
-      }
-      return NovelHttpResponse(
-        url: url,
-        statusCode: 500,
-        body: 'ERROR: $error',
-      );
+      // 和 Kotlin AnalyzeUrl 一致：失败返回错误栈字符串，绝不返回空串——
+      // 空串会被 JS 当正常正文，还会被缓存成"永久空正文"。
+      final message = 'ERROR: $error';
+      logs.add('请求失败 $method $url: $message');
+      return NovelHttpResponse(url: url, statusCode: 500, body: message);
     }
   }
 
@@ -388,11 +398,14 @@ class LegadoJsHost {
           _arg(args, 2)?.toString(),
         );
       case 'post':
+        // Kotlin post(urlStr, body, headers, timeout?)：args[1] 是 body，
+        // args[2] 是 headers，args[3] 才是 timeout——别把 body 当 timeout。
         return _connect(
           '${_arg(args, 0)}',
           _arg(args, 2).toString(),
-          _arg(args, 1)?.toString(),
+          _arg(args, 3)?.toString(),
           method: 'POST',
+          body: _arg(args, 1)?.toString(),
         );
       case 'head':
         return _connect(
@@ -627,7 +640,9 @@ class LegadoJsHost {
     if (url.isEmpty) return '';
     final key = _cacheKey('GET', url, null);
     final body = _bodyCache[key];
-    if (body != null) return body;
+    // 空串当 miss：历史缓存里若有失败留下的空正文，重抓一次即可自愈
+    // （真实空响应的代价只是多抓一次，比永久空正文好）。
+    if (body != null && body.isNotEmpty) return body;
     return <String, Object?>{
       '__mimaofetch': <Map<String, Object?>>[
         <String, Object?>{'kind': 'body', 'url': url, 'method': 'GET'},
@@ -642,7 +657,7 @@ class LegadoJsHost {
       final value = '$url';
       final key = _cacheKey('GET', value, null);
       final body = _bodyCache[key];
-      if (body == null) {
+      if (body == null || body.isEmpty) {
         specs.add(<String, Object?>{
           'kind': 'body',
           'url': value,
@@ -671,7 +686,10 @@ class LegadoJsHost {
     final headerMap = lenientJsonObject(headers) ?? const <String, Object?>{};
     final key = _cacheKey(method, url, body);
     final cached = _responseCache[key];
-    if (cached != null) return cached;
+    // 失败响应不入缓存；万一有旧的错误串残留，也当 miss 重抓。
+    if (cached != null && !'${cached['body'] ?? ''}'.startsWith('ERROR:')) {
+      return cached;
+    }
     return <String, Object?>{
       '__mimaofetch': <Map<String, Object?>>[
         <String, Object?>{
