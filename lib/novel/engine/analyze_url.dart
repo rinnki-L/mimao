@@ -177,6 +177,7 @@ class AnalyzeUrl {
       charset: charset,
       retry: retry,
       useCookieJar: source?.enabledCookieJar ?? true,
+      sourceKey: source?.key,
     );
     final response = await transport.send(request);
     var finalBody = response.body;

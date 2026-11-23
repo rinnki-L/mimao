@@ -316,7 +316,12 @@ class LegadoJsHost {
         );
         if (method == 'HEAD') {
           return await _transport.send(
-            NovelHttpRequest(url: analyze.resolvedUrl, method: 'HEAD'),
+            NovelHttpRequest(
+              url: analyze.resolvedUrl,
+              method: 'HEAD',
+              useCookieJar: _source?.enabledCookieJar ?? true,
+              sourceKey: _source?.key,
+            ),
           );
         }
         return await analyze.fetch();
@@ -338,6 +343,8 @@ class LegadoJsHost {
           method: method,
           headers: <String, String>{...analyze.headers, ...headers},
           body: spec['body']?.toString(),
+          useCookieJar: _source?.enabledCookieJar ?? true,
+          sourceKey: _source?.key,
         ),
       );
     } on Object catch (error) {
