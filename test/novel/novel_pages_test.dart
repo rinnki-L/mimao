@@ -122,6 +122,8 @@ void main() {
     // 需求3：首页书源卡不再有「管理」按钮，设置也不在首页。
     expect(find.byKey(const Key('novel-home-manage-source')), findsNothing);
     expect(find.byKey(const Key('novel-home-settings')), findsNothing);
+    // 书源管理只保留在「订阅 → 导入规则 / 规则管理」等入口，首页不再出现。
+    expect(find.byKey(const Key('novel-home-import-source')), findsNothing);
   });
 
   testWidgets('WebDAV 备份卡：点开可配置地址', (tester) async {
@@ -362,6 +364,49 @@ void main() {
     expect(find.byType(Switch), findsNothing);
   });
 
+  testWidgets('订阅页：导入规则弹窗带类型选择，导入后落库并给反馈', (tester) async {
+    final store = _MemorySourceStorage(<NovelBookSource>[]);
+    final importer = NovelSourceImporter(
+      store,
+      _JsonFetcher(<Object?>[
+        <String, Object?>{
+          'bookSourceName': '弹窗导入源',
+          'bookSourceUrl': 'https://dialog.example',
+        },
+      ]),
+    );
+
+    await tester.pumpWidget(
+      wrap(NovelSubscribePage(active: true, sourceImporter: importer)),
+    );
+    await tester.pumpAndSettle();
+
+    // 旧入口「导入书源」已改名：三类规则共用一个入口。
+    expect(find.text('导入书源'), findsNothing);
+    await tester.tap(find.byKey(const Key('novel-subscribe-import-rule')));
+    await tester.pumpAndSettle();
+
+    // 弹窗标题与页头按钮同名，至少各出现一次。
+    expect(find.text('导入规则'), findsWidgets);
+    expect(find.byKey(const Key('novel-rule-import-submit')), findsOneWidget);
+    for (final label in <String>['自动识别', '书源', '订阅源', '替换规则']) {
+      expect(find.text(label), findsOneWidget);
+    }
+
+    await tester.enterText(
+      find.byKey(const Key('novel-rule-import-link')),
+      'https://dialog.example/books.json',
+    );
+    await tester.tap(find.byKey(const Key('novel-rule-import-submit')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(find.textContaining('已导入 1 个书源'), findsOneWidget);
+    expect(store.sources, hasLength(1));
+    expect(store.sources.single.name, '弹窗导入源');
+  });
+
   test('阅读时长格式：0/不足一分钟/分钟/小时', () {
     expect(novelDurationParts(0), ('0', '分钟'));
     expect(novelDurationParts(30), ('不到 1', '分钟'));
@@ -400,6 +445,16 @@ class _ThrowingFetcher implements NovelSourceFetcher {
   @override
   Future<NovelSourceFetchResult> fetch(String url) async =>
       throw StateError('not used');
+}
+
+class _JsonFetcher implements NovelSourceFetcher {
+  _JsonFetcher(this.payload);
+
+  final Object? payload;
+
+  @override
+  Future<NovelSourceFetchResult> fetch(String url) async =>
+      NovelSourceFetchResult(text: jsonEncode(payload), finalUrl: url);
 }
 
 class _MemorySourceStorage implements NovelSourceStorage {

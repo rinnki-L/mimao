@@ -13,6 +13,8 @@ import 'package:mimao/novel/pages/novel_explore_sheet.dart';
 import 'package:mimao/novel/pages/novel_reader_page.dart';
 import 'package:mimao/novel/pages/novel_routes.dart';
 import 'package:mimao/novel/pages/novel_search_page.dart';
+import 'package:mimao/novel/source/novel_rule_model.dart';
+import 'package:mimao/novel/source/novel_rule_store.dart';
 import 'package:mimao/novel/source/novel_source_model.dart';
 import 'package:mimao/novel/source/novel_source_store.dart';
 
@@ -354,6 +356,42 @@ void main() {
     expect(find.text('第一章的正文'), findsNothing);
   });
 
+  testWidgets('阅读器：替换规则在展示前作用于正文', (tester) async {
+    final rules = _FakeReplaceStorage(<NovelReplaceRule>[
+      NovelReplaceRule.fromLegado(<String, dynamic>{
+        'name': '正文改词',
+        'pattern': '正文',
+        'replacement': '内容',
+      }),
+      NovelReplaceRule.fromLegado(<String, dynamic>{
+        'name': '禁用规则',
+        'pattern': '第一章',
+        'replacement': '不该出现',
+        'isEnabled': false,
+      }),
+    ]);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: NovelReaderPage(
+          bookId: _book.id,
+          title: _book.title,
+          sourceKey: 'src1',
+          bookUrl: _book.bookUrl,
+          chapterIndex: 0,
+          chapters: _detail.chapters,
+          onlineEngine: _FakeEngine(),
+          sourceStore: _FakeStore(),
+          replaceRules: rules,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('第一章的内容'), findsOneWidget);
+    expect(find.text('第一章的正文'), findsNothing);
+    expect(find.text('不该出现的正文'), findsNothing);
+  });
+
   testWidgets('搜索页：全部源失败时展示失败摘要', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -440,4 +478,22 @@ void main() {
     await tester.tap(find.text('测试书名'));
     expect(opened?.id, _book.id);
   });
+}
+
+class _FakeReplaceStorage implements NovelReplaceRuleStorage {
+  _FakeReplaceStorage(this.rules);
+
+  final List<NovelReplaceRule> rules;
+
+  @override
+  Future<List<NovelReplaceRule>> loadAll() async => List.unmodifiable(rules);
+
+  @override
+  Future<int> saveAll(Iterable<NovelReplaceRule> input) async => 0;
+
+  @override
+  Future<void> setEnabled(String key, bool enabled) async {}
+
+  @override
+  Future<bool> delete(String key) async => false;
 }

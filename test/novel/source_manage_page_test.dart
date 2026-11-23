@@ -9,19 +9,30 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mimao/novel/pages/novel_source_manage_page.dart';
+import 'package:mimao/novel/source/novel_rule_model.dart';
+import 'package:mimao/novel/source/novel_rule_store.dart';
 import 'package:mimao/novel/source/novel_source_importer.dart';
 import 'package:mimao/novel/source/novel_source_model.dart';
 import 'package:mimao/novel/source/novel_source_store.dart';
 
 void main() {
   late _MemoryStorage store;
+  late _MemoryRssStore rssStore;
+  late _MemoryReplaceStore replaceStore;
   late NovelSourceImporter importer;
   late _FakeFetcher fetcher;
 
   setUp(() {
     store = _MemoryStorage();
+    rssStore = _MemoryRssStore();
+    replaceStore = _MemoryReplaceStore();
     fetcher = _FakeFetcher();
-    importer = NovelSourceImporter(store, fetcher);
+    importer = NovelSourceImporter(
+      store,
+      fetcher,
+      rssStore: rssStore,
+      replaceStore: replaceStore,
+    );
   });
 
   testWidgets('打开网站按钮渲染；点假网页「一键导入」后书源落库并出现在列表', (tester) async {
@@ -77,6 +88,75 @@ void main() {
     expect(find.byKey(const Key('novel-source-open-site')), findsOneWidget);
     expect(find.byKey(const Key('novel-source-paste-import')), findsOneWidget);
   });
+
+  testWidgets('规则管理：三个分类 tab，订阅源与替换规则可导入并出现在列表', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: NovelSourceManagePage(store: store, importer: importer),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('规则管理'), findsOneWidget);
+    for (final label in <String>['书源', '订阅源', '替换规则']) {
+      expect(find.text(label), findsOneWidget);
+    }
+
+    // 订阅源：空态 → 弹窗导入 → 列表出现。
+    await tester.tap(find.text('订阅源'));
+    await tester.pumpAndSettle();
+    expect(find.text('还没有订阅源'), findsOneWidget);
+    fetcher.text = jsonEncode(<Object?>[
+      <String, Object?>{
+        'sourceName': '某 RSS',
+        'sourceUrl': 'https://rss.example/feed',
+      },
+    ]);
+    await tester.tap(find.byKey(const Key('novel-rss-import-empty')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('novel-rule-import-link')),
+      'https://rss.example/rules.json',
+    );
+    await tester.tap(find.byKey(const Key('novel-rule-import-submit')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(find.text('某 RSS'), findsOneWidget);
+    expect(find.textContaining('已导入 1 个订阅源'), findsOneWidget);
+    expect(rssStore.sources, hasLength(1));
+    expect(store.sources, isEmpty);
+
+    // 等导入弹窗完全退场，再切下一个 tab（否则弹窗里的 chip 文案会混进查找）。
+    await tester.pumpAndSettle();
+
+    // 替换规则：同样从弹窗导入，落到替换规则仓库。
+    await tester.tap(find.text('替换规则'));
+    await tester.pumpAndSettle();
+    expect(find.text('还没有替换规则'), findsOneWidget);
+    fetcher.text = jsonEncode(<Object?>[
+      <String, Object?>{
+        'name': '去广告',
+        'pattern': 'www.ad.com',
+        'replacement': '',
+      },
+    ]);
+    await tester.tap(find.byKey(const Key('novel-replace-import-empty')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('novel-rule-import-link')),
+      'https://rules.example/replace.json',
+    );
+    await tester.tap(find.byKey(const Key('novel-rule-import-submit')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(find.text('去广告'), findsOneWidget);
+    expect(find.textContaining('已导入 1 条替换规则'), findsOneWidget);
+    expect(replaceStore.rules, hasLength(1));
+    expect(replaceStore.rules.single.pattern, 'www.ad.com');
+  });
 }
 
 class _MemoryStorage implements NovelSourceStorage {
@@ -114,4 +194,48 @@ class _FakeFetcher implements NovelSourceFetcher {
   @override
   Future<NovelSourceFetchResult> fetch(String url) async =>
       NovelSourceFetchResult(text: text, finalUrl: url);
+}
+
+class _MemoryRssStore implements NovelRssSourceStorage {
+  final List<NovelRssSource> sources = <NovelRssSource>[];
+
+  @override
+  Future<List<NovelRssSource>> loadAll() async => List.unmodifiable(sources);
+
+  @override
+  Future<int> saveAll(Iterable<NovelRssSource> input) async {
+    final unique = <String, NovelRssSource>{for (final s in input) s.key: s};
+    sources
+      ..removeWhere((s) => unique.containsKey(s.key))
+      ..addAll(unique.values);
+    return unique.length;
+  }
+
+  @override
+  Future<void> setEnabled(String key, bool enabled) async {}
+
+  @override
+  Future<bool> delete(String key) async => false;
+}
+
+class _MemoryReplaceStore implements NovelReplaceRuleStorage {
+  final List<NovelReplaceRule> rules = <NovelReplaceRule>[];
+
+  @override
+  Future<List<NovelReplaceRule>> loadAll() async => List.unmodifiable(rules);
+
+  @override
+  Future<int> saveAll(Iterable<NovelReplaceRule> input) async {
+    final unique = <String, NovelReplaceRule>{for (final r in input) r.key: r};
+    rules
+      ..removeWhere((r) => unique.containsKey(r.key))
+      ..addAll(unique.values);
+    return unique.length;
+  }
+
+  @override
+  Future<void> setEnabled(String key, bool enabled) async {}
+
+  @override
+  Future<bool> delete(String key) async => false;
 }

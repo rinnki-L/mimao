@@ -321,8 +321,6 @@ class _NovelHomePageState extends State<NovelHomePage> with RouteAware {
                           onOpen: _openBook,
                           onOpenHistory: () => _openRoute(NovelRoute.history),
                           onGoShelf: () => widget.onSelectTab?.call(1),
-                          onImportSource: () =>
-                              _openRoute(NovelRoute.sourceManage),
                         ),
                         const SizedBox(height: 16),
                         _StatsRow(
@@ -359,8 +357,6 @@ class _NovelHomePageState extends State<NovelHomePage> with RouteAware {
                               onOpenHistory: () =>
                                   _openRoute(NovelRoute.history),
                               onGoShelf: () => widget.onSelectTab?.call(1),
-                              onImportSource: () =>
-                                  _openRoute(NovelRoute.sourceManage),
                             ),
                             const SizedBox(height: 16),
                             _StatsRow(
@@ -401,7 +397,6 @@ class _NovelHomePageState extends State<NovelHomePage> with RouteAware {
                 collects: data.collects,
                 onOpen: _openBook,
                 onGoShelf: () => widget.onSelectTab?.call(1),
-                onImportSource: () => _openRoute(NovelRoute.sourceManage),
               ),
               if (widget.prefs != null) ...<Widget>[
                 const SizedBox(height: 16),
@@ -500,14 +495,12 @@ class _RecentReadingCard extends StatelessWidget {
     required this.onOpen,
     required this.onOpenHistory,
     required this.onGoShelf,
-    required this.onImportSource,
   });
 
   final NovelHistoryItem? item;
   final ValueChanged<NovelSummary> onOpen;
   final VoidCallback onOpenHistory;
   final VoidCallback onGoShelf;
-  final VoidCallback onImportSource;
 
   @override
   Widget build(BuildContext context) {
@@ -527,7 +520,7 @@ class _RecentReadingCard extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           if (data == null)
-            _RecentEmpty(onGoShelf: onGoShelf, onImportSource: onImportSource)
+            _RecentEmpty(onGoShelf: onGoShelf)
           else
             _RecentBody(item: data),
         ],
@@ -650,10 +643,9 @@ class _RecentBody extends StatelessWidget {
 }
 
 class _RecentEmpty extends StatelessWidget {
-  const _RecentEmpty({required this.onGoShelf, required this.onImportSource});
+  const _RecentEmpty({required this.onGoShelf});
 
   final VoidCallback onGoShelf;
-  final VoidCallback onImportSource;
 
   @override
   Widget build(BuildContext context) {
@@ -679,8 +671,8 @@ class _RecentEmpty extends StatelessWidget {
               Text('还没有最近阅读', style: theme.textTheme.titleMedium),
               const SizedBox(height: 6),
               Text(
-                '读过的书会在这里接着读。可以先导入书源，在搜索页找书，'
-                '或在书架查看本地收藏。',
+                '读过的书会在这里接着读。先在「订阅 → 导入规则」导入书源，'
+                '再去搜索页找书；本地收藏可以直接去书架看。',
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: cs.onSurfaceVariant,
                 ),
@@ -694,12 +686,6 @@ class _RecentEmpty extends StatelessWidget {
                     onPressed: onGoShelf,
                     icon: const Icon(Icons.local_library_outlined),
                     label: const Text('去书架'),
-                  ),
-                  OutlinedButton.icon(
-                    key: const Key('novel-home-import-source'),
-                    onPressed: onImportSource,
-                    icon: const Icon(Icons.add_link),
-                    label: const Text('导入书源'),
                   ),
                 ],
               ),
@@ -935,13 +921,11 @@ class _ShelfStrip extends StatelessWidget {
     required this.collects,
     required this.onOpen,
     required this.onGoShelf,
-    required this.onImportSource,
   });
 
   final List<NovelCollectItem> collects;
   final ValueChanged<NovelSummary> onOpen;
   final VoidCallback onGoShelf;
-  final VoidCallback onImportSource;
 
   @override
   Widget build(BuildContext context) {
@@ -972,16 +956,11 @@ class _ShelfStrip extends StatelessWidget {
                 Expanded(
                   child: Text(
                     '书架还是空的。收藏一本书后会在这里横向排列；'
-                    '也可以先去「发现」导入书源。',
+                    '可以先去「订阅」导入规则，再去搜索页找书。',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: cs.onSurfaceVariant,
                     ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                TextButton(
-                  onPressed: onImportSource,
-                  child: const Text('导入书源'),
                 ),
               ],
             ),

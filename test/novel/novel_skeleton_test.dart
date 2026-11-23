@@ -65,27 +65,25 @@ void main() {
     expect(find.text('书源仓库未接线'), findsOneWidget);
   });
 
-  testWidgets('typed 路由：首页「导入书源」经 onOpenRoute 打开 sourceManage', (tester) async {
+  testWidgets('首页不再有书源管理入口（入口收归「订阅 → 导入规则」）', (tester) async {
     NovelRoute? opened;
-    Map<String, Object?>? openedArgs;
     await tester.pumpWidget(
       MaterialApp(
         home: NovelModulePage(
           embedded: true,
           onOpenRoute: (route, {args = const <String, Object?>{}}) async {
             opened = route;
-            openedArgs = args;
           },
         ),
       ),
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const Key('novel-home-import-source')));
-    await tester.pumpAndSettle();
-
-    expect(opened, NovelRoute.sourceManage);
-    expect(openedArgs, isEmpty);
+    expect(find.byKey(const Key('novel-home-import-source')), findsNothing);
+    expect(find.byKey(const Key('novel-home-manage-source')), findsNothing);
+    // 首页空态文案把下一步指向「订阅」，而不是直接开书源管理页。
+    expect(find.textContaining('订阅'), findsWidgets);
+    expect(opened, isNull);
   });
 
   testWidgets('首页搜索钮经 onOpenRoute 打开 search 路由', (tester) async {

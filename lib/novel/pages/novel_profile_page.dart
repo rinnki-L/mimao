@@ -119,8 +119,11 @@ class _NovelProfilePageState extends State<NovelProfilePage> {
     );
   }
 
-  Future<void> _openRoute(NovelRoute route) async {
-    await openNovelRoute(context, widget.openRoute, route);
+  Future<void> _openRoute(
+    NovelRoute route, {
+    Map<String, Object?> args = const <String, Object?>{},
+  }) async {
+    await openNovelRoute(context, widget.openRoute, route, args: args);
     if (mounted) _reload();
   }
 
@@ -364,17 +367,20 @@ class _NovelProfilePageState extends State<NovelProfilePage> {
                 children: <Widget>[
                   _ProfileRow(
                     icon: Icons.source_outlined,
-                    title: '书源管理',
+                    title: '规则管理',
                     subtitle: data.sources.isEmpty
-                        ? '还没有书源，点这里导入或新建'
-                        : '${data.sources.length} 个书源 · 导入 · 启停 · 删除',
+                        ? '还没有规则，点这里导入书源 / 订阅源 / 替换规则'
+                        : '${data.sources.length} 个书源 · 订阅源 · 替换规则',
                     onTap: () => _openRoute(NovelRoute.sourceManage),
                   ),
                   _ProfileRow(
                     icon: Icons.auto_fix_high_outlined,
-                    title: '替换净化',
-                    subtitle: '需要书源引擎',
-                    onTap: () => _showUnavailable('替换净化'),
+                    title: '替换规则',
+                    subtitle: '正文 / 标题净化 · 导入 · 启停',
+                    onTap: () => _openRoute(
+                      NovelRoute.sourceManage,
+                      args: const <String, Object?>{'tab': 'replace'},
+                    ),
                   ),
                   _ProfileRow(
                     icon: Icons.format_list_numbered,

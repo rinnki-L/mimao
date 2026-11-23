@@ -62,6 +62,7 @@ import 'package:mimao/novel/pages/novel_routes.dart';
 import 'package:mimao/novel/novel_db.dart';
 import 'package:mimao/novel/novel_entry.dart';
 import 'package:mimao/novel/search_history_service.dart';
+import 'package:mimao/novel/source/novel_rule_store.dart';
 import 'package:mimao/novel/source/novel_source_importer.dart';
 import 'package:mimao/novel/source/novel_source_model.dart';
 import 'package:mimao/novel/source/novel_source_repository.dart';
@@ -502,13 +503,15 @@ Future<void> initAppModules({
         }
       }
 
-      // 书源导入：测试注入整门面；生产用惰性仓库（首个真实读写才解析
-      // path_provider，装配期零 I/O）+ dio 抓取器。
+      // 规则导入：测试注入整门面；生产用惰性仓库（首个真实读写才解析
+      // path_provider，装配期零 I/O）+ dio 抓取器。三类规则各落各的目录。
       final sourceImporter =
           novelSourceImporter ??
           NovelSourceImporter(
             NovelSourceRepository(NovelSourceStore.openDefault),
             novelSourceFetcher ?? DioNovelSourceFetcher(),
+            rssStore: NovelRssSourceStore.lazy(),
+            replaceStore: NovelReplaceRuleStore.lazy(),
           );
       final onlineEngine =
           novelOnlineEngine ?? LegadoNovelEngine(cache: DefaultNovelCache());
@@ -526,6 +529,7 @@ Future<void> initAppModules({
         stats: statsApi,
         prefs: prefsApi,
         sourceImporter: sourceImporter,
+        replaceStore: sourceImporter.replaceStore,
         subscriptionStore: NovelSubscriptionFileStore.lazy(),
       );
     }

@@ -1,6 +1,6 @@
 // ignore_for_file: deprecated_member_use — Flutter 3.50 弃用整个 material.dart，
 // 与其他模块页面同款说明。
-/// 小说设置页：今日阅读目标、数据清理、书源管理与关于。
+/// 小说设置页：今日阅读目标、数据清理、规则管理与关于。
 ///
 /// 主题/外观归壳的全局设置抽屉，这里不重复；本页只放小说模块自己的设置。
 /// 字号/行距/翻页等待阅读器接入后启用，当前明确标注，不做假开关。
@@ -274,17 +274,17 @@ class _NovelSettingsPageState extends State<NovelSettingsPage> {
                 ),
               ),
               const SizedBox(height: 22),
-              const _SettingsSectionLabel('书源'),
+              const _SettingsSectionLabel('规则'),
               NovelCard(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
                 child: Column(
                   children: <Widget>[
                     _SettingsRow(
                       icon: Icons.source_outlined,
-                      title: '书源管理',
+                      title: '规则管理',
                       subtitle: data.sourceCount == 0
-                          ? '还没有书源'
-                          : '${data.sourceCount} 个书源',
+                          ? '还没有规则（书源 / 订阅源 / 替换规则）'
+                          : '${data.sourceCount} 个书源 · 订阅源 · 替换规则',
                       onTap: _openSources,
                     ),
                   ],

@@ -188,7 +188,7 @@ void main() {
           isA<NovelSourceImportException>().having(
             (e) => e.message,
             'message',
-            contains('没有可用的书源'),
+            contains('没有可用的规则'),
           ),
         ),
       );
@@ -204,7 +204,7 @@ void main() {
           isA<NovelSourceImportException>().having(
             (e) => e.message,
             'message',
-            contains('下载书源失败'),
+            contains('下载规则文件失败'),
           ),
         ),
       );

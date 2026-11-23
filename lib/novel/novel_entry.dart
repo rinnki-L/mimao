@@ -24,6 +24,9 @@ import 'package:mimao/novel/pages/novel_search_page.dart';
 import 'package:mimao/novel/pages/novel_settings_page.dart';
 import 'package:mimao/novel/pages/novel_source_manage_page.dart'
     show NovelSourceManagePage;
+import 'package:mimao/novel/source/novel_rule_model.dart' show NovelRuleKind;
+import 'package:mimao/novel/source/novel_rule_store.dart'
+    show NovelReplaceRuleStorage;
 import 'package:mimao/novel/source/novel_source_importer.dart'
     show NovelSourceImporter;
 import 'package:mimao/novel/source/novel_subscription.dart'
@@ -42,6 +45,7 @@ class NovelModule implements AppModule {
     this.prefs,
     this.sourceStore,
     this.sourceImporter,
+    this.replaceStore,
     this.booklistGate,
     this.subscriptionStore,
     this.backupClient,
@@ -57,6 +61,9 @@ class NovelModule implements AppModule {
   final NovelPrefsApi? prefs;
   final Object? sourceStore; // 书源仓库缝（保留旧注入点）
   final NovelSourceImporter? sourceImporter;
+
+  /// 替换规则仓库：阅读器展示正文/标题前按规则净化。
+  final NovelReplaceRuleStorage? replaceStore;
   final NovelBooklistFileGate? booklistGate;
   final NovelSubscriptionStore? subscriptionStore;
   final NovelWebDavClient? backupClient;
@@ -92,9 +99,10 @@ class NovelModule implements AppModule {
       NovelRoute.sourceManage,
       importer == null
           ? null
-          : (_) => NovelSourceManagePage(
+          : (args) => NovelSourceManagePage(
               store: importer.store,
               importer: importer,
+              initialTab: _ruleKindFromTab(args['tab']),
             ),
     );
     registerNovelRoutePage(
@@ -136,6 +144,7 @@ class NovelModule implements AppModule {
         history: historyApi,
         stats: statsApi,
         prefs: prefsApi,
+        replaceRules: replaceStore,
       ),
     );
     registerNovelRoutePage(
@@ -197,3 +206,10 @@ class NovelModule implements AppModule {
     sourceImporter: sourceImporter,
   );
 }
+
+/// 规则管理页的进参 `tab`（'book' / 'rss' / 'replace'）→ 默认分类。
+NovelRuleKind _ruleKindFromTab(Object? tab) => switch ('$tab'.toLowerCase()) {
+  'rss' || 'rsssource' || 'subscription' => NovelRuleKind.rssSource,
+  'replace' || 'replacerule' => NovelRuleKind.replaceRule,
+  _ => NovelRuleKind.bookSource,
+};

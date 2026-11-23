@@ -631,7 +631,7 @@ class NovelErrorState extends StatelessWidget {
     return NovelEmptyState(
       icon: Icons.error_outline,
       title: '没能加载出来',
-      message: '$message\n可以重试一次；反复失败时去「我的 → 书源管理」检查书源是否可用。',
+      message: '$message\n可以重试一次；反复失败时去「我的 → 规则管理」检查书源是否可用。',
       action: onRetry == null
           ? null
           : FilledButton.tonalIcon(

@@ -9,6 +9,8 @@ import 'dart:convert';
 
 import 'package:mimao/novel/analyzer/rule_models.dart';
 
+import 'novel_rule_model.dart';
+
 /// 书源网站地址（应用内 WebView 打开它，点页面里的「一键导入」即可回灌本应用）。
 const String novelSourceSiteUrl = 'https://yuedu.miaogongzi.net/gx.html';
 
@@ -233,16 +235,55 @@ List<Map<String, dynamic>> parseLegadoSources(String text) {
   return result;
 }
 
+/// 解析得到的规则导入链接：文件地址 + 深链给出的类型（普通 http 地址为 null）。
+class NovelRuleLink {
+  const NovelRuleLink({required this.url, required this.kind});
+
+  final String url;
+
+  /// 深链 host 指明的类型；无法从链接判断时为 null（交给文件内容识别）。
+  final NovelRuleKind? kind;
+}
+
+/// 解析 `yuedu://` 规则导入深链。
+///
+/// 支持两种写法：
+/// - `yuedu://booksource/importonline?src=…`（host 即类型）
+/// - `yuedu://import/rsssource/importonline?src=…`（host=import，首段即类型）
+///
+/// 不是 `yuedu://…importonline` 形式、类型不认识或缺少 src 时返回 null。
+NovelRuleLink? parseNovelRuleLink(String link) {
+  final uri = Uri.tryParse(link);
+  if (uri == null) return null;
+  if (uri.scheme.toLowerCase() != 'yuedu') return null;
+
+  final host = uri.host.toLowerCase();
+  NovelRuleKind? kind = NovelRuleKind.fromDeepLinkHost(host);
+  if (kind != null) {
+    if (!uri.path.toLowerCase().endsWith('/importonline')) return null;
+  } else if (host == 'import') {
+    if (uri.pathSegments.isEmpty) return null;
+    kind = NovelRuleKind.fromDeepLinkHost(uri.pathSegments.first);
+    if (kind == null) return null;
+  } else {
+    return null;
+  }
+
+  final src = _extractSrc(link, uri);
+  if (src == null) return null;
+  return NovelRuleLink(url: src, kind: kind);
+}
+
 /// 从 `yuedu://booksource/importonline?src=...` 中提取书源文件地址。
 ///
 /// 不是该协议/路径或缺少 src 时返回 null（调用方据此决定"没拦到深链"）。
 String? parseImportSourceUrl(String link) {
-  final uri = Uri.tryParse(link);
-  if (uri == null) return null;
-  if (uri.scheme.toLowerCase() != 'yuedu') return null;
-  if (uri.host.toLowerCase() != 'booksource') return null;
-  if (!uri.path.toLowerCase().endsWith('/importonline')) return null;
+  final parsed = parseNovelRuleLink(link);
+  if (parsed == null || parsed.kind != NovelRuleKind.bookSource) return null;
+  return parsed.url;
+}
 
+String? _extractSrc(String link, Uri uri) {
   var src = uri.queryParameters['src'];
   if (src == null || src.isEmpty) {
     // uri 解析对未转义的中文/特殊字符可能失真，退回原文截取兜底。
@@ -255,6 +296,7 @@ String? parseImportSourceUrl(String link) {
   }
   final fragment = src.indexOf('#');
   if (fragment >= 0) src = src.substring(0, fragment);
+  src = src.trim();
   return src.isEmpty ? null : src;
 }
 

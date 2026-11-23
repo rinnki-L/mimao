@@ -1,13 +1,14 @@
 // ignore_for_file: deprecated_member_use — Flutter 3.50 弃用整个 material.dart，
 // 与其他模块页面同款说明。
-/// 小说「订阅」：只展示订阅源（书源来源站点的集合），不在这里平铺书源。
+/// 小说「订阅」：展示订阅源（书源来源站点的集合），并从这里导入三类规则。
 ///
 /// 每个订阅是一张卡片（默认「喵公子书源管理」），显示它下面的书源数量，
-/// 点卡片进书源管理页看那批书源。书源的导入/启停/分组都在管理页与发现页，
-/// 订阅页不再重复——避免与「发现」定位冲突。
+/// 点卡片进规则管理页看那批书源。导入入口叫「导入规则」而不是「导入书源」：
+/// 书源 / 订阅源 / 替换规则都从同一个弹窗进来，按类型分流落库。
 library;
 
 import 'package:flutter/material.dart';
+import 'package:mimao/novel/pages/novel_rule_import_dialog.dart';
 import 'package:mimao/novel/pages/novel_routes.dart';
 import 'package:mimao/novel/pages/novel_widgets.dart';
 import 'package:mimao/novel/source/novel_source_importer.dart';
@@ -39,6 +40,7 @@ class _NovelSubscribePageState extends State<NovelSubscribePage> {
   int _sourceCount = 0;
   bool _loading = true;
   String? _error;
+  String? _status;
 
   @override
   void initState() {
@@ -98,6 +100,18 @@ class _NovelSubscribePageState extends State<NovelSubscribePage> {
     if (mounted) await _load();
   }
 
+  /// 三类规则共用一个导入弹窗：书源 / 订阅源 / 替换规则，类型可自动识别。
+  Future<void> _importRule() async {
+    final importer = widget.sourceImporter;
+    if (importer == null) return;
+    final result = await showNovelRuleImportDialog(context, importer: importer);
+    if (result == null || !mounted) return;
+    setState(() {
+      _status = result.message ?? '已导入 ${result.saved} 条${result.kind.label}';
+    });
+    await _load();
+  }
+
   @override
   Widget build(BuildContext context) {
     final subtitle = _subscriptions.isEmpty
@@ -122,13 +136,30 @@ class _NovelSubscribePageState extends State<NovelSubscribePage> {
               runSpacing: 10,
               children: <Widget>[
                 FilledButton.tonalIcon(
+                  key: const Key('novel-subscribe-import-rule'),
+                  onPressed: widget.sourceImporter == null ? null : _importRule,
+                  icon: const Icon(Icons.rule),
+                  label: const Text('导入规则'),
+                ),
+                OutlinedButton.icon(
+                  key: const Key('novel-subscribe-manage-rules'),
                   onPressed: () => _openManage(),
-                  icon: const Icon(Icons.add_link),
-                  label: const Text('导入书源'),
+                  icon: const Icon(Icons.tune),
+                  label: const Text('规则管理'),
                 ),
               ],
             ),
           ),
+          if (_status != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Text(
+                _status!,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+              ),
+            ),
           if (_error != null)
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
@@ -152,11 +183,15 @@ class _NovelSubscribePageState extends State<NovelSubscribePage> {
                 ? NovelEmptyState(
                     icon: Icons.rss_feed,
                     title: '还没有订阅源',
-                    message: '订阅一个书源站点后，它的书源集合会出现在这里。',
+                    message:
+                        '订阅一个书源站点后，它的书源集合会出现在这里。'
+                        '书源 / 订阅源 / 替换规则都可以从「导入规则」进来。',
                     action: FilledButton.tonalIcon(
-                      onPressed: () => _openManage(),
-                      icon: const Icon(Icons.add_link),
-                      label: const Text('去导入书源'),
+                      onPressed: widget.sourceImporter == null
+                          ? null
+                          : _importRule,
+                      icon: const Icon(Icons.rule),
+                      label: const Text('去导入规则'),
                     ),
                   )
                 : _buildContent(),

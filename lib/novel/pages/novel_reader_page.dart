@@ -13,6 +13,8 @@ import 'package:mimao/novel/engine/online_engine.dart';
 import 'package:mimao/novel/library_api.dart';
 import 'package:mimao/novel/models/novel_models.dart';
 import 'package:mimao/novel/pages/novel_widgets.dart';
+import 'package:mimao/novel/source/novel_rule_model.dart';
+import 'package:mimao/novel/source/novel_rule_store.dart';
 import 'package:mimao/novel/source/novel_source_model.dart';
 import 'package:mimao/novel/source/novel_source_store.dart';
 
@@ -35,6 +37,7 @@ class NovelReaderPage extends StatefulWidget {
     this.history,
     this.stats,
     this.prefs,
+    this.replaceRules,
   });
 
   final String bookId;
@@ -56,6 +59,9 @@ class NovelReaderPage extends StatefulWidget {
   final NovelStatsApi? stats;
   final NovelPrefsApi? prefs;
 
+  /// 替换规则仓库；注入后正文与标题在展示前统一净化。
+  final NovelReplaceRuleStorage? replaceRules;
+
   @override
   State<NovelReaderPage> createState() => _NovelReaderPageState();
 }
@@ -73,12 +79,15 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
   bool _loadingDetail = true;
   bool _loadingContent = false;
   double _fontSize = 18;
+  List<NovelReplaceRule> _replaceRules = const <NovelReplaceRule>[];
+  Future<void> _replaceRulesReady = Future<void>.value();
 
   @override
   void initState() {
     super.initState();
     _session.start();
     unawaited(_loadFontSize());
+    _replaceRulesReady = _loadReplaceRules();
     unawaited(_bootstrap());
   }
 
@@ -95,6 +104,54 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     if (parsed != null && mounted) {
       setState(() => _fontSize = parsed.clamp(14, 30));
     }
+  }
+
+  /// 读替换规则；失败不阻断阅读，按「没有规则」继续。
+  Future<void> _loadReplaceRules() async {
+    final store = widget.replaceRules;
+    if (store == null) return;
+    try {
+      final rules = await store.loadAll();
+      if (mounted) setState(() => _replaceRules = rules);
+    } on Object {
+      // 规则读坏了不该让正文打不开。
+    }
+  }
+
+  /// 把替换规则作用到正文与标题上：`scopeTitle` / `scopeContent` 分别控制，
+  /// 作用范围按书名 / 书源 key / 书源地址匹配（空范围 = 全局）。
+  NovelContent _applyReplaceRules(NovelContent content) {
+    if (_replaceRules.isEmpty) return content;
+    final detail = _detail;
+    final bookTitle = detail?.title ?? widget.title ?? '';
+    final sourceKey = detail?.ref.sourceKey ?? widget.sourceKey ?? '';
+    final bookUrl = detail?.ref.bookUrl ?? widget.bookUrl ?? '';
+    final applicable = _replaceRules
+        .where(
+          (rule) =>
+              rule.enabled &&
+              rule.appliesToBook(
+                bookTitle: bookTitle,
+                sourceKey: sourceKey,
+                bookUrl: bookUrl,
+              ),
+        )
+        .toList();
+    if (applicable.isEmpty) return content;
+    final titleRules = applicable.where((rule) => rule.scopeTitle).toList();
+    final contentRules = applicable.where((rule) => rule.scopeContent).toList();
+    return NovelContent(
+      chapterId: content.chapterId,
+      title: titleRules.isEmpty
+          ? content.title
+          : applyReplaceRules(content.title, titleRules),
+      paragraphs: contentRules.isEmpty
+          ? content.paragraphs
+          : <String>[
+              for (final paragraph in content.paragraphs)
+                applyReplaceRules(paragraph, contentRules),
+            ],
+    );
   }
 
   Future<void> _bootstrap() async {
@@ -226,8 +283,11 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     });
     if (_scroll.hasClients) _scroll.jumpTo(0);
     try {
-      final content = await engine.contentFor(source, detail.ref, chapter);
+      var content = await engine.contentFor(source, detail.ref, chapter);
+      // 规则可能还在读盘；等它落地再展示，避免首屏先出现未净化的正文。
+      await _replaceRulesReady;
       if (!mounted) return;
+      content = _applyReplaceRules(content);
       setState(() {
         _content = content;
         _loadingContent = false;
