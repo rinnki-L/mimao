@@ -652,7 +652,10 @@ class NovelHistoryRow extends DataClass implements Insertable<NovelHistoryRow> {
   final String title;
   final String? coverUrl;
 
-  /// 当前读到的章节序号（从 1 起；0 表示无进度）。
+  /// 当前读到的章号（从 1 起；0 表示无进度）。
+  /// 注意：书源引擎产出的 `NovelChapter.index` 是 0 起（对齐 legado），
+  /// 阅读页落库时 +1 转成章号（novel_reader_page.dart），续读时再 -1 取目录
+  /// 下标（novel_book_detail_page.dart）。0 是"没读"哨兵，不是第 1 章。
   final int chapterIndex;
 
   /// 目录总章数（<=0 表示未知）。

@@ -143,7 +143,8 @@ class ComicChallengeCoordinator {
     final key = host.toLowerCase();
     final until = _cooldownUntil[key];
     if (until != null) {
-      if (DateTime.now().isBefore(until)) return Future<ComicChallengePass?>.value();
+      if (DateTime.now().isBefore(until))
+        return Future<ComicChallengePass?>.value();
       _cooldownUntil.remove(key);
     }
     final pending = _active[key];
