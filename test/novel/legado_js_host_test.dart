@@ -1,47 +1,14 @@
 // 书源 JS 宿主单测：真 QuickJS + 假传输，覆盖 Rhino 兼容 API 与网络重放。
 //
-// 无 native 库的环境默认 skip（本地开发无需先编 Windows）；但 CI 里 `pub get`
-// 会先把 QuickJS 编进 LD_LIBRARY_PATH，并置 MIMAO_REQUIRE_NATIVE_JS=1——此时
-// 若还拿不到 native 库就**直接失败**，杜绝「构建步骤坏了仍全绿」的假门。
-import 'dart:io';
-
+// native 就绪探测与 CI 严格门统一走 js_native_guard.dart：无 native 库默认 skip，
+// CI 置 MIMAO_REQUIRE_NATIVE_JS=1 后拿不到库直接 fail，杜绝假绿。
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mimao/novel/analyzer/legado_rule_analyzer.dart';
 import 'package:mimao/novel/engine/novel_http_client.dart';
 import 'package:mimao/novel/js/legado_js_host.dart';
 import 'package:mimao/novel/source/novel_source_model.dart';
 
-/// 跨平台探测已就绪的 QuickJS native 库：
-/// - Windows：仓库根的 `flutter_qjs_plugin.dll`（本地 `flutter build windows` 后拷入）；
-/// - Linux：CI 用插件 CMake 编出的 `libflutter_qjs_plugin.so`，放在仓库根并加进
-///   LD_LIBRARY_PATH；本机若装了同名 .so 也能跑。
-bool get _hasNativeJs {
-  if (Platform.isWindows) return File('flutter_qjs_plugin.dll').existsSync();
-  if (Platform.isLinux) {
-    if (File('libflutter_qjs_plugin.so').existsSync()) return true;
-    // 兼容放在 /usr/lib 等标准路径的情况。
-    for (final dir
-        in Platform.environment['LD_LIBRARY_PATH']?.split(':') ??
-            const <String>[]) {
-      if (File(
-        '${dir.isEmpty ? '.' : dir}/libflutter_qjs_plugin.so',
-      ).existsSync()) {
-        return true;
-      }
-    }
-    return File('/usr/lib/libflutter_qjs_plugin.so').existsSync() ||
-        File('/usr/local/lib/libflutter_qjs_plugin.so').existsSync();
-  }
-  if (Platform.isMacOS) {
-    return File('flutter_qjs.framework/flutter_qjs').existsSync() ||
-        File('libflutter_qjs_plugin.dylib').existsSync();
-  }
-  return false;
-}
-
-/// CI 上要求真跑：拿不到 native 库就让整个文件失败，而不是只留一个空 skip。
-bool get _requireNativeJs =>
-    Platform.environment['MIMAO_REQUIRE_NATIVE_JS'] == '1';
+import 'js_native_guard.dart';
 
 class _FakeTransport implements NovelHttpTransport {
   final List<String> requested = <String>[];
@@ -77,21 +44,14 @@ NovelBookSource _source() => NovelBookSource(
 );
 
 void main() {
-  if (!_hasNativeJs) {
-    if (_requireNativeJs) {
+  if (!hasNativeQuickJs()) {
+    if (requireNativeQuickJs) {
       test('CI 缺少 QuickJS native 库——JS 宿主测试必须真跑，不允许 skip', () {
-        fail(
-          'MIMAO_REQUIRE_NATIVE_JS=1 但未找到 native QuickJS 库；'
-          '检查 cmake 构建步骤与 LD_LIBRARY_PATH',
-        );
+        fail(missingNativeMessage);
       });
       return;
     }
-    test(
-      'skip：缺少 native QuickJS 库（本地运行无需先编译）',
-      () {},
-      skip: '无 native QuickJS',
-    );
+    test('skip：缺少 native QuickJS 库（本地运行无需先编译）', () {}, skip: skipReason());
     return;
   }
 

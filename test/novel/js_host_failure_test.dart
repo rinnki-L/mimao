@@ -1,15 +1,14 @@
 // 网络回归单测：java.post 的 body 正确落进请求、失败不永久缓存。
 //
-// 无 native 库的环境自动 skip（与 test/novel/legado_js_host_test.dart 同款）。
-import 'dart:io';
-
+// native 就绪探测与 CI 严格门统一走 js_native_guard.dart（不能只看 Windows
+// .dll，否则这几条回归在 CI 恒 skip，问题照样复发）。
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mimao/novel/analyzer/legado_rule_analyzer.dart';
 import 'package:mimao/novel/engine/novel_http_client.dart';
 import 'package:mimao/novel/js/legado_js_host.dart';
 import 'package:mimao/novel/source/novel_source_model.dart';
 
-bool get _hasNativeJs => File('flutter_qjs_plugin.dll').existsSync();
+import 'js_native_guard.dart';
 
 /// 记录每次请求的 body / method，并可让前 N 次请求失败。
 class _RecordingTransport implements NovelHttpTransport {
@@ -58,8 +57,14 @@ RuleJsContext _context(LegadoJsHost host) {
 }
 
 void main() {
-  if (!_hasNativeJs) {
-    test('skip：缺少 flutter_qjs_plugin.dll', () {}, skip: '无 native QuickJS');
+  if (!hasNativeQuickJs()) {
+    if (requireNativeQuickJs) {
+      test('CI 缺少 QuickJS native 库——JS 网络回归必须真跑，不允许 skip', () {
+        fail(missingNativeMessage);
+      });
+      return;
+    }
+    test('skip：缺少 native QuickJS 库', () {}, skip: skipReason());
     return;
   }
 
