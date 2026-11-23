@@ -468,22 +468,42 @@ class LegadoNovelEngine implements NovelEngine, NovelOnlineEngine {
       );
       var text = await analyzer.getString(rules.contentRule, unescape: false);
 
-      final nextPages =
-          await analyzer.getStringList(rules.contentNextUrl, isUrl: true) ??
-          const <String>[];
-      var pageCount = 0;
-      for (final next in nextPages) {
-        if (next.isEmpty || pageCount++ >= 20) continue;
-        if (next == fetched.response.url) continue;
+      // 逐页重新求值下一页规则（对齐 Kotlin BookContent.kt 的链式翻页）：
+      // 每抓到一页就把 analyzer 切到该页内容/baseUrl/redirectUrl，再取其中的
+      // 第一个下一页地址；不能沿用首页一次性算出的 URL 列表，否则第二页之后
+      // 的页码链接永远拿不到。visited 防止页码回绕导致死循环。
+      final visited = <String>{fetched.response.url};
+      var currentBody = fetched.response.body;
+      var currentUrl = fetched.response.url;
+      for (var page = 0; page < 20; page++) {
+        analyzer
+          ..baseUrl = currentUrl
+          ..setRedirectUrl(currentUrl)
+          ..setContent(currentBody);
+        final nextPages =
+            await analyzer.getStringList(rules.contentNextUrl, isUrl: true) ??
+            const <String>[];
+        String? next;
+        for (final candidate in nextPages) {
+          if (candidate.isEmpty ||
+              candidate == currentUrl ||
+              visited.contains(candidate)) {
+            continue;
+          }
+          next = candidate;
+          break;
+        }
+        if (next == null) break;
+        visited.add(next);
         try {
           final nextFetch = await _fetch(
             source,
             ruleUrl: next,
-            baseUrl: chapterUrl,
+            baseUrl: currentUrl,
             chapter: chapter,
           );
           analyzer
-            ..baseUrl = next
+            ..baseUrl = nextFetch.response.url
             ..setRedirectUrl(nextFetch.response.url)
             ..setContent(nextFetch.response.body);
           final nextText = await analyzer.getString(
@@ -491,8 +511,14 @@ class LegadoNovelEngine implements NovelEngine, NovelOnlineEngine {
             unescape: false,
           );
           if (nextText.trim().isNotEmpty) text = '$text\n$nextText';
+          currentBody = nextFetch.response.body;
+          currentUrl = nextFetch.response.url.isEmpty
+              ? next
+              : nextFetch.response.url;
+          visited.add(currentUrl);
         } on Object {
-          // 单页失败保留上一页正文。
+          // 单页失败保留已抓到的正文，停止翻页链（Kotlin 到此为止）。
+          break;
         }
       }
 
@@ -565,7 +591,12 @@ class LegadoNovelEngine implements NovelEngine, NovelOnlineEngine {
         title: title,
         paragraphs: paragraphs,
       );
-      await cache?.write(ref, chapter, content);
+      // 写缓存失败不能把已成功解析的正文变成“抓取失败”。
+      try {
+        await cache?.write(ref, chapter, content);
+      } on Object catch (error) {
+        _warnings[source.key] = '正文缓存写入失败：$error';
+      }
       return content;
     } on NovelEngineException {
       rethrow;

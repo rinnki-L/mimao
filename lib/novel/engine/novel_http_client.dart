@@ -25,6 +25,7 @@ class NovelHttpRequest {
     this.charset,
     this.retry = 0,
     this.useCookieJar = true,
+    this.sourceKey,
     this.timeout = const Duration(seconds: 30),
   });
 
@@ -38,7 +39,13 @@ class NovelHttpRequest {
   /// 显式站点编码（gbk / gb2312 / big5 / utf-8…）。
   final String? charset;
   final int retry;
+
+  /// 书源 `enabledCookieJar:false` 时为 false：本次请求不读写共享 CookieJar。
   final bool useCookieJar;
+
+  /// 书源标识；用于按源隔离 CookieJar，避免同源域名不同源之间串登录态。
+  final String? sourceKey;
+
   final Duration timeout;
 }
 
@@ -89,7 +96,13 @@ class DioNovelHttpTransport implements NovelHttpTransport {
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) async {
-          final cookies = await _cookies.loadForRequest(options.uri);
+          // 书源写 enabledCookieJar:false 即显式隔离登录态：不读 jar。
+          if (options.extra['useCookieJar'] != true) {
+            handler.next(options);
+            return;
+          }
+          final jar = _jarFor(options.extra['sourceKey']?.toString());
+          final cookies = await jar.loadForRequest(options.uri);
           if (cookies.isNotEmpty) {
             final jarCookie = cookies
                 .map((cookie) => '${cookie.name}=${cookie.value}')
@@ -102,6 +115,11 @@ class DioNovelHttpTransport implements NovelHttpTransport {
           handler.next(options);
         },
         onResponse: (response, handler) async {
+          // 未启用 CookieJar 的请求不回写，避免污染其它书源。
+          if (response.requestOptions.extra['useCookieJar'] != true) {
+            handler.next(response);
+            return;
+          }
           final values = response.headers['set-cookie'];
           if (values != null && values.isNotEmpty) {
             final cookies = <Cookie>[];
@@ -113,10 +131,10 @@ class DioNovelHttpTransport implements NovelHttpTransport {
               }
             }
             if (cookies.isNotEmpty) {
-              await _cookies.saveFromResponse(
-                response.requestOptions.uri,
-                cookies,
+              final jar = _jarFor(
+                response.requestOptions.extra['sourceKey']?.toString(),
               );
+              await jar.saveFromResponse(response.requestOptions.uri, cookies);
             }
           }
           handler.next(response);
@@ -127,6 +145,14 @@ class DioNovelHttpTransport implements NovelHttpTransport {
 
   final Dio _dio;
   final CookieJar _cookies;
+
+  /// 按书源隔离的 CookieJar；null key 用默认 jar（兼容无源请求）。
+  late final Map<String?, CookieJar> _sourceJars = <String?, CookieJar>{
+    null: _cookies,
+  };
+
+  CookieJar _jarFor(String? sourceKey) =>
+      _sourceJars.putIfAbsent(sourceKey, CookieJar.new);
 
   /// 供源脚本的 `cookie.getCookie` 等同步读取。
   CookieJar get cookieJar => _cookies;
@@ -157,6 +183,10 @@ class DioNovelHttpTransport implements NovelHttpTransport {
           options: Options(
             method: request.method.toUpperCase(),
             headers: headers,
+            extra: <String, Object?>{
+              'useCookieJar': request.useCookieJar,
+              'sourceKey': request.sourceKey,
+            },
             responseType: ResponseType.bytes,
             sendTimeout: request.timeout,
             receiveTimeout: request.timeout,
