@@ -311,6 +311,49 @@ void main() {
     expect(history.saved, <int>[1, 2]);
   });
 
+  testWidgets('阅读器：目录抽屉存在时仍有返回入口，可退出阅读页', (tester) async {
+    // 有 drawer 的 AppBar 默认把 leading 换成汉堡菜单，返回键消失；
+    // 这里锁住「返回键必须存在且能出栈」，防止再次退不出阅读器。
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: FilledButton(
+                onPressed: () => Navigator.of(context).push<void>(
+                  MaterialPageRoute<void>(
+                    builder: (_) => NovelReaderPage(
+                      bookId: _book.id,
+                      title: _book.title,
+                      sourceKey: 'src1',
+                      bookUrl: _book.bookUrl,
+                      chapterIndex: 0,
+                      chapters: _detail.chapters,
+                      onlineEngine: _FakeEngine(),
+                      sourceStore: _FakeStore(),
+                    ),
+                  ),
+                ),
+                child: const Text('打开阅读器'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('打开阅读器'));
+    await tester.pumpAndSettle();
+    expect(find.text('第一章的正文'), findsOneWidget);
+
+    final back = find.byTooltip('返回');
+    expect(back, findsOneWidget);
+    await tester.tap(back);
+    await tester.pumpAndSettle();
+
+    expect(find.text('打开阅读器'), findsOneWidget);
+    expect(find.text('第一章的正文'), findsNothing);
+  });
+
   testWidgets('搜索页：全部源失败时展示失败摘要', (tester) async {
     await tester.pumpWidget(
       MaterialApp(

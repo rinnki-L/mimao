@@ -343,6 +343,15 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
         const SingleActivator(LogicalKeyboardKey.arrowRight): () {
           if (canNext) _nextChapter();
         },
+        const SingleActivator(LogicalKeyboardKey.escape): () {
+          // 桌面习惯：先关目录抽屉，再退出阅读器。
+          final scaffold = _scaffoldKey.currentState;
+          if (scaffold?.isDrawerOpen ?? false) {
+            scaffold?.closeDrawer();
+          } else {
+            Navigator.of(context).maybePop();
+          }
+        },
       },
       child: Focus(
         autofocus: true,
@@ -377,6 +386,13 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
                   ),
                 ),
           appBar: AppBar(
+            // 有 drawer 时 AppBar 默认把 leading 让给汉堡菜单，返回键会消失，
+            // 桌面端就彻底退不出阅读器。显式给返回键，目录仍走右侧「目录」按钮。
+            leading: IconButton(
+              tooltip: '返回',
+              icon: const Icon(Icons.arrow_back),
+              onPressed: () => Navigator.of(context).maybePop(),
+            ),
             title: Text(
               chapter?.title ?? widget.title ?? widget.chapterTitle ?? '阅读',
               maxLines: 1,
