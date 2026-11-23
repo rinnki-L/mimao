@@ -21,6 +21,8 @@ import 'package:mimao/novel/pages/novel_routes.dart';
 import 'package:mimao/novel/pages/novel_shelf_page.dart';
 import 'package:mimao/novel/pages/novel_subscribe_page.dart';
 import 'package:mimao/novel/source/novel_source_importer.dart';
+import 'package:mimao/novel/source/novel_subscription.dart';
+import 'package:mimao/novel/webdav_backup.dart';
 
 class NovelModulePage extends StatefulWidget {
   const NovelModulePage({
@@ -35,6 +37,9 @@ class NovelModulePage extends StatefulWidget {
     this.stats,
     this.prefs,
     this.booklistGate,
+    this.settingsTab,
+    this.subscriptionStore,
+    this.backupClient,
   });
 
   /// true 时由壳提供顶部「返回 + 标题」，本页不画自己的 AppBar。
@@ -62,6 +67,16 @@ class NovelModulePage extends StatefulWidget {
 
   /// 书单文件选择缝；null 时书架页用 file_picker 生产实现（测试可注入 fake）。
   final NovelBooklistFileGate? booklistGate;
+
+  /// 模块设置面板内容；null 时侧栏底部不渲染「设置」项。与漫画/音乐同款：
+  /// 设置从独立入口收归侧栏底部项，点击弹 bottom sheet。
+  final Widget? settingsTab;
+
+  /// 书源订阅仓库；null 时订阅页用内置默认订阅（内存）。
+  final NovelSubscriptionStore? subscriptionStore;
+
+  /// WebDAV 备份客户端缝；null 时用 dio 生产实现。
+  final NovelWebDavClient? backupClient;
 
   @override
   State<NovelModulePage> createState() => _NovelModulePageState();
@@ -92,6 +107,25 @@ class _NovelModulePageState extends State<NovelModulePage> {
     setState(() => _index = index);
   }
 
+  /// 侧栏底部「设置」项：弹出模块设置面板（与漫画/音乐同款）。
+  Future<void> _openSettings() async {
+    final settingsTab = widget.settingsTab;
+    if (settingsTab == null) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (_) => SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+          child: settingsTab,
+        ),
+      ),
+    );
+    // 设置面板里改了目标/清了数据，返回后各页需重读。
+    if (mounted) setState(() => _refreshTick++);
+  }
+
   List<Widget> _buildTabs() {
     return <Widget>[
       NovelHomePage(
@@ -99,10 +133,13 @@ class _NovelModulePageState extends State<NovelModulePage> {
         refreshTick: _refreshTick,
         collect: widget.collect,
         history: widget.history,
+        searchHistory: widget.searchHistory,
         stats: widget.stats,
         sourceImporter: widget.sourceImporter,
         openRoute: _openRoute,
         onSelectTab: _selectTab,
+        prefs: widget.prefs,
+        backupClient: widget.backupClient,
       ),
       NovelShelfPage(
         active: _index == 1,
@@ -123,6 +160,7 @@ class _NovelModulePageState extends State<NovelModulePage> {
       NovelSubscribePage(
         active: _index == 3,
         sourceImporter: widget.sourceImporter,
+        subscriptionStore: widget.subscriptionStore,
         openRoute: _openRoute,
       ),
       NovelProfilePage(
@@ -196,6 +234,8 @@ class _NovelModulePageState extends State<NovelModulePage> {
                 child: _NovelSidebar(
                   currentIndex: _index,
                   onSelect: _selectTab,
+                  settingsTab: widget.settingsTab,
+                  onOpenSettings: _openSettings,
                 ),
               ),
               VerticalDivider(
@@ -263,10 +303,19 @@ const List<_NovelSidebarDestination> _sidebarDestinations =
 /// 与音乐模块一致。右缘 1px outlineVariant 与内容区分隔（由模块层的
 /// VerticalDivider 提供）。窗口 < 900 回退底部 NavigationBar（不变）。
 class _NovelSidebar extends StatelessWidget {
-  const _NovelSidebar({required this.currentIndex, required this.onSelect});
+  const _NovelSidebar({
+    required this.currentIndex,
+    required this.onSelect,
+    required this.settingsTab,
+    required this.onOpenSettings,
+  });
 
   final int currentIndex;
   final ValueChanged<int> onSelect;
+
+  /// 模块设置面板内容；null 时底部不渲染「设置」项。
+  final Widget? settingsTab;
+  final VoidCallback? onOpenSettings;
 
   @override
   Widget build(BuildContext context) {
@@ -295,6 +344,21 @@ class _NovelSidebar extends StatelessWidget {
               selected: index == currentIndex,
               onTap: () => onSelect(index),
             ),
+          const Spacer(),
+          if (settingsTab != null) ...<Widget>[
+            Divider(color: cs.outlineVariant, height: 1),
+            // 设置项永不处于选中态；样式与导航项一致。
+            _destinationRow(
+              context: context,
+              itemKey: 'novel-sidebar-settings',
+              icon: Icons.settings_outlined,
+              selectedIcon: Icons.settings_outlined,
+              label: '设置',
+              selected: false,
+              onTap: onOpenSettings,
+            ),
+            const SizedBox(height: 12),
+          ],
         ],
       ),
     );

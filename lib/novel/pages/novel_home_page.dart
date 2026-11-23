@@ -16,6 +16,7 @@ import 'package:mimao/novel/pages/novel_routes.dart';
 import 'package:mimao/novel/pages/novel_widgets.dart';
 import 'package:mimao/novel/source/novel_source_importer.dart';
 import 'package:mimao/novel/source/novel_source_model.dart';
+import 'package:mimao/novel/webdav_backup.dart';
 
 class NovelHomePage extends StatefulWidget {
   const NovelHomePage({
@@ -24,10 +25,13 @@ class NovelHomePage extends StatefulWidget {
     this.refreshTick = 0,
     this.collect,
     this.history,
+    this.searchHistory,
     this.stats,
     this.sourceImporter,
     this.openRoute,
     this.onSelectTab,
+    this.prefs,
+    this.backupClient,
   });
 
   /// 当前 tab 是否可见；从别的 tab 切回来时重读本地数据。
@@ -38,10 +42,17 @@ class NovelHomePage extends StatefulWidget {
 
   final NovelCollectApi? collect;
   final NovelHistoryApi? history;
+  final NovelSearchHistoryApi? searchHistory;
   final NovelStatsApi? stats;
   final NovelSourceImporter? sourceImporter;
   final NovelRouteOpener? openRoute;
   final ValueChanged<int>? onSelectTab;
+
+  /// 模块 kv（存 WebDAV 配置与偏好）；null 时不显示备份卡。
+  final NovelPrefsApi? prefs;
+
+  /// WebDAV 客户端缝；null 时用 dio 生产实现。测试可注入 fake。
+  final NovelWebDavClient? backupClient;
 
   @override
   State<NovelHomePage> createState() => _NovelHomePageState();
@@ -155,11 +166,22 @@ class _NovelHomePageState extends State<NovelHomePage> with RouteAware {
       }
     }
 
+    NovelWebDavConfig? webDavConfig;
+    final prefs = widget.prefs;
+    if (prefs != null) {
+      try {
+        webDavConfig = await readWebDavConfig(prefs);
+      } on Object catch (error) {
+        errors.add('WebDAV 配置读取失败：$error');
+      }
+    }
+
     return _HomeData(
       recent: recent,
       collects: collects,
       stats: stats,
       sources: sources,
+      webDavConfigured: webDavConfig != null,
       error: errors.isEmpty ? null : errors.join('\n'),
     );
   }
@@ -204,6 +226,55 @@ class _NovelHomePageState extends State<NovelHomePage> with RouteAware {
     ).showSnackBar(SnackBar(content: Text(message)));
   }
 
+  NovelWebDavBackupService? _backupService(NovelPrefsApi prefs) {
+    final importer = widget.sourceImporter;
+    return NovelWebDavBackupService(
+      client: widget.backupClient ?? DioNovelWebDavClient(),
+      collect: widget.collect,
+      history: widget.history,
+      searchHistory: widget.searchHistory,
+      sourceStorage: importer?.store,
+      prefs: prefs,
+    );
+  }
+
+  /// 首页 WebDAV 卡：配置 / 备份 / 恢复 三选一。
+  Future<void> _openWebDav(NovelPrefsApi prefs) async {
+    final current = await readWebDavConfig(prefs);
+    if (!mounted) return;
+    final action = await showModalBottomSheet<_WebDavAction>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (_) => _WebDavSheet(prefs: prefs, config: current),
+    );
+    if (action == null || !mounted) return;
+    final config = await readWebDavConfig(prefs);
+    if (config == null || !config.isValid) {
+      _toast('请先在备份卡里填好 WebDAV 地址。');
+      return;
+    }
+    final service = _backupService(prefs);
+    if (service == null) return;
+    _toast(action == _WebDavAction.backup ? '正在上传到 WebDAV…' : '正在从 WebDAV 恢复…');
+    try {
+      final result = action == _WebDavAction.backup
+          ? await service.backup(config)
+          : await service.restore(config);
+      if (!mounted) return;
+      _toast(
+        action == _WebDavAction.backup
+            ? '备份完成：${result.collects} 本收藏 · ${result.sources} 个书源'
+            : '恢复完成：${result.collects} 本收藏 · ${result.sources} 个书源',
+      );
+      _reload();
+    } on Object catch (error) {
+      if (mounted) {
+        _toast('${action == _WebDavAction.backup ? '备份' : '恢复'}失败：$error');
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<_HomeData>(
@@ -232,12 +303,6 @@ class _NovelHomePageState extends State<NovelHomePage> with RouteAware {
                     tooltip: '搜索',
                     onPressed: () => _openRoute(NovelRoute.search),
                   ),
-                  NovelCircleAction(
-                    key: const Key('novel-home-settings'),
-                    icon: Icons.settings_outlined,
-                    tooltip: '小说设置',
-                    onPressed: () => _openRoute(NovelRoute.settings),
-                  ),
                 ],
               ),
               if (data.error != null) ...<Widget>[
@@ -265,14 +330,6 @@ class _NovelHomePageState extends State<NovelHomePage> with RouteAware {
                           statsWired: widget.stats != null,
                         ),
                         const SizedBox(height: 16),
-                        _ShelfStrip(
-                          collects: data.collects,
-                          onOpen: _openBook,
-                          onGoShelf: () => widget.onSelectTab?.call(1),
-                          onImportSource: () =>
-                              _openRoute(NovelRoute.sourceManage),
-                        ),
-                        const SizedBox(height: 16),
                         _GoalCard(
                           stats: data.stats,
                           onEdit: () => _editGoal(data),
@@ -281,7 +338,6 @@ class _NovelHomePageState extends State<NovelHomePage> with RouteAware {
                         _SourceCard(
                           sources: data.sources,
                           wired: widget.sourceImporter != null,
-                          onManage: () => _openRoute(NovelRoute.sourceManage),
                           onOpenSubscribe: () => widget.onSelectTab?.call(3),
                         ),
                       ],
@@ -328,8 +384,6 @@ class _NovelHomePageState extends State<NovelHomePage> with RouteAware {
                             _SourceCard(
                               sources: data.sources,
                               wired: widget.sourceImporter != null,
-                              onManage: () =>
-                                  _openRoute(NovelRoute.sourceManage),
                               onOpenSubscribe: () =>
                                   widget.onSelectTab?.call(3),
                             ),
@@ -349,6 +403,13 @@ class _NovelHomePageState extends State<NovelHomePage> with RouteAware {
                 onGoShelf: () => widget.onSelectTab?.call(1),
                 onImportSource: () => _openRoute(NovelRoute.sourceManage),
               ),
+              if (widget.prefs != null) ...<Widget>[
+                const SizedBox(height: 16),
+                _WebDavBackupCard(
+                  configured: data.webDavConfigured,
+                  onOpen: () => _openWebDav(widget.prefs!),
+                ),
+              ],
             ],
           ),
         );
@@ -364,6 +425,7 @@ class _HomeData {
     required this.collects,
     required this.stats,
     required this.sources,
+    this.webDavConfigured = false,
     this.error,
   });
 
@@ -384,6 +446,7 @@ class _HomeData {
   final List<NovelCollectItem> collects;
   final NovelStats stats;
   final List<NovelBookSource> sources;
+  final bool webDavConfigured;
   final String? error;
 
   String get subtitle {
@@ -795,13 +858,11 @@ class _SourceCard extends StatelessWidget {
   const _SourceCard({
     required this.sources,
     required this.wired,
-    required this.onManage,
     required this.onOpenSubscribe,
   });
 
   final List<NovelBookSource> sources;
   final bool wired;
-  final VoidCallback onManage;
   final VoidCallback onOpenSubscribe;
 
   @override
@@ -832,28 +893,10 @@ class _SourceCard extends StatelessWidget {
           Text(
             sources.isEmpty
                 ? '打开书源网站，点网页里的「一键导入」即可把书源存到本机。'
-                : '书源按分组展示在「订阅」页；发现页可按分组筛选和启停。',
+                : '书源订阅与管理都在「订阅」页；发现页可按分组筛选和启停。',
             style: theme.textTheme.bodySmall?.copyWith(
               color: cs.onSurfaceVariant,
             ),
-          ),
-          const SizedBox(height: 16),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: <Widget>[
-              FilledButton.tonalIcon(
-                key: const Key('novel-home-manage-source'),
-                onPressed: onManage,
-                icon: const Icon(Icons.settings_outlined),
-                label: const Text('管理'),
-              ),
-              OutlinedButton.icon(
-                onPressed: onManage,
-                icon: const Icon(Icons.add_link),
-                label: const Text('导入'),
-              ),
-            ],
           ),
         ],
       ),
@@ -1003,6 +1046,192 @@ class _ShelfStripItem extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+enum _WebDavAction { configure, backup, restore }
+
+/// 首页 WebDAV 备份卡：显示是否已配置，提供配置/备份/恢复入口。
+class _WebDavBackupCard extends StatelessWidget {
+  const _WebDavBackupCard({required this.configured, required this.onOpen});
+
+  final bool configured;
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    return NovelCard(
+      onTap: onOpen,
+      padding: const EdgeInsets.fromLTRB(20, 18, 16, 18),
+      child: Row(
+        children: <Widget>[
+          Icon(Icons.cloud_outlined, color: cs.primary, size: 28),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text('WebDAV 备份', style: theme.textTheme.titleMedium),
+                const SizedBox(height: 4),
+                Text(
+                  configured
+                      ? '已配置 · 书架 / 阅读记录 / 书源 全量备份与恢复'
+                      : '未配置 · 点按填入 WebDAV 地址，备份书架与书源',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: cs.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Icon(Icons.chevron_right),
+        ],
+      ),
+    );
+  }
+}
+
+/// WebDAV 配置 + 操作面板（bottom sheet）。
+class _WebDavSheet extends StatefulWidget {
+  const _WebDavSheet({required this.prefs, required this.config});
+
+  final NovelPrefsApi prefs;
+  final NovelWebDavConfig? config;
+
+  @override
+  State<_WebDavSheet> createState() => _WebDavSheetState();
+}
+
+class _WebDavSheetState extends State<_WebDavSheet> {
+  late final TextEditingController _url;
+  late final TextEditingController _user;
+  late final TextEditingController _password;
+
+  @override
+  void initState() {
+    super.initState();
+    final config = widget.config;
+    _url = TextEditingController(text: config?.url ?? '');
+    _user = TextEditingController(text: config?.user ?? '');
+    _password = TextEditingController(text: config?.password ?? '');
+  }
+
+  @override
+  void dispose() {
+    _url.dispose();
+    _user.dispose();
+    _password.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final config = NovelWebDavConfig(
+      url: _url.text.trim(),
+      user: _user.text.trim(),
+      password: _password.text,
+    );
+    if (!config.isValid) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('请填入完整的 http(s) WebDAV 地址')),
+        );
+      }
+      return;
+    }
+    await writeWebDavConfig(widget.prefs, config);
+    if (mounted) Navigator.pop(context, _WebDavAction.configure);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 20,
+        right: 20,
+        bottom: MediaQuery.viewInsetsOf(context).bottom + 24,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Text('WebDAV 备份', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 8),
+          Text(
+            '书架、阅读记录、搜索历史、书源与偏好会打成一个 JSON 包，'
+            '通过 WebDAV 上传到下面地址；恢复时用同一地址覆盖本地数据。',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 20),
+          TextField(
+            key: const Key('novel-webdav-url'),
+            controller: _url,
+            decoration: const InputDecoration(
+              labelText: 'WebDAV 地址',
+              hintText: 'https://dav.example.com/mimao/novel.json',
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.link),
+            ),
+            keyboardType: TextInputType.url,
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _user,
+            decoration: const InputDecoration(
+              labelText: '用户名（可选）',
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.person_outline),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _password,
+            decoration: const InputDecoration(
+              labelText: '密码（可选）',
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.lock_outline),
+            ),
+            obscureText: true,
+          ),
+          const SizedBox(height: 20),
+          FilledButton.icon(
+            key: const Key('novel-webdav-save'),
+            onPressed: _save,
+            icon: const Icon(Icons.save_outlined),
+            label: const Text('保存配置'),
+          ),
+          const SizedBox(height: 12),
+          if (widget.config != null) ...<Widget>[
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: OutlinedButton.icon(
+                    key: const Key('novel-webdav-backup'),
+                    onPressed: () =>
+                        Navigator.pop(context, _WebDavAction.backup),
+                    icon: const Icon(Icons.cloud_upload_outlined),
+                    label: const Text('备份上传'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    key: const Key('novel-webdav-restore'),
+                    onPressed: () =>
+                        Navigator.pop(context, _WebDavAction.restore),
+                    icon: const Icon(Icons.cloud_download_outlined),
+                    label: const Text('恢复下载'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
       ),
     );
   }

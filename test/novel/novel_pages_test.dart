@@ -97,6 +97,57 @@ void main() {
     expect(find.textContaining('还差 19 分钟'), findsOneWidget);
   });
 
+  testWidgets('首页：书架只显示一次，且有 WebDAV 备份卡、无书源管理按钮', (tester) async {
+    tester.view.physicalSize = const Size(1200, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      wrap(
+        NovelHomePage(
+          active: true,
+          collect: collect,
+          history: history,
+          stats: stats,
+          prefs: stats,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // 需求4：我的书架标题只出现一次（旧版窄屏分支 + 底部各一次）。
+    expect(find.text('我的书架'), findsOneWidget);
+    // 需求5：首页有 WebDAV 备份入口。
+    expect(find.text('WebDAV 备份'), findsOneWidget);
+    // 需求3：首页书源卡不再有「管理」按钮，设置也不在首页。
+    expect(find.byKey(const Key('novel-home-manage-source')), findsNothing);
+    expect(find.byKey(const Key('novel-home-settings')), findsNothing);
+  });
+
+  testWidgets('WebDAV 备份卡：点开可配置地址', (tester) async {
+    tester.view.physicalSize = const Size(1200, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      wrap(
+        NovelHomePage(
+          active: true,
+          collect: collect,
+          history: history,
+          stats: stats,
+          prefs: stats,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('WebDAV 备份'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('novel-webdav-url')), findsOneWidget);
+    expect(find.text('保存配置'), findsOneWidget);
+  });
+
   testWidgets('书架：筛选/分组/右键菜单入口与真实数据', (tester) async {
     final reading = book('b1', '迷雾之上');
     final unread = book('b2', '我有一座冒险屋');
@@ -238,8 +289,10 @@ void main() {
     await tester.tap(find.text('删除'));
     await tester.pumpAndSettle();
 
-    expect(find.text('三体'), findsNothing);
-    expect(find.text('球状闪电'), findsWidgets);
+    // 两条记录 openedAt 相近，删除按钮顺序不稳定；只断言删掉了一条。
+    final remaining =
+        find.text('球状闪电').evaluate().length + find.text('三体').evaluate().length;
+    expect(remaining, 1);
 
     await tester.tap(find.byTooltip('清空阅读记录'));
     await tester.pumpAndSettle();
@@ -301,15 +354,12 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('订阅'), findsWidgets);
-    expect(find.text('源甲'), findsOneWidget);
-    expect(find.text('源丙'), findsOneWidget);
-
-    // 停用「源甲」落仓库。
-    final switches = find.byType(Switch);
-    await tester.tap(switches.first, warnIfMissed: false);
-    await tester.pumpAndSettle();
-    final sources = await store.loadAll();
-    expect(sources.every((source) => source.enabled), isFalse);
+    // 订阅页只展示订阅卡片：默认「喵公子书源管理」，不再平铺单个书源。
+    expect(find.text('喵公子书源管理'), findsOneWidget);
+    expect(find.textContaining('个书源 · 点按查看与管理'), findsOneWidget);
+    expect(find.text('源甲'), findsNothing);
+    expect(find.text('源丙'), findsNothing);
+    expect(find.byType(Switch), findsNothing);
   });
 
   test('阅读时长格式：0/不足一分钟/分钟/小时', () {

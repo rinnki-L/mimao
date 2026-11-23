@@ -66,6 +66,7 @@ import 'package:mimao/novel/source/novel_source_importer.dart';
 import 'package:mimao/novel/source/novel_source_model.dart';
 import 'package:mimao/novel/source/novel_source_repository.dart';
 import 'package:mimao/novel/source/novel_source_store.dart';
+import 'package:mimao/novel/source/novel_subscription.dart';
 import 'package:mimao/novel/stats_service.dart';
 import 'dart:io';
 import 'dart:typed_data';
@@ -525,6 +526,7 @@ Future<void> initAppModules({
         stats: statsApi,
         prefs: prefsApi,
         sourceImporter: sourceImporter,
+        subscriptionStore: NovelSubscriptionFileStore.lazy(),
       );
     }
   } catch (error) {

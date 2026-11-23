@@ -22,6 +22,7 @@ class NovelSettingsPage extends StatefulWidget {
     this.history,
     this.sourceImporter,
     this.openRoute,
+    this.embedded = false,
   });
 
   final NovelStatsApi? stats;
@@ -29,6 +30,10 @@ class NovelSettingsPage extends StatefulWidget {
   final NovelHistoryApi? history;
   final NovelSourceImporter? sourceImporter;
   final NovelRouteOpener? openRoute;
+
+  /// true 时不画自己的 Scaffold/AppBar，只返回设置内容——供模块侧栏底部
+  /// 「设置」项用 showModalBottomSheet 弹出（与漫画/音乐同款）。
+  final bool embedded;
 
   @override
   State<NovelSettingsPage> createState() => _NovelSettingsPageState();
@@ -174,161 +179,151 @@ class _NovelSettingsPageState extends State<NovelSettingsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final content = FutureBuilder<_SettingsData>(
+      future: _future,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const NovelLoadingState(label: '正在读取设置…');
+        }
+        if (snapshot.hasError) {
+          return NovelErrorState(
+            message: '${snapshot.error}',
+            onRetry: _reload,
+          );
+        }
+        final data = snapshot.data ?? _SettingsData.empty;
+        return NovelPageContent(
+          maxWidth: 860,
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+          child: ListView(
+            children: <Widget>[
+              if (data.error != null) ...<Widget>[
+                Text(
+                  data.error!,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.error,
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
+              const _SettingsSectionLabel('阅读'),
+              NovelCard(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                child: Column(
+                  children: <Widget>[
+                    _SettingsRow(
+                      icon: Icons.flag_outlined,
+                      title: '今日阅读目标',
+                      subtitle: data.stats.goalMinutes == 0
+                          ? '未设置（点右侧修改）'
+                          : '每天 ${data.stats.goalMinutes} 分钟 · 今日已读 '
+                                '${data.stats.todayMinutes} 分钟',
+                      trailing: TextButton(
+                        onPressed: () => _editGoal(data.stats.goalMinutes),
+                        child: const Text('修改'),
+                      ),
+                    ),
+                    _SettingsRow(
+                      icon: Icons.format_size,
+                      title: '字号与行距',
+                      subtitle: '在阅读页右上角调整',
+                      onTap: () => _toast('打开一本书，在阅读页右上角调整字号。'),
+                    ),
+                    _SettingsRow(
+                      icon: Icons.swap_horiz,
+                      title: '翻页方式',
+                      subtitle: '在阅读页右上角调整',
+                      onTap: () => _toast('打开一本书，在阅读页右上角调整字号。'),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 22),
+              const _SettingsSectionLabel('数据'),
+              NovelCard(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                child: Column(
+                  children: <Widget>[
+                    _SettingsRow(
+                      icon: Icons.search_off,
+                      title: '清除搜索历史',
+                      subtitle: data.searchCount == 0
+                          ? '还没有搜索历史'
+                          : '${data.searchCount} 个关键词',
+                      trailing: TextButton(
+                        onPressed: data.searchCount == 0
+                            ? null
+                            : _clearSearchHistory,
+                        child: const Text('清除'),
+                      ),
+                    ),
+                    _SettingsRow(
+                      icon: Icons.history_toggle_off,
+                      title: '清空阅读记录',
+                      subtitle: data.stats.booksRead == 0
+                          ? '还没有阅读记录'
+                          : '${data.stats.booksRead} 本书有记录',
+                      trailing: TextButton(
+                        onPressed: data.stats.booksRead == 0
+                            ? null
+                            : _clearReadingHistory,
+                        child: const Text('清空'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 22),
+              const _SettingsSectionLabel('书源'),
+              NovelCard(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                child: Column(
+                  children: <Widget>[
+                    _SettingsRow(
+                      icon: Icons.source_outlined,
+                      title: '书源管理',
+                      subtitle: data.sourceCount == 0
+                          ? '还没有书源'
+                          : '${data.sourceCount} 个书源',
+                      onTap: _openSources,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 22),
+              const _SettingsSectionLabel('关于'),
+              NovelCard(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                child: Column(
+                  children: <Widget>[
+                    const _SettingsRow(
+                      icon: Icons.info_outline,
+                      title: '版本',
+                      // 与 pubspec.yaml 的 version 同步；发版时一起改。
+                      subtitle: '0.1.0 · 本地优先，无自建服务器',
+                    ),
+                    _SettingsRow(
+                      icon: Icons.description_outlined,
+                      title: '开源许可',
+                      subtitle: 'Flutter · drift · dio 等第三方许可',
+                      onTap: () => showLicensePage(
+                        context: context,
+                        applicationName: 'mimao',
+                        applicationLegalese: '本地优先的媒体聚合应用',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    if (widget.embedded) return content;
     return Scaffold(
       appBar: AppBar(title: const Text('小说设置')),
-      body: FutureBuilder<_SettingsData>(
-        future: _future,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState != ConnectionState.done) {
-            return const NovelLoadingState(label: '正在读取设置…');
-          }
-          if (snapshot.hasError) {
-            return NovelErrorState(
-              message: '${snapshot.error}',
-              onRetry: _reload,
-            );
-          }
-          final data = snapshot.data ?? _SettingsData.empty;
-          return NovelPageContent(
-            maxWidth: 860,
-            padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
-            child: ListView(
-              children: <Widget>[
-                if (data.error != null) ...<Widget>[
-                  Text(
-                    data.error!,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.error,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                ],
-                const _SettingsSectionLabel('阅读'),
-                NovelCard(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 4,
-                  ),
-                  child: Column(
-                    children: <Widget>[
-                      _SettingsRow(
-                        icon: Icons.flag_outlined,
-                        title: '今日阅读目标',
-                        subtitle: data.stats.goalMinutes == 0
-                            ? '未设置（点右侧修改）'
-                            : '每天 ${data.stats.goalMinutes} 分钟 · 今日已读 '
-                                  '${data.stats.todayMinutes} 分钟',
-                        trailing: TextButton(
-                          onPressed: () => _editGoal(data.stats.goalMinutes),
-                          child: const Text('修改'),
-                        ),
-                      ),
-                      _SettingsRow(
-                        icon: Icons.format_size,
-                        title: '字号与行距',
-                        subtitle: '在阅读页右上角调整',
-                        onTap: () => _toast('打开一本书，在阅读页右上角调整字号。'),
-                      ),
-                      _SettingsRow(
-                        icon: Icons.swap_horiz,
-                        title: '翻页方式',
-                        subtitle: '在阅读页右上角调整',
-                        onTap: () => _toast('打开一本书，在阅读页右上角调整字号。'),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 22),
-                const _SettingsSectionLabel('数据'),
-                NovelCard(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 4,
-                  ),
-                  child: Column(
-                    children: <Widget>[
-                      _SettingsRow(
-                        icon: Icons.search_off,
-                        title: '清除搜索历史',
-                        subtitle: data.searchCount == 0
-                            ? '还没有搜索历史'
-                            : '${data.searchCount} 个关键词',
-                        trailing: TextButton(
-                          onPressed: data.searchCount == 0
-                              ? null
-                              : _clearSearchHistory,
-                          child: const Text('清除'),
-                        ),
-                      ),
-                      _SettingsRow(
-                        icon: Icons.history_toggle_off,
-                        title: '清空阅读记录',
-                        subtitle: data.stats.booksRead == 0
-                            ? '还没有阅读记录'
-                            : '${data.stats.booksRead} 本书有记录',
-                        trailing: TextButton(
-                          onPressed: data.stats.booksRead == 0
-                              ? null
-                              : _clearReadingHistory,
-                          child: const Text('清空'),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 22),
-                const _SettingsSectionLabel('书源'),
-                NovelCard(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 4,
-                  ),
-                  child: Column(
-                    children: <Widget>[
-                      _SettingsRow(
-                        icon: Icons.source_outlined,
-                        title: '书源管理',
-                        subtitle: data.sourceCount == 0
-                            ? '还没有书源'
-                            : '${data.sourceCount} 个书源',
-                        onTap: _openSources,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 22),
-                const _SettingsSectionLabel('关于'),
-                NovelCard(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 4,
-                  ),
-                  child: Column(
-                    children: <Widget>[
-                      const _SettingsRow(
-                        icon: Icons.info_outline,
-                        title: '版本',
-                        // 与 pubspec.yaml 的 version 同步；发版时一起改。
-                        subtitle: '0.1.0 · 本地优先，无自建服务器',
-                      ),
-                      _SettingsRow(
-                        icon: Icons.description_outlined,
-                        title: '开源许可',
-                        subtitle: 'Flutter · drift · dio 等第三方许可',
-                        onTap: () => showLicensePage(
-                          context: context,
-                          applicationName: 'mimao',
-                          applicationLegalese: '本地优先的媒体聚合应用',
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          );
-        },
-      ),
+      body: content,
     );
   }
 }

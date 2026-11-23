@@ -26,6 +26,9 @@ import 'package:mimao/novel/pages/novel_source_manage_page.dart'
     show NovelSourceManagePage;
 import 'package:mimao/novel/source/novel_source_importer.dart'
     show NovelSourceImporter;
+import 'package:mimao/novel/source/novel_subscription.dart'
+    show NovelSubscriptionStore;
+import 'package:mimao/novel/webdav_backup.dart' show NovelWebDavClient;
 
 class NovelModule implements AppModule {
   NovelModule({
@@ -40,6 +43,8 @@ class NovelModule implements AppModule {
     this.sourceStore,
     this.sourceImporter,
     this.booklistGate,
+    this.subscriptionStore,
+    this.backupClient,
   });
 
   final NovelEngine? engine;
@@ -53,6 +58,8 @@ class NovelModule implements AppModule {
   final Object? sourceStore; // 书源仓库缝（保留旧注入点）
   final NovelSourceImporter? sourceImporter;
   final NovelBooklistFileGate? booklistGate;
+  final NovelSubscriptionStore? subscriptionStore;
+  final NovelWebDavClient? backupClient;
 
   @override
   MediaType get type => MediaType.novel;
@@ -167,6 +174,16 @@ class NovelModule implements AppModule {
       stats: statsApi,
       prefs: prefsApi,
       booklistGate: booklistGate,
+      subscriptionStore: subscriptionStore,
+      backupClient: backupClient,
+      // 侧栏底部「设置」项弹这张面板（与漫画/音乐同款），不是独立 tab。
+      settingsTab: NovelSettingsPage(
+        stats: statsApi,
+        searchHistory: searchApi,
+        history: historyApi,
+        sourceImporter: importer,
+        embedded: true,
+      ),
       onOpenRoute: (route, {args = const <String, Object?>{}}) =>
           pushNovelRoute<void>(context, route, args: args),
     );
