@@ -114,8 +114,8 @@ class NovelSourceImporter {
 
   /// 从 `yuedu://` 深链或手动粘贴的规则地址导入。
   ///
-  /// [kind] 为导入时手选的类型（null = 自动识别）：深链 host 给出的类型优先，
-  /// 其次手选，最后按文件内容识别。
+  /// [kind] 为导入时手选的类型（null = 自动识别）：深链 host 指明的类型优先
+  /// （一键导入链接自带类型），其次手选，最后按文件内容识别。
   Future<NovelSourceImportResult> importFromLink(
     String link, {
     NovelRuleKind? kind,
@@ -125,7 +125,7 @@ class NovelSourceImporter {
     if (url == null) {
       throw const NovelSourceImportException('不是有效的规则导入链接');
     }
-    return importFromUrl(url, kind: kind ?? parsed?.kind);
+    return importFromUrl(url, kind: parsed?.kind ?? kind);
   }
 
   /// 直接从规则文件地址导入。

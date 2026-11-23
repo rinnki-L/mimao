@@ -2,11 +2,12 @@
 // 与其他三个模块的页面同款说明：保持类型一致、patch 可重放。
 /// 小说规则管理页：书源 / 订阅源 / 替换规则三个分类，各自导入、启停、删除。
 ///
-/// 书源 tab 保留内嵌 WebView：用户在书源网站点「一键导入」
-/// （`yuedu://booksource/importonline?src=…`），注入的 JS 把链接改道到 JS Handler，
-/// 由导入服务按类型下载落库。订阅源与替换规则走同一个「导入规则」弹窗（粘贴链接）。
+/// 书源 tab 保留内嵌 WebView：点「订阅源」里的订阅站点卡片会切到书源分类并
+/// 打开该站点，站点上的「一键导入」（`yuedu://booksource/importonline?src=…`）
+/// 由注入的 JS 改道到 JS Handler，再交给导入服务按类型下载落库。
+/// 三个分类各自用固定类型的「导入书源 / 导入订阅源 / 导入替换规则」弹窗粘贴链接。
 ///
-/// WebView 只在用户主动点「打开书源网站」后构造，页面进场本身零插件调用——
+/// WebView 只在用户点订阅站点卡片后构造，页面进场本身零插件调用——
 /// 这样无插件测试环境也能渲染列表与按钮。
 library;
 
@@ -70,6 +71,7 @@ class _NovelSourceManagePageState extends State<NovelSourceManagePage>
   );
 
   bool _showWeb = false;
+  String? _webSiteUrl;
   bool _importing = false;
   bool _loading = true;
   String? _status;
@@ -153,6 +155,8 @@ class _NovelSourceManagePageState extends State<NovelSourceManagePage>
       context,
       importer: widget.importer,
       initialKind: kind,
+      // 分类内导入锁死类型：书源 tab 就只导书源，不在弹窗里再选一遍。
+      allowTypeSwitch: false,
     );
     if (result == null || !mounted) return;
     setState(() {
@@ -160,6 +164,15 @@ class _NovelSourceManagePageState extends State<NovelSourceManagePage>
       _error = null;
     });
     await _reloadAll();
+  }
+
+  /// 点订阅站点卡片：在书源分类里打开这个站点的内嵌网页。
+  void _openSite(String siteUrl) {
+    setState(() {
+      _webSiteUrl = siteUrl.isEmpty ? widget.siteUrl : siteUrl;
+      _showWeb = true;
+    });
+    _tabs.animateTo(NovelRuleKind.bookSource.index);
   }
 
   @override
@@ -200,19 +213,13 @@ class _NovelSourceManagePageState extends State<NovelSourceManagePage>
             runSpacing: 10,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: <Widget>[
-              FilledButton.icon(
-                key: const Key('novel-source-open-site'),
-                onPressed: () => setState(() => _showWeb = true),
-                icon: const Icon(Icons.public),
-                label: const Text('打开书源网站'),
-              ),
               OutlinedButton.icon(
                 key: const Key('novel-source-paste-import'),
                 onPressed: _importing
                     ? null
                     : () => _openImportDialog(NovelRuleKind.bookSource),
-                icon: const Icon(Icons.link),
-                label: const Text('粘贴链接导入'),
+                icon: const Icon(Icons.add_link),
+                label: const Text('导入书源'),
               ),
               if (_showWeb)
                 TextButton.icon(
@@ -222,20 +229,13 @@ class _NovelSourceManagePageState extends State<NovelSourceManagePage>
                 ),
             ],
           ),
-          const SizedBox(height: 6),
-          Text(
-            '打开网站后点页面里的「一键导入」，书源会自动下载并存入本应用；'
-            '也可以直接粘贴书源文件地址。',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-          ),
+          const SizedBox(height: 10),
           _Feedback(importing: _importing, status: _status, error: _error),
           if (_showWeb)
             SizedBox(
               height: 260,
               child: Padding(
-                padding: const EdgeInsets.only(bottom: 10),
+                padding: const EdgeInsets.only(top: 10, bottom: 10),
                 child: Card(
                   clipBehavior: Clip.antiAlias,
                   child: _buildWebView(),
@@ -258,9 +258,6 @@ class _NovelSourceManagePageState extends State<NovelSourceManagePage>
           _buildRuleImportBar(
             kind: NovelRuleKind.rssSource,
             key: const Key('novel-rss-paste-import'),
-            description:
-                '订阅站点（如「喵公子书源管理」）和导入的 RSS 订阅规则都在这里。'
-                'RSS 规则可导入、启停和删除；文章阅读尚未接入。',
           ),
           _Feedback(importing: _importing, status: _status, error: _error),
           Expanded(child: _buildRssList()),
@@ -279,9 +276,6 @@ class _NovelSourceManagePageState extends State<NovelSourceManagePage>
           _buildRuleImportBar(
             kind: NovelRuleKind.replaceRule,
             key: const Key('novel-replace-paste-import'),
-            description:
-                '替换规则在阅读器加载正文/标题时生效；'
-                '作用范围为空表示所有书籍，也可以限定书源或书名。',
           ),
           _Feedback(importing: _importing, status: _status, error: _error),
           Expanded(child: _buildReplaceList()),
@@ -290,40 +284,28 @@ class _NovelSourceManagePageState extends State<NovelSourceManagePage>
     );
   }
 
-  Widget _buildRuleImportBar({
-    required NovelRuleKind kind,
-    required Key key,
-    required String description,
-  }) {
-    final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        Align(
-          alignment: Alignment.centerLeft,
-          child: FilledButton.tonalIcon(
-            key: key,
-            onPressed: _importing ? null : () => _openImportDialog(kind),
-            icon: const Icon(Icons.add_link),
-            label: Text('导入${kind.label}'),
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          description,
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
-      ],
+  Widget _buildRuleImportBar({required NovelRuleKind kind, required Key key}) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: FilledButton.tonalIcon(
+        key: key,
+        onPressed: _importing ? null : () => _openImportDialog(kind),
+        icon: const Icon(Icons.add_link),
+        label: Text('导入${kind.label}'),
+      ),
     );
   }
 
   Widget _buildWebView() {
+    final url = _webSiteUrl ?? widget.siteUrl;
     final builder = widget.webViewBuilder;
     return builder != null
         ? builder(context, _importLink)
-        : _RealSourceWebView(url: widget.siteUrl, onImportLink: _importLink);
+        : _RealSourceWebView(
+            key: ValueKey<String>(url),
+            url: url,
+            onImportLink: _importLink,
+          );
   }
 
   Widget _buildSourceList() {
@@ -335,12 +317,13 @@ class _NovelSourceManagePageState extends State<NovelSourceManagePage>
         icon: Icons.source_outlined,
         title: '还没有书源',
         message:
-            '点上方「打开书源网站」，在网页里点「一键导入」即可。'
-            '导入后可以在这里启停、删除书源。',
+            '点上方「导入书源」粘贴链接；或在「订阅源」里点订阅站点卡片，'
+            '打开网站后点「一键导入」。',
         action: FilledButton.tonalIcon(
-          onPressed: () => setState(() => _showWeb = true),
-          icon: const Icon(Icons.public),
-          label: const Text('打开书源网站'),
+          key: const Key('novel-source-import-empty'),
+          onPressed: () => _openImportDialog(NovelRuleKind.bookSource),
+          icon: const Icon(Icons.add_link),
+          label: const Text('导入书源'),
         ),
       );
     }
@@ -394,7 +377,6 @@ class _NovelSourceManagePageState extends State<NovelSourceManagePage>
         ),
       );
     }
-    final theme = Theme.of(context);
     final store = widget.importer.rssStore;
     return ListView(
       padding: const EdgeInsets.only(top: 12, bottom: 24),
@@ -406,7 +388,7 @@ class _NovelSourceManagePageState extends State<NovelSourceManagePage>
             _SubscriptionSiteCard(
               subscription: subscription,
               sourceCount: _sources.length,
-              onOpen: () => _tabs.animateTo(NovelRuleKind.bookSource.index),
+              onOpen: () => _openSite(subscription.siteUrl),
             ),
             const SizedBox(height: 8),
           ],
@@ -439,13 +421,7 @@ class _NovelSourceManagePageState extends State<NovelSourceManagePage>
             ),
             const SizedBox(height: 8),
           ],
-        ] else
-          Text(
-            'RSS 订阅规则可以从上方「导入订阅源」添加。',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
+        ],
       ],
     );
   }
@@ -604,7 +580,7 @@ class _SubscriptionSiteCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '$sourceCount 个书源 · 点按查看书源',
+                  '$sourceCount 个书源 · 点按打开网站',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: cs.onSurfaceVariant,
                   ),
@@ -720,7 +696,11 @@ class _RuleCard extends StatelessWidget {
 
 /// 真正的内嵌 WebView（仅桌面/移动端有插件的运行环境里被构造）。
 class _RealSourceWebView extends StatefulWidget {
-  const _RealSourceWebView({required this.url, required this.onImportLink});
+  const _RealSourceWebView({
+    super.key,
+    required this.url,
+    required this.onImportLink,
+  });
 
   final String url;
   final void Function(String link) onImportLink;

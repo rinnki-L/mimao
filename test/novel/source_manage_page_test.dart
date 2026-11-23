@@ -35,7 +35,7 @@ void main() {
     );
   });
 
-  testWidgets('打开网站按钮渲染；点假网页「一键导入」后书源落库并出现在列表', (tester) async {
+  testWidgets('点订阅站点卡片打开网站；点假网页「一键导入」后书源落库并出现在列表', (tester) async {
     fetcher.text = jsonEncode(<Object?>[
       <String, Object?>{
         'bookSourceName': '网页导入源',
@@ -60,11 +60,15 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('novel-source-open-site')), findsOneWidget);
+    // 书源 tab 只有一个「导入书源」，不再有「打开书源网站」按钮。
+    expect(find.byKey(const Key('novel-source-open-site')), findsNothing);
+    expect(find.byKey(const Key('novel-source-paste-import')), findsOneWidget);
     expect(find.text('还没有书源'), findsOneWidget);
 
-    // 打开内嵌网页 → 点「一键导入」。
-    await tester.tap(find.byKey(const Key('novel-source-open-site')));
+    // 打开网站 = 点「订阅源」里的订阅站点卡片（喵公子）。
+    await tester.tap(find.text('订阅源'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('喵公子书源管理'));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('fake-web-import')));
     // 导入中 LinearProgressIndicator 是无限动画，pumpAndSettle 会挂死（LESSON.md
@@ -85,7 +89,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.byKey(const Key('novel-source-open-site')), findsOneWidget);
+    expect(find.byKey(const Key('novel-source-open-site')), findsNothing);
     expect(find.byKey(const Key('novel-source-paste-import')), findsOneWidget);
   });
 

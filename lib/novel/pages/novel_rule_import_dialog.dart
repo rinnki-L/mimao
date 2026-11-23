@@ -16,19 +16,30 @@ Future<NovelSourceImportResult?> showNovelRuleImportDialog(
   BuildContext context, {
   required NovelSourceImporter importer,
   NovelRuleKind? initialKind,
+  bool allowTypeSwitch = true,
 }) {
   return showDialog<NovelSourceImportResult>(
     context: context,
-    builder: (_) =>
-        _NovelRuleImportDialog(importer: importer, initialKind: initialKind),
+    builder: (_) => _NovelRuleImportDialog(
+      importer: importer,
+      initialKind: initialKind,
+      allowTypeSwitch: allowTypeSwitch,
+    ),
   );
 }
 
 class _NovelRuleImportDialog extends StatefulWidget {
-  const _NovelRuleImportDialog({required this.importer, this.initialKind});
+  const _NovelRuleImportDialog({
+    required this.importer,
+    this.initialKind,
+    this.allowTypeSwitch = true,
+  });
 
   final NovelSourceImporter importer;
   final NovelRuleKind? initialKind;
+
+  /// 从某个分类进来时锁死类型（不显示类型 chip）；订阅页的总入口才允许切换。
+  final bool allowTypeSwitch;
 
   @override
   State<_NovelRuleImportDialog> createState() => _NovelRuleImportDialogState();
@@ -39,6 +50,12 @@ class _NovelRuleImportDialogState extends State<_NovelRuleImportDialog> {
   final TextEditingController _controller = TextEditingController();
   bool _importing = false;
   String? _error;
+
+  String get _title {
+    final kind = _kind;
+    if (!widget.allowTypeSwitch && kind != null) return '导入${kind.label}';
+    return '导入规则';
+  }
 
   @override
   void dispose() {
@@ -74,42 +91,44 @@ class _NovelRuleImportDialogState extends State<_NovelRuleImportDialog> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return AlertDialog(
-      title: const Text('导入规则'),
+      title: Text(_title),
       content: SizedBox(
         width: 520,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
-            Text(
-              '书源、订阅源、替换规则分别保存。类型可以自动识别，也可以手动指定。',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: 14),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: <Widget>[
-                ChoiceChip(
-                  label: const Text('自动识别'),
-                  selected: _kind == null,
-                  onSelected: _importing
-                      ? null
-                      : (_) => setState(() => _kind = null),
+            if (widget.allowTypeSwitch) ...<Widget>[
+              Text(
+                '书源、订阅源、替换规则分别保存。类型可以自动识别，也可以手动指定。',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
                 ),
-                for (final kind in NovelRuleKind.values)
+              ),
+              const SizedBox(height: 14),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: <Widget>[
                   ChoiceChip(
-                    label: Text(kind.label),
-                    selected: _kind == kind,
+                    label: const Text('自动识别'),
+                    selected: _kind == null,
                     onSelected: _importing
                         ? null
-                        : (_) => setState(() => _kind = kind),
+                        : (_) => setState(() => _kind = null),
                   ),
-              ],
-            ),
-            const SizedBox(height: 14),
+                  for (final kind in NovelRuleKind.values)
+                    ChoiceChip(
+                      label: Text(kind.label),
+                      selected: _kind == kind,
+                      onSelected: _importing
+                          ? null
+                          : (_) => setState(() => _kind = kind),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 14),
+            ],
             TextField(
               key: const Key('novel-rule-import-link'),
               controller: _controller,
