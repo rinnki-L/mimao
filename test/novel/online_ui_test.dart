@@ -303,13 +303,13 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('第一章的正文'), findsOneWidget);
+    expect(find.textContaining('第一章的正文'), findsOneWidget);
     // 历史库存的是 1 起章号：0 起引擎索引 +1，第 1 章落库为 1（不是 0）。
     expect(history.saved, <int>[1]);
 
-    await tester.tap(find.text('下一章'));
+    await tester.tap(find.byKey(const Key('novel-reader-next-page')));
     await tester.pumpAndSettle();
-    expect(find.text('第二章的正文'), findsOneWidget);
+    expect(find.textContaining('第二章的正文'), findsOneWidget);
     expect(history.saved, <int>[1, 2]);
   });
 
@@ -345,7 +345,7 @@ void main() {
     );
     await tester.tap(find.text('打开阅读器'));
     await tester.pumpAndSettle();
-    expect(find.text('第一章的正文'), findsOneWidget);
+    expect(find.textContaining('第一章的正文'), findsOneWidget);
 
     final back = find.byTooltip('返回');
     expect(back, findsOneWidget);
@@ -353,7 +353,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('打开阅读器'), findsOneWidget);
-    expect(find.text('第一章的正文'), findsNothing);
+    expect(find.textContaining('第一章的正文'), findsNothing);
   });
 
   testWidgets('阅读器：替换规则在展示前作用于正文', (tester) async {
@@ -387,9 +387,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('第一章的内容'), findsOneWidget);
-    expect(find.text('第一章的正文'), findsNothing);
-    expect(find.text('不该出现的正文'), findsNothing);
+    expect(find.textContaining('第一章的内容'), findsOneWidget);
+    expect(find.textContaining('第一章的正文'), findsNothing);
+    expect(find.textContaining('不该出现的正文'), findsNothing);
   });
 
   testWidgets('搜索页：全部源失败时展示失败摘要', (tester) async {

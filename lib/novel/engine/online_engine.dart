@@ -40,3 +40,15 @@ abstract interface class NovelOnlineEngine {
   /// 释放网络/JS 资源（页面不调用；由装配方在退出时调用）。
   void close();
 }
+
+/// 可选能力：忽略正文缓存重抓（阅读页「刷新本章」用）。
+///
+/// 单独成接口而不是给 [NovelOnlineEngine.contentFor] 加参数，
+/// 是为了不强迫所有 fake 引擎跟着改签名；页面按类型探测能力。
+abstract interface class NovelContentRefresh {
+  Future<NovelContent> refreshContent(
+    NovelBookSource source,
+    NovelRef ref,
+    NovelChapter chapter,
+  );
+}

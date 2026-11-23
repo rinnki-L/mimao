@@ -5,6 +5,7 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   flutter_inappwebview_windows
   flutter_qjs
+  flutter_tts
   media_kit_libs_windows_video
   record_windows
   screen_retriever_windows

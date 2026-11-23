@@ -32,7 +32,8 @@ class NovelEngineException implements Exception {
 }
 
 /// 生产书源引擎。一个实例持有传输与每源一个 JS 宿主；用完调用 [close]。
-class LegadoNovelEngine implements NovelEngine, NovelOnlineEngine {
+class LegadoNovelEngine
+    implements NovelEngine, NovelOnlineEngine, NovelContentRefresh {
   LegadoNovelEngine({
     NovelHttpTransport? transport,
     this.cache,
@@ -433,6 +434,14 @@ class LegadoNovelEngine implements NovelEngine, NovelOnlineEngine {
   // ---------------------------------------------------------------------------
   // 正文
 
+  /// 忽略缓存重抓并覆盖缓存（阅读页「刷新本章」）。
+  @override
+  Future<NovelContent> refreshContent(
+    NovelBookSource source,
+    NovelRef ref,
+    NovelChapter chapter,
+  ) => _fetchContent(source, ref, chapter);
+
   @override
   Future<NovelContent> contentFor(
     NovelBookSource source,
@@ -441,6 +450,14 @@ class LegadoNovelEngine implements NovelEngine, NovelOnlineEngine {
   ) async {
     final cached = await cache?.read(ref, chapter);
     if (cached != null) return cached;
+    return _fetchContent(source, ref, chapter);
+  }
+
+  Future<NovelContent> _fetchContent(
+    NovelBookSource source,
+    NovelRef ref,
+    NovelChapter chapter,
+  ) async {
     final rules = source.ruleSet;
     if (rules.contentRule.isEmpty) {
       throw NovelEngineException('书源没有正文规则', sourceName: source.name);
