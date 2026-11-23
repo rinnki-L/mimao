@@ -15,7 +15,7 @@ void main() {
   });
 
   test('JSON 往返保持字段', () {
-    final settings = const NovelReaderSettings(
+    const settings = NovelReaderSettings(
       fontSize: 26,
       fontFamily: 'SimSun',
       lineHeight: 2.1,

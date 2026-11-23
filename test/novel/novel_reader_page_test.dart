@@ -1,3 +1,4 @@
+// ignore_for_file: deprecated_member_use — 见 lib/main.dart 文件头说明。
 // 阅读页翻页模式：分页、左右点击切页、页脚页码与底部菜单入口。
 
 import 'package:flutter/material.dart';

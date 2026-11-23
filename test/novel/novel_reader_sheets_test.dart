@@ -1,3 +1,4 @@
+// ignore_for_file: deprecated_member_use — 见 lib/main.dart 文件头说明。
 // 书内搜索 / 换源两个弹层：结果展示、点击回传。
 
 import 'package:flutter/material.dart';

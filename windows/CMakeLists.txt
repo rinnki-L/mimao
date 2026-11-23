@@ -43,6 +43,11 @@ function(APPLY_STANDARD_SETTINGS TARGET)
   target_compile_options(${TARGET} PRIVATE /EHsc)
   target_compile_definitions(${TARGET} PRIVATE "_HAS_EXCEPTIONS=0")
   target_compile_definitions(${TARGET} PRIVATE "$<$<CONFIG:Debug>:_DEBUG>")
+  # flutter_inappwebview_windows 仍用 <experimental/coroutine>；VS 18 / MSVC 14.52
+  # 把它的弃用警告升级成 C2338 硬错误（STL1011），插件源码不归我们改，统一在
+  # 标准设置里定义抑制宏，避免 Windows release 构建在 runner 上红。
+  target_compile_definitions(${TARGET} PRIVATE
+    "_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS")
 endfunction()
 
 # Flutter library and tool build rules.

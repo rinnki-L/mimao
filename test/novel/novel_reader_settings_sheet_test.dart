@@ -1,3 +1,4 @@
+// ignore_for_file: deprecated_member_use — 见 lib/main.dart 文件头说明。
 // 阅读设置面板：字号、背景、字体、动画速度、四个页签与重置。
 
 import 'package:flutter/material.dart';
