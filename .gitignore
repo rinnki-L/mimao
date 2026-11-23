@@ -14,8 +14,10 @@ tmp/
 .dart_tool/
 .packages
 build/
-# flutter test 自举的 native QuickJS 库（从 build/windows/... 拷到工作目录）
+# flutter test 自举的 native QuickJS 库（Windows 从 build/windows/... 拷到工作目录；
+# Linux 在 CI 用插件 CMake 编出 libflutter_qjs_plugin.so 放到仓库根供 dlopen 加载）
 flutter_qjs_plugin.dll
+libflutter_qjs_plugin.so
 # flutter test --coverage 产物；不是生成代码，不入库
 coverage/
 *.dart.js
