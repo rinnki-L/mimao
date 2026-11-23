@@ -76,7 +76,11 @@ class SourceRule {
   void _parse(String ruleStr) {
     var text = ruleStr.trim();
     if (_mode == RuleMode.js || _mode == RuleMode.regex) {
-      rule = text;
+      // `##` 尾注必须在构造时就切掉：同步路径的 makeUpRuleSync 对 js 模式直接
+      // return，若不在这里拆，`@js:…##手机地址：` 整段会进 eval，QuickJS 报
+      // invalid first character of private name（LESSON §八）。Kotlin 的
+      // SourceRule.makeUpRule 同样先拆 `##` 再执行 JS。
+      _applyReplaceParts(text);
       return;
     }
 
@@ -195,11 +199,7 @@ class SourceRule {
       }
     }
     rule = socket.toString();
-    final parts = rule.split('##');
-    rule = parts.first.trim();
-    if (parts.length > 1) replaceRegex = parts[1];
-    if (parts.length > 2) replacement = parts[2];
-    if (parts.length > 3) replaceFirst = true;
+    _applyReplaceParts(rule);
   }
 
   /// 用当前结果替换 `$n` / `@get` / `{{js}}`，并拆出 `##` 正则段。
@@ -234,7 +234,14 @@ class SourceRule {
       rule = socket.toString();
     }
 
-    final parts = rule.split('##');
+    _applyReplaceParts(rule);
+  }
+
+  /// 把 `rule` 按 `##` 拆成 rule / replaceRegex / replacement / replaceFirst。
+  /// Kotlin `SourceRule.makeUpRule` 末尾的同名逻辑：先拆再执行选择器/JS，
+  /// 保证 `##手机地址：` 这类尾注不会进 eval（LESSON §八）。
+  void _applyReplaceParts(String assembled) {
+    final parts = assembled.split('##');
     rule = parts.first.trim();
     if (parts.length > 1) replaceRegex = parts[1];
     if (parts.length > 2) replacement = parts[2];

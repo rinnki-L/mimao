@@ -171,5 +171,15 @@ void main() {
       expect(SourceRule(r'$.a').mode, RuleMode.json);
       expect(SourceRule('//a').mode, RuleMode.xpath);
     });
+
+    test('js/regex 模式构造时拆 ## 尾注，不把尾注送进 JS', () {
+      final js = SourceRule('1+1##手机地址：https://m.example.com', RuleMode.js);
+      expect(js.rule, '1+1');
+      expect(js.replaceRegex, '手机地址：https://m.example.com');
+      final regex = SourceRule(r'a(.)##b##$1', RuleMode.regex);
+      expect(regex.rule, r'a(.)');
+      expect(regex.replaceRegex, 'b');
+      expect(regex.replacement, r'$1');
+    });
   });
 }

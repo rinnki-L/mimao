@@ -115,6 +115,24 @@ void main() {
     expect(analyze.resolvedUrl, 'https://example.com/s');
   });
 
+  test('@js: 尾部 ##说明 不进 JS（避免 private name 语法错）', () async {
+    final transport = _FakeTransport('ok');
+    final scripts = <String>[];
+    final analyze = await AnalyzeUrl.resolve(
+      ruleUrl: '@js:baseUrl + "/s"##手机地址：https://m.example.com',
+      baseUrl: 'https://example.com',
+      transport: transport,
+      jsRunner: (code, context) async {
+        scripts.add(code);
+        return _runner(code, context);
+      },
+    );
+    expect(analyze.resolvedUrl, 'https://example.com/s');
+    expect(scripts, hasLength(1));
+    expect(scripts.single, 'baseUrl + "/s"');
+    expect(scripts.single, isNot(contains('##')));
+  });
+
   test('bodyJs 二次处理响应体', () async {
     final transport = _FakeTransport('raw');
     final analyze = await AnalyzeUrl.resolve(

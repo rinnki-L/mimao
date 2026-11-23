@@ -264,9 +264,13 @@ class AnalyzeUrl {
         final text = rule.substring(start, match.start).trim();
         if (text.isNotEmpty) output.write(text.replaceAll('@result', current));
       }
-      final script = (match.group(2) ?? '').isNotEmpty
+      var script = (match.group(2) ?? '').isNotEmpty
           ? match.group(2)!
           : (match.group(1) ?? '');
+      // `@js:([\w\W]*)` 贪婪吃到串尾，书源常把 `##手机地址：` 这类尾注写在
+      // 后面；不先拆掉，整段进 eval 会让 QuickJS 报 private name 语法错，
+      // 搜索/详情整条失败（LESSON §八，规则层已在 SourceRule 同款收口）。
+      script = script.split('##').first.trim();
       final value = await _evalUrlJs(script, result: current);
       current = value ?? '';
       output.write(current);
