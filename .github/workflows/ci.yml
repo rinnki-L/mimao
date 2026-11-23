@@ -166,6 +166,10 @@ jobs:
   tests:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    env:
+      # 置 1 后 JS 宿主测试在 native QuickJS 不可用时直接失败，而不是静默 skip。
+      # 防的是「构建步骤坏了但 flutter test 仍全绿」的假门。
+      MIMAO_REQUIRE_NATIVE_JS: "1"
     steps:
       - name: 检出仓库
         uses: actions/checkout@v5
@@ -219,8 +223,27 @@ jobs:
           fi
           echo "生成代码与已提交版本一致——通过"
 
+      # JS 宿主测试需要真 QuickJS native 库。flutter_qjs 用 git 依赖钉死版本，
+      # pub get 后源码落在 pub cache；下面用插件自带的 CMakeLists 在 Linux 上
+      # 编出 libflutter_qjs_plugin.so，放到 flutter test 的工作目录（仓库根）。
+      # 这样 legado_js_host_test 在 CI 上真跑，不再只跑一个空 skip（假绿根因）。
+      - name: 编译 native QuickJS 供 JS 宿主测试使用
+        run: |
+          set -euo pipefail
+          plugin=$(python3 -c "import json;d=json.load(open('.dart_tool/package_config.json'));print(next(p['rootUri'] for p in d['packages'] if p['name']=='flutter_qjs'))")
+          plugin=${plugin#file://}
+          cmake -S "$plugin/test/core_safety" -B build/qjs-native -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/qjs-native --target flutter_qjs_plugin --parallel 2
+          # flutter test 的 CWD 是仓库根；DynamicLibrary.open 按裸名在当前目录/
+          # LD_LIBRARY_PATH 找，这里把 .so 放到根目录并保证同名。
+          cp build/qjs-native/libflutter_qjs_plugin.so ./libflutter_qjs_plugin.so
+          ls -la ./libflutter_qjs_plugin.so
+
       # 第六扇门（前半）：测试本体，--coverage 生成 coverage/lcov.info
       - name: 测试门——flutter test --coverage
+        env:
+          # dlopen 不搜 CWD；把刚编出的 .so 目录显式加进搜索路径。
+          LD_LIBRARY_PATH: ${{ github.workspace }}
         run: |
           set -euo pipefail
           flutter test --coverage
