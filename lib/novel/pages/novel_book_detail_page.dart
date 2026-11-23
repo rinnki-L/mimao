@@ -342,7 +342,8 @@ class _NovelBookDetailPageState extends State<NovelBookDetailPage> {
           if (data == null ||
               (data.collect == null &&
                   data.history == null &&
-                  data.online == null)) {
+                  data.online == null &&
+                  data.onlineError == null)) {
             return const NovelEmptyState(
               icon: Icons.menu_book_outlined,
               title: '本地没有这本书',

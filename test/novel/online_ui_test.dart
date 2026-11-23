@@ -127,6 +127,30 @@ class _FakeEngine implements NovelOnlineEngine {
   }
 }
 
+class _FailingEngine extends _FakeEngine {
+  @override
+  Future<List<NovelSummary>> searchSource(
+    NovelBookSource source,
+    String keyword, {
+    int page = 1,
+  }) async => throw StateError('网络超时');
+
+  @override
+  Future<NovelDetail> bookDetail(
+    NovelBookSource source,
+    NovelRef ref, {
+    String? titleHint,
+    String? authorHint,
+  }) async => throw StateError('目录抓取失败');
+
+  @override
+  Future<NovelContent> contentFor(
+    NovelBookSource source,
+    NovelRef ref,
+    NovelChapter chapter,
+  ) async => throw StateError('正文抓取失败');
+}
+
 class _FakeHistory implements NovelHistoryApi {
   final List<int> saved = <int>[];
 
@@ -240,6 +264,72 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('第二章的正文'), findsOneWidget);
     expect(history.saved, <int>[0, 1]);
+  });
+
+  testWidgets('搜索页：全部源失败时展示失败摘要', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: NovelSearchPage(
+          onlineEngine: _FailingEngine(),
+          sourceStore: _FakeStore(),
+        ),
+      ),
+    );
+    await tester.enterText(find.byType(TextField), '测试');
+    await tester.tap(find.byType(FilledButton));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+
+    expect(find.text('在线书源没有结果'), findsOneWidget);
+    expect(find.textContaining('测试源：'), findsOneWidget);
+  });
+
+  testWidgets('详情页：在线目录失败给可重试错误态', (tester) async {
+    tester.view.physicalSize = const Size(1200, 1800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: NovelBookDetailPage(
+          bookId: _book.id,
+          titleHint: _book.title,
+          sourceKey: 'src1',
+          bookUrl: _book.bookUrl,
+          onlineEngine: _FailingEngine(),
+          sourceStore: _FakeStore(),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('目录抓取失败'), findsOneWidget);
+  });
+
+  testWidgets('阅读器：正文失败给可重试错误态', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: NovelReaderPage(
+          bookId: _book.id,
+          title: _book.title,
+          sourceKey: 'src1',
+          bookUrl: _book.bookUrl,
+          chapterIndex: 0,
+          chapters: _detail.chapters,
+          onlineEngine: _FailingEngine(),
+          sourceStore: _FakeStore(),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('正文抓取失败'), findsOneWidget);
+    expect(find.text('重试'), findsWidgets);
   });
 
   testWidgets('发现分类弹层：分类 chip 与书单可点', (tester) async {
