@@ -181,6 +181,14 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
+      # flutter test 会触发传递依赖 cnativeapi 的 native asset hook；它要
+      # pkg-config 找到 GTK3/X11/Xi 的开发包，否则测试门在装依赖阶段就红。
+      - name: 安装 GTK/X11 开发包——cnativeapi 的 flutter test 前置
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libx11-dev libxi-dev
+
       # lockfile 门在测试语境下重复把守：这个 job 自己也要按 lock 装依赖
       - name: lockfile 门（测试语境下重复把守）
         run: |
