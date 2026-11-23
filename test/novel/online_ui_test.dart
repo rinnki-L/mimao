@@ -1,0 +1,265 @@
+// ignore_for_file: deprecated_member_use — 与小说页面同款 Flutter 3.50 说明。
+// 在线书源 UI 单测：搜索页在线分组、详情目录、阅读器翻章、发现分类弹层。
+//
+// 全部 fake 注入，不访问网络；真实引擎链路由 legado_engine_test 覆盖。
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:mimao/novel/engine/explore_kinds.dart';
+import 'package:mimao/novel/engine/online_engine.dart';
+import 'package:mimao/novel/library_api.dart';
+import 'package:mimao/novel/models/novel_models.dart';
+import 'package:mimao/novel/pages/novel_book_detail_page.dart';
+import 'package:mimao/novel/pages/novel_explore_sheet.dart';
+import 'package:mimao/novel/pages/novel_reader_page.dart';
+import 'package:mimao/novel/pages/novel_routes.dart';
+import 'package:mimao/novel/pages/novel_search_page.dart';
+import 'package:mimao/novel/source/novel_source_model.dart';
+import 'package:mimao/novel/source/novel_source_store.dart';
+
+final NovelBookSource _source = NovelBookSource(
+  key: 'src1',
+  name: '测试源',
+  url: 'https://site.test',
+  type: 0,
+  enabled: true,
+  raw: const <String, dynamic>{
+    'bookSourceUrl': 'https://site.test',
+    'searchUrl': '/search?kw={{key}}',
+    'exploreUrl': '玄幻::/list/1/{{page}}.html',
+  },
+);
+
+const NovelSummary _book = NovelSummary(
+  id: 'src1::https://site.test/book/1',
+  title: '测试书名',
+  author: '测试作者',
+  sourceName: novelSourceName,
+  sourceKey: 'src1',
+  bookUrl: 'https://site.test/book/1',
+  intro: '测试简介',
+);
+
+final NovelDetail _detail = NovelDetail(
+  ref: _book.ref,
+  title: _book.title,
+  author: _book.author,
+  intro: _book.intro,
+  chapters: const <NovelChapter>[
+    NovelChapter(
+      id: 'https://site.test/book/1/1',
+      title: '第一章',
+      index: 0,
+      url: 'https://site.test/book/1/1',
+    ),
+    NovelChapter(
+      id: 'https://site.test/book/1/2',
+      title: '第二章',
+      index: 1,
+      url: 'https://site.test/book/1/2',
+    ),
+  ],
+);
+
+class _FakeStore implements NovelSourceStorage {
+  @override
+  Future<List<NovelBookSource>> loadAll() async => <NovelBookSource>[_source];
+
+  @override
+  Future<int> saveAll(Iterable<NovelBookSource> sources) async => 0;
+
+  @override
+  Future<void> setEnabled(String key, bool enabled) async {}
+
+  @override
+  Future<bool> delete(String key) async => false;
+}
+
+class _FakeEngine implements NovelOnlineEngine {
+  int searchCalls = 0;
+  int contentCalls = 0;
+
+  @override
+  void close() {}
+
+  @override
+  Future<List<NovelSummary>> searchSource(
+    NovelBookSource source,
+    String keyword, {
+    int page = 1,
+  }) async {
+    searchCalls++;
+    return <NovelSummary>[_book];
+  }
+
+  @override
+  Future<List<NovelExploreKind>> exploreKinds(NovelBookSource source) async =>
+      const <NovelExploreKind>[
+        NovelExploreKind(name: '玄幻', url: '/list/1/{{page}}.html'),
+      ];
+
+  @override
+  Future<List<NovelSummary>> exploreSource(
+    NovelBookSource source,
+    NovelExploreKind kind, {
+    int page = 1,
+  }) async => <NovelSummary>[_book];
+
+  @override
+  Future<NovelDetail> bookDetail(
+    NovelBookSource source,
+    NovelRef ref, {
+    String? titleHint,
+    String? authorHint,
+  }) async => _detail;
+
+  @override
+  Future<NovelContent> contentFor(
+    NovelBookSource source,
+    NovelRef ref,
+    NovelChapter chapter,
+  ) async {
+    contentCalls++;
+    return NovelContent(
+      chapterId: chapter.id,
+      title: chapter.title,
+      paragraphs: <String>['${chapter.title}的正文'],
+    );
+  }
+}
+
+class _FakeHistory implements NovelHistoryApi {
+  final List<int> saved = <int>[];
+
+  @override
+  Future<void> open(NovelSummary book) async {}
+
+  @override
+  Future<void> saveProgress(
+    NovelSummary book,
+    int chapterIndex,
+    int chapterCount,
+  ) async {
+    saved.add(chapterIndex);
+  }
+
+  @override
+  Future<NovelHistoryItem?> latest(String bookId) async => null;
+
+  @override
+  Future<List<NovelHistoryItem>> recent({int limit = 50}) async =>
+      const <NovelHistoryItem>[];
+
+  @override
+  Future<void> remove(String bookId) async {}
+
+  @override
+  Future<void> clear() async {}
+}
+
+void main() {
+  testWidgets('搜索页：在线引擎结果按书源分组并展示', (tester) async {
+    final engine = _FakeEngine();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: NovelSearchPage(onlineEngine: engine, sourceStore: _FakeStore()),
+      ),
+    );
+    await tester.enterText(find.byType(TextField), '测试');
+    await tester.tap(find.byType(FilledButton));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+
+    expect(engine.searchCalls, 1);
+    expect(find.text('在线书源 · 1 个源命中'), findsOneWidget);
+    expect(find.text('测试源 · 1'), findsOneWidget);
+    expect(find.text('测试书名'), findsWidgets);
+  });
+
+  testWidgets('详情页：在线目录、简介与点章进阅读路由', (tester) async {
+    NovelRoute? opened;
+    Map<String, Object?>? captured;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: NovelBookDetailPage(
+          bookId: _book.id,
+          titleHint: _book.title,
+          sourceKey: 'src1',
+          bookUrl: _book.bookUrl,
+          onlineEngine: _FakeEngine(),
+          sourceStore: _FakeStore(),
+          openRoute: (route, {args = const <String, Object?>{}}) async {
+            opened = route;
+            captured = args;
+          },
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+
+    expect(find.text('测试书名'), findsWidgets);
+    expect(find.text('测试简介'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('目录 · 2 章'), 300);
+    expect(find.text('目录 · 2 章'), findsOneWidget);
+
+    await tester.scrollUntilVisible(find.text('第二章'), 200);
+    await tester.tap(find.text('第二章'));
+    await tester.pumpAndSettle();
+    expect(opened, NovelRoute.read);
+    expect(captured?['chapterIndex'], 1);
+    expect(captured?['sourceKey'], 'src1');
+  });
+
+  testWidgets('阅读器：正文、翻章与进度上报', (tester) async {
+    final engine = _FakeEngine();
+    final history = _FakeHistory();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: NovelReaderPage(
+          bookId: _book.id,
+          title: _book.title,
+          sourceKey: 'src1',
+          bookUrl: _book.bookUrl,
+          chapterIndex: 0,
+          chapters: _detail.chapters,
+          onlineEngine: engine,
+          sourceStore: _FakeStore(),
+          history: history,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('第一章的正文'), findsOneWidget);
+    expect(history.saved, <int>[0]);
+
+    await tester.tap(find.text('下一章'));
+    await tester.pumpAndSettle();
+    expect(find.text('第二章的正文'), findsOneWidget);
+    expect(history.saved, <int>[0, 1]);
+  });
+
+  testWidgets('发现分类弹层：分类 chip 与书单可点', (tester) async {
+    NovelSummary? opened;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: NovelExploreSheet(
+            source: _source,
+            engine: _FakeEngine(),
+            onOpenBook: (book) => opened = book,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('玄幻'), findsOneWidget);
+    expect(find.text('测试书名'), findsOneWidget);
+    await tester.tap(find.text('测试书名'));
+    expect(opened?.id, _book.id);
+  });
+}

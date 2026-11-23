@@ -135,7 +135,11 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
           }
         }
       } on Object {
-        // 忽略：下面 _openChapter 会给出具体错误。
+        // 忽略：下面统一判空。
+      }
+      if (_source == null) {
+        setState(() => _loadError = '找不到书源（可能已被删除）');
+        return;
       }
       final chapter = _pickChapter(detail.chapters);
       if (chapter == null) {

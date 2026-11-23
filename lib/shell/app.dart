@@ -2,6 +2,7 @@
 // 但 Kazumi/Venera 上游镜像全部用它；为保持类型一致与 patch 可重放，M1 继续用。
 import 'package:flutter/material.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
+import 'package:mimao/core/navigation.dart';
 import 'package:mimao/core/theme.dart';
 import 'package:mimao/shell/home.dart';
 import 'package:mimao/shell/shell_store.dart';
@@ -86,8 +87,10 @@ class MimaoApp extends StatelessWidget {
           ),
           themeMode: shellStore.themeMode,
           scrollBehavior: const MimaoScrollBehavior(),
-          navigatorObservers:
-              navigatorObserversProvider?.call() ?? const <NavigatorObserver>[],
+          navigatorObservers: <NavigatorObserver>[
+            ...?navigatorObserversProvider?.call(),
+            mimaoRouteObserver,
+          ],
           home: const HomeShell(),
         );
       },

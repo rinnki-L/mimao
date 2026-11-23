@@ -368,6 +368,12 @@ class NovelBookCover extends StatelessWidget {
       image = Image.network(
         trimmed,
         fit: BoxFit.cover,
+        // 部分书源站点会拒绝空 UA / Dart 默认 UA 的封面请求。
+        headers: const <String, String>{
+          'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+              '(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        },
         errorBuilder: (_, _, _) => placeholder,
         loadingBuilder: (_, child, progress) =>
             progress == null ? child : placeholder,

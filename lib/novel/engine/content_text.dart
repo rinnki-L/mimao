@@ -79,9 +79,13 @@ String htmlToText(String html) {
   return paragraphs.join('\n');
 }
 
-/// 章节标题 / 书名的轻量清洗（去掉 HTML 片段与首尾空白）。
-String cleanTitle(String value) =>
-    htmlToText(value).replaceAll('\n', ' ').trim();
+/// 章节标题 / 书名的轻量清洗（去掉 HTML、图标私用区码点与控制字符）。
+String cleanTitle(String value) => htmlToText(value)
+    // 图标字体常把私用区码点直接写进章节名（如 sfacg 的 icn 字符），
+    // 阅读器显示成方框；控制字符也一并清掉。
+    .replaceAll(RegExp(r'[\uE000-\uF8FF\u0000-\u001F\u007F]'), '')
+    .replaceAll('\n', ' ')
+    .trim();
 
 List<String> _normalizeLines(String text) {
   final lines = text

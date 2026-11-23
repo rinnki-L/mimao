@@ -12,6 +12,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:mimao/core/navigation.dart';
 import 'package:mimao/core/theme.dart';
 import 'package:mimao/novel/booklist_io.dart';
 import 'package:mimao/novel/library_api.dart';
@@ -41,6 +42,7 @@ class NovelShelfPage extends StatefulWidget {
   const NovelShelfPage({
     super.key,
     required this.active,
+    this.refreshTick = 0,
     this.collect,
     this.history,
     this.prefs,
@@ -50,6 +52,7 @@ class NovelShelfPage extends StatefulWidget {
   });
 
   final bool active;
+  final int refreshTick;
   final NovelCollectApi? collect;
   final NovelHistoryApi? history;
   final NovelPrefsApi? prefs;
@@ -61,7 +64,7 @@ class NovelShelfPage extends StatefulWidget {
   State<NovelShelfPage> createState() => _NovelShelfPageState();
 }
 
-class _NovelShelfPageState extends State<NovelShelfPage> {
+class _NovelShelfPageState extends State<NovelShelfPage> with RouteAware {
   late Future<_ShelfData> _future;
   final TextEditingController _search = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
@@ -87,7 +90,30 @@ class _NovelShelfPageState extends State<NovelShelfPage> {
       ..removeListener(_onSearchChanged)
       ..dispose();
     _searchFocus.dispose();
+    if (_routeSubscribed) mimaoRouteObserver.unsubscribe(this);
     super.dispose();
+  }
+
+  PageRoute<dynamic>? _route;
+  bool _routeSubscribed = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route is PageRoute<dynamic> && route != _route) {
+      if (_routeSubscribed && _route != null) {
+        mimaoRouteObserver.unsubscribe(this);
+      }
+      _route = route;
+      mimaoRouteObserver.subscribe(this, route);
+      _routeSubscribed = true;
+    }
+  }
+
+  @override
+  void didPopNext() {
+    if (widget.active) _reload();
   }
 
   @override
@@ -98,7 +124,11 @@ class _NovelShelfPageState extends State<NovelShelfPage> {
         oldWidget.collect != widget.collect ||
         oldWidget.history != widget.history ||
         oldWidget.prefs != widget.prefs;
-    if (becameActive || servicesChanged) _reload();
+    if (becameActive ||
+        servicesChanged ||
+        oldWidget.refreshTick != widget.refreshTick) {
+      _reload();
+    }
   }
 
   void _onSearchChanged() => setState(() {});

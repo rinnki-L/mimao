@@ -2,7 +2,7 @@
 // 与其他模块页面同款说明。
 /// 统一搜索页：搜索历史（真实落库）+ 本地书架/阅读记录/书源的关键词匹配。
 ///
-/// 跨源搜索需要书源引擎，未接入前明确显示能力边界；本地匹配是真实数据，
+/// 在线跨源搜索走 `NovelOnlineEngine`（按源分组、限流并发）；本地匹配是
 /// 点书进详情、点书源进管理，不伪造搜索结果。
 library;
 
@@ -30,6 +30,7 @@ class NovelSearchPage extends StatefulWidget {
     this.sourceImporter,
     this.onlineEngine,
     this.sourceStore,
+    this.initialQuery,
     this.openRoute,
   });
 
@@ -39,6 +40,9 @@ class NovelSearchPage extends StatefulWidget {
   final NovelSourceImporter? sourceImporter;
   final NovelOnlineEngine? onlineEngine;
   final NovelSourceStorage? sourceStore;
+
+  /// 深链/调试入口预填关键词并在首帧后自动搜索。
+  final String? initialQuery;
   final NovelRouteOpener? openRoute;
 
   @override
@@ -67,6 +71,12 @@ class _NovelSearchPageState extends State<NovelSearchPage> {
   void initState() {
     super.initState();
     _loadTerms();
+    final initial = widget.initialQuery?.trim() ?? '';
+    if (initial.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_submit(initial));
+      });
+    }
   }
 
   @override
@@ -516,9 +526,9 @@ class _NovelSearchPageState extends State<NovelSearchPage> {
                   NovelEmptyState(
                     icon: Icons.search_off,
                     title: '本地没有匹配「$_query」',
-                    message:
-                        '本地书架、阅读记录与书源里都没有。'
-                        '跨源搜索需要书源引擎，当前尚未接入。',
+                    message: widget.onlineEngine != null
+                        ? '本地书架、阅读记录与书源里都没有；在线书源结果在下方。'
+                        : '本地书架、阅读记录与书源里都没有。在线书源引擎未注入。',
                   )
                 else ...<Widget>[
                   _ResultSection(
@@ -550,10 +560,10 @@ class _NovelSearchPageState extends State<NovelSearchPage> {
                       ),
                     ),
                   ],
-                  if (widget.onlineEngine != null) ...<Widget>[
-                    const SizedBox(height: 24),
-                    _buildOnlineSection(theme, cs),
-                  ],
+                ],
+                if (widget.onlineEngine != null) ...<Widget>[
+                  const SizedBox(height: 24),
+                  _buildOnlineSection(theme, cs),
                 ],
               ],
             ],

@@ -2,8 +2,9 @@
 // 与其他模块页面同款说明。
 /// 书籍详情：本地收藏 + 阅读记录的真实快照，收藏切换、分组、清记录、进阅读。
 ///
-/// 目录/简介/正文来自书源引擎，尚未接入，所以只给一条能力边界说明；详情页
-/// 不摆假章节。参数：`bookId`（必填）、`title`（无本地快照时的兜底标题）。
+/// 目录/简介来自书源引擎；注入 `NovelOnlineEngine` 时抓 `ruleBookInfo` 与
+/// 目录，未注入时保留本地快照并给能力边界。参数：`bookId`（必填）及
+/// `title/author/coverUrl/intro/sourceKey/bookUrl` 路由提示。
 library;
 
 import 'package:flutter/material.dart';
@@ -23,6 +24,7 @@ class NovelBookDetailPage extends StatefulWidget {
     this.titleHint,
     this.authorHint,
     this.coverUrlHint,
+    this.introHint,
     this.sourceKey,
     this.bookUrl,
     this.onlineEngine,
@@ -36,6 +38,7 @@ class NovelBookDetailPage extends StatefulWidget {
   final String? titleHint;
   final String? authorHint;
   final String? coverUrlHint;
+  final String? introHint;
   final String? sourceKey;
   final String? bookUrl;
   final NovelOnlineEngine? onlineEngine;
@@ -70,7 +73,7 @@ class _NovelBookDetailPageState extends State<NovelBookDetailPage> {
       }
     }
     final history = await widget.history?.latest(widget.bookId);
-    var book =
+    final base =
         collect?.book ??
         history?.book ??
         NovelSummary(
@@ -81,22 +84,26 @@ class _NovelBookDetailPageState extends State<NovelBookDetailPage> {
           sourceKey: widget.sourceKey ?? '',
           bookUrl: widget.bookUrl ?? '',
         );
-    if (book.sourceKey.isEmpty && (widget.sourceKey ?? '').isNotEmpty) {
-      book = NovelSummary(
-        id: book.id,
-        title: book.title,
-        coverUrl: book.coverUrl,
-        author: book.author,
-        sourceName: book.sourceName,
-        sourceKey: widget.sourceKey!,
-        bookUrl: widget.bookUrl ?? book.bookUrl,
-        intro: book.intro,
-        kind: book.kind,
-        latestChapter: book.latestChapter,
-        wordCount: book.wordCount,
-        type: book.type,
-      );
-    }
+    // 旧收藏/历史快照可能缺封面或源信息；用路由参数补齐空字段，
+    // 但不要覆盖快照里的有效值。
+    var book = NovelSummary(
+      id: base.id,
+      title: base.title.isEmpty ? (widget.titleHint ?? '') : base.title,
+      coverUrl: base.coverUrl.isEmpty
+          ? (widget.coverUrlHint ?? '')
+          : base.coverUrl,
+      author: base.author.isEmpty ? (widget.authorHint ?? '') : base.author,
+      sourceName: base.sourceName,
+      sourceKey: base.sourceKey.isEmpty
+          ? (widget.sourceKey ?? '')
+          : base.sourceKey,
+      bookUrl: base.bookUrl.isEmpty ? (widget.bookUrl ?? '') : base.bookUrl,
+      intro: base.intro.isEmpty ? (widget.introHint ?? '') : base.intro,
+      kind: base.kind,
+      latestChapter: base.latestChapter,
+      wordCount: base.wordCount,
+      type: base.type,
+    );
     NovelDetail? online;
     NovelBookSource? source;
     String? onlineError;
@@ -127,9 +134,24 @@ class _NovelBookDetailPageState extends State<NovelBookDetailPage> {
             titleHint: book.title,
             authorHint: book.author,
           );
-          if (online.title.isNotEmpty || online.author.isNotEmpty) {
-            book = online.summary;
-          }
+          // 有些源的 ruleBookInfo 只给目录链接；详情页缺的字段用搜索结果补，
+          // 避免封面/简介被空值覆盖。
+          online = NovelDetail(
+            ref: online.ref,
+            title: online.title.isEmpty ? book.title : online.title,
+            coverUrl: online.coverUrl.isEmpty ? book.coverUrl : online.coverUrl,
+            author: online.author.isEmpty ? book.author : online.author,
+            intro: online.intro.isEmpty ? book.intro : online.intro,
+            kind: online.kind.isEmpty ? book.kind : online.kind,
+            latestChapter: online.latestChapter.isEmpty
+                ? book.latestChapter
+                : online.latestChapter,
+            wordCount: online.wordCount.isEmpty
+                ? book.wordCount
+                : online.wordCount,
+            chapters: online.chapters,
+          );
+          book = online.summary;
         }
       } on Object catch (error) {
         onlineError = '$error';

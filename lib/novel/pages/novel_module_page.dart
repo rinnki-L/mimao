@@ -5,7 +5,8 @@
 /// 宽窗（>= 900）用左侧自绘侧栏（2026-11-22 与漫画/音乐统一：悬停高亮
 /// 锚定原位、内容在药丸内缩进，原 NavigationRail 移除），窄窗仍用底部
 /// NavigationBar——桌面优先但不牺牲 Android 单手区。内容页只认注入的服务缝，
-/// 书源引擎未接入的入口一律给可操作的能力边界说明，不造假数据。
+/// 书源引擎（`NovelOnlineEngine`）由装配方注入；未注入的入口给可操作的
+/// 能力边界说明，不造假数据。
 library;
 
 import 'package:flutter/material.dart';
@@ -70,6 +71,7 @@ class _NovelModulePageState extends State<NovelModulePage> {
   static const double _sidebarBreakpoint = 900;
 
   int _index = 0;
+  int _refreshTick = 0;
 
   Future<void> _openRoute(
     NovelRoute route, {
@@ -78,9 +80,11 @@ class _NovelModulePageState extends State<NovelModulePage> {
     final opener = widget.onOpenRoute;
     if (opener != null) {
       await opener(route, args: args);
-      return;
+    } else {
+      await pushNovelRoute<void>(context, route, args: args);
     }
-    await pushNovelRoute<void>(context, route, args: args);
+    // 从详情/阅读返回后，首页最近阅读与书架进度都需要重拉。
+    if (mounted) setState(() => _refreshTick++);
   }
 
   void _selectTab(int index) {
@@ -92,6 +96,7 @@ class _NovelModulePageState extends State<NovelModulePage> {
     return <Widget>[
       NovelHomePage(
         active: _index == 0,
+        refreshTick: _refreshTick,
         collect: widget.collect,
         history: widget.history,
         stats: widget.stats,
@@ -101,6 +106,7 @@ class _NovelModulePageState extends State<NovelModulePage> {
       ),
       NovelShelfPage(
         active: _index == 1,
+        refreshTick: _refreshTick,
         collect: widget.collect,
         history: widget.history,
         prefs: widget.prefs,

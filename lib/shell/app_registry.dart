@@ -57,10 +57,13 @@ import 'package:mimao/novel/library_api.dart';
 import 'package:mimao/novel/cache/file_novel_cache.dart';
 import 'package:mimao/novel/engine/legado_engine.dart';
 import 'package:mimao/novel/engine/online_engine.dart';
+import 'package:mimao/novel/models/novel_models.dart';
+import 'package:mimao/novel/pages/novel_routes.dart';
 import 'package:mimao/novel/novel_db.dart';
 import 'package:mimao/novel/novel_entry.dart';
 import 'package:mimao/novel/search_history_service.dart';
 import 'package:mimao/novel/source/novel_source_importer.dart';
+import 'package:mimao/novel/source/novel_source_model.dart';
 import 'package:mimao/novel/source/novel_source_repository.dart';
 import 'package:mimao/novel/source/novel_source_store.dart';
 import 'package:mimao/novel/stats_service.dart';
@@ -506,9 +509,16 @@ Future<void> initAppModules({
             NovelSourceRepository(NovelSourceStore.openDefault),
             novelSourceFetcher ?? DioNovelSourceFetcher(),
           );
+      final onlineEngine =
+          novelOnlineEngine ?? LegadoNovelEngine(cache: DefaultNovelCache());
+      if (kDebugMode) {
+        _registerNovelDevCapabilities(
+          engine: onlineEngine,
+          store: sourceImporter.store,
+        );
+      }
       appModules[MediaType.novel] = NovelModule(
-        onlineEngine:
-            novelOnlineEngine ?? LegadoNovelEngine(cache: DefaultNovelCache()),
+        onlineEngine: onlineEngine,
         collect: collectApi,
         history: historyApi,
         searchHistory: searchHistoryApi,
@@ -532,6 +542,169 @@ Future<void> initAppModules({
   }
 
   appModulesError = errors.isEmpty ? null : errors.join('\n');
+}
+
+/// 小说书源 dev 能力（debug-only）：真源联调与 UI 验收用。
+///
+/// 能力：`novel.sources` 列出可搜索源；`novel.search` 按源搜索；
+/// `novel.detail` 抓详情目录；`novel.content` 抓正文；
+/// `novel.open`/`novel.openReader` 直接推详情/阅读路由（截图验收）。
+void _registerNovelDevCapabilities({
+  required NovelOnlineEngine engine,
+  required NovelSourceStorage store,
+}) {
+  devRegisterCapability('novel.sources', (args) async {
+    final sources = await store.loadAll();
+    return <Object?>[
+      for (final source in sources)
+        if (source.enabled &&
+            source.type == 0 &&
+            source.searchUrl.trim().isNotEmpty)
+          <String, Object?>{
+            'key': source.key,
+            'name': source.name,
+            'url': source.url,
+          },
+    ];
+  });
+  devRegisterCapability('novel.search', (args) async {
+    final sources = await store.loadAll();
+    final needle = args['source']?.toString() ?? '';
+    NovelBookSource? source;
+    for (final candidate in sources) {
+      if (candidate.key == needle || candidate.name == needle) {
+        source = candidate;
+        break;
+      }
+    }
+    if (source == null) {
+      return <String, Object?>{'ok': false, 'error': 'source not found'};
+    }
+    try {
+      final books = await engine.searchSource(
+        source,
+        args['keyword']?.toString() ?? '',
+      );
+      return <String, Object?>{
+        'ok': true,
+        'source': source.name,
+        'books': <Object?>[for (final book in books) book.toJson()],
+      };
+    } on Object catch (error) {
+      return <String, Object?>{'ok': false, 'error': '$error'};
+    }
+  });
+  devRegisterCapability('novel.detail', (args) async {
+    final sources = await store.loadAll();
+    final needle = args['source']?.toString() ?? '';
+    NovelBookSource? source;
+    for (final candidate in sources) {
+      if (candidate.key == needle || candidate.name == needle) {
+        source = candidate;
+        break;
+      }
+    }
+    if (source == null) {
+      return <String, Object?>{'ok': false, 'error': 'source not found'};
+    }
+    final ref = NovelRef(
+      id: args['bookId']?.toString() ?? '',
+      sourceKey: source.key,
+      bookUrl: args['bookUrl']?.toString() ?? '',
+    );
+    try {
+      final detail = await engine.bookDetail(
+        source,
+        ref,
+        titleHint: args['title']?.toString(),
+        authorHint: args['author']?.toString(),
+      );
+      return <String, Object?>{
+        'ok': true,
+        'title': detail.title,
+        'author': detail.author,
+        'chapters': detail.chapters.length,
+        'first': detail.chapters.isEmpty
+            ? null
+            : detail.chapters.first.toJson(),
+        'last': detail.chapters.isEmpty ? null : detail.chapters.last.toJson(),
+      };
+    } on Object catch (error) {
+      return <String, Object?>{'ok': false, 'error': '$error'};
+    }
+  });
+  devRegisterCapability('novel.content', (args) async {
+    final sources = await store.loadAll();
+    final needle = args['source']?.toString() ?? '';
+    NovelBookSource? source;
+    for (final candidate in sources) {
+      if (candidate.key == needle || candidate.name == needle) {
+        source = candidate;
+        break;
+      }
+    }
+    if (source == null) {
+      return <String, Object?>{'ok': false, 'error': 'source not found'};
+    }
+    try {
+      final content = await engine.contentFor(
+        source,
+        NovelRef(
+          id: args['bookId']?.toString() ?? '',
+          sourceKey: source.key,
+          bookUrl: args['bookUrl']?.toString() ?? '',
+        ),
+        NovelChapter(
+          id: args['chapterUrl']?.toString() ?? '',
+          title: args['chapterTitle']?.toString() ?? '',
+          index: args['chapterIndex'] is num
+              ? (args['chapterIndex'] as num).toInt()
+              : 0,
+          url: args['chapterUrl']?.toString() ?? '',
+        ),
+      );
+      return <String, Object?>{
+        'ok': true,
+        'title': content.title,
+        'paragraphs': content.paragraphs.length,
+        'first': content.paragraphs.isEmpty ? '' : content.paragraphs.first,
+      };
+    } on Object catch (error) {
+      return <String, Object?>{'ok': false, 'error': '$error'};
+    }
+  });
+  devRegisterCapability('novel.searchPage', (args) async {
+    final nav = MimaoApp.navigatorKey.currentState;
+    if (nav == null) {
+      return <String, Object?>{'ok': false, 'error': 'no navigator'};
+    }
+    await pushNovelRoute<void>(
+      nav.context,
+      NovelRoute.search,
+      args: <String, Object?>{'q': args['keyword']?.toString() ?? ''},
+    );
+    return <String, Object?>{'ok': true};
+  });
+  devRegisterCapability('novel.open', (args) async {
+    final nav = MimaoApp.navigatorKey.currentState;
+    if (nav == null) {
+      return <String, Object?>{'ok': false, 'error': 'no navigator'};
+    }
+    await pushNovelRoute<void>(
+      nav.context,
+      NovelRoute.bookInfo,
+      args: <String, Object?>{
+        'bookId': args['bookId']?.toString() ?? '',
+        'title': args['title']?.toString() ?? '',
+        'author': args['author']?.toString() ?? '',
+        'coverUrl': args['coverUrl']?.toString() ?? '',
+        'intro': args['intro']?.toString() ?? '',
+        'sourceKey': args['sourceKey']?.toString() ?? '',
+        'bookUrl': args['bookUrl']?.toString() ?? '',
+      },
+    );
+    return <String, Object?>{'ok': true};
+  });
 }
 
 /// 生产默认「我的」页构造器：C 线页面只认列表服务，续播缝在这里接到

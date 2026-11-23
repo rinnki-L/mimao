@@ -13,7 +13,7 @@ String novelDayKey(DateTime at) {
 /// 阅读统计与模块 kv 的真实实现。
 ///
 /// 统计只读内部库：书籍数看 `novel_history`，收藏数看 `novel_collect`，
-/// 时长读按天聚合表 [NovelReadingDays]。阅读页尚未接入时这些值都是真实的 0，
+/// 时长读按天聚合表 [NovelReadingDays]。阅读器退出/切章时上报真实时长；
 /// 不按章节数估算分钟。
 class NovelStatsService implements NovelStatsApi, NovelPrefsApi {
   NovelStatsService(this.db);

@@ -169,6 +169,7 @@ class _NovelDiscoverPageState extends State<NovelDiscoverPage> {
         'title': book.title,
         'author': book.author,
         'coverUrl': book.coverUrl,
+        'intro': book.intro,
         'sourceKey': book.sourceKey,
         'bookUrl': book.bookUrl,
       },

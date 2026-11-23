@@ -8,6 +8,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:mimao/core/navigation.dart';
 import 'package:mimao/core/theme.dart';
 import 'package:mimao/novel/library_api.dart';
 import 'package:mimao/novel/models/novel_models.dart';
@@ -20,6 +21,7 @@ class NovelHomePage extends StatefulWidget {
   const NovelHomePage({
     super.key,
     required this.active,
+    this.refreshTick = 0,
     this.collect,
     this.history,
     this.stats,
@@ -30,6 +32,9 @@ class NovelHomePage extends StatefulWidget {
 
   /// 当前 tab 是否可见；从别的 tab 切回来时重读本地数据。
   final bool active;
+
+  /// 从详情/阅读返回时递增，触发重新读取最近阅读与统计。
+  final int refreshTick;
 
   final NovelCollectApi? collect;
   final NovelHistoryApi? history;
@@ -42,13 +47,41 @@ class NovelHomePage extends StatefulWidget {
   State<NovelHomePage> createState() => _NovelHomePageState();
 }
 
-class _NovelHomePageState extends State<NovelHomePage> {
+class _NovelHomePageState extends State<NovelHomePage> with RouteAware {
   late Future<_HomeData> _future;
 
   @override
   void initState() {
     super.initState();
     _future = _load();
+  }
+
+  PageRoute<dynamic>? _route;
+  bool _routeSubscribed = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route is PageRoute<dynamic> && route != _route) {
+      if (_routeSubscribed && _route != null) {
+        mimaoRouteObserver.unsubscribe(this);
+      }
+      _route = route;
+      mimaoRouteObserver.subscribe(this, route);
+      _routeSubscribed = true;
+    }
+  }
+
+  @override
+  void dispose() {
+    if (_routeSubscribed) mimaoRouteObserver.unsubscribe(this);
+    super.dispose();
+  }
+
+  @override
+  void didPopNext() {
+    if (widget.active) _reload();
   }
 
   @override
@@ -60,7 +93,11 @@ class _NovelHomePageState extends State<NovelHomePage> {
         oldWidget.history != widget.history ||
         oldWidget.stats != widget.stats ||
         oldWidget.sourceImporter != widget.sourceImporter;
-    if (becameActive || servicesChanged) _reload();
+    if (becameActive ||
+        servicesChanged ||
+        oldWidget.refreshTick != widget.refreshTick) {
+      _reload();
+    }
   }
 
   void _reload() {

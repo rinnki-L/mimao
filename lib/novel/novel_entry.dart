@@ -2,8 +2,9 @@
 /// 小说模块对壳的唯一出口——实现 [AppModule]，由 app_registry 注入全部依赖
 /// （docs/architecture.md §4.3）。
 ///
-/// 页面只认注入的窄接口：书架/历史/搜索历史/统计/偏好/书源导入。书源引擎
-/// （搜索→目录→正文）尚未实现，所有依赖它的入口都落到可读的能力边界页。
+/// 页面只认注入的窄接口：书架/历史/搜索历史/统计/偏好/书源导入，以及
+/// `NovelOnlineEngine`（搜索→发现→目录→正文）。引擎未注入时页面回落到
+/// 本地快照/能力边界，不造假数据。
 library;
 
 import 'package:flutter/material.dart';
@@ -96,6 +97,7 @@ class NovelModule implements AppModule {
         titleHint: args['title']?.toString(),
         authorHint: args['author']?.toString(),
         coverUrlHint: args['coverUrl']?.toString(),
+        introHint: args['intro']?.toString(),
         sourceKey: args['sourceKey']?.toString(),
         bookUrl: args['bookUrl']?.toString(),
         onlineEngine: onlineEngine,
@@ -131,7 +133,8 @@ class NovelModule implements AppModule {
     );
     registerNovelRoutePage(
       NovelRoute.search,
-      (_) => NovelSearchPage(
+      (args) => NovelSearchPage(
+        initialQuery: args['q']?.toString(),
         collect: collectApi,
         history: historyApi,
         searchHistory: searchApi,

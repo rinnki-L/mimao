@@ -145,7 +145,9 @@ void main() {
         '/list/2.html',
       );
       expect(
-        await analyzer.getStringList('//ul[@id="novel-list"]/li[span]/a/text()'),
+        await analyzer.getStringList(
+          '//ul[@id="novel-list"]/li[span]/a/text()',
+        ),
         <String>['书名一', '书名二', '书名三'],
       );
     });

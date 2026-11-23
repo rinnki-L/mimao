@@ -157,7 +157,7 @@ class NovelStats {
   int get todayMinutes => todaySeconds ~/ 60;
 }
 
-/// 统计门面：阅读时长由阅读器上报（当前阅读页未接入，因此为 0），
+/// 统计门面：阅读时长由阅读器上报（阅读器切章/退出时累加），
 /// 目标分钟数落模块 kv，不估算、不伪造。
 abstract interface class NovelStatsApi {
   Future<NovelStats> snapshot();
