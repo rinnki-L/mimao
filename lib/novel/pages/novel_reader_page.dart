@@ -20,7 +20,6 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_tts/flutter_tts.dart';
 import 'package:mimao/core/theme.dart';
 import 'package:mimao/novel/engine/online_engine.dart';
 import 'package:mimao/novel/library_api.dart';
@@ -33,6 +32,7 @@ import 'package:mimao/novel/reader/novel_reader_settings_sheet.dart';
 import 'package:mimao/novel/reader/novel_search_sheet.dart';
 import 'package:mimao/novel/reader/novel_source_switch_sheet.dart';
 import 'package:mimao/novel/reader/novel_text_pagination.dart';
+import 'package:mimao/novel/reader/novel_tts.dart';
 import 'package:mimao/novel/source/novel_rule_model.dart';
 import 'package:mimao/novel/source/novel_rule_store.dart';
 import 'package:mimao/novel/source/novel_source_model.dart';
@@ -139,7 +139,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
   Timer? _settingsTimer;
   bool _torndown = false;
 
-  FlutterTts? _tts;
+  NovelTtsEngine? _tts;
   bool _speaking = false;
   int _ttsParagraph = 0;
 
@@ -724,17 +724,6 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     );
   }
 
-  void _handleTap(TapUpDetails details, double width) {
-    final dx = details.localPosition.dx;
-    if (dx < width * 0.3) {
-      _turnPage(-1);
-    } else if (dx > width * 0.7) {
-      _turnPage(1);
-    } else {
-      _toggleChrome();
-    }
-  }
-
   void _toggleChrome() {
     _chromeVisible.value = !_chromeVisible.value;
   }
@@ -836,28 +825,19 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
   }
 
   // ── 朗读 ──────────────────────────────────────────────────────────────
-  FlutterTts? _ensureTts() {
+  Future<NovelTtsEngine?> _ensureTts() async {
     if (_isTest) return null;
     final existing = _tts;
     if (existing != null) return existing;
+    final engine = createNovelTtsEngine();
+    if (engine == null) return null;
     try {
-      final tts = FlutterTts();
-      unawaited(_setupTts(tts));
-      _tts = tts;
-      return tts;
+      await engine.configure();
+      _tts = engine;
+      return engine;
     } on Object {
+      await engine.stop();
       return null;
-    }
-  }
-
-  Future<void> _setupTts(FlutterTts tts) async {
-    try {
-      await tts.setLanguage('zh-CN');
-      await tts.setSpeechRate(0.5);
-      await tts.setVolume(1.0);
-      await tts.awaitSpeakCompletion(true);
-    } on Object {
-      // 某些平台不支持逐词完成回调；朗读仍可排队进行。
     }
   }
 
@@ -868,7 +848,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     }
     final content = _content;
     if (content == null) return;
-    final tts = _ensureTts();
+    final tts = await _ensureTts();
     if (tts == null) {
       _showSnack('当前平台暂不支持朗读');
       return;
@@ -887,7 +867,10 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     return 0;
   }
 
-  Future<void> _speakParagraphs(FlutterTts tts, NovelContent content) async {
+  Future<void> _speakParagraphs(
+    NovelTtsEngine tts,
+    NovelContent content,
+  ) async {
     for (var i = _ttsParagraph; i < content.paragraphs.length; i++) {
       if (!_speaking || !mounted) return;
       _ttsParagraph = i;
@@ -932,23 +915,26 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
       isScrollControlled: true,
       backgroundColor: const Color(0x00000000),
       barrierColor: const Color(0x66000000),
-      builder: (sheetContext) => Padding(
-        padding: EdgeInsets.fromLTRB(
-          12,
-          0,
-          12,
-          MediaQuery.paddingOf(sheetContext).bottom + 12,
-        ),
-        child: NovelReaderSettingsSheet(
-          initial: _settings,
-          info: info,
-          onChanged: _applySettings,
-          onClose: () => Navigator.of(sheetContext).pop(),
-          onPreview: () {
-            preview = true;
-            Navigator.of(sheetContext).pop();
-          },
-          showAutoBrightness: _supportsAutoBrightness,
+      builder: (sheetContext) => _sheetTheme(
+        context,
+        Padding(
+          padding: EdgeInsets.fromLTRB(
+            12,
+            0,
+            12,
+            MediaQuery.paddingOf(sheetContext).bottom + 12,
+          ),
+          child: NovelReaderSettingsSheet(
+            initial: _settings,
+            info: info,
+            onChanged: _applySettings,
+            onClose: () => Navigator.of(sheetContext).pop(),
+            onPreview: () {
+              preview = true;
+              Navigator.of(sheetContext).pop();
+            },
+            showAutoBrightness: _supportsAutoBrightness,
+          ),
         ),
       ),
     );
@@ -970,11 +956,16 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     final picked = await showModalBottomSheet<int>(
       context: context,
       isScrollControlled: true,
-      builder: (sheetContext) => NovelCatalogSheet(
-        chapters: chapters,
-        currentIndex: _chapter?.index ?? 0,
-        settings: _settings,
-        onPick: (index) => Navigator.of(sheetContext).pop(index),
+      backgroundColor: _sheetThemeData().colorScheme.surfaceContainerLow,
+      showDragHandle: false,
+      builder: (sheetContext) => _sheetTheme(
+        context,
+        NovelCatalogSheet(
+          chapters: chapters,
+          currentIndex: _chapter?.index ?? 0,
+          settings: _settings,
+          onPick: (index) => Navigator.of(sheetContext).pop(index),
+        ),
       ),
     );
     if (mounted) _chromeVisible.value = true;
@@ -996,22 +987,31 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      builder: (sheetContext) => NovelSearchSheet(
-        chapterTitles: titles,
-        currentChapterIndex: _chapter?.index ?? 0,
-        loadChapter: (index) async {
-          if (index < 0 || index >= detail.chapters.length) {
-            return const <String>[];
-          }
-          final chapter = detail.chapters[index];
-          if (chapter.isVolume) return const <String>[];
-          final content = await engine.contentFor(source, detail.ref, chapter);
-          return content.paragraphs;
-        },
-        onPick: (chapterIndex, paragraph) {
-          Navigator.of(sheetContext).pop();
-          unawaited(_jumpToParagraph(chapterIndex, paragraph));
-        },
+      backgroundColor: _sheetThemeData().colorScheme.surfaceContainerLow,
+      showDragHandle: false,
+      builder: (sheetContext) => _sheetTheme(
+        context,
+        NovelSearchSheet(
+          chapterTitles: titles,
+          currentChapterIndex: _chapter?.index ?? 0,
+          loadChapter: (index) async {
+            if (index < 0 || index >= detail.chapters.length) {
+              return const <String>[];
+            }
+            final chapter = detail.chapters[index];
+            if (chapter.isVolume) return const <String>[];
+            final content = await engine.contentFor(
+              source,
+              detail.ref,
+              chapter,
+            );
+            return content.paragraphs;
+          },
+          onPick: (chapterIndex, paragraph) {
+            Navigator.of(sheetContext).pop();
+            unawaited(_jumpToParagraph(chapterIndex, paragraph));
+          },
+        ),
       ),
     );
     if (mounted) _chromeVisible.value = true;
@@ -1060,12 +1060,17 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     final hit = await showModalBottomSheet<NovelSourceHit>(
       context: context,
       isScrollControlled: true,
-      builder: (sheetContext) => NovelSourceSwitchSheet(
-        title: detail.title,
-        author: detail.author,
-        currentSourceKey: _source?.key ?? '',
-        sources: sources,
-        engine: engine,
+      backgroundColor: _sheetThemeData().colorScheme.surfaceContainerLow,
+      showDragHandle: false,
+      builder: (sheetContext) => _sheetTheme(
+        context,
+        NovelSourceSwitchSheet(
+          title: detail.title,
+          author: detail.author,
+          currentSourceKey: _source?.key ?? '',
+          sources: sources,
+          engine: engine,
+        ),
       ),
     );
     if (mounted) _chromeVisible.value = true;
@@ -1268,30 +1273,35 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     _chromeVisible.value = false;
     final picked = await showModalBottomSheet<String>(
       context: context,
-      builder: (sheetContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            ListTile(
-              key: const Key('novel-more-cache-all'),
-              leading: const Icon(Icons.download_for_offline_outlined),
-              title: const Text('缓存全本'),
-              subtitle: const Text('逐章抓取正文写入本地缓存'),
-              onTap: () => Navigator.of(sheetContext).pop('cache'),
-            ),
-            ListTile(
-              key: const Key('novel-more-info'),
-              leading: const Icon(Icons.info_outline),
-              title: const Text('书籍信息'),
-              onTap: () => Navigator.of(sheetContext).pop('info'),
-            ),
-            ListTile(
-              key: const Key('novel-more-settings'),
-              leading: const Icon(Icons.tune),
-              title: const Text('阅读设置'),
-              onTap: () => Navigator.of(sheetContext).pop('settings'),
-            ),
-          ],
+      backgroundColor: _sheetThemeData().colorScheme.surfaceContainerLow,
+      showDragHandle: false,
+      builder: (sheetContext) => _sheetTheme(
+        context,
+        SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              ListTile(
+                key: const Key('novel-more-cache-all'),
+                leading: const Icon(Icons.download_for_offline_outlined),
+                title: const Text('缓存全本'),
+                subtitle: const Text('逐章抓取正文写入本地缓存'),
+                onTap: () => Navigator.of(sheetContext).pop('cache'),
+              ),
+              ListTile(
+                key: const Key('novel-more-info'),
+                leading: const Icon(Icons.info_outline),
+                title: const Text('书籍信息'),
+                onTap: () => Navigator.of(sheetContext).pop('info'),
+              ),
+              ListTile(
+                key: const Key('novel-more-settings'),
+                leading: const Icon(Icons.tune),
+                title: const Text('阅读设置'),
+                onTap: () => Navigator.of(sheetContext).pop('settings'),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1370,6 +1380,27 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
       ..showSnackBar(SnackBar(content: Text(message)));
   }
 
+  /// 阅读页内浮层跟随阅读背景明暗：深色画布上不弹浅色面板。
+  ///
+  /// 主题里的 TextTheme 是「黑色基线」（见 lib/core/theme.dart），深色背景上
+  /// 直接复用会把标题/说明压成深灰；这里显式换成 onSurface。
+  ThemeData _sheetThemeData() {
+    final base = buildMimaoTheme(
+      seedColor: Theme.of(context).colorScheme.primary,
+      brightness: _settings.darkBackground ? Brightness.dark : Brightness.light,
+    );
+    final scheme = base.colorScheme;
+    return base.copyWith(
+      textTheme: base.textTheme.apply(
+        bodyColor: scheme.onSurface,
+        displayColor: scheme.onSurface,
+      ),
+    );
+  }
+
+  Widget _sheetTheme(BuildContext context, Widget child) =>
+      Theme(data: _sheetThemeData(), child: child);
+
   // ── 构建 ──────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
@@ -1418,10 +1449,33 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
                             ),
                           ),
                         Positioned.fill(
-                          child: GestureDetector(
-                            behavior: HitTestBehavior.translucent,
-                            onTapUp: (details) =>
-                                _handleTap(details, constraints.maxWidth),
+                          child: Row(
+                            children: <Widget>[
+                              Expanded(
+                                flex: 3,
+                                child: GestureDetector(
+                                  key: const Key('novel-reader-tap-prev'),
+                                  behavior: HitTestBehavior.translucent,
+                                  onTap: () => _turnPage(-1),
+                                ),
+                              ),
+                              Expanded(
+                                flex: 4,
+                                child: GestureDetector(
+                                  key: const Key('novel-reader-tap-center'),
+                                  behavior: HitTestBehavior.translucent,
+                                  onTap: _toggleChrome,
+                                ),
+                              ),
+                              Expanded(
+                                flex: 3,
+                                child: GestureDetector(
+                                  key: const Key('novel-reader-tap-next'),
+                                  behavior: HitTestBehavior.translucent,
+                                  onTap: () => _turnPage(1),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                         if (_settings.showFooter)
@@ -1429,23 +1483,37 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
                             left: 0,
                             right: 0,
                             bottom: 0,
-                            child: ValueListenableBuilder<double>(
-                              valueListenable: _scrollRatio,
-                              builder: (context, _, __) {
-                                final page = _currentPage(pageCount);
-                                return NovelReaderFooter(
-                                  settings: _settings,
-                                  chapterTitle:
-                                      _chapter?.title ??
-                                      widget.chapterTitle ??
-                                      '',
-                                  bookTitle:
-                                      _detail?.title ?? widget.title ?? '',
-                                  page: page,
-                                  pageCount: pageCount,
-                                  percent: _bookPercent(page, pageCount),
-                                );
-                              },
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  colors: <Color>[
+                                    background.withValues(alpha: 0),
+                                    background.withValues(alpha: 0.92),
+                                    background,
+                                  ],
+                                  stops: const <double>[0, 0.55, 1],
+                                ),
+                              ),
+                              child: ValueListenableBuilder<double>(
+                                valueListenable: _scrollRatio,
+                                builder: (context, _, __) {
+                                  final page = _currentPage(pageCount);
+                                  return NovelReaderFooter(
+                                    settings: _settings,
+                                    chapterTitle:
+                                        _chapter?.title ??
+                                        widget.chapterTitle ??
+                                        '',
+                                    bookTitle:
+                                        _detail?.title ?? widget.title ?? '',
+                                    page: page,
+                                    pageCount: pageCount,
+                                    percent: _bookPercent(page, pageCount),
+                                  );
+                                },
+                              ),
                             ),
                           ),
                         _buildTopBar(),

@@ -24,8 +24,12 @@ void main() {
       dimBrightness: 60,
       pageMode: NovelPageMode.page,
       pageAnimation: false,
+      pageAnimationMs: 400,
       autoPageSeconds: 30,
       showFooter: false,
+      footerLeft: NovelFooterLeft.book,
+      footerRight: NovelFooterRight.percent,
+      eyeProtection: true,
       autoBrightness: true,
     );
     final restored = NovelReaderSettings.deserialize(settings.serialize());
@@ -38,8 +42,12 @@ void main() {
     expect(restored.dimBrightness, 60);
     expect(restored.pageMode, NovelPageMode.page);
     expect(restored.pageAnimation, isFalse);
+    expect(restored.pageAnimationMs, 400);
     expect(restored.autoPageSeconds, 30);
     expect(restored.showFooter, isFalse);
+    expect(restored.footerLeft, NovelFooterLeft.book);
+    expect(restored.footerRight, NovelFooterRight.percent);
+    expect(restored.eyeProtection, isTrue);
     expect(restored.autoBrightness, isTrue);
   });
 

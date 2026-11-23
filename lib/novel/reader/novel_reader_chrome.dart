@@ -577,10 +577,15 @@ class _NovelCatalogSheetState extends State<NovelCatalogSheet> {
                   return ListTile(
                     dense: true,
                     selected: selected,
+                    selectedTileColor: theme.colorScheme.secondaryContainer
+                        .withValues(alpha: 0.55),
                     title: Text(
                       chapter.title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
+                      style: selected
+                          ? TextStyle(color: theme.colorScheme.primary)
+                          : null,
                     ),
                     trailing: chapter.isVip
                         ? Icon(Icons.lock_outline, size: 14, color: secondary)

@@ -42,7 +42,10 @@ class NovelSourceSwitchSheet extends StatefulWidget {
 }
 
 class _NovelSourceSwitchSheetState extends State<NovelSourceSwitchSheet> {
-  static const int _concurrency = 6;
+  static const int _concurrency = 8;
+
+  /// 单个源的搜索超时：源多时不能让一个死源拖住整轮。
+  static const Duration _perSourceTimeout = Duration(seconds: 8);
 
   bool _searching = true;
   bool _cancelled = false;
@@ -84,10 +87,9 @@ class _NovelSourceSwitchSheetState extends State<NovelSourceSwitchSheet> {
         if (index >= candidates.length) return;
         final source = candidates[index];
         try {
-          final results = await widget.engine.searchSource(
-            source,
-            widget.title,
-          );
+          final results = await widget.engine
+              .searchSource(source, widget.title)
+              .timeout(_perSourceTimeout);
           final matched = results.where(_matches).take(3);
           for (final book in matched) {
             hits.add(NovelSourceHit(source: source, book: book));

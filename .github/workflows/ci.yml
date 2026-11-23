@@ -319,6 +319,18 @@ jobs:
           set -euo pipefail
           flutter pub get --enforce-lockfile
 
+      # flutter_tts 的 Windows 端在 CMake 里 find_program(nuget) 并拉 C++/WinRT；
+      # runner 没有 nuget.exe 时构建直接 FATAL_ERROR，与代码无关。
+      - name: 确保 nuget.exe——flutter_tts 的 Windows C++/WinRT 依赖
+        run: |
+          set -euo pipefail
+          if command -v nuget >/dev/null 2>&1; then
+            echo "nuget 已预装，跳过下载"
+          else
+            curl -sSfL -o "$RUNNER_TEMP/nuget.exe" https://dist.nuget.org/win-x86-commandline/latest/nuget.exe
+            printf '%s\n' "$RUNNER_TEMP" >> "$GITHUB_PATH"
+          fi
+
       # 第七扇门（Windows）：runner 预装 Visual Studio C++ 工作负载，release 构建失败即红
       - name: 构建门——Windows release 产物
         run: |
