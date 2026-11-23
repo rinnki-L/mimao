@@ -101,17 +101,19 @@ void main() {
       expect(find.text(label), findsOneWidget);
     }
 
-    // 订阅源：空态 → 弹窗导入 → 列表出现。
+    // 订阅源：默认订阅站点「喵公子」本来就算订阅源，应该直接出现在这里。
     await tester.tap(find.text('订阅源'));
     await tester.pumpAndSettle();
-    expect(find.text('还没有订阅源'), findsOneWidget);
+    expect(find.text('订阅站点'), findsOneWidget);
+    expect(find.text('喵公子书源管理'), findsOneWidget);
+    expect(find.text('还没有订阅源'), findsNothing);
     fetcher.text = jsonEncode(<Object?>[
       <String, Object?>{
         'sourceName': '某 RSS',
         'sourceUrl': 'https://rss.example/feed',
       },
     ]);
-    await tester.tap(find.byKey(const Key('novel-rss-import-empty')));
+    await tester.tap(find.byKey(const Key('novel-rss-paste-import')));
     await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const Key('novel-rule-import-link')),
@@ -123,6 +125,9 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
 
     expect(find.text('某 RSS'), findsOneWidget);
+    expect(find.text('RSS 订阅规则'), findsOneWidget);
+    // 订阅站点与导入的 RSS 规则同屏展示，互不覆盖。
+    expect(find.text('喵公子书源管理'), findsOneWidget);
     expect(find.textContaining('已导入 1 个订阅源'), findsOneWidget);
     expect(rssStore.sources, hasLength(1));
     expect(store.sources, isEmpty);

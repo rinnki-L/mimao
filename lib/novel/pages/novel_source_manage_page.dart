@@ -19,6 +19,11 @@ import '../source/novel_rule_model.dart';
 import '../source/novel_source_importer.dart';
 import '../source/novel_source_model.dart';
 import '../source/novel_source_store.dart' show NovelSourceStorage;
+import '../source/novel_subscription.dart'
+    show
+        NovelSourceSubscription,
+        NovelSubscriptionStore,
+        defaultNovelSubscription;
 import 'novel_rule_import_dialog.dart';
 import 'novel_widgets.dart';
 
@@ -28,6 +33,7 @@ class NovelSourceManagePage extends StatefulWidget {
     super.key,
     required this.store,
     required this.importer,
+    this.subscriptionStore,
     this.siteUrl = novelSourceSiteUrl,
     this.initialTab = NovelRuleKind.bookSource,
     this.webViewBuilder,
@@ -35,6 +41,10 @@ class NovelSourceManagePage extends StatefulWidget {
 
   final NovelSourceStorage store;
   final NovelSourceImporter importer;
+
+  /// 订阅站点仓库：订阅页里的「喵公子」等条目也属于订阅源。
+  /// null 时显示内置默认订阅（与订阅页的回落一致）。
+  final NovelSubscriptionStore? subscriptionStore;
   final String siteUrl;
 
   /// 进场默认选中的分类（书源 / 订阅源 / 替换规则）。
@@ -67,6 +77,8 @@ class _NovelSourceManagePageState extends State<NovelSourceManagePage>
   List<NovelBookSource> _sources = const <NovelBookSource>[];
   List<NovelRssSource> _rssSources = const <NovelRssSource>[];
   List<NovelReplaceRule> _replaceRules = const <NovelReplaceRule>[];
+  List<NovelSourceSubscription> _subscriptions =
+      const <NovelSourceSubscription>[defaultNovelSubscription];
 
   @override
   void initState() {
@@ -91,11 +103,16 @@ class _NovelSourceManagePageState extends State<NovelSourceManagePage>
       final rules = replaceStore == null
           ? const <NovelReplaceRule>[]
           : await replaceStore.loadAll();
+      final subscriptionStore = widget.subscriptionStore;
+      final subscriptions = subscriptionStore == null
+          ? const <NovelSourceSubscription>[defaultNovelSubscription]
+          : await subscriptionStore.loadAll();
       if (!mounted) return;
       setState(() {
         _sources = sources;
         _rssSources = rss;
         _replaceRules = rules;
+        _subscriptions = subscriptions;
         _loading = false;
       });
     } on Object catch (error) {
@@ -242,8 +259,8 @@ class _NovelSourceManagePageState extends State<NovelSourceManagePage>
             kind: NovelRuleKind.rssSource,
             key: const Key('novel-rss-paste-import'),
             description:
-                '订阅源（RSS）与书源分开保存。'
-                '当前可导入、启停和删除；RSS 文章阅读尚未接入。',
+                '订阅站点（如「喵公子书源管理」）和导入的 RSS 订阅规则都在这里。'
+                'RSS 规则可导入、启停和删除；文章阅读尚未接入。',
           ),
           _Feedback(importing: _importing, status: _status, error: _error),
           Expanded(child: _buildRssList()),
@@ -353,11 +370,18 @@ class _NovelSourceManagePageState extends State<NovelSourceManagePage>
     );
   }
 
+  /// 订阅源 tab：先列订阅站点（订阅页那批），再列导入的 RSS 订阅规则。
+  ///
+  /// 两者在用户语义里都叫「订阅源」：订阅站点是书源的来源站点（默认为
+  /// 「喵公子书源管理」），RSS 是 Legado `rsssource` 规则。订阅站点只读展示，
+  /// 点按切回「书源」分类看它导入的源。
   Widget _buildRssList() {
     if (_loading) {
       return const NovelLoadingState(label: '正在读取订阅源…');
     }
-    if (_rssSources.isEmpty) {
+    final hasSubscriptions = _subscriptions.isNotEmpty;
+    final hasRss = _rssSources.isNotEmpty;
+    if (!hasSubscriptions && !hasRss) {
       return NovelEmptyState(
         icon: Icons.rss_feed,
         title: '还没有订阅源',
@@ -370,32 +394,59 @@ class _NovelSourceManagePageState extends State<NovelSourceManagePage>
         ),
       );
     }
+    final theme = Theme.of(context);
     final store = widget.importer.rssStore;
-    return ListView.separated(
-      padding: const EdgeInsets.only(bottom: 24),
-      itemCount: _rssSources.length,
-      separatorBuilder: (_, _) => const SizedBox(height: 8),
-      itemBuilder: (context, index) {
-        final source = _rssSources[index];
-        return _RuleCard(
-          icon: Icons.rss_feed,
-          title: source.name,
-          subtitle: source.url,
-          tag: source.group,
-          enabled: source.enabled,
-          onToggle: store == null
-              ? null
-              : (value) async {
-                  await store.setEnabled(source.key, value);
-                  await _reloadAll();
-                },
-          onDelete: () => _confirmDelete(
-            title: '删除订阅源「${source.name}」？',
-            message: '只会删除本机保存的规则，不影响订阅源网站。',
-            onDelete: () async => await store?.delete(source.key) ?? false,
+    return ListView(
+      padding: const EdgeInsets.only(top: 12, bottom: 24),
+      children: <Widget>[
+        if (hasSubscriptions) ...<Widget>[
+          const NovelSectionHeader(icon: Icons.rss_feed, title: '订阅站点'),
+          const SizedBox(height: 8),
+          for (final subscription in _subscriptions) ...<Widget>[
+            _SubscriptionSiteCard(
+              subscription: subscription,
+              sourceCount: _sources.length,
+              onOpen: () => _tabs.animateTo(NovelRuleKind.bookSource.index),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ],
+        const SizedBox(height: 12),
+        if (hasRss) ...<Widget>[
+          const NovelSectionHeader(
+            icon: Icons.subscriptions_outlined,
+            title: 'RSS 订阅规则',
           ),
-        );
-      },
+          const SizedBox(height: 8),
+          for (final source in _rssSources) ...<Widget>[
+            _RuleCard(
+              icon: Icons.rss_feed,
+              title: source.name,
+              subtitle: source.url,
+              tag: source.group,
+              enabled: source.enabled,
+              onToggle: store == null
+                  ? null
+                  : (value) async {
+                      await store.setEnabled(source.key, value);
+                      await _reloadAll();
+                    },
+              onDelete: () => _confirmDelete(
+                title: '删除订阅源「${source.name}」？',
+                message: '只会删除本机保存的规则，不影响订阅源网站。',
+                onDelete: () async => await store?.delete(source.key) ?? false,
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ] else
+          Text(
+            'RSS 订阅规则可以从上方「导入订阅源」添加。',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+      ],
     );
   }
 
@@ -514,6 +565,76 @@ class _Feedback extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+/// 订阅站点卡：名称 + 书源数量 + 备注 + 站点地址，点按切到「书源」分类。
+class _SubscriptionSiteCard extends StatelessWidget {
+  const _SubscriptionSiteCard({
+    required this.subscription,
+    required this.sourceCount,
+    required this.onOpen,
+  });
+
+  final NovelSourceSubscription subscription;
+  final int sourceCount;
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    return NovelCard(
+      onTap: onOpen,
+      padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
+      child: Row(
+        children: <Widget>[
+          NovelSourceBadge(name: subscription.name, size: 44),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  subscription.name,
+                  style: theme.textTheme.titleSmall,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '$sourceCount 个书源 · 点按查看书源',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: cs.onSurfaceVariant,
+                  ),
+                ),
+                if (subscription.note.isNotEmpty) ...<Widget>[
+                  const SizedBox(height: 4),
+                  Text(
+                    subscription.note,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: cs.onSurfaceVariant,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+                const SizedBox(height: 4),
+                Text(
+                  subscription.siteUrl,
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: cs.primary,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          Icon(Icons.chevron_right, color: cs.onSurfaceVariant),
+        ],
+      ),
     );
   }
 }

@@ -102,6 +102,7 @@ class NovelModule implements AppModule {
           : (args) => NovelSourceManagePage(
               store: importer.store,
               importer: importer,
+              subscriptionStore: subscriptionStore,
               initialTab: _ruleKindFromTab(args['tab']),
             ),
     );
