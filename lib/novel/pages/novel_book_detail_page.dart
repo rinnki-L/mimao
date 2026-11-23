@@ -204,7 +204,9 @@ class _NovelBookDetailPageState extends State<NovelBookDetailPage> {
 
   Future<void> _openRead(_DetailData data) async {
     final chapters = data.online?.chapters ?? const <NovelChapter>[];
-    final index = data.history?.chapterIndex ?? 0;
+    // 历史 chapterIndex 是 1 起的章号（0=无进度），目录 index 是 0 起的数组下标。
+    final chapterNumber = data.history?.chapterIndex ?? 0;
+    final index = chapterNumber <= 0 ? 0 : chapterNumber - 1;
     final chapter = chapters.isEmpty
         ? null
         : chapters[index.clamp(0, chapters.length - 1)];

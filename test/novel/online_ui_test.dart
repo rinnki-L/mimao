@@ -152,6 +152,10 @@ class _FailingEngine extends _FakeEngine {
 }
 
 class _FakeHistory implements NovelHistoryApi {
+  _FakeHistory({this.resumeChapterNumber = 0});
+
+  /// 历史库存的 1 起章号；0 = 无进度。
+  final int resumeChapterNumber;
   final List<int> saved = <int>[];
 
   @override
@@ -167,7 +171,15 @@ class _FakeHistory implements NovelHistoryApi {
   }
 
   @override
-  Future<NovelHistoryItem?> latest(String bookId) async => null;
+  Future<NovelHistoryItem?> latest(String bookId) async =>
+      resumeChapterNumber <= 0
+          ? null
+          : NovelHistoryItem(
+              book: _book,
+              chapterIndex: resumeChapterNumber,
+              chapterCount: 2,
+              openedAt: DateTime(2026, 1, 1),
+            );
 
   @override
   Future<List<NovelHistoryItem>> recent({int limit = 50}) async =>
@@ -237,6 +249,38 @@ void main() {
     expect(captured?['sourceKey'], 'src1');
   });
 
+  testWidgets('详情页续读：历史 1 起章号换回目录 0 起下标', (tester) async {
+    NovelRoute? opened;
+    Map<String, Object?>? captured;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: NovelBookDetailPage(
+          bookId: _book.id,
+          titleHint: _book.title,
+          sourceKey: 'src1',
+          bookUrl: _book.bookUrl,
+          onlineEngine: _FakeEngine(),
+          sourceStore: _FakeStore(),
+          history: _FakeHistory(resumeChapterNumber: 2),
+          openRoute: (route, {args = const <String, Object?>{}}) async {
+            opened = route;
+            captured = args;
+          },
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+
+    // 「继续阅读」用历史章号 2 找到 0 起 index=1 的第二章。
+    await tester.tap(find.text('继续阅读'));
+    await tester.pumpAndSettle();
+    expect(opened, NovelRoute.read);
+    expect(captured?['chapterIndex'], 1);
+    expect(captured?['chapterId'], 'https://site.test/book/1/2');
+  });
+
   testWidgets('阅读器：正文、翻章与进度上报', (tester) async {
     final engine = _FakeEngine();
     final history = _FakeHistory();
@@ -258,12 +302,13 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('第一章的正文'), findsOneWidget);
-    expect(history.saved, <int>[0]);
+    // 历史库存的是 1 起章号：0 起引擎索引 +1，第 1 章落库为 1（不是 0）。
+    expect(history.saved, <int>[1]);
 
     await tester.tap(find.text('下一章'));
     await tester.pumpAndSettle();
     expect(find.text('第二章的正文'), findsOneWidget);
-    expect(history.saved, <int>[0, 1]);
+    expect(history.saved, <int>[1, 2]);
   });
 
   testWidgets('搜索页：全部源失败时展示失败摘要', (tester) async {

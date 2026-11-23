@@ -232,9 +232,12 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
         _content = content;
         _loadingContent = false;
       });
+      // 引擎的 chapter.index 是 0 起（对齐 legado），历史库存的"读到第几章"
+      // 是 1 起且 0 表示无进度（novel_db.dart 的契约）。落库前 +1，否则第 1 章
+      // （index=0）会被当成"没读"显示"读过"，第 N 章少显示一章。
       await widget.history?.saveProgress(
         detail.summary,
-        chapter.index,
+        chapter.index + 1,
         detail.chapters.length,
       );
       _session

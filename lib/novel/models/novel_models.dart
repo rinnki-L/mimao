@@ -66,8 +66,11 @@ class NovelRef {
 
 /// 章节进度文案：有可计算进度时返回「看到第 N 章 · P%」，否则返回 [novelReadText]。
 ///
-/// 纯函数、无副作用；百分比按 chapterIndex/chapterCount 计算并 clamp 到 0..100
+/// 纯函数、无副作用。入参遵循历史库契约：chapterIndex 是 **1 起的章号**，
+/// 0 表示无进度；百分比按 chapterIndex/chapterCount 计算并 clamp 到 0..100
 /// 后取整。chapterCount<=0 或 chapterIndex<=0 视为「无可计算进度」。
+/// 书源引擎的 0 起 chapter.index 在落库前由阅读页 +1（见 novel_reader_page.dart），
+/// 不要在这里再转换。
 String novelProgressText({
   required int chapterIndex,
   required int chapterCount,
