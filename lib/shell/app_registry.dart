@@ -54,6 +54,9 @@ import 'package:mimao/music/search_history_service.dart';
 import 'package:mimao/novel/collect_service.dart';
 import 'package:mimao/novel/history_service.dart';
 import 'package:mimao/novel/library_api.dart';
+import 'package:mimao/novel/cache/file_novel_cache.dart';
+import 'package:mimao/novel/engine/legado_engine.dart';
+import 'package:mimao/novel/engine/online_engine.dart';
 import 'package:mimao/novel/novel_db.dart';
 import 'package:mimao/novel/novel_entry.dart';
 import 'package:mimao/novel/search_history_service.dart';
@@ -185,6 +188,9 @@ Future<void> initAppModules({
   /// 注册期零 I/O——用户不点书源功能就不碰 path_provider。
   NovelSourceImporter? novelSourceImporter,
   NovelSourceFetcher? novelSourceFetcher,
+
+  /// 在线书源引擎注入缝；生产构造 LegadoNovelEngine（懒加载正文缓存）。
+  NovelOnlineEngine? novelOnlineEngine,
 }) async {
   // 每次装配都是一次干净开始；避免旧的已关闭 DB 残留在表里。
   await _resetOwnedDb();
@@ -501,6 +507,8 @@ Future<void> initAppModules({
             novelSourceFetcher ?? DioNovelSourceFetcher(),
           );
       appModules[MediaType.novel] = NovelModule(
+        onlineEngine:
+            novelOnlineEngine ?? LegadoNovelEngine(cache: DefaultNovelCache()),
         collect: collectApi,
         history: historyApi,
         searchHistory: searchHistoryApi,

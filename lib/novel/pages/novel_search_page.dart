@@ -6,14 +6,20 @@
 /// 点书进详情、点书源进管理，不伪造搜索结果。
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:mimao/core/theme.dart';
+import 'package:mimao/novel/engine/online_engine.dart';
 import 'package:mimao/novel/library_api.dart';
 import 'package:mimao/novel/models/novel_models.dart';
 import 'package:mimao/novel/pages/novel_routes.dart';
 import 'package:mimao/novel/pages/novel_widgets.dart';
 import 'package:mimao/novel/source/novel_source_importer.dart';
+import 'package:mimao/novel/source/novel_source_store.dart';
 import 'package:mimao/novel/source/novel_source_model.dart';
+
+const int _onlineSourceLimit = 60;
 
 class NovelSearchPage extends StatefulWidget {
   const NovelSearchPage({
@@ -22,6 +28,8 @@ class NovelSearchPage extends StatefulWidget {
     this.history,
     this.searchHistory,
     this.sourceImporter,
+    this.onlineEngine,
+    this.sourceStore,
     this.openRoute,
   });
 
@@ -29,6 +37,8 @@ class NovelSearchPage extends StatefulWidget {
   final NovelHistoryApi? history;
   final NovelSearchHistoryApi? searchHistory;
   final NovelSourceImporter? sourceImporter;
+  final NovelOnlineEngine? onlineEngine;
+  final NovelSourceStorage? sourceStore;
   final NovelRouteOpener? openRoute;
 
   @override
@@ -44,6 +54,14 @@ class _NovelSearchPageState extends State<NovelSearchPage> {
   bool _loading = false;
   String? _error;
   _SearchResults _results = _SearchResults.empty;
+
+  final List<_OnlineGroup> _onlineGroups = <_OnlineGroup>[];
+  bool _onlineSearching = false;
+  int _onlineDone = 0;
+  int _onlineTotal = 0;
+  int _onlineFailures = 0;
+  String? _onlineError;
+  int _searchToken = 0;
 
   @override
   void initState() {
@@ -80,10 +98,17 @@ class _NovelSearchPageState extends State<NovelSearchPage> {
     }
     _controller.text = keyword;
     _controller.selection = TextSelection.collapsed(offset: keyword.length);
+    final token = ++_searchToken;
     setState(() {
       _query = keyword;
       _loading = true;
       _error = null;
+      _onlineGroups.clear();
+      _onlineSearching = false;
+      _onlineDone = 0;
+      _onlineTotal = 0;
+      _onlineFailures = 0;
+      _onlineError = null;
     });
     try {
       await widget.searchHistory?.record(keyword);
@@ -98,6 +123,7 @@ class _NovelSearchPageState extends State<NovelSearchPage> {
         _results = results;
         _loading = false;
       });
+      unawaited(_searchOnline(keyword, token));
     } on Object catch (error) {
       if (!mounted) return;
       setState(() {
@@ -186,12 +212,122 @@ class _NovelSearchPageState extends State<NovelSearchPage> {
     );
   }
 
+  static const int _onlineConcurrency = 6;
+
+  Future<void> _searchOnline(String keyword, int token) async {
+    final engine = widget.onlineEngine;
+    final store = widget.sourceStore ?? widget.sourceImporter?.store;
+    if (engine == null || store == null) return;
+    List<NovelBookSource> all;
+    try {
+      all = await store.loadAll();
+    } on Object catch (error) {
+      if (token != _searchToken || !mounted) return;
+      setState(() => _onlineError = '书源读取失败：$error');
+      return;
+    }
+    final searchable =
+        <NovelBookSource>[
+          for (final source in all)
+            if (source.enabled &&
+                source.type == 0 &&
+                source.searchUrl.trim().isNotEmpty &&
+                source.searchUrl.trim() != '-')
+              source,
+        ]..sort((a, b) {
+          final weight = b.weight.compareTo(a.weight);
+          if (weight != 0) return weight;
+          return a.name.compareTo(b.name);
+        });
+    final selected = searchable.take(_onlineSourceLimit).toList();
+    if (token != _searchToken || !mounted) return;
+    if (selected.isEmpty) {
+      setState(() {
+        _onlineSearching = false;
+        _onlineTotal = 0;
+        _onlineError = '没有可搜索的启用书源（文本类型且配置了搜索地址）';
+      });
+      return;
+    }
+    setState(() {
+      _onlineSearching = true;
+      _onlineTotal = selected.length;
+      _onlineDone = 0;
+      _onlineFailures = 0;
+      _onlineGroups.clear();
+      _onlineError = null;
+    });
+
+    final queue = List<NovelBookSource>.of(selected);
+    final groups = <String, _OnlineGroup>{};
+    final failures = <String>[];
+    var done = 0;
+    Future<void> worker() async {
+      while (queue.isNotEmpty) {
+        if (token != _searchToken) return;
+        final source = queue.removeAt(0);
+        try {
+          final books = await engine
+              .searchSource(source, keyword)
+              .timeout(const Duration(seconds: 12));
+          if (token != _searchToken) return;
+          final visible = <NovelSummary>[
+            for (final book in books)
+              if (book.type == 0) book,
+          ];
+          if (visible.isNotEmpty) {
+            groups[source.key] = _OnlineGroup(source: source, books: visible);
+          }
+        } on Object catch (error) {
+          if (failures.length < 3) {
+            failures.add('${source.name}：$error');
+          }
+        } finally {
+          if (token == _searchToken) {
+            done++;
+            final sorted = groups.values.toList()
+              ..sort((a, b) => a.source.name.compareTo(b.source.name));
+            if (mounted) {
+              setState(() {
+                _onlineDone = done;
+                _onlineFailures = failures.length;
+                _onlineGroups
+                  ..clear()
+                  ..addAll(sorted);
+              });
+            }
+          }
+        }
+      }
+    }
+
+    final workers = selected.length < _onlineConcurrency
+        ? selected.length
+        : _onlineConcurrency;
+    await Future.wait(<Future<void>>[
+      for (var i = 0; i < workers; i++) worker(),
+    ]);
+    if (token != _searchToken || !mounted) return;
+    setState(() {
+      _onlineSearching = false;
+      _onlineDone = selected.length;
+      _onlineError = failures.isEmpty ? null : failures.join('\n');
+    });
+  }
+
   Future<void> _openBook(_SearchBook item) async {
     await openNovelRoute(
       context,
       widget.openRoute,
       NovelRoute.bookInfo,
-      args: <String, Object?>{'bookId': item.book.id, 'title': item.book.title},
+      args: <String, Object?>{
+        'bookId': item.book.id,
+        'title': item.book.title,
+        'author': item.book.author,
+        'coverUrl': item.book.coverUrl,
+        'sourceKey': item.book.sourceKey,
+        'bookUrl': item.book.bookUrl,
+      },
     );
   }
 
@@ -208,6 +344,90 @@ class _NovelSearchPageState extends State<NovelSearchPage> {
         _terms = const <String>[];
       });
     }
+  }
+
+  Widget _buildOnlineSection(ThemeData theme, ColorScheme cs) {
+    final truncated = _onlineTotal >= _onlineSourceLimit;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Row(
+          children: <Widget>[
+            Expanded(
+              child: Text(
+                '在线书源 · ${_onlineGroups.length} 个源命中',
+                style: theme.textTheme.titleSmall,
+              ),
+            ),
+            if (_onlineSearching)
+              Text(
+                '$_onlineDone/$_onlineTotal',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: cs.onSurfaceVariant,
+                ),
+              ),
+          ],
+        ),
+        if (_onlineSearching) ...<Widget>[
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(MimaoRadii.pill),
+            child: LinearProgressIndicator(
+              value: _onlineTotal == 0 ? null : _onlineDone / _onlineTotal,
+              minHeight: 5,
+              backgroundColor: cs.surfaceContainerHighest,
+            ),
+          ),
+        ],
+        const SizedBox(height: 10),
+        if (_onlineGroups.isNotEmpty)
+          for (final group in _onlineGroups) ...<Widget>[
+            _ResultSection(
+              title: group.source.name,
+              count: group.books.length,
+              child: Column(
+                children: <Widget>[
+                  for (final book in group.books)
+                    _SearchBookRow(
+                      item: _SearchBook(book: book),
+                      onTap: () => _openBook(_SearchBook(book: book)),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+          ]
+        else if (!_onlineSearching && _onlineTotal > 0)
+          NovelEmptyState(
+            icon: Icons.travel_explore,
+            title: '在线书源没有结果',
+            message:
+                '已搜 $_onlineTotal 个源，${_onlineFailures > 0 ? '$_onlineFailures 个失败或超时。' : ''}'
+                '换一个关键词，或到「发现」里按源查看。',
+          ),
+        if (_onlineError != null && _onlineGroups.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              _onlineError!,
+              maxLines: 4,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall?.copyWith(color: cs.error),
+            ),
+          ),
+        if (truncated)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              '每次最多并发搜索前 $_onlineSourceLimit 个启用书源（按权重）。'
+              '其余书源可在「发现」里单独搜索。',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: cs.onSurfaceVariant,
+              ),
+            ),
+          ),
+      ],
+    );
   }
 
   @override
@@ -245,7 +465,7 @@ class _NovelSearchPageState extends State<NovelSearchPage> {
               ],
             ),
             const SizedBox(height: 14),
-            _BoundaryBanner(),
+            _BoundaryBanner(online: widget.onlineEngine != null),
             if (_terms.isNotEmpty) ...<Widget>[
               const SizedBox(height: 20),
               Row(
@@ -330,6 +550,10 @@ class _NovelSearchPageState extends State<NovelSearchPage> {
                       ),
                     ),
                   ],
+                  if (widget.onlineEngine != null) ...<Widget>[
+                    const SizedBox(height: 24),
+                    _buildOnlineSection(theme, cs),
+                  ],
                 ],
               ],
             ],
@@ -359,6 +583,13 @@ class _SearchResults {
   bool get isEmpty => books.isEmpty && sources.isEmpty;
 }
 
+class _OnlineGroup {
+  const _OnlineGroup({required this.source, required this.books});
+
+  final NovelBookSource source;
+  final List<NovelSummary> books;
+}
+
 class _SearchBook {
   const _SearchBook({required this.book, this.history, this.collected = false});
 
@@ -368,6 +599,9 @@ class _SearchBook {
 }
 
 class _BoundaryBanner extends StatelessWidget {
+  const _BoundaryBanner({required this.online});
+
+  final bool online;
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -385,8 +619,11 @@ class _BoundaryBanner extends StatelessWidget {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              '当前只搜本地书架、阅读记录与已导入书源。'
-              '跨源搜索（书源引擎）尚未接入。',
+              online
+                  ? '同时搜索本地书架与已启用书源；在线结果按书源分组，'
+                        '最多并发搜前 $_onlineSourceLimit 个源（按权重）。'
+                  : '当前只搜本地书架、阅读记录与已导入书源。'
+                        '在线书源引擎未注入。',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: cs.onSurfaceVariant,
               ),

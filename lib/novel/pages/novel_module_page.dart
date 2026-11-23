@@ -11,6 +11,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:mimao/core/theme.dart';
 import 'package:mimao/novel/booklist_io.dart';
+import 'package:mimao/novel/engine/online_engine.dart';
 import 'package:mimao/novel/library_api.dart';
 import 'package:mimao/novel/pages/novel_discover_page.dart';
 import 'package:mimao/novel/pages/novel_home_page.dart';
@@ -29,6 +30,7 @@ class NovelModulePage extends StatefulWidget {
     this.history,
     this.searchHistory,
     this.sourceImporter,
+    this.onlineEngine,
     this.stats,
     this.prefs,
     this.booklistGate,
@@ -49,6 +51,9 @@ class NovelModulePage extends StatefulWidget {
 
   /// 书源导入门面（由 NovelModule 注入）。null 时书源页显示能力边界说明。
   final NovelSourceImporter? sourceImporter;
+
+  /// 在线书源引擎（由 NovelModule 注入）；null 时发现/搜索走本地能力。
+  final NovelOnlineEngine? onlineEngine;
 
   /// 阅读统计/模块偏好（生产注入同一实例）。null 时统计显示 0、偏好用默认值。
   final NovelStatsApi? stats;
@@ -106,6 +111,7 @@ class _NovelModulePageState extends State<NovelModulePage> {
       NovelDiscoverPage(
         active: _index == 2,
         sourceImporter: widget.sourceImporter,
+        onlineEngine: widget.onlineEngine,
         openRoute: _openRoute,
       ),
       NovelSubscribePage(

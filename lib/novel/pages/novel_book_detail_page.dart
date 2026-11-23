@@ -8,16 +8,25 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:mimao/core/theme.dart';
+import 'package:mimao/novel/engine/online_engine.dart';
 import 'package:mimao/novel/library_api.dart';
 import 'package:mimao/novel/models/novel_models.dart';
 import 'package:mimao/novel/pages/novel_routes.dart';
 import 'package:mimao/novel/pages/novel_widgets.dart';
+import 'package:mimao/novel/source/novel_source_model.dart';
+import 'package:mimao/novel/source/novel_source_store.dart';
 
 class NovelBookDetailPage extends StatefulWidget {
   const NovelBookDetailPage({
     super.key,
     required this.bookId,
     this.titleHint,
+    this.authorHint,
+    this.coverUrlHint,
+    this.sourceKey,
+    this.bookUrl,
+    this.onlineEngine,
+    this.sourceStore,
     this.collect,
     this.history,
     this.openRoute,
@@ -25,6 +34,12 @@ class NovelBookDetailPage extends StatefulWidget {
 
   final String bookId;
   final String? titleHint;
+  final String? authorHint;
+  final String? coverUrlHint;
+  final String? sourceKey;
+  final String? bookUrl;
+  final NovelOnlineEngine? onlineEngine;
+  final NovelSourceStorage? sourceStore;
   final NovelCollectApi? collect;
   final NovelHistoryApi? history;
   final NovelRouteOpener? openRoute;
@@ -55,20 +70,80 @@ class _NovelBookDetailPageState extends State<NovelBookDetailPage> {
       }
     }
     final history = await widget.history?.latest(widget.bookId);
-    final book =
+    var book =
         collect?.book ??
         history?.book ??
         NovelSummary(
           id: widget.bookId,
           title: widget.titleHint ?? '未知书籍',
-          coverUrl: collect?.coverUrl ?? '',
+          author: widget.authorHint ?? '',
+          coverUrl: widget.coverUrlHint ?? collect?.coverUrl ?? '',
+          sourceKey: widget.sourceKey ?? '',
+          bookUrl: widget.bookUrl ?? '',
         );
+    if (book.sourceKey.isEmpty && (widget.sourceKey ?? '').isNotEmpty) {
+      book = NovelSummary(
+        id: book.id,
+        title: book.title,
+        coverUrl: book.coverUrl,
+        author: book.author,
+        sourceName: book.sourceName,
+        sourceKey: widget.sourceKey!,
+        bookUrl: widget.bookUrl ?? book.bookUrl,
+        intro: book.intro,
+        kind: book.kind,
+        latestChapter: book.latestChapter,
+        wordCount: book.wordCount,
+        type: book.type,
+      );
+    }
+    NovelDetail? online;
+    NovelBookSource? source;
+    String? onlineError;
+    final engine = widget.onlineEngine;
+    final store = widget.sourceStore;
+    final sourceKey = widget.sourceKey ?? book.sourceKey;
+    if (engine != null && store != null && sourceKey.isNotEmpty) {
+      try {
+        final sources = await store.loadAll();
+        for (final candidate in sources) {
+          if (candidate.key == sourceKey) {
+            source = candidate;
+            break;
+          }
+        }
+        if (source == null) {
+          onlineError = '找不到书源（可能已被删除）';
+        } else {
+          final ref = NovelRef(
+            id: book.id,
+            sourceName: book.sourceName,
+            sourceKey: sourceKey,
+            bookUrl: widget.bookUrl ?? book.bookUrl,
+          );
+          online = await engine.bookDetail(
+            source,
+            ref,
+            titleHint: book.title,
+            authorHint: book.author,
+          );
+          if (online.title.isNotEmpty || online.author.isNotEmpty) {
+            book = online.summary;
+          }
+        }
+      } on Object catch (error) {
+        onlineError = '$error';
+      }
+    }
     final groups = await widget.collect?.groups() ?? const <String>[];
     return _DetailData(
       book: book,
       collect: collect,
       history: history,
       groups: groups,
+      online: online,
+      onlineError: onlineError,
+      source: source,
     );
   }
 
@@ -106,11 +181,34 @@ class _NovelBookDetailPageState extends State<NovelBookDetailPage> {
   }
 
   Future<void> _openRead(_DetailData data) async {
+    final chapters = data.online?.chapters ?? const <NovelChapter>[];
+    final index = data.history?.chapterIndex ?? 0;
+    final chapter = chapters.isEmpty
+        ? null
+        : chapters[index.clamp(0, chapters.length - 1)];
+    await _openChapter(data, chapter);
+  }
+
+  Future<void> _openChapter(_DetailData data, NovelChapter? chapter) async {
     await openNovelRoute(
       context,
       widget.openRoute,
       NovelRoute.read,
-      args: <String, Object?>{'bookId': data.book.id, 'title': data.book.title},
+      args: <String, Object?>{
+        'bookId': data.book.id,
+        'title': data.book.title,
+        'author': data.book.author,
+        'sourceKey': data.book.sourceKey,
+        'bookUrl': data.book.bookUrl,
+        'coverUrl': data.book.coverUrl,
+        if (data.online != null) 'chapters': data.online!.chapters,
+        if (chapter != null) ...<String, Object?>{
+          'chapterId': chapter.id,
+          'chapterIndex': chapter.index,
+          'chapterUrl': chapter.url,
+          'chapterTitle': chapter.title,
+        },
+      },
     );
     if (mounted) _reload();
   }
@@ -219,7 +317,10 @@ class _NovelBookDetailPageState extends State<NovelBookDetailPage> {
             );
           }
           final data = snapshot.data;
-          if (data == null || (data.collect == null && data.history == null)) {
+          if (data == null ||
+              (data.collect == null &&
+                  data.history == null &&
+                  data.online == null)) {
             return const NovelEmptyState(
               icon: Icons.menu_book_outlined,
               title: '本地没有这本书',
@@ -241,14 +342,145 @@ class _NovelBookDetailPageState extends State<NovelBookDetailPage> {
                       : () => _clearHistory(data),
                   onRemove: () => _removeLocal(data),
                 ),
+                if (data.online?.intro.isNotEmpty ?? false) ...<Widget>[
+                  const SizedBox(height: 16),
+                  _IntroCard(intro: data.online!.intro),
+                ],
                 const SizedBox(height: 20),
                 _ProgressCard(item: data.history),
                 const SizedBox(height: 16),
-                const _TocBoundaryCard(),
+                if (data.online != null)
+                  _TocCard(
+                    detail: data.online!,
+                    onOpenChapter: (chapter) => _openChapter(data, chapter),
+                  )
+                else if (data.onlineError != null)
+                  NovelErrorState(
+                    message: '目录抓取失败：${data.onlineError}',
+                    onRetry: _reload,
+                  )
+                else
+                  const _TocBoundaryCard(),
               ],
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+class _IntroCard extends StatelessWidget {
+  const _IntroCard({required this.intro});
+
+  final String intro;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return NovelCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          const NovelSectionHeader(
+            icon: Icons.description_outlined,
+            title: '简介',
+          ),
+          const SizedBox(height: 10),
+          Text(intro, style: theme.textTheme.bodyMedium),
+        ],
+      ),
+    );
+  }
+}
+
+class _TocCard extends StatefulWidget {
+  const _TocCard({required this.detail, required this.onOpenChapter});
+
+  final NovelDetail detail;
+  final ValueChanged<NovelChapter> onOpenChapter;
+
+  @override
+  State<_TocCard> createState() => _TocCardState();
+}
+
+class _TocCardState extends State<_TocCard> {
+  static const int _page = 80;
+  int _visible = _page;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final chapters = widget.detail.chapters;
+    final shown = chapters.take(_visible).toList();
+    return NovelCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          NovelSectionHeader(
+            icon: Icons.list_alt,
+            title: '目录 · ${chapters.length} 章',
+          ),
+          const SizedBox(height: 12),
+          if (chapters.isEmpty)
+            Text(
+              '目录为空。可能是章节规则失效，换一个书源试试。',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            )
+          else
+            for (final chapter in shown)
+              InkWell(
+                borderRadius: BorderRadius.circular(MimaoRadii.sm),
+                onTap: chapter.isVolume
+                    ? null
+                    : () => widget.onOpenChapter(chapter),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 10,
+                  ),
+                  child: Row(
+                    children: <Widget>[
+                      SizedBox(
+                        width: 46,
+                        child: Text(
+                          '${chapter.index + 1}',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        child: Text(
+                          chapter.title,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: chapter.isVolume
+                                ? FontWeight.w700
+                                : FontWeight.w400,
+                          ),
+                        ),
+                      ),
+                      if (chapter.isVip)
+                        Icon(
+                          Icons.lock_outline,
+                          size: 16,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+          if (chapters.length > _visible)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton(
+                onPressed: () => setState(() => _visible += _page),
+                child: Text('再显示 $_page 章（共 ${chapters.length}）'),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -260,12 +492,18 @@ class _DetailData {
     required this.collect,
     required this.history,
     required this.groups,
+    this.online,
+    this.onlineError,
+    this.source,
   });
 
   final NovelSummary book;
   final NovelCollectItem? collect;
   final NovelHistoryItem? history;
   final List<String> groups;
+  final NovelDetail? online;
+  final String? onlineError;
+  final NovelBookSource? source;
 
   bool get collected => collect != null;
 }

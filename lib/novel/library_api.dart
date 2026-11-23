@@ -184,3 +184,4 @@ const String novelPrefGoalMinutes = 'reading_goal_minutes';
 const String novelPrefShelfLayout = 'shelf_layout';
 const String novelPrefShelfColumns = 'shelf_columns';
 const String novelPrefShelfSort = 'shelf_sort';
+const String novelPrefReaderFontSize = 'reader_font_size';

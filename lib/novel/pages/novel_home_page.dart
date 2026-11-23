@@ -354,7 +354,7 @@ class _HomeData {
     if (sources.isNotEmpty) {
       return '本地阅读 · ${sources.length} 个书源（$enabled 启用）';
     }
-    return '本地阅读 · 书源引擎尚未接入';
+    return '本地阅读 · 书源引擎已就绪';
   }
 }
 
@@ -579,7 +579,7 @@ class _RecentEmpty extends StatelessWidget {
               Text('还没有最近阅读', style: theme.textTheme.titleMedium),
               const SizedBox(height: 6),
               Text(
-                '读过的书会在这里接着读。当前书源引擎尚未接入，可以先导入书源，'
+                '读过的书会在这里接着读。可以先导入书源，在搜索页找书，'
                 '或在书架查看本地收藏。',
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: cs.onSurfaceVariant,

@@ -15,6 +15,7 @@ import 'package:mimao/novel/engine/content_text.dart';
 import 'package:mimao/novel/engine/engine.dart';
 import 'package:mimao/novel/engine/explore_kinds.dart';
 import 'package:mimao/novel/engine/novel_http_client.dart';
+import 'package:mimao/novel/engine/online_engine.dart';
 import 'package:mimao/novel/js/legado_js_host.dart';
 import 'package:mimao/novel/models/novel_models.dart';
 import 'package:mimao/novel/source/novel_source_model.dart';
@@ -31,7 +32,7 @@ class NovelEngineException implements Exception {
 }
 
 /// 生产书源引擎。一个实例持有传输与每源一个 JS 宿主；用完调用 [close]。
-class LegadoNovelEngine implements NovelEngine {
+class LegadoNovelEngine implements NovelEngine, NovelOnlineEngine {
   LegadoNovelEngine({
     NovelHttpTransport? transport,
     this.cache,
@@ -52,6 +53,7 @@ class LegadoNovelEngine implements NovelEngine {
   /// 某源最近一次非致命警告（如 webView 降级），UI 可选择展示。
   String? warningFor(String sourceKey) => _warnings[sourceKey];
 
+  @override
   void close() {
     if (_closed) return;
     _closed = true;
@@ -91,6 +93,7 @@ class LegadoNovelEngine implements NovelEngine {
   // ---------------------------------------------------------------------------
   // 搜索
 
+  @override
   Future<List<NovelSummary>> searchSource(
     NovelBookSource source,
     String keyword, {
@@ -134,6 +137,7 @@ class LegadoNovelEngine implements NovelEngine {
   // ---------------------------------------------------------------------------
   // 发现
 
+  @override
   Future<List<NovelExploreKind>> exploreKinds(NovelBookSource source) async {
     await _loadLibrary(source);
     try {
@@ -148,6 +152,7 @@ class LegadoNovelEngine implements NovelEngine {
     }
   }
 
+  @override
   Future<List<NovelSummary>> exploreSource(
     NovelBookSource source,
     NovelExploreKind kind, {
@@ -180,6 +185,7 @@ class LegadoNovelEngine implements NovelEngine {
   // ---------------------------------------------------------------------------
   // 详情 + 目录
 
+  @override
   Future<NovelDetail> bookDetail(
     NovelBookSource source,
     NovelRef ref, {
@@ -427,6 +433,7 @@ class LegadoNovelEngine implements NovelEngine {
   // ---------------------------------------------------------------------------
   // 正文
 
+  @override
   Future<NovelContent> contentFor(
     NovelBookSource source,
     NovelRef ref,

@@ -157,7 +157,7 @@ class _NovelHistoryPageState extends State<NovelHistoryPage> {
               title: '还没有阅读记录',
               message:
                   '打开一本书开始阅读后，进度会记在这里。'
-                  '当前书源引擎与阅读器尚未接入，所以暂时是空的。',
+                  '开始阅读一本书后，进度会自动记录在这里。',
             );
           }
           return NovelPageContent(

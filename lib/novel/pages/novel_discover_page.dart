@@ -7,8 +7,13 @@
 /// 用一条能力边界横幅说明，不摆假书。
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:mimao/core/theme.dart';
+import 'package:mimao/novel/models/novel_models.dart';
+import 'package:mimao/novel/engine/online_engine.dart';
+import 'package:mimao/novel/pages/novel_explore_sheet.dart';
 import 'package:mimao/novel/pages/novel_routes.dart';
 import 'package:mimao/novel/pages/novel_widgets.dart';
 import 'package:mimao/novel/source/novel_source_importer.dart';
@@ -19,11 +24,13 @@ class NovelDiscoverPage extends StatefulWidget {
     super.key,
     required this.active,
     this.sourceImporter,
+    this.onlineEngine,
     this.openRoute,
   });
 
   final bool active;
   final NovelSourceImporter? sourceImporter;
+  final NovelOnlineEngine? onlineEngine;
   final NovelRouteOpener? openRoute;
 
   @override
@@ -128,6 +135,46 @@ class _NovelDiscoverPageState extends State<NovelDiscoverPage> {
     if (mounted) await _load();
   }
 
+  Future<void> _openExplore(NovelBookSource source) async {
+    final engine = widget.onlineEngine;
+    if (engine == null) {
+      await _openManage();
+      return;
+    }
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => FractionallySizedBox(
+        heightFactor: 0.86,
+        child: NovelExploreSheet(
+          source: source,
+          engine: engine,
+          onOpenBook: (book) {
+            Navigator.of(context).pop();
+            unawaited(_openBook(book));
+          },
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openBook(NovelSummary book) async {
+    await openNovelRoute(
+      context,
+      widget.openRoute,
+      NovelRoute.bookInfo,
+      args: <String, Object?>{
+        'bookId': book.id,
+        'title': book.title,
+        'author': book.author,
+        'coverUrl': book.coverUrl,
+        'sourceKey': book.sourceKey,
+        'bookUrl': book.bookUrl,
+      },
+    );
+  }
+
   Map<String, int> _groupCounts() {
     final counts = <String, int>{};
     var ungrouped = 0;
@@ -168,7 +215,7 @@ class _NovelDiscoverPageState extends State<NovelDiscoverPage> {
   Widget build(BuildContext context) {
     final enabled = _sources.where((source) => source.enabled).length;
     final subtitle = _sources.isEmpty
-        ? '书源内容探索需要书源引擎'
+        ? '导入书源后可按分类浏览'
         : '${_sources.length} 个书源 · $enabled 个启用';
     return NovelFillContent(
       child: Column(
@@ -244,7 +291,7 @@ class _NovelDiscoverPageState extends State<NovelDiscoverPage> {
     final list = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        const _CapabilityBanner(),
+        _CapabilityBanner(online: widget.onlineEngine != null),
         const SizedBox(height: 12),
         TextField(
           controller: _search,
@@ -311,7 +358,12 @@ class _NovelDiscoverPageState extends State<NovelDiscoverPage> {
                     return NovelSourceCard(
                       source: source,
                       onToggle: (value) => _toggle(source, value),
-                      onTap: _openManage,
+                      onTap: () => _openExplore(source),
+                      trailing: IconButton(
+                        tooltip: '管理书源',
+                        icon: const Icon(Icons.tune, size: 18),
+                        onPressed: _openManage,
+                      ),
                     );
                   },
                 ),
@@ -510,7 +562,9 @@ class _CategoryTile extends StatelessWidget {
 }
 
 class _CapabilityBanner extends StatelessWidget {
-  const _CapabilityBanner();
+  const _CapabilityBanner({required this.online});
+
+  final bool online;
 
   @override
   Widget build(BuildContext context) {
@@ -529,8 +583,9 @@ class _CapabilityBanner extends StatelessWidget {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              '书源榜单、跨源搜索与开书需要书源引擎，当前尚未接入。'
-              '这里可以先按分组筛选、搜索、启停书源。',
+              online
+                  ? '点书源查看它的分类榜单；也可以按名称/分组筛选、启停书源。'
+                  : '书源引擎未注入：这里可以先按分组筛选、搜索、启停书源。',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: cs.onSurfaceVariant,
               ),

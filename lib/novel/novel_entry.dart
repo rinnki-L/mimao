@@ -10,11 +10,13 @@ import 'package:flutter/material.dart';
 import 'package:mimao/core/contract.dart';
 import 'package:mimao/novel/booklist_io.dart' show NovelBooklistFileGate;
 import 'package:mimao/novel/engine/engine.dart';
+import 'package:mimao/novel/engine/online_engine.dart';
 import 'package:mimao/novel/library_api.dart';
+import 'package:mimao/novel/models/novel_models.dart';
 import 'package:mimao/novel/pages/novel_book_detail_page.dart';
 import 'package:mimao/novel/pages/novel_history_page.dart';
 import 'package:mimao/novel/pages/novel_module_page.dart' show NovelModulePage;
-import 'package:mimao/novel/pages/novel_read_page.dart';
+import 'package:mimao/novel/pages/novel_reader_page.dart';
 import 'package:mimao/novel/pages/novel_routes.dart'
     show NovelRoute, pushNovelRoute, registerNovelRoutePage;
 import 'package:mimao/novel/pages/novel_search_page.dart';
@@ -28,6 +30,7 @@ class NovelModule implements AppModule {
   NovelModule({
     this.engine,
     this.dataSource,
+    this.onlineEngine,
     this.collect,
     this.history,
     this.searchHistory,
@@ -40,6 +43,7 @@ class NovelModule implements AppModule {
 
   final NovelEngine? engine;
   final NovelDataSource? dataSource;
+  final NovelOnlineEngine? onlineEngine;
   final NovelCollectApi? collect;
   final NovelHistoryApi? history;
   final NovelSearchHistoryApi? searchHistory;
@@ -90,16 +94,39 @@ class NovelModule implements AppModule {
       (args) => NovelBookDetailPage(
         bookId: '${args['bookId'] ?? ''}',
         titleHint: args['title']?.toString(),
+        authorHint: args['author']?.toString(),
+        coverUrlHint: args['coverUrl']?.toString(),
+        sourceKey: args['sourceKey']?.toString(),
+        bookUrl: args['bookUrl']?.toString(),
+        onlineEngine: onlineEngine,
+        sourceStore: importer?.store,
         collect: collectApi,
         history: historyApi,
       ),
     );
     registerNovelRoutePage(
       NovelRoute.read,
-      (args) => NovelReadBoundaryPage(
+      (args) => NovelReaderPage(
         bookId: '${args['bookId'] ?? ''}',
         title: args['title']?.toString(),
+        author: args['author']?.toString(),
+        sourceKey: args['sourceKey']?.toString(),
+        bookUrl: args['bookUrl']?.toString(),
+        chapterId: args['chapterId']?.toString(),
+        chapterIndex: args['chapterIndex'] is int
+            ? args['chapterIndex'] as int
+            : int.tryParse('${args['chapterIndex'] ?? ''}'),
+        chapterUrl: args['chapterUrl']?.toString(),
+        chapterTitle: args['chapterTitle']?.toString(),
+        coverUrl: args['coverUrl']?.toString(),
+        chapters: args['chapters'] is List<NovelChapter>
+            ? args['chapters'] as List<NovelChapter>
+            : null,
+        onlineEngine: onlineEngine,
+        sourceStore: importer?.store,
         history: historyApi,
+        stats: statsApi,
+        prefs: prefsApi,
       ),
     );
     registerNovelRoutePage(
@@ -109,6 +136,8 @@ class NovelModule implements AppModule {
         history: historyApi,
         searchHistory: searchApi,
         sourceImporter: importer,
+        onlineEngine: onlineEngine,
+        sourceStore: importer?.store,
       ),
     );
     registerNovelRoutePage(
@@ -127,6 +156,7 @@ class NovelModule implements AppModule {
 
     return NovelModulePage(
       embedded: true,
+      onlineEngine: onlineEngine,
       collect: collectApi,
       history: historyApi,
       searchHistory: searchApi,

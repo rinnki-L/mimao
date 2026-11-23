@@ -311,15 +311,15 @@ class _NovelProfilePageState extends State<NovelProfilePage> {
       children: <Widget>[
         const SizedBox(height: 12),
         const Text(
-          '小说模块负责本地书架、阅读记录与书源管理。跨源搜索、目录抓取与'
-          '正文阅读依赖书源引擎，仍在接入中。',
+          '小说模块负责本地书架、阅读记录与书源管理；跨源搜索、目录与正文'
+          '由 legado 书源引擎抓取。',
         ),
       ],
     );
   }
 
   void _showUnavailable(String feature) {
-    _toast('$feature需要书源引擎/阅读器，当前版本还未接入。');
+    _toast('$feature尚未实现。');
   }
 
   @override

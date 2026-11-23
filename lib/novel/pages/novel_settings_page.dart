@@ -226,14 +226,14 @@ class _NovelSettingsPageState extends State<NovelSettingsPage> {
                       _SettingsRow(
                         icon: Icons.format_size,
                         title: '字号与行距',
-                        subtitle: '阅读器接入后可用',
-                        onTap: () => _toast('阅读器尚未接入。'),
+                        subtitle: '在阅读页右上角调整',
+                        onTap: () => _toast('打开一本书，在阅读页右上角调整字号。'),
                       ),
                       _SettingsRow(
                         icon: Icons.swap_horiz,
                         title: '翻页方式',
-                        subtitle: '阅读器接入后可用',
-                        onTap: () => _toast('阅读器尚未接入。'),
+                        subtitle: '在阅读页右上角调整',
+                        onTap: () => _toast('打开一本书，在阅读页右上角调整字号。'),
                       ),
                     ],
                   ),

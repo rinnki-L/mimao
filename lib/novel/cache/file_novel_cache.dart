@@ -12,6 +12,28 @@ import 'package:mimao/novel/models/novel_models.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+/// 惰性默认缓存：装配期不碰 path_provider（测试无插件环境也不挂起）。
+class DefaultNovelCache implements NovelCache {
+  Future<FileNovelCache>? _cache;
+
+  Future<FileNovelCache> get _instance =>
+      _cache ??= FileNovelCache.openDefault();
+
+  @override
+  Future<NovelContent?> read(NovelRef ref, NovelChapter chapter) async =>
+      (await _instance).read(ref, chapter);
+
+  @override
+  Future<void> write(
+    NovelRef ref,
+    NovelChapter chapter,
+    NovelContent content,
+  ) async => (await _instance).write(ref, chapter, content);
+
+  @override
+  Future<void> clear(NovelRef ref) async => (await _instance).clear(ref);
+}
+
 class FileNovelCache implements NovelCache {
   FileNovelCache(this.directory);
 
