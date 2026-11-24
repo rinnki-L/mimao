@@ -117,5 +117,24 @@ void main() {
       ]);
       expect(result.diagnostics, hasLength(1));
     });
+
+    test('parseImages 读取 onImageLoad 注入的请求头', () {
+      final result = engine.parseImages(<String, dynamic>{
+        'images': <dynamic>['https://x/1.jpg', 'https://x/2.jpg'],
+        'headers': <String, dynamic>{
+          'https://x/1.jpg': <String, dynamic>{
+            'Referer': 'https://x/',
+            'Cookie': 'a=b',
+            'callback': 1,
+          },
+        },
+      });
+      expect(result.items, hasLength(2));
+      expect(result.items[0].headers, <String, String>{
+        'Referer': 'https://x/',
+        'Cookie': 'a=b',
+      });
+      expect(result.items[1].headers, isEmpty);
+    });
   });
 }

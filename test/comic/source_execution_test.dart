@@ -135,6 +135,19 @@ void main() {
     ]);
   });
 
+  test('③b comic.onImageLoad 请求头随 imagesWithHeaders 返回', () async {
+    if (!_hasNativeJs) return;
+    final result = await engineFor(
+      pool!,
+    ).imagesWithHeaders('fixture', 'one', episodeId: 'ch-1');
+    expect(result.diagnostics, isEmpty, reason: result.diagnostics.toString());
+    expect(result.items, hasLength(3));
+    for (final image in result.items) {
+      expect(image.headers['Referer'], 'https://fixture.test/');
+      expect(image.headers['X-Image'], image.url);
+    }
+  });
+
   test('④ 脚本语法错误不崩溃：返回带诊断的空结果', () async {
     if (!_hasNativeJs) return;
     final badPool = SourceExecutionPool(

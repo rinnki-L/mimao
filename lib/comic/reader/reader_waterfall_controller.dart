@@ -15,6 +15,7 @@ import 'package:flutter/foundation.dart';
 
 import 'reader_chapter_source.dart';
 import 'reader_flow.dart';
+import 'reader_models.dart';
 
 /// 瀑布流控制器：把 [source] 的章节按需拼进 [flow]。
 class ReaderWaterfallController extends ChangeNotifier {
@@ -64,6 +65,20 @@ class ReaderWaterfallController extends ChangeNotifier {
   /// 每次显式导航（跳章 / 取消在途）递增；异步结果据此拒绝迟到插入。
   int get revision => _revision;
 
+  /// 取一章的图片请求：源实现了 [ReaderImageRequestSource] 时保留请求头，
+  /// 否则把纯地址包成无头 [ImageRequest]。
+  Future<List<ImageRequest>> _loadRequests(
+    int chapter,
+    ReaderLoadScope scope,
+  ) async {
+    final source = this.source;
+    if (source is ReaderImageRequestSource) {
+      return (source as ReaderImageRequestSource).loadRequests(chapter, scope);
+    }
+    final urls = await source.load(chapter, scope);
+    return <ImageRequest>[for (final url in urls) ImageRequest(url: url)];
+  }
+
   /// 初始化：加载起始章，成功后 flow 只含这一段。
   /// 重复调用是空操作。
   Future<void> start() async {
@@ -76,7 +91,10 @@ class ReaderWaterfallController extends ChangeNotifier {
     _loadingAfter = true;
     _notify();
     try {
-      final List<String> images = await source.load(initialChapter, scope);
+      final List<ImageRequest> images = await _loadRequests(
+        initialChapter,
+        scope,
+      );
       if (!_isCurrent(revision) || scope.isCancelled) return;
       if (source.chapterId(initialChapter) != sourceId) return;
       _flow.reset(
@@ -121,9 +139,9 @@ class ReaderWaterfallController extends ChangeNotifier {
         // 章节 id 必须在 await 前取，源切换后 id 漂移即视为失效。
         final String sourceId = source.chapterId(chapter);
         final ReaderLoadScope scope = _startScope();
-        List<String> images;
+        List<ImageRequest> images;
         try {
-          images = await source.load(chapter, scope);
+          images = await _loadRequests(chapter, scope);
         } on Object catch (error) {
           _endScope(scope);
           if (!_isCurrent(revision) || scope.isCancelled) return;
@@ -169,7 +187,7 @@ class ReaderWaterfallController extends ChangeNotifier {
     _loadingBefore = true;
     _notify();
     try {
-      final List<String> images = await source.load(chapter, scope);
+      final List<ImageRequest> images = await _loadRequests(chapter, scope);
       if (!_isCurrent(revision) || scope.isCancelled) return 0;
       // id 在 await 期间漂移（源切换 / 章节重排）→ 不插，避免错位。
       if (source.chapterId(chapter) != sourceId) return 0;
@@ -249,7 +267,7 @@ class ReaderWaterfallController extends ChangeNotifier {
     _loadingAfter = true;
     _notify();
     try {
-      final List<String> images = await source.load(chapter, scope);
+      final List<ImageRequest> images = await _loadRequests(chapter, scope);
       if (!_isCurrent(revision) || scope.isCancelled) return false;
       if (source.chapterId(chapter) != sourceId) return false;
       _flow.reset(

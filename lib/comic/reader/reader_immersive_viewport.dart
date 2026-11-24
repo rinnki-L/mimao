@@ -59,6 +59,10 @@ class ReaderViewportController {
   /// 是否已到全书末尾（自动阅读据此停下，而不是空转写进度）。
   bool get atEnd => _delegate?.atEnd ?? false;
 
+  /// 当前显示图（翻页模式取整屏第一张）的原始字节与地址；未加载时 null。
+  Future<(Uint8List, String)?> currentImage() =>
+      _delegate?.currentImage() ?? Future<(Uint8List, String)?>.value(null);
+
   Future<void> scrollViewport(int direction) =>
       _delegate?.scrollViewport(direction) ?? Future<void>.value();
 
@@ -71,6 +75,7 @@ abstract interface class _ReaderViewportDelegate {
   bool get isScrollMode;
   bool get currentImageReady;
   bool get atEnd;
+  Future<(Uint8List, String)?> currentImage();
   Future<void> scrollViewport(int direction);
   Future<void> turnGalleryPage(int direction);
 }
@@ -263,7 +268,7 @@ class _ReaderViewportState extends State<ReaderViewport>
       final page = widget.reading.position.displayPage;
       final (start, end) = _layout.imageRange(page, segment.length);
       return <ImageRequest>[
-        for (var i = start; i < end; i++) _requestForUrl(segment.images[i]),
+        for (var i = start; i < end; i++) segment.images[i],
       ];
     }
     if (!_crossChapter) {
@@ -273,12 +278,12 @@ class _ReaderViewportState extends State<ReaderViewport>
           _lastFlowIndex > segment.length) {
         return const <ImageRequest>[];
       }
-      return <ImageRequest>[_requestForUrl(segment.images[_lastFlowIndex - 1])];
+      return <ImageRequest>[segment.images[_lastFlowIndex - 1]];
     }
     final image = widget.waterfall.flow.imageAt(_lastFlowIndex);
     return image == null
         ? const <ImageRequest>[]
-        : <ImageRequest>[_requestForUrl(image.url)];
+        : <ImageRequest>[image.request];
   }
 
   // ── 预取窗口 ────────────────────────────────────────────────────────
@@ -300,7 +305,7 @@ class _ReaderViewportState extends State<ReaderViewport>
       void addPage(int page) {
         final (start, end) = layout.imageRange(page, segment.length);
         for (var i = start; i < end; i++) {
-          add(_requestForUrl(segment.images[i]));
+          add(segment.images[i]);
         }
       }
 
@@ -319,7 +324,7 @@ class _ReaderViewportState extends State<ReaderViewport>
       );
       if (next != null) {
         for (var i = 0; i < math.min(next.length, 2); i++) {
-          add(_requestForUrl(next.images[i]));
+          add(next.images[i]);
         }
       }
       return result;
@@ -334,14 +339,14 @@ class _ReaderViewportState extends State<ReaderViewport>
         index <= math.min(segment.length, current + limit);
         index++
       ) {
-        add(_requestForUrl(segment.images[index - 1]));
+        add(segment.images[index - 1]);
       }
       for (
         var index = current - 1;
         index >= math.max(1, current - 2);
         index--
       ) {
-        add(_requestForUrl(segment.images[index - 1]));
+        add(segment.images[index - 1]);
       }
       return result;
     }
@@ -355,11 +360,11 @@ class _ReaderViewportState extends State<ReaderViewport>
       index++
     ) {
       final image = flow.imageAt(index);
-      if (image != null) add(_requestForUrl(image.url));
+      if (image != null) add(image.request);
     }
     for (var index = current - 1; index >= math.max(1, current - 2); index--) {
       final image = flow.imageAt(index);
-      if (image != null) add(_requestForUrl(image.url));
+      if (image != null) add(image.request);
     }
     return result;
   }
@@ -761,7 +766,7 @@ class _ReaderViewportState extends State<ReaderViewport>
   ) {
     if (end - start == 1) {
       return _buildSlot(
-        _requestForUrl(segment.images[start]),
+        segment.images[start],
         index: start + 1,
         fill: true,
         vertical: mode.isVertical,
@@ -771,7 +776,7 @@ class _ReaderViewportState extends State<ReaderViewport>
       for (var i = start; i < end; i++)
         Expanded(
           child: _buildSlot(
-            _requestForUrl(segment.images[i]),
+            segment.images[i],
             index: i + 1,
             fill: true,
             vertical: mode.isVertical,
@@ -816,13 +821,13 @@ class _ReaderViewportState extends State<ReaderViewport>
           );
         }
         if (index == total - 1) return _buildFlowEnd();
-        String? url;
+        ImageRequest? request;
         int? chapter;
         var firstInSegment = false;
         if (_crossChapter) {
           final image = widget.waterfall.flow.imageAt(index);
           if (image == null) return const SizedBox.shrink();
-          url = image.url;
+          request = image.request;
           chapter = image.position.chapter;
           firstInSegment = image.isFirstInSegment;
         } else {
@@ -830,12 +835,12 @@ class _ReaderViewportState extends State<ReaderViewport>
           if (segment == null || index > segment.length) {
             return const SizedBox.shrink();
           }
-          url = segment.images[index - 1];
+          request = segment.images[index - 1];
           chapter = segment.chapter;
           firstInSegment = index == 1;
         }
         Widget item = _buildSlot(
-          _requestForUrl(url),
+          request,
           index: index,
           fill: false,
           vertical: mode.isVertical,
@@ -1052,6 +1057,19 @@ class _ReaderViewportState extends State<ReaderViewport>
     );
   }
 
+  @override
+  Future<(Uint8List, String)?> currentImage() async {
+    final requests = _currentRequests;
+    if (requests.isEmpty) return null;
+    final request = requests.first;
+    try {
+      final bytes = await widget.cache.loadRequest(request);
+      return (bytes, request.url);
+    } on Object {
+      return null;
+    }
+  }
+
   void _onImageState(ImageRequest request, bool ready, bool failed) {
     final id = request.cacheIdentity;
     if (ready) {
@@ -1064,15 +1082,6 @@ class _ReaderViewportState extends State<ReaderViewport>
     } else if (ready) {
       _failedIds.remove(id);
     }
-  }
-
-  ImageRequest _requestForUrl(String url) =>
-      ImageRequest.withReferer(url: url, referer: _refererFor(url));
-
-  String? _refererFor(String url) {
-    final uri = Uri.tryParse(url);
-    if (uri == null || !uri.hasScheme) return null;
-    return '${uri.scheme}://${uri.authority}/';
   }
 }
 

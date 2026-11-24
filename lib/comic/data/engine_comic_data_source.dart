@@ -446,6 +446,33 @@ class EngineComicDataSource
     return loadEpImages(key: key, comicId: ep.comicId, episodeId: ep.episodeId);
   }
 
+  /// 按章加载图片引用（地址 + 源 `comic.onImageLoad` 注入的请求头）。
+  ///
+  /// 与 [loadImagesForChapter] 同一套反查/来源校验；阅读器用它把防盗链头
+  /// 一路带到图片缓存。引擎失败时返回空列表，调用方可退回纯地址。
+  Future<List<source_engine.ComicImageRef>> loadImageRefsForChapter(
+    ComicSummary item,
+    ComicChapter chapter,
+  ) async {
+    final ep = tryDecodeComicEpisodeUrl(chapter.url);
+    if (ep == null) {
+      _addDiagnostics(<String>['章节地址无法反查：${chapter.url}']);
+      return const <source_engine.ComicImageRef>[];
+    }
+    final key = (item.sourceName ?? '').trim();
+    if (key.isEmpty || key != ep.sourceKey) {
+      _addDiagnostics(<String>['章节来源不匹配：${ep.sourceKey} vs $key']);
+      return const <source_engine.ComicImageRef>[];
+    }
+    final result = await engine.imagesWithHeaders(
+      key,
+      ep.comicId,
+      episodeId: ep.episodeId,
+    );
+    _addDiagnostics(result.diagnostics.map((d) => '$key：$d'));
+    return List<source_engine.ComicImageRef>.unmodifiable(result.items);
+  }
+
   // ── ComicBrowseSource（发现 / 分类）──────────────────────────────
 
   @override

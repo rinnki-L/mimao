@@ -84,6 +84,45 @@ class ComicSourceEngine {
     return parseImages(execution.value);
   }
 
+  /// 章节图片 + 源注入的加载配置：一次 JS 调用里跑完 `loadEp` 与逐图
+  /// `comic.onImageLoad`，返回 `{images, headers: {url: {headers}}}`。
+  ///
+  /// 单张图的 onImageLoad 抛错不影响整章：该图退回无头请求。源没有定义
+  /// onImageLoad 时直接把 headers 留空。这样阅读器每打开一章只多一次
+  /// Host 往返，而不是每张图一次。
+  Future<ComicSourceResult<ComicImageRef>> imagesWithHeaders(
+    String key,
+    String comicId, {
+    String? episodeId,
+  }) async {
+    final ep = episodeId == null ? 'null' : _q(episodeId);
+    final cid = _q(comicId);
+    final execution = await _pool.execute(key, '''
+(async () => {
+  if (typeof source.comic.loadEp !== 'function') return null;
+  const result = await source.comic.loadEp($cid, $ep);
+  const images = Array.isArray(result) ? result : (result && result.images) || [];
+  const headers = {};
+  if (typeof source.comic.onImageLoad === 'function') {
+    for (const image of images) {
+      if (typeof image !== 'string') continue;
+      try {
+        const config = await source.comic.onImageLoad(image, $cid, $ep);
+        if (config && config.headers) headers[image] = config.headers;
+      } catch (error) {
+        // 单张失败不影响整章；该图退回默认请求头。
+      }
+    }
+  }
+  return {images, headers};
+})()
+''');
+    if (!execution.isOk) {
+      return ComicSourceResult(diagnostics: <String>[execution.error!]);
+    }
+    return parseImages(execution.value);
+  }
+
   /// 探索页：`source.explore[i].load(page)` → 漫画列表。
   Future<ComicSourceResult<ComicSummary>> explore(
     String key,
@@ -507,13 +546,14 @@ class ComicSourceEngine {
     );
   }
 
-  /// `{images: [...]}` → [ComicImageRef] 列表。
+  /// `{images: [...], headers?: {url: {headers}}}` → [ComicImageRef] 列表。
   ComicSourceResult<ComicImageRef> parseImages(Object? raw) {
     final map = _asMap(raw);
     final imagesRaw = map?['images'] ?? raw;
     if (imagesRaw is! List) {
       return ComicSourceResult(diagnostics: const <String>['结果缺少 images 数组']);
     }
+    final configHeaders = _asMap(map?['headers']);
     final items = <ComicImageRef>[];
     final diagnostics = <String>[];
     for (var i = 0; i < imagesRaw.length; i++) {
@@ -521,7 +561,9 @@ class ComicSourceEngine {
       if (url.isEmpty) {
         diagnostics.add('第 ${i + 1} 张图片地址为空');
       } else {
-        items.add(ComicImageRef(url: url));
+        items.add(
+          ComicImageRef(url: url, headers: _stringMap(configHeaders?[url])),
+        );
       }
     }
     return ComicSourceResult(items: items, diagnostics: diagnostics);
@@ -529,6 +571,19 @@ class ComicSourceEngine {
 
   Map<dynamic, dynamic>? _asMap(Object? raw) =>
       raw is Map ? Map<dynamic, dynamic>.from(raw) : null;
+
+  /// 只保留字符串键值对；非字符串值（回调等）不进入图片请求头。
+  Map<String, String> _stringMap(Object? raw) {
+    final map = _asMap(raw);
+    if (map == null) return const <String, String>{};
+    final result = <String, String>{};
+    for (final entry in map.entries) {
+      final key = entry.key;
+      final value = entry.value;
+      if (key is String && value is String) result[key] = value;
+    }
+    return result;
+  }
 
   List<ComicChapter> _chapters(Object? raw) {
     if (raw is! Map) return const <ComicChapter>[];

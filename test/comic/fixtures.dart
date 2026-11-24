@@ -82,6 +82,14 @@ class FixtureSource extends ComicSource {
       }
       doc.dispose();
       return { images: images };
+    },
+    onImageLoad: async (image, comicId, epId) => {
+      return {
+        headers: {
+          "Referer": "https://fixture.test/",
+          "X-Image": image
+        }
+      };
     }
   };
 }

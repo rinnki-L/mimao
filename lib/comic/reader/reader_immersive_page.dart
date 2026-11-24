@@ -17,6 +17,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:window_manager/window_manager.dart';
@@ -272,6 +273,63 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage> {
       ..showSnackBar(SnackBar(content: Text(text)));
   }
 
+  /// 保存当前显示的第一张图（翻页模式一屏多图时取左上/第一张）。
+  Future<void> _saveCurrentImage() async {
+    final current = await _viewport.currentImage();
+    if (!mounted) return;
+    if (current == null) {
+      _showSnack('当前图片还没加载完成');
+      return;
+    }
+    final (bytes, url) = current;
+    final extension = _imageExtension(url);
+    final position = _reading.position;
+    final fileName = _safeFileName(
+      '${widget.title}_${_reading.chapterTitle}_${position.page}',
+    );
+    try {
+      final uri = await FilePicker.saveFile(
+        fileName: '$fileName.$extension',
+        bytes: bytes,
+        mimeType: _mimeType(extension),
+        dialogTitle: '保存图片',
+      );
+      if (!mounted || uri == null) return;
+      final path = uri.scheme == 'file' ? uri.toFilePath() : uri.toString();
+      _showSnack('已保存：$path');
+    } on Object catch (error) {
+      if (mounted) _showSnack('保存失败：$error');
+    }
+  }
+
+  String _imageExtension(String url) {
+    final path = Uri.tryParse(url)?.path.toLowerCase();
+    for (final extension in const <String>[
+      'jpg',
+      'jpeg',
+      'png',
+      'webp',
+      'gif',
+      'bmp',
+      'avif',
+    ]) {
+      if (path != null && path.endsWith('.$extension')) return extension;
+    }
+    return 'jpg';
+  }
+
+  String _mimeType(String extension) => switch (extension) {
+    'png' => 'image/png',
+    'gif' => 'image/gif',
+    'webp' => 'image/webp',
+    'bmp' => 'image/bmp',
+    'avif' => 'image/avif',
+    _ => 'image/jpeg',
+  };
+
+  String _safeFileName(String name) =>
+      name.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -427,6 +485,12 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage> {
                       ),
                       onPressed: () => unawaited(_toggleFullscreen()),
                     ),
+                  IconButton(
+                    key: const Key('reader-save-image'),
+                    tooltip: '保存当前图片',
+                    icon: const Icon(Icons.download_outlined),
+                    onPressed: () => unawaited(_saveCurrentImage()),
+                  ),
                   IconButton(
                     key: const Key('reader-settings'),
                     tooltip: '阅读设置',

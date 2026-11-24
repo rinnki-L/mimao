@@ -7,7 +7,7 @@
 //
 // 全局流索引只属于视图层；进度永远写"真实章节 + 章内页"，跨章不丢位置。
 
-import 'reader_models.dart' show ComicChapter;
+import 'reader_models.dart' show ComicChapter, ImageRequest;
 
 /// 流中"一张图"的真实位置（进度记录的最小单位）。
 class ReaderImagePosition {
@@ -40,12 +40,12 @@ class ReaderChapterSegment {
   ReaderChapterSegment({
     required this.chapter,
     required this.chapterId,
-    required List<String> images,
-  }) : images = List<String>.unmodifiable(images);
+    required List<ImageRequest> images,
+  }) : images = List<ImageRequest>.unmodifiable(images);
 
   final int chapter;
   final String chapterId;
-  final List<String> images;
+  final List<ImageRequest> images;
 
   int get length => images.length;
 
@@ -53,16 +53,18 @@ class ReaderChapterSegment {
       position.chapter == chapter && position.chapterId == chapterId;
 }
 
-/// 流里一张图的引用：位置 + 地址 + 是否段首（段首用于插章节标题）。
+/// 流里一张图的引用：位置 + 请求 + 是否段首（段首用于插章节标题）。
 class ReaderFlowImage {
   const ReaderFlowImage({
     required this.position,
-    required this.url,
+    required this.request,
     required this.isFirstInSegment,
   });
 
   final ReaderImagePosition position;
-  final String url;
+  final ImageRequest request;
+
+  String get url => request.url;
   final bool isFirstInSegment;
 }
 
@@ -103,7 +105,7 @@ class ReaderChapterFlow {
             chapterId: segment.chapterId,
             page: remain,
           ),
-          url: segment.images[remain - 1],
+          request: segment.images[remain - 1],
           isFirstInSegment: remain == 1,
         );
       }
@@ -185,6 +187,9 @@ class ReaderChapterFlow {
       ReaderChapterSegment(
         chapter: number,
         chapterId: chapter.chapterId,
-        images: chapter.imageUrls,
+        images: <ImageRequest>[
+          for (var i = 0; i < chapter.imageUrls.length; i++)
+            chapter.requestAt(i),
+        ],
       );
 }
