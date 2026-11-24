@@ -211,6 +211,22 @@ class ReaderImageCache {
   int get currentBytes => _memory.values.fold(0, (sum, e) => sum + e.length);
   bool isInMemory(String url) => _memory.containsKey(cacheKey(url));
 
+  /// 按完整请求信息判断内存里是否已有字节（不触发磁盘/网络）。
+  bool hasRequest(ImageRequest request) =>
+      _memory.containsKey(cacheKey(request.cacheIdentity));
+
+  /// 同步取内存里的字节并刷新 LRU；未命中返回 null（不看磁盘）。
+  ///
+  /// 阅读视口用它把"已经预取好的下一张图"在首帧直接显示，避免闪一下加载态。
+  Uint8List? peekRequest(ImageRequest request) {
+    final key = cacheKey(request.cacheIdentity);
+    final cached = _memory.remove(key);
+    if (cached == null) return null;
+    _memory[key] = cached;
+    hits++;
+    return cached;
+  }
+
   /// 取图（旧契约）：等价于 `loadRequest(ImageRequest(url: url))`。
   /// 无请求头时 cacheIdentity == url，缓存键与旧行为完全一致。
   Future<Uint8List> load(String url) => loadRequest(ImageRequest(url: url));
