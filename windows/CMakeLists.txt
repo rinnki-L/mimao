@@ -43,11 +43,6 @@ function(APPLY_STANDARD_SETTINGS TARGET)
   target_compile_options(${TARGET} PRIVATE /EHsc)
   target_compile_definitions(${TARGET} PRIVATE "_HAS_EXCEPTIONS=0")
   target_compile_definitions(${TARGET} PRIVATE "$<$<CONFIG:Debug>:_DEBUG>")
-  # flutter_inappwebview_windows 仍用 <experimental/coroutine>；VS 18 / MSVC 14.52
-  # 把它的弃用警告升级成 C2338 硬错误（STL1011），插件源码不归我们改，统一在
-  # 标准设置里定义抑制宏，避免 Windows release 构建在 runner 上红。
-  target_compile_definitions(${TARGET} PRIVATE
-    "_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS")
 endfunction()
 
 # Flutter library and tool build rules.
@@ -57,6 +52,13 @@ add_subdirectory(${FLUTTER_MANAGED_DIR})
 # Application build; see runner/CMakeLists.txt.
 add_subdirectory("runner")
 
+
+# flutter_inappwebview_windows 仍在使用 <experimental/coroutine>，VS 18 / MSVC 14.52
+# 已把它升级成 C2338 静态断言硬错误（STL1011），编译器提示的解决办法就是定义这个宏。
+# 插件的 CMakeLists 带自己的设置函数（故意不用 APPLY_STANDARD_SETTINGS，为了绕开
+# /WX），所以只能靠目录级定义让随后 add_subdirectory 进来的插件 target 继承；
+# 等上游去掉实验协程或换掉插件后可删。(2026-11-24 依 run 45218433248 日志)
+add_compile_definitions(_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS)
 
 # Generated plugin build rules, which manage building the plugins and adding
 # them to the application.
