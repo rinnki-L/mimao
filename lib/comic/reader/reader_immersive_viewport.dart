@@ -26,6 +26,7 @@ import 'reader_cache.dart';
 import 'reader_continuous_scroll.dart';
 import 'reader_flow.dart';
 import 'reader_image_size.dart';
+import 'reader_white_border_crop.dart';
 import 'reader_immersive_controller.dart';
 import 'reader_models.dart';
 import 'reader_page_layout.dart';
@@ -112,6 +113,7 @@ class _ReaderViewportState extends State<ReaderViewport>
   final ItemPositionsListener _positions = ItemPositionsListener.create();
   final ScrollOffsetController _offset = ScrollOffsetController();
   final ReaderImageSizeCache _sizes = ReaderImageSizeCache();
+  final ReaderWhiteBorderCrop _crop = ReaderWhiteBorderCrop();
   late final ReaderContinuousScrollController _scrollController;
 
   late ReaderImagePreloader _preloader;
@@ -200,6 +202,7 @@ class _ReaderViewportState extends State<ReaderViewport>
     _positions.itemPositions.removeListener(_onItemPositionsChanged);
     _preloader.dispose();
     _sizes.clear();
+    _crop.dispose();
     _scrollController.dispose();
     _pageController.dispose();
     super.dispose();
@@ -1051,6 +1054,8 @@ class _ReaderViewportState extends State<ReaderViewport>
       alignment: alignment,
       limitWidth: widget.settings.limitImageWidth,
       sideMargin: widget.settings.sideMargin,
+      cropWhiteBorders: widget.settings.cropWhiteBorders && vertical && !fill,
+      cropCache: _crop,
       doubleTapToZoom: widget.settings.doubleTapToZoom,
       longPressToZoom: widget.settings.longPressToZoom,
       onTapAt: _onTapAt,
@@ -1099,6 +1104,8 @@ class _ImmersiveImageSlot extends StatefulWidget {
     required this.alignment,
     required this.limitWidth,
     required this.sideMargin,
+    required this.cropWhiteBorders,
+    required this.cropCache,
     required this.doubleTapToZoom,
     required this.longPressToZoom,
     required this.onTapAt,
@@ -1116,6 +1123,8 @@ class _ImmersiveImageSlot extends StatefulWidget {
   final Alignment alignment;
   final bool limitWidth;
   final int sideMargin;
+  final bool cropWhiteBorders;
+  final ReaderWhiteBorderCrop cropCache;
   final bool doubleTapToZoom;
   final bool longPressToZoom;
   final ValueChanged<double> onTapAt;
@@ -1131,6 +1140,7 @@ class _ImmersiveImageSlotState extends State<_ImmersiveImageSlot> {
 
   Uint8List? _bytes;
   Size? _size;
+  WhiteBorderInsets _crop = WhiteBorderInsets.none;
   Object? _error;
   final TransformationController _transform = TransformationController();
   Matrix4? _savedTransform;
@@ -1158,6 +1168,9 @@ class _ImmersiveImageSlotState extends State<_ImmersiveImageSlot> {
     if (oldWidget.request.cacheIdentity != widget.request.cacheIdentity) {
       _bytes = null;
       _size = widget.sizeCache.peek(widget.request);
+      _crop =
+          widget.cropCache.peek(widget.request.cacheIdentity) ??
+          WhiteBorderInsets.none;
       _error = null;
       _transform.value = Matrix4.identity();
       final cached = widget.cache.peekRequest(widget.request);
@@ -1184,11 +1197,23 @@ class _ImmersiveImageSlotState extends State<_ImmersiveImageSlot> {
       final size = await widget.sizeCache.measure(widget.request, bytes);
       if (!mounted || !identical(_bytes, bytes)) return;
       if (size != null && size != _size) setState(() => _size = size);
+      unawaited(_measureCrop(bytes));
     } on Object catch (error) {
       if (!mounted) return;
       setState(() => _error = error);
       widget.onState(false, true);
     }
+  }
+
+  /// 白边检测在后台跑：先按原图显示，算完再收窄布局（不改原图）。
+  Future<void> _measureCrop(Uint8List bytes) async {
+    if (!widget.cropWhiteBorders) return;
+    final insets = await widget.cropCache.measure(
+      widget.request.cacheIdentity,
+      bytes,
+    );
+    if (!mounted || insets.isNone || insets == _crop) return;
+    setState(() => _crop = insets);
   }
 
   @override
@@ -1227,7 +1252,12 @@ class _ImmersiveImageSlotState extends State<_ImmersiveImageSlot> {
     if (size == null || size.width <= 0 || size.height <= 0) {
       return _estimatedRatio;
     }
-    return size.width / size.height;
+    final ratio = size.width / size.height;
+    // 裁掉左右白边后可见内容更窄，按同一缩放铺满容器时高度会变高：
+    // 有效宽高比 = 原宽高比 × 可见宽度占比。
+    final horizontal = _crop.left + _crop.right;
+    if (horizontal > 0 && horizontal < 1) return ratio * (1 - horizontal);
+    return ratio;
   }
 
   /// 连续列表里给这一项一个确定高度（图片解码前就占好位）。
@@ -1314,6 +1344,34 @@ class _ImmersiveImageSlotState extends State<_ImmersiveImageSlot> {
             const Center(child: Icon(Icons.broken_image_outlined)),
       ),
     );
+
+    // 白边裁剪：只改显示区域，不动原图字节。做法是横向放大 1/(1-l-r) 倍、
+    // 把裁后区域对齐到框中心再裁掉溢出；框的宽高比同时换成裁后比例，
+    // 所以画面本身不变形。
+    if (!_crop.isNone) {
+      final left = _crop.left;
+      final right = _crop.right;
+      final horizontal = left + right;
+      if (horizontal > 0 && horizontal < 1) {
+        image = LayoutBuilder(
+          builder: (context, constraints) {
+            final scale = 1 / (1 - horizontal);
+            final width = constraints.maxWidth;
+            if (!width.isFinite || width <= 0) return image;
+            return ClipRect(
+              child: OverflowBox(
+                alignment: Alignment(-(left - right) / horizontal, 0),
+                minWidth: width * scale,
+                maxWidth: width * scale,
+                minHeight: constraints.maxHeight,
+                maxHeight: constraints.maxHeight,
+                child: image,
+              ),
+            );
+          },
+        );
+      }
+    }
 
     final useDoubleTap = widget.doubleTapToZoom;
     image = GestureDetector(

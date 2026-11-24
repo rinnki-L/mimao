@@ -24,6 +24,7 @@ class ReaderSettings {
     this.scrollSpeed = 1.0,
     this.preloadCount = 3,
     this.limitImageWidth = true,
+    this.cropWhiteBorders = false,
     this.sideMargin = 0,
     this.autoReadingInterval = 8,
     this.dimBrightness = 100,
@@ -44,6 +45,7 @@ class ReaderSettings {
   final double scrollSpeed; // 连续模式滚轮/自动滚速度系数 0.5~3
   final int preloadCount; // 预加载图片数 1~16
   final bool limitImageWidth; // 纵向连续/瀑布限制长条图宽度
+  final bool cropWhiteBorders; // 纵向连续/瀑布裁掉左右白边
   final int sideMargin; // 纵向条漫左右留白百分比 0~30（每侧）
   final int autoReadingInterval; // 自动翻页秒数 1~20
   final int dimBrightness; // 阅读内遮罩亮度 20~100（100 = 不压暗）
@@ -62,6 +64,7 @@ class ReaderSettings {
     double? scrollSpeed,
     int? preloadCount,
     bool? limitImageWidth,
+    bool? cropWhiteBorders,
     int? sideMargin,
     int? autoReadingInterval,
     int? dimBrightness,
@@ -80,6 +83,7 @@ class ReaderSettings {
     scrollSpeed: scrollSpeed ?? this.scrollSpeed,
     preloadCount: preloadCount ?? this.preloadCount,
     limitImageWidth: limitImageWidth ?? this.limitImageWidth,
+    cropWhiteBorders: cropWhiteBorders ?? this.cropWhiteBorders,
     sideMargin: sideMargin ?? this.sideMargin,
     autoReadingInterval: autoReadingInterval ?? this.autoReadingInterval,
     dimBrightness: dimBrightness ?? this.dimBrightness,
@@ -103,6 +107,7 @@ class ReaderSettings {
     'scrollSpeed': scrollSpeed,
     'preloadCount': preloadCount,
     'limitImageWidth': limitImageWidth,
+    'cropWhiteBorders': cropWhiteBorders,
     'sideMargin': sideMargin,
     'autoReadingInterval': autoReadingInterval,
     'dimBrightness': dimBrightness,
@@ -131,6 +136,7 @@ class ReaderSettings {
       scrollSpeed: _double(json['scrollSpeed'], 1.0, 0.5, 3),
       preloadCount: _int(json['preloadCount'], 3, 1, 16),
       limitImageWidth: _bool(json['limitImageWidth'], true),
+      cropWhiteBorders: _bool(json['cropWhiteBorders'], false),
       sideMargin: _int(json['sideMargin'], 0, 0, 30),
       autoReadingInterval: _int(json['autoReadingInterval'], 8, 1, 20),
       dimBrightness: _int(json['dimBrightness'], 100, 20, 100),

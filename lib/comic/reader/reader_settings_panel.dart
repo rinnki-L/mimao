@@ -167,6 +167,14 @@ class _ReaderSettingsPanelState extends State<ReaderSettingsPanel> {
                         _apply(_settings.copyWith(limitImageWidth: value)),
                   ),
                   _buildSideMargin(theme),
+                  _switchTile(
+                    key: 'reader-settings-crop-white-borders',
+                    title: '裁剪左右白边',
+                    subtitle: '纵向连续/瀑布时逐页检测近白边列并裁掉；不改原图',
+                    value: _settings.cropWhiteBorders,
+                    onChanged: (value) =>
+                        _apply(_settings.copyWith(cropWhiteBorders: value)),
+                  ),
                   _buildDimBrightness(theme),
                   _sectionTitle(theme, '性能与自动'),
                   _buildPreloadCount(theme),
