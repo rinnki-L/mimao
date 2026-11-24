@@ -5,6 +5,8 @@
 // 的例外场景；面板本身用与背景同族的加深/提亮色，不用 ColorScheme 角色，
 // 否则选羊皮纸背景时会出现灰色面板。其余尺寸/圆角仍走 [MimaoRadii]。
 
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../core/theme.dart';
@@ -707,6 +709,188 @@ Alignment novelBackgroundAlignment(NovelBackgroundAlign align) =>
       NovelBackgroundAlign.bottomCenter => Alignment.bottomCenter,
       NovelBackgroundAlign.bottomRight => Alignment.bottomRight,
     };
+
+/// 正文文字（含下划线）。下划线由 [CustomPainter] 按行绘制，因此能：
+/// - 用实线 / 波浪 / 虚线三种样式；
+/// - 用 [extend] 决定是贴着字走还是延伸到整行宽度（段尾空白也有线）。
+///
+/// Flutter 的 `TextStyle.decoration` 只能贴着字形画、也拿不到行边界，
+/// 所以这里不交给 TextStyle，改由绘制层按 `computeLineMetrics()` 画。
+class NovelUnderlinedText extends StatelessWidget {
+  const NovelUnderlinedText({
+    super.key,
+    required this.text,
+    required this.style,
+    required this.textAlign,
+    required this.underlineStyle,
+    required this.thickness,
+    required this.spacing,
+    required this.extend,
+    this.textHeightBehavior,
+    this.backgroundColor,
+  });
+
+  final String text;
+  final TextStyle style;
+  final TextAlign textAlign;
+  final NovelUnderlineStyle underlineStyle;
+  final double thickness;
+  final double spacing;
+  final bool extend;
+  final TextHeightBehavior? textHeightBehavior;
+
+  /// 搜索命中等场景的高亮底色（画在文字下面）。
+  final Color? backgroundColor;
+
+  @override
+  Widget build(BuildContext context) {
+    if (underlineStyle == NovelUnderlineStyle.none) {
+      return Text(
+        text,
+        style: style,
+        textAlign: textAlign,
+        textHeightBehavior: textHeightBehavior,
+      );
+    }
+    final base = style.copyWith(
+      decoration: TextDecoration.none,
+      decorationStyle: null,
+      decorationThickness: null,
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) => CustomPaint(
+        foregroundPainter: _NovelUnderlinePainter(
+          text: text,
+          style: base,
+          textAlign: textAlign,
+          textHeightBehavior: textHeightBehavior,
+          maxWidth: constraints.maxWidth,
+          underlineStyle: underlineStyle,
+          thickness: thickness,
+          spacing: spacing,
+          extend: extend,
+          color: style.color ?? const Color(0xFF000000),
+          background: backgroundColor,
+        ),
+        child: Text(
+          text,
+          style: base,
+          textAlign: textAlign,
+          textHeightBehavior: textHeightBehavior,
+        ),
+      ),
+    );
+  }
+}
+
+class _NovelUnderlinePainter extends CustomPainter {
+  _NovelUnderlinePainter({
+    required this.text,
+    required this.style,
+    required this.textAlign,
+    required this.textHeightBehavior,
+    required this.maxWidth,
+    required this.underlineStyle,
+    required this.thickness,
+    required this.spacing,
+    required this.extend,
+    required this.color,
+    required this.background,
+  });
+
+  final String text;
+  final TextStyle style;
+  final TextAlign textAlign;
+  final TextHeightBehavior? textHeightBehavior;
+  final double maxWidth;
+  final NovelUnderlineStyle underlineStyle;
+  final double thickness;
+  final double spacing;
+  final bool extend;
+  final Color color;
+  final Color? background;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (maxWidth <= 0 || text.isEmpty) return;
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: style),
+      textDirection: TextDirection.ltr,
+      textAlign: textAlign,
+      textHeightBehavior: textHeightBehavior,
+      maxLines: null,
+    )..layout(maxWidth: maxWidth);
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = thickness
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+    final bgPaint = background == null ? null : (Paint()..color = background!);
+
+    for (final line in painter.computeLineMetrics()) {
+      // 下划线落在 baseline 下方 spacing 处。
+      final y = line.baseline + spacing;
+      final lineRight = line.left + line.width;
+      final left = extend ? 0.0 : line.left;
+      final right = extend ? maxWidth : lineRight;
+      if (right <= left) continue;
+      if (bgPaint != null) {
+        canvas.drawRect(
+          Rect.fromLTRB(line.left, line.baseline - line.ascent, lineRight, y),
+          bgPaint,
+        );
+      }
+      switch (underlineStyle) {
+        case NovelUnderlineStyle.none:
+          break;
+        case NovelUnderlineStyle.solid:
+          canvas.drawLine(Offset(left, y), Offset(right, y), paint);
+        case NovelUnderlineStyle.dash:
+          const dash = 6.0;
+          const gap = 4.0;
+          for (var x = left; x < right; x += dash + gap) {
+            canvas.drawLine(
+              Offset(x, y),
+              Offset(math.min(x + dash, right), y),
+              paint,
+            );
+          }
+        case NovelUnderlineStyle.wave:
+          final path = Path()..moveTo(left, y);
+          const amplitude = 1.6;
+          const period = 8.0;
+          var x = left;
+          var up = true;
+          while (x < right) {
+            final next = math.min(x + period / 2, right);
+            path.quadraticBezierTo(
+              (x + next) / 2,
+              y + (up ? -amplitude : amplitude),
+              next,
+              y,
+            );
+            up = !up;
+            x = next;
+          }
+          canvas.drawPath(path, paint);
+      }
+    }
+    painter.dispose();
+  }
+
+  @override
+  bool shouldRepaint(_NovelUnderlinePainter oldDelegate) =>
+      oldDelegate.text != text ||
+      oldDelegate.style != style ||
+      oldDelegate.maxWidth != maxWidth ||
+      oldDelegate.underlineStyle != underlineStyle ||
+      oldDelegate.thickness != thickness ||
+      oldDelegate.spacing != spacing ||
+      oldDelegate.extend != extend ||
+      oldDelegate.color != color ||
+      oldDelegate.background != background ||
+      oldDelegate.textAlign != textAlign;
+}
 
 /// 章节目录（底部抽屉）：按卷分组，当前章高亮，VIP 章显示锁。
 class NovelCatalogSheet extends StatefulWidget {

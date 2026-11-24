@@ -1491,19 +1491,14 @@ class _NovelReaderPageState extends State<NovelReaderPage>
                               ).colorScheme.primary.withValues(alpha: 0.18),
                               borderRadius: MimaoShapes.sm,
                             ),
-                            child: Text(
+                            child: _buildBodyText(
                               _controller.paragraphText(paragraph),
                               style: body,
-                              textAlign: _controller.bodyTextAlign,
-                              textHeightBehavior:
-                                  _controller.textHeightBehavior,
                             ),
                           )
-                        : Text(
+                        : _buildBodyText(
                             _controller.paragraphText(paragraph),
                             style: body,
-                            textAlign: _controller.bodyTextAlign,
-                            textHeightBehavior: _controller.textHeightBehavior,
                           ),
                   ),
                 );
@@ -1513,6 +1508,38 @@ class _NovelReaderPageState extends State<NovelReaderPage>
           ),
         ),
       ),
+    );
+  }
+
+  /// 正文文字：开了下划线就走 [NovelUnderlinedText]（按行画、可延伸），
+  /// 否则仍是普通 [Text]，两者行高一致（bodyStyle 不含 decoration）。
+  Widget _buildBodyText(
+    String text, {
+    required TextStyle style,
+    bool highlight = false,
+  }) {
+    final settings = _controller.settings;
+    final background = highlight
+        ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.22)
+        : null;
+    if (settings.underlineStyle == NovelUnderlineStyle.none) {
+      return Text(
+        text,
+        style: highlight ? style.copyWith(backgroundColor: background) : style,
+        textAlign: _controller.bodyTextAlign,
+        textHeightBehavior: _controller.textHeightBehavior,
+      );
+    }
+    return NovelUnderlinedText(
+      text: text,
+      style: style,
+      textAlign: _controller.bodyTextAlign,
+      textHeightBehavior: _controller.textHeightBehavior,
+      underlineStyle: settings.underlineStyle,
+      thickness: settings.underlineThickness,
+      spacing: settings.underlineSpacing,
+      extend: settings.underlineExtend,
+      backgroundColor: background,
     );
   }
 
@@ -1665,9 +1692,6 @@ class _NovelReaderPageState extends State<NovelReaderPage>
     final content = _controller.content;
     if (content == null) return const SizedBox.shrink();
     final body = _controller.bodyStyle();
-    final highlight = Theme.of(
-      context,
-    ).colorScheme.primary.withValues(alpha: 0.22);
     final titleStyle = _controller.titleStyle();
     final rawTitle = content.title.isEmpty
         ? (_controller.chapter?.title ?? '')
@@ -1712,12 +1736,10 @@ class _NovelReaderPageState extends State<NovelReaderPage>
       if (end > start) {
         final substring = full.substring(start, end);
         children.add(
-          Text(
+          _buildBodyText(
             substring,
-            style: _highlightParagraph == slice.paragraph
-                ? body.copyWith(backgroundColor: highlight)
-                : body,
-            textAlign: _controller.bodyTextAlign,
+            style: body,
+            highlight: _highlightParagraph == slice.paragraph,
           ),
         );
       }

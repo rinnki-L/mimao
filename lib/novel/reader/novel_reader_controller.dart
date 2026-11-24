@@ -565,28 +565,25 @@ class NovelReaderController extends ChangeNotifier {
     if (target != null) await openChapter(target, refresh: true);
   }
 
-  /// 正文样式：字体、字距、加粗/斜体、下划线、阴影。
+  /// 正文样式：字体、字距、加粗/斜体、阴影。
+  ///
+  /// 下划线不在这里：`TextStyle.decoration` 只能贴着字形画、也拿不到行边界，
+  /// 画不出「延伸到整行宽度」和可调间距。下划线由渲染层的
+  /// `NovelUnderlinedText` 按 `computeLineMetrics()` 逐行绘制，分页测量与渲染
+  /// 都用这个不含 decoration 的样式，两边行高一致。
   TextStyle bodyStyle() {
     final family = settings.fontFamily.isEmpty
         ? MimaoFonts.family
         : settings.fontFamily;
-    final underline = settings.underlineStyle != NovelUnderlineStyle.none;
-    // Flutter 的 TextStyle 没有「下划线距文字多远」这个参数；把该值折进
-    // 行高（按字号归一），至少让「间距」调大时下划线不再压字。
-    final underlineExtra = underline
-        ? settings.underlineSpacing / settings.fontSize
-        : 0.0;
     return TextStyle(
       fontFamily: family,
       fontWeight: settings.textBold ? MimaoFonts.bold : MimaoFonts.regular,
       fontStyle: settings.textItalic ? FontStyle.italic : FontStyle.normal,
       fontSize: settings.fontSize,
-      height: settings.lineHeight + underlineExtra,
+      height: settings.lineHeight,
       letterSpacing: settings.letterSpacing,
       color: Color(settings.textColorArgb),
-      decoration: underline ? TextDecoration.underline : TextDecoration.none,
-      decorationStyle: _underlineStyle(settings.underlineStyle),
-      decorationThickness: underline ? settings.underlineThickness : null,
+      decoration: TextDecoration.none,
       shadows: _textShadows(),
     );
   }
@@ -605,13 +602,8 @@ class NovelReaderController extends ChangeNotifier {
     ];
   }
 
-  static TextDecorationStyle? _underlineStyle(NovelUnderlineStyle style) =>
-      switch (style) {
-        NovelUnderlineStyle.none => null,
-        NovelUnderlineStyle.solid => TextDecorationStyle.solid,
-        NovelUnderlineStyle.wave => TextDecorationStyle.wavy,
-        NovelUnderlineStyle.dash => TextDecorationStyle.dashed,
-      };
+  /// 正文是否启用下划线（渲染层据此换用 `NovelUnderlinedText`）。
+  bool get hasUnderline => settings.underlineStyle != NovelUnderlineStyle.none;
 
   TextStyle titleStyle() => bodyStyle().copyWith(
     fontSize: settings.effectiveTitleFontSize.clamp(
