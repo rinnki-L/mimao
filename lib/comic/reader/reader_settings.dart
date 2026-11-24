@@ -31,6 +31,7 @@ class ReaderSettings {
     this.einkRefreshInterval = 3,
     this.einkRefreshStyle = 'black',
     this.sideMargin = 0,
+    this.volumeKeys = true,
     this.autoReadingInterval = 8,
     this.dimBrightness = 100,
   });
@@ -57,6 +58,7 @@ class ReaderSettings {
   final int einkRefreshInterval; // 闪屏间隔页数 1~10
   final String einkRefreshStyle; // black / white / whiteThenBlack
   final int sideMargin; // 纵向条漫左右留白百分比 0~30（每侧）
+  final bool volumeKeys; // Android：音量键翻页
   final int autoReadingInterval; // 自动翻页秒数 1~20
   final int dimBrightness; // 阅读内遮罩亮度 20~100（100 = 不压暗）
 
@@ -81,6 +83,7 @@ class ReaderSettings {
     int? einkRefreshInterval,
     String? einkRefreshStyle,
     int? sideMargin,
+    bool? volumeKeys,
     int? autoReadingInterval,
     int? dimBrightness,
   }) => ReaderSettings(
@@ -105,6 +108,7 @@ class ReaderSettings {
     einkRefreshInterval: einkRefreshInterval ?? this.einkRefreshInterval,
     einkRefreshStyle: einkRefreshStyle ?? this.einkRefreshStyle,
     sideMargin: sideMargin ?? this.sideMargin,
+    volumeKeys: volumeKeys ?? this.volumeKeys,
     autoReadingInterval: autoReadingInterval ?? this.autoReadingInterval,
     dimBrightness: dimBrightness ?? this.dimBrightness,
   );
@@ -134,6 +138,7 @@ class ReaderSettings {
     'einkRefreshInterval': einkRefreshInterval,
     'einkRefreshStyle': einkRefreshStyle,
     'sideMargin': sideMargin,
+    'volumeKeys': volumeKeys,
     'autoReadingInterval': autoReadingInterval,
     'dimBrightness': dimBrightness,
   };
@@ -168,6 +173,7 @@ class ReaderSettings {
       einkRefreshInterval: _int(json['einkRefreshInterval'], 3, 1, 10),
       einkRefreshStyle: _einkStyle(json['einkRefreshStyle']),
       sideMargin: _int(json['sideMargin'], 0, 0, 30),
+      volumeKeys: _bool(json['volumeKeys'], true),
       autoReadingInterval: _int(json['autoReadingInterval'], 8, 1, 20),
       dimBrightness: _int(json['dimBrightness'], 100, 20, 100),
     );

@@ -207,6 +207,14 @@ class _ReaderSettingsPanelState extends State<ReaderSettingsPanel> {
                     _buildEinkStyle(theme),
                   ],
                   _sectionTitle(theme, '性能与自动'),
+                  _switchTile(
+                    key: 'reader-settings-volume-keys',
+                    title: '音量键翻页',
+                    subtitle: 'Android：音量上=下一页，音量下=上一页',
+                    value: _settings.volumeKeys,
+                    onChanged: (value) =>
+                        _apply(_settings.copyWith(volumeKeys: value)),
+                  ),
                   _buildPreloadCount(theme),
                   _buildScrollSpeed(theme),
                   _buildAutoReadingInterval(theme),

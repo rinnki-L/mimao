@@ -37,6 +37,7 @@ import 'reader_progress.dart';
 import 'reader_settings.dart';
 import 'reader_settings_panel.dart';
 import 'reader_view_mode.dart';
+import 'reader_volume_keys.dart';
 import 'reader_waterfall_controller.dart';
 
 /// 沉浸式阅读页对外接口。
@@ -94,6 +95,32 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage>
   int _autoModeGeneration = 0;
   final ReaderImageSizeCache _detectSizes = ReaderImageSizeCache();
   late final ReaderDiagnostics _diagnostics = ReaderDiagnostics();
+  late final ReaderVolumeController _volume = ReaderVolumeController(
+    nextPage: () {
+      if (_effectiveSettings.mode.isGallery) {
+        unawaited(_viewport.turnGalleryPage(1));
+      } else {
+        unawaited(_viewport.scrollViewport(1));
+      }
+      return true;
+    },
+    previousPage: () {
+      if (_effectiveSettings.mode.isGallery) {
+        unawaited(_viewport.turnGalleryPage(-1));
+      } else {
+        unawaited(_viewport.scrollViewport(-1));
+      }
+      return true;
+    },
+    nextChapter: () => unawaited(_runChapterAction(_reading.nextChapter)),
+    previousChapter: () =>
+        unawaited(_runChapterAction(_reading.previousChapter)),
+    onError: (error, stack) {
+      // 音量键失败只影响翻页，不打断阅读；进日志便于排查。
+      debugPrint('音量键翻页失败：$error');
+    },
+    onInput: (_) => _noteInteraction(),
+  );
 
   @override
   void initState() {
@@ -122,6 +149,7 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage>
     setState(() => _settingsReady = true);
     await _waterfall.start();
     if (mounted && _settings.autoLayout) unawaited(_detectLayout());
+    await _syncVolumeKeys();
   }
 
   ReaderSettings get _effectiveSettings =>
@@ -142,6 +170,7 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage>
     _chromeVisible.dispose();
     _detectSizes.clear();
     _diagnostics.dispose();
+    unawaited(_volume.dispose());
     super.dispose();
   }
 
@@ -154,6 +183,10 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage>
       // 切后台时把最后一次滚动位置补写掉，自动阅读下一拍自然停住。
       unawaited(_reading.flushProgress());
       _diagnostics.stop(ReaderDiagnosticStop.background);
+      // 后台不该继续吃音量键（那是系统音量）。
+      unawaited(_volume.setEnabled(false));
+    } else {
+      unawaited(_syncVolumeKeys());
     }
   }
 
@@ -175,6 +208,7 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage>
       _autoModeGeneration++;
     }
     if (!wasAuto && next.autoLayout) unawaited(_detectLayout());
+    if (next.volumeKeys != _settings.volumeKeys) unawaited(_syncVolumeKeys());
     final autoMode = _autoMode;
     // 自动版式只是本次打开的内存覆盖：面板改其它项时，落盘仍写用户原来的
     // 默认模式，不把检测结果偷偷变成默认。
@@ -206,6 +240,17 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage>
     );
     // 锁菜单时不能把面板藏掉后又不还原，否则解锁按钮也看不见。
     if (mounted && wasVisible) _chromeVisible.value = true;
+  }
+
+  /// Android 上按设置申请/撤销音量键监听；其它平台是空操作。
+  Future<void> _syncVolumeKeys() async {
+    if (!supportsVolumeKeys) return;
+    try {
+      await _volume.setEnabled(_settings.volumeKeys);
+    } on Object catch (error) {
+      // 拿不到音量键不影响阅读：静默降级，用户仍可用点击/滚轮。
+      debugPrint('音量键监听不可用：$error');
+    }
   }
 
   Future<void> _openDiagnostics() async {
