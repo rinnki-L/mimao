@@ -24,9 +24,11 @@ import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import '../../core/theme.dart';
 import 'reader_cache.dart';
 import 'reader_continuous_scroll.dart';
+import 'reader_eink_refresh.dart';
 import 'reader_flow.dart';
 import 'reader_image_size.dart';
 import 'reader_white_border_crop.dart';
+import 'reader_wide_image_split.dart';
 import 'reader_immersive_controller.dart';
 import 'reader_models.dart';
 import 'reader_page_layout.dart';
@@ -114,6 +116,7 @@ class _ReaderViewportState extends State<ReaderViewport>
   final ScrollOffsetController _offset = ScrollOffsetController();
   final ReaderImageSizeCache _sizes = ReaderImageSizeCache();
   final ReaderWhiteBorderCrop _crop = ReaderWhiteBorderCrop();
+  final EInkRefreshController _eink = EInkRefreshController();
   late final ReaderContinuousScrollController _scrollController;
 
   late ReaderImagePreloader _preloader;
@@ -203,6 +206,7 @@ class _ReaderViewportState extends State<ReaderViewport>
     _preloader.dispose();
     _sizes.clear();
     _crop.dispose();
+    _eink.dispose();
     _scrollController.dispose();
     _pageController.dispose();
     super.dispose();
@@ -583,6 +587,17 @@ class _ReaderViewportState extends State<ReaderViewport>
     });
   }
 
+  /// 墨水屏整页刷新：只在翻页模式生效（连续/瀑布整页闪会打断滚动）。
+  void _maybeEinkRefresh() {
+    final settings = widget.settings;
+    if (!settings.einkRefresh || !settings.mode.isGallery) return;
+    _eink.onPageChanged(
+      interval: settings.einkRefreshInterval,
+      durationMilliseconds: 200,
+      style: EInkRefreshStyle.fromKey(settings.einkRefreshStyle),
+    );
+  }
+
   void _onGalleryPageChanged(int index, int total, int pageCount) {
     if (_sentinelBusy) return;
     if (index == 0) {
@@ -599,6 +614,7 @@ class _ReaderViewportState extends State<ReaderViewport>
     if (start >= segment.length) return;
     final imageNumber = start + 1;
     unawaited(widget.reading.goToPage(imageNumber));
+    _maybeEinkRefresh();
     final position = widget.reading.position;
     _lastSyncedChapter = position.chapter;
     _lastSyncedPage = position.page;
@@ -732,7 +748,14 @@ class _ReaderViewportState extends State<ReaderViewport>
           }
         }
       },
-      child: content,
+      child: Stack(
+        fit: StackFit.expand,
+        children: <Widget>[
+          content,
+          // 墨水屏刷新层：盖在图片上、不拦事件；关掉时只是个空 SizedBox。
+          EInkRefreshOverlay(controller: _eink),
+        ],
+      ),
     );
   }
 
@@ -1056,6 +1079,8 @@ class _ReaderViewportState extends State<ReaderViewport>
       sideMargin: widget.settings.sideMargin,
       cropWhiteBorders: widget.settings.cropWhiteBorders && vertical && !fill,
       cropCache: _crop,
+      splitWideImages: widget.settings.splitWideImages && vertical && !fill,
+      invertSplit: widget.settings.invertSplit,
       doubleTapToZoom: widget.settings.doubleTapToZoom,
       longPressToZoom: widget.settings.longPressToZoom,
       onTapAt: _onTapAt,
@@ -1106,6 +1131,8 @@ class _ImmersiveImageSlot extends StatefulWidget {
     required this.sideMargin,
     required this.cropWhiteBorders,
     required this.cropCache,
+    required this.splitWideImages,
+    required this.invertSplit,
     required this.doubleTapToZoom,
     required this.longPressToZoom,
     required this.onTapAt,
@@ -1125,6 +1152,8 @@ class _ImmersiveImageSlot extends StatefulWidget {
   final int sideMargin;
   final bool cropWhiteBorders;
   final ReaderWhiteBorderCrop cropCache;
+  final bool splitWideImages;
+  final bool invertSplit;
   final bool doubleTapToZoom;
   final bool longPressToZoom;
   final ValueChanged<double> onTapAt;
@@ -1252,6 +1281,10 @@ class _ImmersiveImageSlotState extends State<_ImmersiveImageSlot> {
     if (size == null || size.width <= 0 || size.height <= 0) {
       return _estimatedRatio;
     }
+    // 拆分成上下两半后，显示框的宽高比变成原图的 1/4。
+    if (widget.splitWideImages && shouldSplitWideImage(size)) {
+      return size.width / size.height / 4;
+    }
     final ratio = size.width / size.height;
     // 裁掉左右白边后可见内容更窄，按同一缩放铺满容器时高度会变高：
     // 有效宽高比 = 原宽高比 × 可见宽度占比。
@@ -1333,16 +1366,27 @@ class _ImmersiveImageSlotState extends State<_ImmersiveImageSlot> {
       );
     }
 
+    final sourceSize = _size;
+    final split =
+        widget.splitWideImages &&
+        sourceSize != null &&
+        shouldSplitWideImage(sourceSize);
     Widget image = SizedBox.expand(
-      child: Image(
-        image: MemoryImage(bytes),
-        fit: BoxFit.contain,
-        alignment: widget.alignment,
-        filterQuality: FilterQuality.medium,
-        gaplessPlayback: true,
-        errorBuilder: (context, error, stack) =>
-            const Center(child: Icon(Icons.broken_image_outlined)),
-      ),
+      child: split
+          ? SplitWideImageView(
+              image: MemoryImage(bytes),
+              sourceSize: sourceSize,
+              invert: widget.invertSplit,
+            )
+          : Image(
+              image: MemoryImage(bytes),
+              fit: BoxFit.contain,
+              alignment: widget.alignment,
+              filterQuality: FilterQuality.medium,
+              gaplessPlayback: true,
+              errorBuilder: (context, error, stack) =>
+                  const Center(child: Icon(Icons.broken_image_outlined)),
+            ),
     );
 
     // 白边裁剪：只改显示区域，不动原图字节。做法是横向放大 1/(1-l-r) 倍、

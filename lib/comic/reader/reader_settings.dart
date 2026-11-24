@@ -25,6 +25,11 @@ class ReaderSettings {
     this.preloadCount = 3,
     this.limitImageWidth = true,
     this.cropWhiteBorders = false,
+    this.splitWideImages = false,
+    this.invertSplit = false,
+    this.einkRefresh = false,
+    this.einkRefreshInterval = 3,
+    this.einkRefreshStyle = 'black',
     this.sideMargin = 0,
     this.autoReadingInterval = 8,
     this.dimBrightness = 100,
@@ -46,6 +51,11 @@ class ReaderSettings {
   final int preloadCount; // 预加载图片数 1~16
   final bool limitImageWidth; // 纵向连续/瀑布限制长条图宽度
   final bool cropWhiteBorders; // 纵向连续/瀑布裁掉左右白边
+  final bool splitWideImages; // 纵向模式把横向跨页图拆成上下两半
+  final bool invertSplit; // 拆分的两半反序（左半在上）
+  final bool einkRefresh; // 翻页模式每隔 N 页闪一次（墨水屏）
+  final int einkRefreshInterval; // 闪屏间隔页数 1~10
+  final String einkRefreshStyle; // black / white / whiteThenBlack
   final int sideMargin; // 纵向条漫左右留白百分比 0~30（每侧）
   final int autoReadingInterval; // 自动翻页秒数 1~20
   final int dimBrightness; // 阅读内遮罩亮度 20~100（100 = 不压暗）
@@ -65,6 +75,11 @@ class ReaderSettings {
     int? preloadCount,
     bool? limitImageWidth,
     bool? cropWhiteBorders,
+    bool? splitWideImages,
+    bool? invertSplit,
+    bool? einkRefresh,
+    int? einkRefreshInterval,
+    String? einkRefreshStyle,
     int? sideMargin,
     int? autoReadingInterval,
     int? dimBrightness,
@@ -84,6 +99,11 @@ class ReaderSettings {
     preloadCount: preloadCount ?? this.preloadCount,
     limitImageWidth: limitImageWidth ?? this.limitImageWidth,
     cropWhiteBorders: cropWhiteBorders ?? this.cropWhiteBorders,
+    splitWideImages: splitWideImages ?? this.splitWideImages,
+    invertSplit: invertSplit ?? this.invertSplit,
+    einkRefresh: einkRefresh ?? this.einkRefresh,
+    einkRefreshInterval: einkRefreshInterval ?? this.einkRefreshInterval,
+    einkRefreshStyle: einkRefreshStyle ?? this.einkRefreshStyle,
     sideMargin: sideMargin ?? this.sideMargin,
     autoReadingInterval: autoReadingInterval ?? this.autoReadingInterval,
     dimBrightness: dimBrightness ?? this.dimBrightness,
@@ -108,6 +128,11 @@ class ReaderSettings {
     'preloadCount': preloadCount,
     'limitImageWidth': limitImageWidth,
     'cropWhiteBorders': cropWhiteBorders,
+    'splitWideImages': splitWideImages,
+    'invertSplit': invertSplit,
+    'einkRefresh': einkRefresh,
+    'einkRefreshInterval': einkRefreshInterval,
+    'einkRefreshStyle': einkRefreshStyle,
     'sideMargin': sideMargin,
     'autoReadingInterval': autoReadingInterval,
     'dimBrightness': dimBrightness,
@@ -137,6 +162,11 @@ class ReaderSettings {
       preloadCount: _int(json['preloadCount'], 3, 1, 16),
       limitImageWidth: _bool(json['limitImageWidth'], true),
       cropWhiteBorders: _bool(json['cropWhiteBorders'], false),
+      splitWideImages: _bool(json['splitWideImages'], false),
+      invertSplit: _bool(json['invertSplit'], false),
+      einkRefresh: _bool(json['einkRefresh'], false),
+      einkRefreshInterval: _int(json['einkRefreshInterval'], 3, 1, 10),
+      einkRefreshStyle: _einkStyle(json['einkRefreshStyle']),
       sideMargin: _int(json['sideMargin'], 0, 0, 30),
       autoReadingInterval: _int(json['autoReadingInterval'], 8, 1, 20),
       dimBrightness: _int(json['dimBrightness'], 100, 20, 100),
@@ -154,6 +184,12 @@ class ReaderSettings {
     }
     return const ReaderSettings();
   }
+
+  static String _einkStyle(Object? value) => switch (value) {
+    'white' => 'white',
+    'whiteThenBlack' => 'whiteThenBlack',
+    _ => 'black',
+  };
 
   static bool _bool(Object? value, bool fallback) =>
       value is bool ? value : fallback;

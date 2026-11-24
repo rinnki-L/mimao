@@ -175,7 +175,37 @@ class _ReaderSettingsPanelState extends State<ReaderSettingsPanel> {
                     onChanged: (value) =>
                         _apply(_settings.copyWith(cropWhiteBorders: value)),
                   ),
+                  _switchTile(
+                    key: 'reader-settings-split-wide',
+                    title: '拆分跨页图',
+                    subtitle: '纵向阅读时把横向跨页图拆成上下两半',
+                    value: _settings.splitWideImages,
+                    onChanged: (value) =>
+                        _apply(_settings.copyWith(splitWideImages: value)),
+                  ),
+                  if (_settings.splitWideImages)
+                    _switchTile(
+                      key: 'reader-settings-invert-split',
+                      title: '拆分顺序反转',
+                      subtitle: '默认右半在上；开启后左半在上',
+                      value: _settings.invertSplit,
+                      onChanged: (value) =>
+                          _apply(_settings.copyWith(invertSplit: value)),
+                    ),
                   _buildDimBrightness(theme),
+                  _sectionTitle(theme, '墨水屏'),
+                  _switchTile(
+                    key: 'reader-settings-eink-refresh',
+                    title: '整页刷新',
+                    subtitle: '翻页模式每隔 N 页闪一次，减轻残影',
+                    value: _settings.einkRefresh,
+                    onChanged: (value) =>
+                        _apply(_settings.copyWith(einkRefresh: value)),
+                  ),
+                  if (_settings.einkRefresh) ...<Widget>[
+                    _buildEinkInterval(theme),
+                    _buildEinkStyle(theme),
+                  ],
                   _sectionTitle(theme, '性能与自动'),
                   _buildPreloadCount(theme),
                   _buildScrollSpeed(theme),
@@ -346,6 +376,63 @@ class _ReaderSettingsPanelState extends State<ReaderSettingsPanel> {
         activeColor: theme.colorScheme.primary,
         thumbColor: theme.colorScheme.primary,
         onChanged: (value) => _apply(_settings.copyWith(scrollSpeed: value)),
+      ),
+    );
+  }
+
+  Widget _buildEinkInterval(ThemeData theme) {
+    return _sliderTile(
+      theme,
+      key: 'reader-settings-eink-interval',
+      title: '刷新间隔',
+      subtitle: '每翻多少页闪一次',
+      valueLabel: '${_settings.einkRefreshInterval} 页',
+      slider: Slider(
+        key: const Key('reader-settings-eink-interval-slider'),
+        value: _settings.einkRefreshInterval.toDouble(),
+        min: 1,
+        max: 10,
+        divisions: 9,
+        label: '${_settings.einkRefreshInterval}',
+        activeColor: theme.colorScheme.primary,
+        thumbColor: theme.colorScheme.primary,
+        onChanged: (value) =>
+            _apply(_settings.copyWith(einkRefreshInterval: value.round())),
+      ),
+    );
+  }
+
+  Widget _buildEinkStyle(ThemeData theme) {
+    final scheme = theme.colorScheme;
+    const options = <String, String>{
+      'black': '闪黑',
+      'white': '闪白',
+      'whiteThenBlack': '白后黑',
+    };
+    return Padding(
+      key: const Key('reader-settings-eink-style-row'),
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Text('刷新样式', style: theme.textTheme.bodyMedium),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 8,
+            children: <Widget>[
+              for (final entry in options.entries)
+                ChoiceChip(
+                  key: Key('reader-settings-eink-style-${entry.key}'),
+                  label: Text(entry.value),
+                  selected: _settings.einkRefreshStyle == entry.key,
+                  showCheckmark: false,
+                  selectedColor: scheme.primaryContainer,
+                  onSelected: (_) =>
+                      _apply(_settings.copyWith(einkRefreshStyle: entry.key)),
+                ),
+            ],
+          ),
+        ],
       ),
     );
   }
