@@ -56,6 +56,7 @@ class ImmersiveReaderController extends ChangeNotifier {
   ReaderSettings _settings = const ReaderSettings();
   bool _disposed = false;
   String? _message;
+  Timer? _persistTimer;
 
   ReaderSettings get settings => _settings;
   String? get message => _message;
@@ -227,7 +228,12 @@ class ImmersiveReaderController extends ChangeNotifier {
     _chapter = pos.chapter;
     _page = pos.page;
     _notify();
-    await _persist();
+    // 滚动时可见项可能连续变化；落库做 400ms 合并，退出时在 dispose 里补写。
+    _persistTimer?.cancel();
+    _persistTimer = Timer(const Duration(milliseconds: 400), () {
+      _persistTimer = null;
+      unawaited(_persist());
+    });
   }
 
   /// 切章/加载完成后，把内部位置同步到流（流式加载可能改变了段）。
@@ -269,7 +275,12 @@ class ImmersiveReaderController extends ChangeNotifier {
 
   @override
   void dispose() {
+    if (_disposed) return;
     _disposed = true;
+    _persistTimer?.cancel();
+    _persistTimer = null;
+    // 退出前把最后一次滚动位置补写掉；recorder 由模块层持有，可独立完成。
+    unawaited(_persist());
     super.dispose();
   }
 }

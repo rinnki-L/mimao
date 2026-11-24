@@ -317,8 +317,8 @@ class _ReaderSettingsPanelState extends State<ReaderSettingsPanel> {
     return _sliderTile(
       theme,
       key: 'reader-settings-scroll-speed',
-      title: '滚轮速度',
-      subtitle: '连续阅读时滚轮/自动滚的倍率',
+      title: '滚动速度',
+      subtitle: '连续模式点击/键盘/自动滚的翻屏距离倍率',
       valueLabel: '${_settings.scrollSpeed.toStringAsFixed(1)}x',
       slider: Slider(
         key: const Key('reader-settings-scroll-speed-slider'),

@@ -21,6 +21,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
+import '../../core/theme.dart';
 import 'reader_cache.dart';
 import 'reader_continuous_scroll.dart';
 import 'reader_flow.dart';
@@ -83,6 +84,7 @@ class ReaderViewport extends StatefulWidget {
     required this.waterfall,
     required this.cache,
     required this.onTapCenter,
+    this.chapterTitles = const <String>[],
     this.viewportController,
   });
 
@@ -91,6 +93,7 @@ class ReaderViewport extends StatefulWidget {
   final ReaderWaterfallController waterfall;
   final ReaderImageCache cache;
   final VoidCallback onTapCenter;
+  final List<String> chapterTitles;
   final ReaderViewportController? viewportController;
 
   @override
@@ -199,7 +202,12 @@ class _ReaderViewportState extends State<ReaderViewport>
 
   bool get _gallery => widget.settings.mode.isGallery;
 
-  int get _flowImageCount => widget.waterfall.flow.imageCount;
+  /// 瀑布流跨章；连续模式只渲染当前章，滚到边缘再切章（对齐上游语义）。
+  bool get _crossChapter => widget.settings.mode.isWaterfall;
+
+  int get _flowImageCount => _crossChapter
+      ? widget.waterfall.flow.imageCount
+      : (_segment?.length ?? 0);
 
   ReaderPageLayout get _layout => ReaderPageLayout(
     imagesPerPage: _gallery ? widget.settings.imagesPerPage.clamp(1, 5) : 1,
@@ -230,7 +238,13 @@ class _ReaderViewportState extends State<ReaderViewport>
       return reading.currentChapter >= widget.waterfall.source.chapterCount &&
           reading.displayPage >= reading.displayPageCount;
     }
-    if (widget.waterfall.flow.lastChapter <
+    if (!_crossChapter) {
+      // 连续模式滚到底会切下一章；只有最后一章才真的到头。
+      if (widget.reading.currentChapter <
+          widget.waterfall.source.chapterCount) {
+        return false;
+      }
+    } else if (widget.waterfall.flow.lastChapter <
         widget.waterfall.source.chapterCount) {
       return false;
     }
@@ -251,6 +265,15 @@ class _ReaderViewportState extends State<ReaderViewport>
       return <ImageRequest>[
         for (var i = start; i < end; i++) _requestForUrl(segment.images[i]),
       ];
+    }
+    if (!_crossChapter) {
+      final segment = _segment;
+      if (segment == null ||
+          _lastFlowIndex < 1 ||
+          _lastFlowIndex > segment.length) {
+        return const <ImageRequest>[];
+      }
+      return <ImageRequest>[_requestForUrl(segment.images[_lastFlowIndex - 1])];
     }
     final image = widget.waterfall.flow.imageAt(_lastFlowIndex);
     return image == null
@@ -298,6 +321,27 @@ class _ReaderViewportState extends State<ReaderViewport>
         for (var i = 0; i < math.min(next.length, 2); i++) {
           add(_requestForUrl(next.images[i]));
         }
+      }
+      return result;
+    }
+
+    final segment = _segment;
+    if (!_crossChapter) {
+      if (segment == null || segment.length == 0) return result;
+      final current = _lastFlowIndex.clamp(1, segment.length);
+      for (
+        var index = current;
+        index <= math.min(segment.length, current + limit);
+        index++
+      ) {
+        add(_requestForUrl(segment.images[index - 1]));
+      }
+      for (
+        var index = current - 1;
+        index >= math.max(1, current - 2);
+        index--
+      ) {
+        add(_requestForUrl(segment.images[index - 1]));
       }
       return result;
     }
@@ -369,15 +413,23 @@ class _ReaderViewportState extends State<ReaderViewport>
       _scheduleGalleryJump(_layout.pageForImage(position.page));
       return;
     }
-    final index =
-        widget.waterfall.flow.indexOf(
-          ReaderImagePosition(
-            chapter: position.chapter,
-            chapterId: position.chapterId,
-            page: position.page,
-          ),
-        ) ??
-        1;
+    final int index;
+    if (!_crossChapter) {
+      final count = _flowImageCount;
+      index = count <= 0 ? 1 : position.page.clamp(1, count);
+    } else {
+      index =
+          widget.waterfall.flow.indexOf(
+            ReaderImagePosition(
+              chapter: position.chapter,
+              chapterId: position.chapterId,
+              page: position.page,
+            ),
+          ) ??
+          1;
+    }
+    if (!_gallery) _lastFlowIndex = index;
+    if (!_gallery) _reportingReady = false;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_disposed || !mounted || !_itemScroll.isAttached) {
         if (mounted) _reportingReady = true;
@@ -386,16 +438,32 @@ class _ReaderViewportState extends State<ReaderViewport>
       final allowed = animate && widget.settings.pageAnimation;
       if (allowed) {
         unawaited(
-          _itemScroll.scrollTo(
-            index: index,
-            duration: const Duration(milliseconds: 220),
-            curve: Curves.easeOutCubic,
-          ),
+          _itemScroll
+              .scrollTo(
+                index: index,
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
+              )
+              .whenComplete(_finishProgrammaticJump),
         );
       } else {
         _itemScroll.jumpTo(index: index);
+        _finishProgrammaticJump();
       }
-      _reportingReady = true;
+    });
+  }
+
+  /// 程序化跳转后等列表真正落位再开放可见项上报，避免旧位置的迟到事件
+  /// 把刚恢复/跳转到的页码冲掉。
+  void _finishProgrammaticJump() {
+    if (_disposed || !mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_disposed || !mounted) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_disposed || !mounted) return;
+        _reportingReady = true;
+        _onItemPositionsChanged();
+      });
     });
   }
 
@@ -458,13 +526,27 @@ class _ReaderViewportState extends State<ReaderViewport>
     if (best == null) return;
     if (best.index != _lastFlowIndex) {
       _lastFlowIndex = best.index;
-      unawaited(widget.reading.reportFlowIndex(best.index));
+      final flowIndex = _crossChapter ? best.index : _toFlowIndex(best.index);
+      if (flowIndex != null) {
+        unawaited(widget.reading.reportFlowIndex(flowIndex));
+      } else {
+        unawaited(widget.reading.goToPage(best.index));
+      }
       final position = widget.reading.position;
       _lastSyncedChapter = position.chapter;
       _lastSyncedPage = position.page;
       _preloader.update(_prefetchRequests());
-      _prefetchChapters(best.index);
+      if (_crossChapter) _prefetchChapters(best.index);
     }
+  }
+
+  /// 连续模式的章内页 → 全局流索引（流里可能还留着其它章段）。
+  int? _toFlowIndex(int page) {
+    final segment = _segment;
+    if (segment == null) return null;
+    final first = widget.waterfall.flow.firstIndexOf(segment.chapter);
+    if (first == null) return null;
+    return first + page - 1;
   }
 
   void _prefetchChapters(int current) {
@@ -556,11 +638,27 @@ class _ReaderViewportState extends State<ReaderViewport>
   @override
   Future<void> scrollViewport(int direction) async {
     if (_gallery || direction == 0) return;
+    if (!_crossChapter && _scrollController.hasClients) {
+      final position = _scrollController.position;
+      if (direction > 0 &&
+          position.maxScrollExtent - position.pixels <= 1 &&
+          widget.reading.currentChapter <
+              widget.waterfall.source.chapterCount) {
+        await widget.reading.nextChapter();
+        return;
+      }
+      if (direction < 0 &&
+          position.pixels - position.minScrollExtent <= 1 &&
+          widget.reading.currentChapter > 1) {
+        await widget.reading.previousChapter(toLastPage: true);
+        return;
+      }
+    }
     final extent = _scrollController.hasClients
         ? _scrollController.position.viewportDimension
         : MediaQuery.sizeOf(context).height;
     await _scrollController.scrollBy(
-      direction * extent * 0.85,
+      direction * extent * 0.85 * widget.settings.scrollSpeed,
       duration: widget.settings.pageAnimation
           ? const Duration(milliseconds: 260)
           : null,
@@ -718,24 +816,108 @@ class _ReaderViewportState extends State<ReaderViewport>
           );
         }
         if (index == total - 1) return _buildFlowEnd();
-        final image = widget.waterfall.flow.imageAt(index);
-        if (image == null) return const SizedBox.shrink();
+        String? url;
+        int? chapter;
+        var firstInSegment = false;
+        if (_crossChapter) {
+          final image = widget.waterfall.flow.imageAt(index);
+          if (image == null) return const SizedBox.shrink();
+          url = image.url;
+          chapter = image.position.chapter;
+          firstInSegment = image.isFirstInSegment;
+        } else {
+          final segment = _segment;
+          if (segment == null || index > segment.length) {
+            return const SizedBox.shrink();
+          }
+          url = segment.images[index - 1];
+          chapter = segment.chapter;
+          firstInSegment = index == 1;
+        }
+        Widget item = _buildSlot(
+          _requestForUrl(url),
+          index: index,
+          fill: false,
+          vertical: mode.isVertical,
+        );
+        // 每章首图上方标一次章节标题，读者知道已经换章。
+        if (firstInSegment && mode.isVertical) {
+          item = Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[_buildChapterDivider(chapter), item],
+          );
+        }
         return ReaderContinuousScrollAnchor(
           controller: _scrollController,
           index: index,
-          child: _buildSlot(
-            _requestForUrl(image.url),
-            index: index,
-            fill: false,
-            vertical: mode.isVertical,
-          ),
+          child: item,
         );
       },
     );
   }
 
+  Widget _buildChapterDivider(int chapter) {
+    final title = chapter >= 1 && chapter <= widget.chapterTitles.length
+        ? widget.chapterTitles[chapter - 1]
+        : '第 $chapter 章';
+    final theme = Theme.of(context);
+    return Padding(
+      key: Key('immersive-chapter-divider-$chapter'),
+      padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerHighest.withValues(
+            alpha: 0.9,
+          ),
+          borderRadius: MimaoShapes.pill,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          child: Text(
+            title,
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _goNextChapterFromEnd() async {
+    final ok = await widget.reading.nextChapter();
+    if (!mounted) return;
+    if (!ok) {
+      final message = widget.reading.message;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(message ?? '没有下一章了')));
+    }
+  }
+
   Widget _buildFlowEnd() {
     final controller = widget.waterfall;
+    if (!_crossChapter) {
+      final hasNext =
+          widget.reading.currentChapter < controller.source.chapterCount;
+      if (hasNext) {
+        return Padding(
+          key: const Key('immersive-flow-next-chapter'),
+          padding: const EdgeInsets.all(24),
+          child: Center(
+            child: TextButton(
+              onPressed: () => unawaited(_goNextChapterFromEnd()),
+              child: const Text('下一章'),
+            ),
+          ),
+        );
+      }
+      return const Padding(
+        key: Key('immersive-flow-end'),
+        padding: EdgeInsets.all(24),
+        child: Center(child: Text('没有更多章节了')),
+      );
+    }
     if (controller.loadingAfter) {
       return const Padding(
         key: Key('immersive-flow-loading'),
@@ -770,9 +952,13 @@ class _ReaderViewportState extends State<ReaderViewport>
 
   Widget _buildStatus() {
     final controller = widget.waterfall;
-    // 章节已加载但为空：不是"加载中"，也不能永远转圈；尝试自动接下一章。
-    if (controller.flow.segmentCount > 0 && controller.flow.imageCount == 0) {
-      if (!_emptyPrefetchScheduled) {
+    // 当前章已加载但为空：不是"加载中"，也不能永远转圈。
+    final currentEmpty =
+        _flowImageCount == 0 &&
+        controller.flow.segmentCount > 0 &&
+        _segment != null;
+    if (currentEmpty) {
+      if (_crossChapter && !_emptyPrefetchScheduled) {
         _emptyPrefetchScheduled = true;
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (_disposed || !mounted) return;
@@ -809,25 +995,37 @@ class _ReaderViewportState extends State<ReaderViewport>
     );
   }
 
-  Widget _buildEmptyChapter() => Center(
-    key: const Key('immersive-empty-chapter'),
-    child: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const Text('本章暂无图片'),
-        const SizedBox(height: 8),
-        TextButton(
-          onPressed: () => unawaited(
-            widget.waterfall.ensureAfter(
-              current: 0,
-              threshold: widget.settings.preloadCount.clamp(1, 16),
-            ),
+  Widget _buildEmptyChapter() {
+    final hasNext =
+        widget.reading.currentChapter < widget.waterfall.source.chapterCount;
+    return Center(
+      key: const Key('immersive-empty-chapter'),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text('本章暂无图片'),
+          const SizedBox(height: 8),
+          TextButton(
+            onPressed: hasNext
+                ? () {
+                    if (_crossChapter) {
+                      unawaited(
+                        widget.waterfall.ensureAfter(
+                          current: 0,
+                          threshold: widget.settings.preloadCount.clamp(1, 16),
+                        ),
+                      );
+                    } else {
+                      unawaited(_goNextChapterFromEnd());
+                    }
+                  }
+                : null,
+            child: Text(hasNext ? '加载下一章' : '已是最后一章'),
           ),
-          child: const Text('加载下一章'),
-        ),
-      ],
-    ),
-  );
+        ],
+      ),
+    );
+  }
 
   Widget _buildSlot(
     ImageRequest request, {

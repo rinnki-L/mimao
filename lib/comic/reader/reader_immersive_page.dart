@@ -15,9 +15,11 @@
 // ignore_for_file: deprecated_member_use — 见 lib/main.dart 文件头同款说明。
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:window_manager/window_manager.dart';
 
 import '../../core/theme.dart';
 
@@ -75,6 +77,7 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage> {
   bool _menuLocked = false;
   Timer? _autoReadTimer;
   bool _autoReading = false;
+  bool _fullscreen = false;
   DateTime _lastInteraction = DateTime.fromMillisecondsSinceEpoch(0);
 
   @override
@@ -111,11 +114,20 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage> {
   @override
   void dispose() {
     _autoReadTimer?.cancel();
+    if (_fullscreen && _supportsFullscreen) unawaited(_restoreFullscreen());
     _waterfall.removeListener(_onWaterfallChanged);
     _waterfall.dispose();
     _reading.dispose();
     _chromeVisible.dispose();
     super.dispose();
+  }
+
+  Future<void> _restoreFullscreen() async {
+    try {
+      await windowManager.setFullScreen(false);
+    } on Object {
+      // 退出阅读器时恢复失败不阻塞返回；下次进入按窗口当前状态显示。
+    }
   }
 
   void _applySettings(ReaderSettings next) {
@@ -130,6 +142,20 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage> {
   void _toggleChrome() {
     if (_menuLocked) return;
     _chromeVisible.value = !_chromeVisible.value;
+  }
+
+  bool get _supportsFullscreen =>
+      Platform.isWindows || Platform.isLinux || Platform.isMacOS;
+
+  Future<void> _toggleFullscreen() async {
+    if (!_supportsFullscreen) return;
+    final next = !_fullscreen;
+    try {
+      await windowManager.setFullScreen(next);
+      if (mounted) setState(() => _fullscreen = next);
+    } on Object {
+      // 窗口管理器未初始化/平台不支持：保持当前窗口状态即可。
+    }
   }
 
   void _toggleAutoReading() {
@@ -269,6 +295,8 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage> {
                     unawaited(_turnByKeyboard(-1)),
                 const SingleActivator(LogicalKeyboardKey.space): () =>
                     unawaited(_turnByKeyboard(1)),
+                const SingleActivator(LogicalKeyboardKey.f11): () =>
+                    unawaited(_toggleFullscreen()),
               },
               child: Focus(
                 autofocus: true,
@@ -289,6 +317,7 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage> {
                               waterfall: _waterfall,
                               cache: widget.imageCache,
                               onTapCenter: _toggleChrome,
+                              chapterTitles: widget.chapterTitles,
                               viewportController: _viewport,
                             ),
                             // 阅读亮度遮罩（不压暗时透明、不吃事件）。
@@ -389,6 +418,15 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage> {
                     ),
                     onPressed: () => setState(() => _menuLocked = !_menuLocked),
                   ),
+                  if (_supportsFullscreen)
+                    IconButton(
+                      key: const Key('reader-fullscreen'),
+                      tooltip: _fullscreen ? '退出全屏 (F11)' : '全屏 (F11)',
+                      icon: Icon(
+                        _fullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
+                      ),
+                      onPressed: () => unawaited(_toggleFullscreen()),
+                    ),
                   IconButton(
                     key: const Key('reader-settings'),
                     tooltip: '阅读设置',
