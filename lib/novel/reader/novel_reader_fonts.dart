@@ -2,9 +2,10 @@
 // 注册成 fontFamily。字体选择本身仍落在 reader_settings 的 fontFamily 字段，
 // 不新建第二套存储；文件名（去扩展名）就是持久化的 family。
 //
-// 目录：<applicationSupport>/mimao/reader_fonts/。桌面/Android 都可写；
-// 测试/CI 没有 path_provider 插件时，[NovelFontRegistry] 的公开方法会捕获
-// 异常返回空列表，界面照样能打开（只是看不到导入项）。
+// 目录：`<应用支持目录>/reader_fonts/`。注意 path_provider 在 Windows 上返回的
+// 支持目录本身已经带 `.../com.rinnki.mimao/mimao`，这里不能再拼一层 `mimao`
+// （拼了会变成 `mimao/mimao/reader_fonts`，别处按兄弟目录读写就永远看不到）。
+// 测试/CI 没有 path_provider 插件时，公开方法捕获异常返回空列表，界面照样能开。
 
 import 'dart:io';
 
@@ -54,7 +55,7 @@ class NovelFontRegistry {
     if (cached != null) return cached;
     try {
       final support = await getApplicationSupportDirectory();
-      final dir = Directory(p.join(support.path, 'mimao', 'reader_fonts'));
+      final dir = Directory(p.join(support.path, 'reader_fonts'));
       if (!await dir.exists()) await dir.create(recursive: true);
       _resolvedDirectory = dir;
       return dir;
