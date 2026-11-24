@@ -90,6 +90,9 @@ class DiskByteStore implements ByteStore {
   final Directory directory;
   final int maxEntries;
 
+  /// 已知文件数（懒统计）；仅在可能超限时重扫磁盘。
+  int? _count;
+
   File _file(String key) =>
       File('${directory.path}${Platform.pathSeparator}$key');
 
@@ -110,29 +113,63 @@ class DiskByteStore implements ByteStore {
     if (!directory.existsSync()) {
       await directory.create(recursive: true);
     }
-    await _file(key).writeAsBytes(bytes, flush: true);
-    await _evict();
+    final existed = _file(key).existsSync();
+    // 不 flush：图片缓存允许掉电丢一张，读侧会把损坏文件当未命中。
+    await _file(key).writeAsBytes(bytes);
+    if (!existed) {
+      final count = _count;
+      // 首次写时文件已落盘，直接数磁盘；之后按增量维护。
+      _count = count == null ? await _countFiles() : count + 1;
+    }
+    if ((_count ?? 0) > maxEntries) await _evict();
   }
 
   @override
   Future<void> remove(String key) async {
     final file = _file(key);
-    if (file.existsSync()) await file.delete();
+    if (file.existsSync()) {
+      await file.delete();
+      final count = _count;
+      if (count != null && count > 0) _count = count - 1;
+    }
   }
 
   @override
-  int get length => directory.existsSync()
+  int get length => _count ?? _countSync();
+
+  int _countSync() => directory.existsSync()
       ? directory.listSync().whereType<File>().length
       : 0;
 
-  Future<void> _evict() async {
-    final files = directory.listSync().whereType<File>().toList()
-      ..sort((a, b) => a.statSync().modified.compareTo(b.statSync().modified));
-    final overflow = files.length - maxEntries;
-    if (overflow <= 0) return;
-    for (final file in files.take(overflow)) {
-      await file.delete();
+  Future<int> _countFiles() async {
+    if (!directory.existsSync()) return 0;
+    var count = 0;
+    await for (final entity in directory.list()) {
+      if (entity is File) count++;
     }
+    return count;
+  }
+
+  Future<void> _evict() async {
+    final files = <File>[];
+    await for (final entity in directory.list()) {
+      if (entity is File) files.add(entity);
+    }
+    if (files.length <= maxEntries) {
+      _count = files.length;
+      return;
+    }
+    final stats = await Future.wait(
+      files.map(
+        (file) async => (file: file, modified: (await file.stat()).modified),
+      ),
+    );
+    stats.sort((a, b) => a.modified.compareTo(b.modified));
+    final overflow = stats.length - maxEntries;
+    for (final entry in stats.take(overflow)) {
+      await entry.file.delete();
+    }
+    _count = maxEntries;
   }
 }
 

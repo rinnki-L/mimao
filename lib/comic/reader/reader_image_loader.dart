@@ -76,9 +76,15 @@ ImageRequestLoader defaultImageRequestLoader({
   int maxRetries = 2,
   String? userAgent,
   Duration Function(int attempt)? backoff,
+  Duration connectTimeout = const Duration(seconds: 10),
 }) {
   final effectiveBackoff = backoff ?? _defaultBackoff;
   final maxAttempts = maxRetries < 0 ? 1 : maxRetries + 1;
+  // 一个 loader 复用一个 HttpClient：连接池/keep-alive 对连续翻页很值。
+  // 生命周期与图片缓存一致（应用进程内），不逐图建连也不再逐图关闭。
+  final client = HttpClient()
+    ..connectionTimeout = connectTimeout
+    ..idleTimeout = const Duration(seconds: 15);
 
   return (ImageRequest request) async {
     final uri = Uri.tryParse(request.url);
@@ -94,7 +100,7 @@ ImageRequestLoader defaultImageRequestLoader({
     while (true) {
       attempt++;
       try {
-        return await _loadHttpOnce(uri, request, userAgent);
+        return await _loadHttpOnce(uri, request, userAgent, client);
       } on ImageLoadException catch (error) {
         if (!error.isRetryable || attempt >= maxAttempts) rethrow;
         await Future<void>.delayed(effectiveBackoff(attempt));
@@ -143,20 +149,16 @@ Future<Uint8List> _loadHttpOnce(
   Uri uri,
   ImageRequest request,
   String? userAgent,
+  HttpClient client,
 ) async {
-  final client = HttpClient();
-  try {
-    final httpRequest = await client.getUrl(uri);
-    _applyHeaders(httpRequest, uri, request, userAgent);
-    final response = await httpRequest.close();
-    if (response.statusCode != HttpStatus.ok) {
-      await response.drain<void>();
-      throw _statusFailure(request.url, response.statusCode);
-    }
-    return await consolidateHttpClientResponseBytes(response);
-  } finally {
-    client.close();
+  final httpRequest = await client.getUrl(uri);
+  _applyHeaders(httpRequest, uri, request, userAgent);
+  final response = await httpRequest.close();
+  if (response.statusCode != HttpStatus.ok) {
+    await response.drain<void>();
+    throw _statusFailure(request.url, response.statusCode);
   }
+  return await consolidateHttpClientResponseBytes(response);
 }
 
 /// 4xx（除 408/429）是"请求本身不被接受"，不重试；5xx 与 408/429 值得重试。

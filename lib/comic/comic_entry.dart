@@ -144,6 +144,9 @@ class ComicModule implements AppModule {
   /// 内存回退缓存（懒创建，整个模块生命周期复用）。
   reader.ReaderImageCache? _fallbackCache;
 
+  /// 已解析的图片缓存（同一 App 会话内复用，保留内存 LRU 与加载器连接池）。
+  Future<reader.ReaderImageCache>? _resolvedCache;
+
   @override
   MediaType get type => MediaType.comic;
 
@@ -648,12 +651,16 @@ class ComicModule implements AppModule {
     }
   }
 
-  Future<reader.ReaderImageCache> _resolveCache() async {
-    final factory = imageCacheFactory;
-    if (factory != null) return factory();
-    return _fallbackCache ??= reader.ReaderImageCache(
-      loader: reader.defaultImageByteLoader,
-    );
+  Future<reader.ReaderImageCache> _resolveCache() {
+    // 同一会话内缓存实例只建一次：反复进出阅读器不再丢内存 LRU，也复用
+    // defaultImageRequestLoader 内部的 HttpClient 连接池。
+    return _resolvedCache ??= () async {
+      final factory = imageCacheFactory;
+      if (factory != null) return factory();
+      return _fallbackCache ??= reader.ReaderImageCache(
+        loader: reader.defaultImageByteLoader,
+      );
+    }();
   }
 
   void _showSnack(BuildContext context, String message) {
