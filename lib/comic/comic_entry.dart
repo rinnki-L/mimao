@@ -34,6 +34,7 @@ import 'package:mimao/comic/pages/comic_module_settings.dart';
 import 'package:mimao/comic/read_later_service.dart';
 import 'package:mimao/comic/reader/reader_cache.dart' as reader;
 import 'package:mimao/comic/reader/reader_chapter_source.dart' as reader;
+import 'package:mimao/comic/reader/reader_comments.dart' as reader;
 import 'package:mimao/comic/reader/reader_image_loader.dart' as reader;
 import 'package:mimao/comic/reader/reader_integration.dart' as reader;
 import 'package:mimao/comic/reader/reader_models.dart' as reader;
@@ -56,6 +57,7 @@ typedef ImmersiveReaderBuilder =
       required int initialChapter,
       required int initialPage,
       required List<String> chapterTitles,
+      required reader.NovelCommentSource? commentSource,
     });
 
 /// 生产图片缓存：应用支持目录下 `comic_images/` 的磁盘 LRU
@@ -81,6 +83,7 @@ class ComicModule implements AppModule {
     required this.searchHistory,
     required this.loadChapterImages,
     this.loadChapterImageResolver,
+    this.loadChapterComments,
     this.localService,
     this.localContent,
     this.readLater,
@@ -130,6 +133,18 @@ class ComicModule implements AppModule {
     String url,
   )?
   loadChapterImageResolver;
+
+  /// 加载一章的评论；null 时阅读器不显示评论入口。
+  final Future<
+    ({List<Map<String, Object?>> comments, int? maxPage, bool supported})
+  >
+  Function(
+    ComicSummary item,
+    ComicChapter chapter, {
+    required int page,
+    String? replyTo,
+  })?
+  loadChapterComments;
 
   /// 阅读器图片缓存工厂；null 时回退内存缓存（不碰 path_provider，
   /// 便于模块级测试）。生产由 app_registry 注入 [defaultComicImageCache]。
@@ -474,6 +489,7 @@ class ComicModule implements AppModule {
       resolveForOnline,
       chapter,
       isLocal,
+      commentSource: _commentSourceFor(item, dataChapters),
     );
   }
 
@@ -527,8 +543,9 @@ class ComicModule implements AppModule {
     Future<reader.ImageRequest> Function(int chapter, String url)?
     resolveRequest,
     ComicChapter? chapter,
-    bool isLocal,
-  ) async {
+    bool isLocal, {
+    reader.NovelCommentSource? commentSource,
+  }) async {
     final (chapterNumber, page) = await _openingPosition(
       ref,
       item.title,
@@ -584,9 +601,21 @@ class ComicModule implements AppModule {
           initialChapter: chapterNumber,
           initialPage: page,
           chapterTitles: titles,
+          commentSource: commentSource,
         ),
       ),
     );
+  }
+
+  /// 在线章节的评论源：源没实现 `comic.loadChapterComments` 时返回 null，
+  /// 阅读器据此不显示评论入口。
+  reader.NovelCommentSource? _commentSourceFor(
+    ComicSummary item,
+    List<ComicChapter> chapters,
+  ) {
+    final loader = loadChapterComments;
+    if (loader == null || chapters.isEmpty) return null;
+    return _EngineCommentSource(item: item, chapters: chapters, load: loader);
   }
 
   /// 历史页用的初始位置解析（0 基章/页），保持旧行为。
@@ -657,5 +686,65 @@ class ComicModule implements AppModule {
         context,
       )?.showSnackBar(SnackBar(content: Text(message)));
     }
+  }
+}
+
+/// 把 `ComicModule.loadChapterComments` 适配成阅读器的 [reader.NovelCommentSource]。
+///
+/// 章节 id 是阅读器给的一基章号映射后的稳定 id；这里按 id 反查 ComicChapter。
+class _EngineCommentSource implements reader.NovelCommentSource {
+  _EngineCommentSource({
+    required this.item,
+    required this.chapters,
+    required this.load,
+  }) : _ids = <String>[
+         for (final chapter in chapters)
+           tryDecodeComicEpisodeUrl(chapter.url)?.episodeId ?? chapter.url,
+       ];
+
+  final ComicSummary item;
+  final List<ComicChapter> chapters;
+  final Future<
+    ({List<Map<String, Object?>> comments, int? maxPage, bool supported})
+  >
+  Function(
+    ComicSummary item,
+    ComicChapter chapter, {
+    required int page,
+    String? replyTo,
+  })
+  load;
+  final List<String> _ids;
+
+  @override
+  bool get supportsChapterComments => true;
+
+  @override
+  Future<reader.NovelCommentPage> loadChapterComments({
+    required String comicId,
+    required String episodeId,
+    required int page,
+    String? replyTo,
+  }) async {
+    final index = _ids.indexOf(episodeId);
+    if (index < 0) {
+      throw const reader.NovelCommentException('章节不在当前列表里');
+    }
+    final result = await load(
+      item,
+      chapters[index],
+      page: page,
+      replyTo: replyTo,
+    );
+    if (!result.supported) {
+      throw const reader.NovelCommentException('该源不支持章节评论');
+    }
+    return reader.NovelCommentPage(
+      comments: <reader.NovelComment>[
+        for (final raw in result.comments)
+          if (reader.NovelComment.tryParse(raw) case final comment?) comment,
+      ],
+      maxPage: result.maxPage,
+    );
   }
 }

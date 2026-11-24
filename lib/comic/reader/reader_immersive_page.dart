@@ -26,6 +26,8 @@ import '../../core/theme.dart';
 
 import 'reader_cache.dart';
 import 'reader_chapter_source.dart';
+import 'reader_comments.dart';
+import 'reader_comments_sheet.dart';
 import 'reader_diagnostics.dart';
 import 'reader_diagnostics_sheet.dart';
 import 'reader_image_size.dart';
@@ -52,6 +54,7 @@ class ImmersiveReaderPage extends StatefulWidget {
     this.initialChapter = 1,
     this.initialPage = 1,
     this.chapterTitles = const <String>[],
+    this.commentSource,
   });
 
   final String title;
@@ -69,6 +72,9 @@ class ImmersiveReaderPage extends StatefulWidget {
 
   /// 章节标题（1 基章号 - 1 索引），用于章节目录与进度文案；可为空。
   final List<String> chapterTitles;
+
+  /// 章节评论源；null 时不显示评论入口。
+  final NovelCommentSource? commentSource;
 
   @override
   State<ImmersiveReaderPage> createState() => _ImmersiveReaderPageState();
@@ -253,6 +259,31 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage>
     }
   }
 
+  /// 打开当前章评论；源不支持时不显示入口，所以这里不再判空。
+  Future<void> _openComments() async {
+    final source = widget.commentSource;
+    if (source == null) return;
+    final position = _reading.position;
+    if (position.chapterId.isEmpty) {
+      _showSnack('当前章节没有稳定 id，无法加载评论');
+      return;
+    }
+    _chromeVisible.value = false;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => SizedBox(
+        height: MediaQuery.sizeOf(context).height * 0.85,
+        child: ReaderCommentsSheet(
+          comicId: widget.title,
+          episodeId: position.chapterId,
+          source: source,
+          chapterTitle: _reading.chapterTitle,
+        ),
+      ),
+    );
+  }
+
   Future<void> _openDiagnostics() async {
     _diagnostics.stop(ReaderDiagnosticStop.review);
     await showModalBottomSheet<void>(
@@ -294,6 +325,7 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage>
           value: 'auto',
           child: Text(_autoReading ? '停止自动阅读' : '自动阅读'),
         ),
+        const PopupMenuItem<String>(value: 'comments', child: Text('章节评论')),
         const PopupMenuItem<String>(value: 'diagnostics', child: Text('阅读诊断')),
       ],
     );
@@ -309,6 +341,8 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage>
         await _toggleFullscreen();
       case 'auto':
         _toggleAutoReading();
+      case 'comments':
+        await _openComments();
       case 'diagnostics':
         await _openDiagnostics();
     }

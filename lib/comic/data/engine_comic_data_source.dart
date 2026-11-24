@@ -473,6 +473,53 @@ class EngineComicDataSource
     return List<source_engine.ComicImageRef>.unmodifiable(result.items);
   }
 
+  /// 章节评论（阅读器侧边栏用）。
+  ///
+  /// 源没实现 `comic.loadChapterComments` 时返回空页 + 诊断，调用方据此隐藏
+  /// 评论入口；单条评论解析失败只跳过该条。
+  Future<({List<Map<String, Object?>> comments, int? maxPage, bool supported})>
+  loadChapterComments({
+    required ComicSummary item,
+    required ComicChapter chapter,
+    required int page,
+    String? replyTo,
+  }) async {
+    final ep = tryDecodeComicEpisodeUrl(chapter.url);
+    if (ep == null) {
+      _addDiagnostics(<String>['章节地址无法反查：${chapter.url}']);
+      return (
+        comments: const <Map<String, Object?>>[],
+        maxPage: null,
+        supported: false,
+      );
+    }
+    final key = (item.sourceName ?? '').trim();
+    if (key.isEmpty || key != ep.sourceKey) {
+      _addDiagnostics(<String>['章节来源不匹配：${ep.sourceKey} vs $key']);
+      return (
+        comments: const <Map<String, Object?>>[],
+        maxPage: null,
+        supported: false,
+      );
+    }
+    final result = await engine.chapterComments(
+      key,
+      ep.comicId,
+      episodeId: ep.episodeId,
+      page: page,
+      replyTo: replyTo,
+    );
+    _addDiagnostics(result.diagnostics.map((d) => '$key：$d'));
+    final unsupported = result.diagnostics.any(
+      (d) => d.contains('未实现 comic.loadChapterComments'),
+    );
+    return (
+      comments: result.items,
+      maxPage: result.maxPage,
+      supported: !unsupported,
+    );
+  }
+
   /// 单张图的懒解析请求头（阅读器预取到哪张才问哪张）。
   Future<Map<String, String>> loadImageHeadersForChapter(
     ComicSummary item,

@@ -287,6 +287,13 @@ Future<void> initAppModules({
         // 统一书架入口保留在壳层顶栏，漫画主页不再重复放快捷入口。
         loadChapterImages: adapter.loadImagesForChapter,
         // 源支持 comic.onImageLoad 时，阅读器预取到哪张才解析哪张的请求头。
+        loadChapterComments: (item, chapter, {required page, replyTo}) =>
+            adapter.loadChapterComments(
+              item: item,
+              chapter: chapter,
+              page: page,
+              replyTo: replyTo,
+            ),
         loadChapterImageResolver: (item, chapter, url) async {
           final headers = await adapter.loadImageHeadersForChapter(
             item,
@@ -307,6 +314,7 @@ Future<void> initAppModules({
               required initialChapter,
               required initialPage,
               required chapterTitles,
+              required commentSource,
             }) => ImmersiveReaderPage(
               title: title,
               source: source,
@@ -316,6 +324,7 @@ Future<void> initAppModules({
               initialChapter: initialChapter,
               initialPage: initialPage,
               chapterTitles: chapterTitles,
+              commentSource: commentSource,
             ),
         readerSettingsStoreFactory: () => FileReaderSettingsStore(),
       );

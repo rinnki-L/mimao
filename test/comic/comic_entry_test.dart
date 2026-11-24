@@ -281,6 +281,7 @@ void main() {
       required initialChapter,
       required initialPage,
       required chapterTitles,
+      required commentSource,
     }) => const KeyedSubtree(key: Key('immersive-stub'), child: Text('沉浸式页'));
 
     testWidgets('注入沉浸式页：只预抓起始章（验证在进阅读器前），且打开即写历史', (tester) async {

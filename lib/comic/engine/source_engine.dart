@@ -152,6 +152,63 @@ class ComicSourceEngine {
     return parseImages(execution.value);
   }
 
+  /// 章节评论：`source.comic.loadChapterComments(comicId, epId, page, replyTo)`。
+  ///
+  /// 源没定义该方法时返回带诊断的空结果（调用方据此隐藏评论入口）。
+  /// 返回 `{comments: [...], maxPage?}`；单条评论解析失败只跳过该条。
+  Future<ComicSourceResult<Map<String, Object?>>> chapterComments(
+    String key,
+    String comicId, {
+    required String episodeId,
+    required int page,
+    String? replyTo,
+  }) async {
+    final reply = replyTo == null ? 'null' : _q(replyTo);
+    final execution = await _pool.execute(key, '''
+(async () => {
+  if (typeof source.comic.loadChapterComments !== 'function') {
+    return {__unsupported: true};
+  }
+  return await source.comic.loadChapterComments(
+    ${_q(comicId)}, ${_q(episodeId)}, $page, $reply
+  );
+})()
+''');
+    if (!execution.isOk) {
+      return ComicSourceResult(diagnostics: <String>[execution.error!]);
+    }
+    final map = _asMap(execution.value);
+    if (map == null) {
+      return ComicSourceResult(diagnostics: const <String>['评论结果不是对象']);
+    }
+    if (map['__unsupported'] == true) {
+      return ComicSourceResult(
+        diagnostics: const <String>['源未实现 comic.loadChapterComments'],
+      );
+    }
+    final rawComments = map['comments'];
+    if (rawComments is! List) {
+      return ComicSourceResult(diagnostics: const <String>['结果缺少 comments 数组']);
+    }
+    final items = <Map<String, Object?>>[];
+    final diagnostics = <String>[];
+    for (var i = 0; i < rawComments.length; i++) {
+      final comment = _asMap(rawComments[i]);
+      if (comment == null) {
+        diagnostics.add('第 ${i + 1} 条评论无法解析');
+        continue;
+      }
+      items.add(<String, Object?>{
+        for (final entry in comment.entries) '${entry.key}': entry.value,
+      });
+    }
+    return ComicSourceResult(
+      items: items,
+      diagnostics: diagnostics,
+      maxPage: _int(map['maxPage']),
+    );
+  }
+
   /// 探索页：`source.explore[i].load(page)` → 漫画列表。
   Future<ComicSourceResult<ComicSummary>> explore(
     String key,
