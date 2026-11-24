@@ -10,6 +10,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../core/theme.dart';
+import 'novel_click_actions.dart';
 import 'novel_reader_settings.dart';
 
 /// 阅读背景色。
@@ -340,52 +341,30 @@ class NovelReaderBottomPanel extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 2),
-            // 第三行：搜索 / 自动翻页 / 目录 / 朗读 / 设置。
+            // 第三行：按钮清单来自 [novelBottomMenuButtons]（与九宫格下拉、
+            // 将来的顶栏自定义共用同一份动作定义），顺序与改造前一致：
+            // 搜索 / 自动翻页 / 目录 / 朗读 / 设置。
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: <Widget>[
-                _action(
-                  context,
-                  key: 'novel-reader-search',
-                  tooltip: '书内搜索',
-                  icon: Icons.search,
-                  color: text,
-                  onPressed: onSearch,
-                ),
-                _action(
-                  context,
-                  key: 'novel-reader-auto-page',
-                  tooltip: autoReading ? '停止自动翻页' : '自动翻页',
-                  icon: autoReading ? Icons.pause : Icons.play_arrow,
-                  color: text,
-                  active: autoReading,
-                  onPressed: onToggleAutoPage,
-                ),
-                _action(
-                  context,
-                  key: 'novel-reader-catalog',
-                  tooltip: '目录',
-                  icon: Icons.menu,
-                  color: text,
-                  onPressed: onCatalog,
-                ),
-                _action(
-                  context,
-                  key: 'novel-reader-tts',
-                  tooltip: speaking ? '停止朗读' : '语音朗读',
-                  icon: Icons.record_voice_over_outlined,
-                  color: text,
-                  active: speaking,
-                  onPressed: onTts,
-                ),
-                _action(
-                  context,
-                  key: 'novel-reader-settings',
-                  tooltip: '阅读设置',
-                  icon: Icons.settings_outlined,
-                  color: text,
-                  onPressed: onSettings,
-                ),
+                for (final button in novelBottomMenuButtons)
+                  _action(
+                    context,
+                    key: _bottomButtonKey(button.action),
+                    tooltip: _bottomButtonTooltip(
+                      button.action,
+                      autoReading,
+                      speaking,
+                    ),
+                    icon: _bottomButtonIcon(button.action, autoReading),
+                    color: text,
+                    active: _bottomButtonActive(
+                      button.action,
+                      autoReading,
+                      speaking,
+                    ),
+                    onPressed: _bottomButtonCallback(button.action),
+                  ),
               ],
             ),
           ],
@@ -412,6 +391,63 @@ class NovelReaderBottomPanel extends StatelessWidget {
       onPressed: onPressed,
     );
   }
+
+  /// 底栏按钮 → 测试/自动化用的稳定 key。
+  ///
+  /// 历史上各按钮的 key 是手写的（search / auto-page / catalog / tts /
+  /// settings），改名会让既有 UI 测试与截图脚本失效，所以这里保持原名。
+  String _bottomButtonKey(NovelClickAction action) => switch (action) {
+    NovelClickAction.search => 'novel-reader-search',
+    NovelClickAction.autoPage => 'novel-reader-auto-page',
+    NovelClickAction.catalog => 'novel-reader-catalog',
+    NovelClickAction.ttsToggle => 'novel-reader-tts',
+    NovelClickAction.menu => 'novel-reader-settings',
+    _ => 'novel-reader-${action.name}',
+  };
+
+  String _bottomButtonTooltip(
+    NovelClickAction action,
+    bool autoReading,
+    bool speaking,
+  ) => switch (action) {
+    NovelClickAction.search => '书内搜索',
+    NovelClickAction.autoPage => autoReading ? '停止自动翻页' : '自动翻页',
+    NovelClickAction.catalog => '目录',
+    NovelClickAction.ttsToggle => speaking ? '停止朗读' : '语音朗读',
+    NovelClickAction.menu => '阅读设置',
+    _ => action.label,
+  };
+
+  IconData _bottomButtonIcon(NovelClickAction action, bool autoReading) =>
+      switch (action) {
+        NovelClickAction.search => Icons.search,
+        NovelClickAction.autoPage =>
+          autoReading ? Icons.pause : Icons.play_arrow,
+        NovelClickAction.catalog => Icons.menu,
+        NovelClickAction.ttsToggle => Icons.record_voice_over_outlined,
+        NovelClickAction.menu => Icons.settings_outlined,
+        _ => Icons.circle_outlined,
+      };
+
+  bool _bottomButtonActive(
+    NovelClickAction action,
+    bool autoReading,
+    bool speaking,
+  ) => switch (action) {
+    NovelClickAction.autoPage => autoReading,
+    NovelClickAction.ttsToggle => speaking,
+    _ => false,
+  };
+
+  VoidCallback _bottomButtonCallback(NovelClickAction action) =>
+      switch (action) {
+        NovelClickAction.search => onSearch,
+        NovelClickAction.autoPage => onToggleAutoPage,
+        NovelClickAction.catalog => onCatalog,
+        NovelClickAction.ttsToggle => onTts,
+        NovelClickAction.menu => onSettings,
+        _ => () {},
+      };
 
   Widget _slimSlider(
     BuildContext context, {
@@ -1013,3 +1049,247 @@ class _NovelCatalogSheetState extends State<NovelCatalogSheet> {
     );
   }
 }
+
+/// 九宫格点击区配置面板（对照 legado 的 ClickActionConfigSheet）。
+///
+/// 9 个格子按「左上 → 右下」排成 3×3；每格显示当前动作，点开下拉换动作。
+/// 未实现的动作在下拉里显灰并注明「需先完成 X」，选中后按无动作落库，
+/// 不会出现「配了却静默无效」的格子。
+class NovelClickZoneSheet extends StatelessWidget {
+  const NovelClickZoneSheet({
+    super.key,
+    required this.settings,
+    required this.onChanged,
+    required this.onClose,
+  });
+
+  final NovelReaderSettings settings;
+  final ValueChanged<NovelReaderSettings> onChanged;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Material(
+      color: scheme.surfaceContainerHigh,
+      shape: RoundedRectangleBorder(borderRadius: MimaoShapes.xl),
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                IconButton(
+                  key: const Key('novel-click-zones-back'),
+                  tooltip: '返回',
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: onClose,
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        '点击区',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: MimaoFonts.bold,
+                        ),
+                      ),
+                      Text(
+                        '把屏幕分成 3×3，每格绑一个动作',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            // 3×3 网格：行 = 上/中/下，列 = 左/中/右。
+            // 行高由格子自己的固定高度决定（不能 stretch：外层 Column 是
+            // mainAxisSize.min，纵向无界，stretch 会要求 Row 有确定高度）。
+            for (var row = 0; row < 3; row++) ...<Widget>[
+              Row(
+                children: <Widget>[
+                  for (var column = 0; column < 3; column++)
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.all(3),
+                        child: _ZoneCell(
+                          zone: NovelClickZone.values[row * 3 + column],
+                          action: settings.clickZoneAction(
+                            NovelClickZone.values[row * 3 + column],
+                          ),
+                          onPick: (action) {
+                            final next = List<NovelClickAction>.from(
+                              settings.clickZones,
+                            );
+                            next[row * 3 + column] = action;
+                            onChanged(settings.copyWith(clickZones: next));
+                          },
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+            const SizedBox(height: 8),
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: Text(
+                    '默认：左=上一页、中=菜单、右=下一页，上下两行无动作。',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+                TextButton.icon(
+                  key: const Key('novel-click-zones-reset'),
+                  onPressed: () => onChanged(
+                    settings.copyWith(clickZones: novelDefaultClickZones),
+                  ),
+                  icon: const Icon(Icons.restart_alt, size: 18),
+                  label: const Text('恢复默认'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 单个格子：显示当前动作，点开下拉换动作。
+class _ZoneCell extends StatelessWidget {
+  const _ZoneCell({
+    required this.zone,
+    required this.action,
+    required this.onPick,
+  });
+
+  final NovelClickZone zone;
+  final NovelClickAction action;
+  final ValueChanged<NovelClickAction> onPick;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isNone = action == NovelClickAction.none;
+    return PopupMenuButton<NovelClickAction>(
+      key: Key('novel-click-zone-${zone.name}'),
+      tooltip: '${zone.label}：${action.label}',
+      position: PopupMenuPosition.under,
+      onSelected: onPick,
+      itemBuilder: (context) => <PopupMenuEntry<NovelClickAction>>[
+        for (final item in NovelClickAction.values)
+          PopupMenuItem<NovelClickAction>(
+            key: Key('novel-click-action-${item.name}'),
+            value: item.available ? item : NovelClickAction.none,
+            // 未实现的动作显灰：能看见、知道自己缺什么，但选不了。
+            enabled: item.available,
+            child: Text(
+              item.available
+                  ? item.label
+                  : '${item.label}（${item.unavailableHint}）',
+              style: item.available
+                  ? null
+                  : TextStyle(color: scheme.onSurface.withValues(alpha: 0.38)),
+            ),
+          ),
+      ],
+      child: Container(
+        height: 62,
+        padding: const EdgeInsets.symmetric(horizontal: 6),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainer,
+          borderRadius: MimaoShapes.md,
+          border: Border.all(
+            color: isNone ? scheme.outlineVariant : scheme.primary,
+            width: isNone ? 1 : 2,
+          ),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: <Widget>[
+            Text(
+              zone.label,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              action.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: isNone ? scheme.onSurfaceVariant : scheme.onSurface,
+                fontWeight: isNone ? MimaoFonts.regular : MimaoFonts.bold,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 底部菜单按钮：图标 + 文案 + 动作。
+///
+/// 底栏渲染、点击区下拉、将来的顶栏自定义都从这里取，避免三处各写一套
+/// 图标/文案。动作本身仍由 [NovelClickAction] 定义，这里只负责「长什么样」。
+class NovelMenuButtonDef {
+  const NovelMenuButtonDef({
+    required this.action,
+    required this.icon,
+    required this.label,
+  });
+
+  final NovelClickAction action;
+  final IconData icon;
+  final String label;
+}
+
+/// 底栏默认按钮顺序（改造前的五个入口，顺序与行为都不变）。
+///
+/// 这里只是「按钮长什么样」的默认清单；阅读页按自己的状态（自动翻页开没开、
+/// 朗读在不在跑）决定哪个按钮高亮，不把状态塞进常量。
+const List<NovelMenuButtonDef> novelBottomMenuButtons = <NovelMenuButtonDef>[
+  NovelMenuButtonDef(
+    action: NovelClickAction.search,
+    icon: Icons.search,
+    label: '书内搜索',
+  ),
+  NovelMenuButtonDef(
+    action: NovelClickAction.autoPage,
+    icon: Icons.play_arrow,
+    label: '自动翻页',
+  ),
+  NovelMenuButtonDef(
+    action: NovelClickAction.catalog,
+    icon: Icons.menu,
+    label: '目录',
+  ),
+  NovelMenuButtonDef(
+    action: NovelClickAction.ttsToggle,
+    icon: Icons.record_voice_over_outlined,
+    label: '语音朗读',
+  ),
+  NovelMenuButtonDef(
+    action: NovelClickAction.menu,
+    icon: Icons.settings_outlined,
+    label: '阅读设置',
+  ),
+];

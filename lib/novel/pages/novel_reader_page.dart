@@ -28,6 +28,7 @@ import 'package:mimao/core/theme.dart';
 import 'package:mimao/novel/engine/online_engine.dart';
 import 'package:mimao/novel/library_api.dart';
 import 'package:mimao/novel/models/novel_models.dart';
+import 'package:mimao/novel/reader/novel_click_actions.dart';
 import 'package:mimao/novel/reader/novel_immersive.dart';
 import 'package:mimao/novel/reader/novel_locator.dart';
 import 'package:mimao/novel/reader/novel_reader_chrome.dart';
@@ -96,7 +97,8 @@ class NovelReaderPage extends StatefulWidget {
 }
 
 class _NovelReaderPageState extends State<NovelReaderPage>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver
+    implements NovelClickActionHandler {
   static const double _contentTopGap = 12;
   static const double _contentBottomGap = 44;
   static const double _footerHeight = 26;
@@ -502,21 +504,113 @@ class _NovelReaderPageState extends State<NovelReaderPage>
     _chromeVisible.value = !_chromeVisible.value;
   }
 
+  /// 正文手势外壳：点按九宫格 / 长按 / 双击都挂在这里。
+  ///
+  /// 注意两点（都是回归过的坑）：
+  /// - 不能盖一层全屏热区：手势必须在正文子树里，章末按钮、选中文字才抢得到；
+  /// - 长按默认（[NovelLongPressAction.selectText]）不注册 `onLongPressStart`，
+  ///   否则会和 [SelectionArea] 抢手势；配置成别的动作时才接管。
+  /// - 双击默认「无」时不注册 `onDoubleTap`，否则单击要多等一个双击超时才响应。
+  Widget _buildGestureLayer({
+    required Widget child,
+    required bool selectable,
+    GestureDragEndCallback? onHorizontalDragEnd,
+  }) {
+    final settings = _controller.settings;
+    final takesLongPress =
+        settings.longPressAction != NovelLongPressAction.selectText;
+    final takesDoubleTap =
+        settings.doubleTapAction != NovelDoubleTapAction.none;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final size = constraints.biggest;
+        // 横滑与点按放同一个 GestureDetector：竞技场里拖拽赢了就取消点按，
+        // 两者不会同时触发（旧实现也是这么叠的，行为不变）。
+        final layer = GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTapUp: (details) => _handleTapAt(details, size),
+          onLongPressStart: takesLongPress ? _handleLongPressAt : null,
+          onDoubleTap: takesDoubleTap ? _handleDoubleTap : null,
+          onHorizontalDragEnd: onHorizontalDragEnd,
+          child: child,
+        );
+        // SelectionArea 在更外层：手势层比它深，点按/长按才归我们；
+        // 默认选文时长按不注册，手势仍落回 SelectionArea。
+        return selectable ? SelectionArea(child: layer) : layer;
+      },
+    );
+  }
+
   /// 点按分区挂在正文手势上，而不是盖一层全屏热区。
   ///
   /// 旧实现的热区在正文之上，会把章末「下一章」按钮和选文长按一起吃掉；
-  /// 现在由正文自己识别左/中/右 3:4:3，按钮等更深的手势优先。
-  void _handleTapAt(TapUpDetails details) {
-    final width = MediaQuery.sizeOf(context).width;
-    final dx = details.globalPosition.dx;
-    if (dx < width * 0.3) {
-      _turnPage(-1);
-    } else if (dx > width * 0.7) {
-      _turnPage(1);
-    } else {
-      _toggleChrome();
-    }
+  /// 现在由正文自己识别 3×3 九宫格，按钮等更深的手势优先。
+  /// 每格动作来自设置（[NovelReaderSettings.clickZones]），默认只开中间一行：
+  /// 左 = 上一页、中 = 菜单、右 = 下一页，上/下两行无动作。
+  void _handleTapAt(TapUpDetails details, Size size) {
+    if (!_controller.settingsReady) return;
+    final zone = clickZoneAt(
+      details.localPosition.dx,
+      details.localPosition.dy,
+      size.width,
+      size.height,
+    );
+    dispatchClickAction(_controller.settings.clickZoneAction(zone), this);
   }
+
+  /// 长按：只有配置成非「选文」时才接管，否则不注册手势，
+  /// 让 [SelectionArea] 自己处理（回归：选文长按仍可用）。
+  void _handleLongPressAt(LongPressStartDetails details) {
+    if (!_controller.settingsReady) return;
+    dispatchLongPressAction(_controller.settings.longPressAction, this);
+  }
+
+  void _handleDoubleTap() {
+    if (!_controller.settingsReady) return;
+    dispatchDoubleTapAction(_controller.settings.doubleTapAction, this);
+  }
+
+  // ── 点击动作执行器（NovelClickActionHandler） ─────────────────────────
+  @override
+  void openMenu() => _toggleChrome();
+
+  @override
+  void turnPreviousPage() => _turnPage(-1);
+
+  @override
+  void turnNextPage() => _turnPage(1);
+
+  @override
+  void openPreviousChapter() => unawaited(_previousChapter());
+
+  @override
+  void openNextChapter() => unawaited(_nextChapter());
+
+  @override
+  void toggleTts() => unawaited(_toggleTts());
+
+  @override
+  void toggleAutoPage() => _toggleAutoReading();
+
+  @override
+  void openCatalog() => unawaited(_openCatalog());
+
+  @override
+  void openSearch() => unawaited(_openSearch());
+
+  // 下面四个动作在枚举里标了 requires，分发器不会调到；留实现只为接口完整，
+  // 万一以后放开开关也有明确落点（不是静默无效）。
+  @override
+  void addBookmark() => _showSnack('书签功能还没做完，暂时不能从点击区添加');
+
+  @override
+  void openContentEdit() => _showSnack('正文编辑还没做完，暂时不能从点击区进入');
+
+  @override
+  void toggleReplace() => _showSnack('替换规则面板还没做完，暂时不能从点击区打开');
+
+  @override
+  void syncProgress() => _showSnack('WebDAV 同步还没接到阅读页，暂时不能手动同步');
 
   void _handleEscape() {
     if (_chromeVisible.value) {
@@ -1438,74 +1532,69 @@ class _NovelReaderPageState extends State<NovelReaderPage>
     );
     final paragraphs = content.paragraphs;
     final showTitle = chapterTitle.isNotEmpty;
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTapUp: _handleTapAt,
-      child: SelectionArea(
-        child: NotificationListener<ScrollEndNotification>(
-          onNotification: (_) {
-            unawaited(_controller.savePositionNow());
-            return false;
-          },
-          child: ListView.builder(
-            key: const Key('novel-reader-scroll'),
-            controller: _scroll,
-            padding: EdgeInsets.fromLTRB(
-              _controller.settings.horizontalPadding,
-              insets.top + _contentTopGap + _headerBandHeight,
-              _controller.settings.horizontalPadding,
-              insets.bottom +
-                  math.max(_contentBottomGap, _footerBandHeight) +
-                  16,
-            ),
-            itemCount: paragraphs.length + (showTitle ? 2 : 1),
-            itemBuilder: (context, index) {
-              if (showTitle && index == 0) {
-                return Padding(
+    return _buildGestureLayer(
+      selectable: true,
+      child: NotificationListener<ScrollEndNotification>(
+        onNotification: (_) {
+          unawaited(_controller.savePositionNow());
+          return false;
+        },
+        child: ListView.builder(
+          key: const Key('novel-reader-scroll'),
+          controller: _scroll,
+          padding: EdgeInsets.fromLTRB(
+            _controller.settings.horizontalPadding,
+            insets.top + _contentTopGap + _headerBandHeight,
+            _controller.settings.horizontalPadding,
+            insets.bottom + math.max(_contentBottomGap, _footerBandHeight) + 16,
+          ),
+          itemCount: paragraphs.length + (showTitle ? 2 : 1),
+          itemBuilder: (context, index) {
+            if (showTitle && index == 0) {
+              return Padding(
+                padding: EdgeInsets.only(
+                  top: _controller.settings.titleTopSpacing,
+                  bottom: _controller.settings.titleBottomSpacing,
+                ),
+                child: _buildTitleWidget(
+                  chapterTitle,
+                  style: title,
+                  align: _controller.titleTextAlign,
+                ),
+              );
+            }
+            final paragraph = index - (showTitle ? 1 : 0);
+            if (paragraph < paragraphs.length) {
+              return KeyedSubtree(
+                key: _paragraphKey(paragraph),
+                child: Padding(
                   padding: EdgeInsets.only(
-                    top: _controller.settings.titleTopSpacing,
-                    bottom: _controller.settings.titleBottomSpacing,
+                    bottom: paragraph == paragraphs.length - 1
+                        ? 0
+                        : _controller.settings.paragraphSpacing,
                   ),
-                  child: _buildTitleWidget(
-                    chapterTitle,
-                    style: title,
-                    align: _controller.titleTextAlign,
-                  ),
-                );
-              }
-              final paragraph = index - (showTitle ? 1 : 0);
-              if (paragraph < paragraphs.length) {
-                return KeyedSubtree(
-                  key: _paragraphKey(paragraph),
-                  child: Padding(
-                    padding: EdgeInsets.only(
-                      bottom: paragraph == paragraphs.length - 1
-                          ? 0
-                          : _controller.settings.paragraphSpacing,
-                    ),
-                    child: _highlightParagraph == paragraph
-                        ? DecoratedBox(
-                            decoration: BoxDecoration(
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.primary.withValues(alpha: 0.18),
-                              borderRadius: MimaoShapes.sm,
-                            ),
-                            child: _buildBodyText(
-                              _controller.paragraphText(paragraph),
-                              style: body,
-                            ),
-                          )
-                        : _buildBodyText(
+                  child: _highlightParagraph == paragraph
+                      ? DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.primary.withValues(alpha: 0.18),
+                            borderRadius: MimaoShapes.sm,
+                          ),
+                          child: _buildBodyText(
                             _controller.paragraphText(paragraph),
                             style: body,
                           ),
-                  ),
-                );
-              }
-              return _buildChapterEnd();
-            },
-          ),
+                        )
+                      : _buildBodyText(
+                          _controller.paragraphText(paragraph),
+                          style: body,
+                        ),
+                ),
+              );
+            }
+            return _buildChapterEnd();
+          },
         ),
       ),
     );
@@ -1609,9 +1698,37 @@ class _NovelReaderPageState extends State<NovelReaderPage>
     final spreads = _spreads(pages);
     final spreadIndex = _spreadIndexFor(spreads, _controller.pageIndex);
     final spread = spreads[spreadIndex];
-    final duration = settings.pageAnimation
-        ? Duration(milliseconds: settings.pageAnimationMs)
-        : Duration.zero;
+    // 尊重系统「减少动态效果」：开了就一律无动画，哪怕设置里选了别的风格。
+    final animationsOff = MediaQuery.disableAnimationsOf(context);
+    final style = animationsOff
+        ? NovelPageAnimStyle.none
+        : settings.effectivePageAnimStyle;
+    final duration = style == NovelPageAnimStyle.none
+        ? Duration.zero
+        : Duration(milliseconds: settings.pageAnimationMs);
+    final page = KeyedSubtree(
+      key: ValueKey<String>('spread-${_controller.chapter?.id}-$spreadIndex'),
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          settings.horizontalPadding,
+          insets.top + _contentTopGap + _headerBandHeight,
+          settings.horizontalPadding,
+          insets.bottom + math.max(_contentBottomGap, _footerBandHeight),
+        ),
+        child: spread.length <= 1
+            ? _buildPageBody(pages[spread[0]])
+            : Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Expanded(child: _buildPageBody(pages[spread[0]])),
+                  // 列间距必须与分页时的 columnGap 一致：这里少给宽度，
+                  // 每列实际可用宽就比测量时窄，正文会多折一行把页撑破。
+                  const SizedBox(width: _twoColumnGap),
+                  Expanded(child: _buildPageBody(pages[spread[1]], column: 1)),
+                ],
+              ),
+      ),
+    );
     return Listener(
       onPointerSignal: (event) {
         if (event is! PointerScrollEvent) return;
@@ -1621,9 +1738,8 @@ class _NovelReaderPageState extends State<NovelReaderPage>
           _turnPage(-1);
         }
       },
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTapUp: _handleTapAt,
+      child: _buildGestureLayer(
+        selectable: true,
         onHorizontalDragEnd: (details) {
           final velocity = details.primaryVelocity ?? 0;
           if (velocity > 220) {
@@ -1637,54 +1753,92 @@ class _NovelReaderPageState extends State<NovelReaderPage>
             duration: duration,
             switchInCurve: Curves.easeOutCubic,
             switchOutCurve: Curves.easeInCubic,
-            layoutBuilder: (currentChild, previousChildren) => Stack(
-              fit: StackFit.expand,
-              children: <Widget>[
-                ...previousChildren,
-                if (currentChild != null) currentChild,
-              ],
-            ),
-            transitionBuilder: (child, animation) {
-              final offset = Tween<Offset>(
-                begin: Offset(_controller.pageDirection.toDouble() * 0.12, 0),
-                end: Offset.zero,
-              ).animate(animation);
-              return FadeTransition(
-                opacity: animation,
-                child: SlideTransition(position: offset, child: child),
-              );
-            },
-            child: KeyedSubtree(
-              key: ValueKey<String>(
-                'spread-${_controller.chapter?.id}-$spreadIndex',
-              ),
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(
-                  settings.horizontalPadding,
-                  insets.top + _contentTopGap + _headerBandHeight,
-                  settings.horizontalPadding,
-                  insets.bottom +
-                      math.max(_contentBottomGap, _footerBandHeight),
-                ),
-                child: spread.length <= 1
-                    ? _buildPageBody(pages[spread[0]])
-                    : Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: <Widget>[
-                          Expanded(child: _buildPageBody(pages[spread[0]])),
-                          // 列间距必须与分页时的 columnGap 一致：这里少给宽度，
-                          // 每列实际可用宽就比测量时窄，正文会多折一行把页撑破。
-                          const SizedBox(width: _twoColumnGap),
-                          Expanded(
-                            child: _buildPageBody(pages[spread[1]], column: 1),
-                          ),
-                        ],
-                      ),
-              ),
-            ),
+            layoutBuilder: _pageSwitchLayoutBuilder(style),
+            transitionBuilder: (child, animation) =>
+                _pageTransition(style, child, animation),
+            child: page,
           ),
         ),
       ),
+    );
+  }
+
+  /// 翻页动画的层叠方式：覆盖/滚动类需要「新页盖住旧页」，其余并排堆叠。
+  Widget Function(Widget?, List<Widget>) _pageSwitchLayoutBuilder(
+    NovelPageAnimStyle style,
+  ) {
+    return (currentChild, previousChildren) => Stack(
+      fit: StackFit.expand,
+      children: <Widget>[
+        // 覆盖/滚动/视差：旧页在下、新页在上，才能"压过去"。
+        if (style == NovelPageAnimStyle.cover ||
+            style == NovelPageAnimStyle.scroll ||
+            style == NovelPageAnimStyle.parallax) ...<Widget>[
+          ...previousChildren,
+          if (currentChild != null) currentChild,
+        ] else ...<Widget>[
+          if (currentChild != null) currentChild,
+          ...previousChildren,
+        ],
+      ],
+    );
+  }
+
+  /// 六种翻页过渡（卷曲/仿真翻页不做，设置里也不出现）。
+  ///
+  /// AnimatedSwitcher 的 `transitionBuilder` 只在建条目时调一次，之后条目被
+  /// 缓存进 `_outgoingWidgets`，所以「这是入场帧还是退场帧」不能在这里读——
+  /// 必须在 [AnimatedBuilder] 的 builder 里按 `animation.status` 实时判断，
+  /// 否则旧页也会按入场方向动（覆盖/滚动类就变成两页同向滑）。
+  ///
+  /// 方向取自 [_controller.pageDirection]：`dir > 0` = 向后翻（新页从右侧进）。
+  Widget _pageTransition(
+    NovelPageAnimStyle style,
+    Widget child,
+    Animation<double> animation,
+  ) {
+    if (style == NovelPageAnimStyle.none) return child;
+    final dir = _controller.pageDirection.toDouble();
+    return AnimatedBuilder(
+      animation: animation,
+      child: child,
+      builder: (context, inner) {
+        final leaving = animation.status == AnimationStatus.reverse;
+        final t = animation.value.clamp(0.0, 1.0);
+        // 入场：从 dir 侧滑向 0；退场：从 0 滑向 -dir 侧。
+        final sign = leaving ? -dir : dir;
+        Widget translate(double fraction) => FractionalTranslation(
+          translation: Offset(sign * fraction * (1 - t), 0),
+          child: inner,
+        );
+        switch (style) {
+          case NovelPageAnimStyle.none:
+            return inner!;
+          case NovelPageAnimStyle.fade:
+            return Opacity(opacity: t, child: inner);
+          case NovelPageAnimStyle.slide:
+            return Opacity(
+              opacity: t,
+              child: FractionalTranslation(
+                translation: Offset(sign * 0.12 * (1 - t), 0),
+                child: inner,
+              ),
+            );
+          case NovelPageAnimStyle.cover:
+            // 新页整幅压过去，旧页原地不动。
+            if (leaving) return inner!;
+            return FractionalTranslation(
+              translation: Offset(dir * (1 - t), 0),
+              child: inner,
+            );
+          case NovelPageAnimStyle.scroll:
+            // 新页整幅进、旧页退三分之一，叠出「纸在滑」的错位。
+            return translate(leaving ? 0.35 : 1);
+          case NovelPageAnimStyle.parallax:
+            // 新页整幅进、旧页反向缓移（视差）。
+            return translate(leaving ? 0.16 : 1);
+        }
+      },
     );
   }
 

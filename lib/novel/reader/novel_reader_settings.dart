@@ -14,9 +14,27 @@ import 'dart:convert';
 
 import 'package:mimao/novel/library_api.dart'
     show NovelPrefsApi, novelPrefReaderFontSize, novelPrefReaderSettings;
+import 'package:mimao/novel/reader/novel_click_actions.dart';
 
 /// 翻页方式：上下滚动（默认）/ 左右翻页。
 enum NovelPageMode { scroll, page }
+
+/// 左右翻页的过渡动画风格（对照 legado 的 PageAnim）。
+///
+/// 只做能稳定还原的六种；卷曲/仿真翻页（iosCurl / googleCurl /
+/// simulationPageAnim）明确不做，设置项里不出现。
+enum NovelPageAnimStyle {
+  none('无动画'),
+  fade('淡入淡出'),
+  slide('滑动'),
+  cover('覆盖'),
+  scroll('滚动'),
+  parallax('视差');
+
+  const NovelPageAnimStyle(this.label);
+
+  final String label;
+}
 
 /// 页脚左槽内容（旧版枚举，只用于读取历史 JSON）。
 enum NovelFooterLeft {
@@ -190,7 +208,11 @@ class NovelReaderSettings {
     this.dimBrightness = 100,
     this.pageMode = NovelPageMode.scroll,
     this.pageAnimation = true,
+    this.pageAnimStyle = NovelPageAnimStyle.slide,
     this.pageAnimationMs = 260,
+    List<NovelClickAction>? clickZones,
+    this.longPressAction = NovelLongPressAction.selectText,
+    this.doubleTapAction = NovelDoubleTapAction.none,
     this.autoPageSeconds = 15,
     this.showFooter = true,
     this.footerLeft = NovelFooterLeft.chapter,
@@ -237,7 +259,8 @@ class NovelReaderSettings {
     this.backgroundTexture = NovelBackgroundTexture.none,
     this.chineseConvert = NovelChineseConvert.none,
     this.twoColumn = false,
-  }) : _footerSlots = footerSlots;
+  }) : _footerSlots = footerSlots,
+       _clickZones = clickZones;
 
   static const double minFontSize = 12;
   static const double maxFontSize = 40;
@@ -304,8 +327,20 @@ class NovelReaderSettings {
   /// 左右翻页时是否播放过渡动画。
   final bool pageAnimation;
 
+  /// 左右翻页的过渡动画风格；[pageAnimation] 关掉时一律当 [none]。
+  final NovelPageAnimStyle pageAnimStyle;
+
   /// 翻页动画时长（毫秒，对应 legado 的「翻页动画速度」）。
   final int pageAnimationMs;
+
+  /// 3×3 九宫格点击区；null = 用 [novelDefaultClickZones]。
+  final List<NovelClickAction>? _clickZones;
+
+  /// 长按动作（默认选文）。
+  final NovelLongPressAction longPressAction;
+
+  /// 双击动作（默认无）。
+  final NovelDoubleTapAction doubleTapAction;
 
   /// 自动翻页间隔（秒）。
   final int autoPageSeconds;
@@ -435,6 +470,23 @@ class NovelReaderSettings {
         _fromLegacyRight(footerRight),
       ];
 
+  /// 九宫格点击区；未显式设置时用默认映射。长度恒为 9。
+  List<NovelClickAction> get clickZones =>
+      _clickZones ?? novelDefaultClickZones;
+
+  /// 实际生效的动画风格：关掉过渡动画就是 [NovelPageAnimStyle.none]。
+  NovelPageAnimStyle get effectivePageAnimStyle =>
+      pageAnimation ? pageAnimStyle : NovelPageAnimStyle.none;
+
+  /// 取某格的动作（越界返回无动作）。
+  NovelClickAction clickZoneAction(NovelClickZone zone) {
+    final zones = clickZones;
+    final index = zone.index;
+    return index >= 0 && index < zones.length
+        ? zones[index]
+        : NovelClickAction.none;
+  }
+
   /// 标题实际字号。
   double get effectiveTitleFontSize =>
       titleSizeRelative ? fontSize + titleSize : titleSize;
@@ -474,7 +526,11 @@ class NovelReaderSettings {
     int? dimBrightness,
     NovelPageMode? pageMode,
     bool? pageAnimation,
+    NovelPageAnimStyle? pageAnimStyle,
     int? pageAnimationMs,
+    List<NovelClickAction>? clickZones,
+    NovelLongPressAction? longPressAction,
+    NovelDoubleTapAction? doubleTapAction,
     int? autoPageSeconds,
     bool? showFooter,
     NovelFooterLeft? footerLeft,
@@ -560,7 +616,13 @@ class NovelReaderSettings {
       dimBrightness: (dimBrightness ?? this.dimBrightness).clamp(20, 100),
       pageMode: pageMode ?? this.pageMode,
       pageAnimation: pageAnimation ?? this.pageAnimation,
+      pageAnimStyle: pageAnimStyle ?? this.pageAnimStyle,
       pageAnimationMs: (pageAnimationMs ?? this.pageAnimationMs).clamp(80, 600),
+      clickZones: clickZones == null
+          ? _clickZones
+          : normalizeClickZones(clickZones),
+      longPressAction: longPressAction ?? this.longPressAction,
+      doubleTapAction: doubleTapAction ?? this.doubleTapAction,
       autoPageSeconds: (autoPageSeconds ?? this.autoPageSeconds).clamp(
         minAutoPageSeconds,
         maxAutoPageSeconds,
@@ -693,7 +755,11 @@ class NovelReaderSettings {
     'dimBrightness': dimBrightness,
     'pageMode': pageMode.name,
     'pageAnimation': pageAnimation,
+    'pageAnimStyle': pageAnimStyle.name,
     'pageAnimationMs': pageAnimationMs,
+    'clickZones': <String>[for (final action in clickZones) action.name],
+    'longPressAction': longPressAction.name,
+    'doubleTapAction': doubleTapAction.name,
     'autoPageSeconds': autoPageSeconds,
     'showFooter': showFooter,
     // 旧键继续写：老版本读到新 JSON 也不至于丢页脚。
@@ -794,11 +860,27 @@ class NovelReaderSettings {
       pageAnimation: json['pageAnimation'] is bool
           ? json['pageAnimation']! as bool
           : true,
+      pageAnimStyle: _enumByName(
+        NovelPageAnimStyle.values,
+        json['pageAnimStyle'],
+        NovelPageAnimStyle.slide,
+      ),
       pageAnimationMs:
           ((json['pageAnimationMs'] is num)
                   ? (json['pageAnimationMs']! as num).round()
                   : 260)
               .clamp(80, 600),
+      clickZones: _parseClickZones(json['clickZones']),
+      longPressAction: _enumByName(
+        NovelLongPressAction.values,
+        json['longPressAction'],
+        NovelLongPressAction.selectText,
+      ),
+      doubleTapAction: _enumByName(
+        NovelDoubleTapAction.values,
+        json['doubleTapAction'],
+        NovelDoubleTapAction.none,
+      ),
       autoPageSeconds:
           ((json['autoPageSeconds'] is num)
                   ? (json['autoPageSeconds']! as num).round()
@@ -993,6 +1075,18 @@ class NovelReaderSettings {
       result[i] = slots[i];
     }
     return List<NovelChromeSlot>.unmodifiable(result);
+  }
+
+  /// 解析九宫格：缺键返回 null（走默认），坏值逐格降级为无动作。
+  static List<NovelClickAction>? _parseClickZones(Object? raw) {
+    if (raw is! List) return null;
+    final result = <NovelClickAction>[];
+    for (final item in raw) {
+      result.add(
+        _enumByName(NovelClickAction.values, item, NovelClickAction.none),
+      );
+    }
+    return normalizeClickZones(result);
   }
 
   static List<NovelChromeSlot> _slots(

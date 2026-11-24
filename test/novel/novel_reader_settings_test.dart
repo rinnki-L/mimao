@@ -2,6 +2,7 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mimao/novel/library_api.dart';
+import 'package:mimao/novel/reader/novel_click_actions.dart';
 import 'package:mimao/novel/reader/novel_reader_settings.dart';
 
 void main() {
@@ -292,6 +293,120 @@ void main() {
     expect(cleared.shadowColorArgb, isNull);
     expect(cleared.backgroundImagePath, isNull);
     expect(settings.customBackgroundArgb, 0xFF112233);
+  });
+
+  group('翻页动画风格与点击区', () {
+    test('默认：slide 风格、默认九宫格、长按选文、双击无', () {
+      const settings = NovelReaderSettings();
+      expect(settings.pageAnimStyle, NovelPageAnimStyle.slide);
+      expect(settings.effectivePageAnimStyle, NovelPageAnimStyle.slide);
+      expect(settings.clickZones, novelDefaultClickZones);
+      expect(settings.longPressAction, NovelLongPressAction.selectText);
+      expect(settings.doubleTapAction, NovelDoubleTapAction.none);
+    });
+
+    test('关掉过渡动画后生效风格一律 none，但选择本身保留', () {
+      const settings = NovelReaderSettings(
+        pageAnimation: false,
+        pageAnimStyle: NovelPageAnimStyle.parallax,
+      );
+      expect(settings.pageAnimStyle, NovelPageAnimStyle.parallax);
+      expect(settings.effectivePageAnimStyle, NovelPageAnimStyle.none);
+    });
+
+    test('六种风格 JSON 往返保持，卷曲不在枚举里', () {
+      expect(NovelPageAnimStyle.values, <NovelPageAnimStyle>[
+        NovelPageAnimStyle.none,
+        NovelPageAnimStyle.fade,
+        NovelPageAnimStyle.slide,
+        NovelPageAnimStyle.cover,
+        NovelPageAnimStyle.scroll,
+        NovelPageAnimStyle.parallax,
+      ]);
+      for (final style in NovelPageAnimStyle.values) {
+        final restored = NovelReaderSettings.deserialize(
+          NovelReaderSettings(pageAnimStyle: style).serialize(),
+        );
+        expect(restored.pageAnimStyle, style);
+      }
+    });
+
+    test('九宫格与手势 JSON 往返保持', () {
+      final zones = <NovelClickAction>[
+        NovelClickAction.catalog,
+        NovelClickAction.search,
+        NovelClickAction.previousChapter,
+        NovelClickAction.previousPage,
+        NovelClickAction.menu,
+        NovelClickAction.nextPage,
+        NovelClickAction.nextChapter,
+        NovelClickAction.autoPage,
+        NovelClickAction.ttsToggle,
+      ];
+      final restored = NovelReaderSettings.deserialize(
+        NovelReaderSettings(
+          clickZones: zones,
+          longPressAction: NovelLongPressAction.menu,
+          doubleTapAction: NovelDoubleTapAction.nextPage,
+        ).serialize(),
+      );
+      expect(restored.clickZones, zones);
+      expect(restored.longPressAction, NovelLongPressAction.menu);
+      expect(restored.doubleTapAction, NovelDoubleTapAction.nextPage);
+    });
+
+    test('旧 JSON 缺新字段：动画回 slide、九宫格回默认', () {
+      final restored = NovelReaderSettings.fromJson(<String, Object?>{
+        'fontSize': 22,
+      });
+      expect(restored.pageAnimStyle, NovelPageAnimStyle.slide);
+      expect(restored.clickZones, novelDefaultClickZones);
+      expect(restored.longPressAction, NovelLongPressAction.selectText);
+      expect(restored.doubleTapAction, NovelDoubleTapAction.none);
+    });
+
+    test('未知动作名与坏风格降级：逐格变无动作、风格回 slide', () {
+      final restored = NovelReaderSettings.fromJson(<String, Object?>{
+        'pageAnimStyle': 'iosCurl',
+        'clickZones': <Object?>['notAnAction', 'menu', null, 42],
+        'longPressAction': 'unknownLongPress',
+        'doubleTapAction': 'unknownDoubleTap',
+      });
+      expect(restored.pageAnimStyle, NovelPageAnimStyle.slide);
+      expect(restored.clickZones.length, 9);
+      expect(restored.clickZones.first, NovelClickAction.none);
+      expect(restored.clickZones[1], NovelClickAction.menu);
+      expect(restored.clickZones.skip(2), everyElement(NovelClickAction.none));
+      expect(restored.longPressAction, NovelLongPressAction.selectText);
+      expect(restored.doubleTapAction, NovelDoubleTapAction.none);
+    });
+
+    test('copyWith 改九宫格会补齐成 9 格，且不影响其它格', () {
+      const settings = NovelReaderSettings();
+      final next = settings.copyWith(
+        clickZones: <NovelClickAction>[NovelClickAction.catalog],
+      );
+      expect(next.clickZones.length, 9);
+      expect(next.clickZones.first, NovelClickAction.catalog);
+      expect(next.clickZones[1], NovelClickAction.none);
+      // 不改九宫格时保持原值（含"未显式设置 = 用默认"）。
+      expect(
+        settings.copyWith(fontSize: 24).clickZones,
+        novelDefaultClickZones,
+      );
+    });
+
+    test('clickZoneAction 越界回无动作', () {
+      const settings = NovelReaderSettings();
+      expect(
+        settings.clickZoneAction(NovelClickZone.center),
+        NovelClickAction.menu,
+      );
+      expect(
+        settings.clickZoneAction(NovelClickZone.topCenter),
+        NovelClickAction.none,
+      );
+    });
   });
 }
 

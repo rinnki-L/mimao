@@ -11,6 +11,8 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/theme.dart';
+import 'novel_click_actions.dart';
+import 'novel_reader_chrome.dart';
 import 'novel_reader_fonts.dart';
 import 'novel_reader_settings.dart';
 
@@ -76,6 +78,10 @@ class _NovelReaderSettingsSheetState extends State<NovelReaderSettingsSheet> {
   List<NovelFontFile> _importedFonts = const <NovelFontFile>[];
   late final TextEditingController _dividerController;
 
+  /// 页签共用同一个滚动区：不重置的话切到短页签会停在半空中（甚至滚过头
+  /// 看到空白），切到长页签又像是"跳过了顶部"。
+  final ScrollController _scroll = ScrollController();
+
   @override
   void initState() {
     super.initState();
@@ -88,7 +94,13 @@ class _NovelReaderSettingsSheetState extends State<NovelReaderSettingsSheet> {
   @override
   void dispose() {
     _dividerController.dispose();
+    _scroll.dispose();
     super.dispose();
+  }
+
+  void _selectTab(_SettingsTab tab) {
+    setState(() => _tab = tab);
+    if (_scroll.hasClients) _scroll.jumpTo(0);
   }
 
   Future<void> _loadImportedFonts() async {
@@ -158,6 +170,7 @@ class _NovelReaderSettingsSheetState extends State<NovelReaderSettingsSheet> {
               maxHeight: MediaQuery.sizeOf(context).height * 0.55,
             ),
             child: SingleChildScrollView(
+              controller: _scroll,
               padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
               child: AnimatedSize(
                 duration: const Duration(milliseconds: 160),
@@ -893,6 +906,7 @@ class _NovelReaderSettingsSheetState extends State<NovelReaderSettingsSheet> {
 
   // ── 菜单 ──────────────────────────────────────────────────────────────
   Widget _buildMenu(BuildContext context) {
+    final theme = Theme.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
@@ -912,7 +926,7 @@ class _NovelReaderSettingsSheetState extends State<NovelReaderSettingsSheet> {
                 key: const Key('novel-settings-page-transition'),
                 contentPadding: EdgeInsets.zero,
                 title: const Text('翻页过渡动画'),
-                subtitle: const Text('左右翻页时播放滑动动画'),
+                subtitle: const Text('关掉后左右翻页直接换页，不播放过渡'),
                 value: _settings.pageAnimation,
                 onChanged: (value) =>
                     _apply(_settings.copyWith(pageAnimation: value)),
@@ -920,7 +934,126 @@ class _NovelReaderSettingsSheetState extends State<NovelReaderSettingsSheet> {
             ],
           ),
         ),
+        _card(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Text('翻页动画风格', style: theme.textTheme.titleSmall),
+              const SizedBox(height: 2),
+              Text(
+                _settings.pageAnimation
+                    ? '左右翻页时新页怎么进场'
+                    : '「翻页过渡动画」已关闭，下面选什么都不生效',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 6),
+              // 风格用下拉而不是 SegmentedButton：六项在窄窗口里挤不下。
+              DropdownButtonHideUnderline(
+                child: DropdownButton<NovelPageAnimStyle>(
+                  key: const Key('novel-settings-page-anim-style'),
+                  isExpanded: true,
+                  value: _settings.pageAnimStyle,
+                  items: <DropdownMenuItem<NovelPageAnimStyle>>[
+                    for (final style in NovelPageAnimStyle.values)
+                      DropdownMenuItem<NovelPageAnimStyle>(
+                        value: style,
+                        child: Text(style.label),
+                      ),
+                  ],
+                  onChanged: _settings.pageAnimation
+                      ? (picked) {
+                          if (picked != null) {
+                            _apply(_settings.copyWith(pageAnimStyle: picked));
+                          }
+                        }
+                      : null,
+                ),
+              ),
+            ],
+          ),
+        ),
+        _card(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Text('点击与手势', style: theme.textTheme.titleSmall),
+              const SizedBox(height: 6),
+              ListTile(
+                key: const Key('novel-settings-click-zones'),
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                leading: const Icon(Icons.grid_view),
+                title: const Text('点击区（九宫格）'),
+                subtitle: Text(_clickZonesSummary()),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: _openClickZones,
+              ),
+              const Divider(height: 14),
+              _enumDropdownRow<NovelLongPressAction>(
+                key: 'novel-settings-long-press',
+                title: '长按',
+                value: _settings.longPressAction,
+                values: NovelLongPressAction.values,
+                labelOf: (value) => value.label,
+                onChanged: (value) =>
+                    _apply(_settings.copyWith(longPressAction: value)),
+              ),
+              _enumDropdownRow<NovelDoubleTapAction>(
+                key: 'novel-settings-double-tap',
+                title: '双击',
+                value: _settings.doubleTapAction,
+                values: NovelDoubleTapAction.values,
+                labelOf: (value) => value.available
+                    ? value.label
+                    : '${value.label}（${value.unavailableHint}）',
+                onChanged: (value) {
+                  if (!value.available) return;
+                  _apply(_settings.copyWith(doubleTapAction: value));
+                },
+              ),
+            ],
+          ),
+        ),
       ],
+    );
+  }
+
+  /// 九宫格摘要：只列非「无动作」的格子，一眼看出配了哪几格。
+  String _clickZonesSummary() {
+    final zones = _settings.clickZones;
+    final parts = <String>[];
+    for (final zone in NovelClickZone.values) {
+      final action = zones[zone.index];
+      if (action != NovelClickAction.none) {
+        parts.add('${zone.label}=${action.label}');
+      }
+    }
+    return parts.isEmpty ? '九格都没有动作' : parts.join(' · ');
+  }
+
+  Future<void> _openClickZones() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0x00000000),
+      builder: (sheetContext) => Theme(
+        data: Theme.of(context),
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            12,
+            0,
+            12,
+            MediaQuery.paddingOf(sheetContext).bottom + 12,
+          ),
+          child: NovelClickZoneSheet(
+            settings: _settings,
+            onChanged: _apply,
+            onClose: () => Navigator.of(sheetContext).pop(),
+          ),
+        ),
+      ),
     );
   }
 
@@ -1266,7 +1399,7 @@ class _NovelReaderSettingsSheetState extends State<NovelReaderSettingsSheet> {
             Expanded(
               child: GestureDetector(
                 key: Key('novel-settings-tab-${tab.name}'),
-                onTap: () => setState(() => _tab = tab),
+                onTap: () => _selectTab(tab),
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 160),
                   padding: const EdgeInsets.symmetric(vertical: 8),
