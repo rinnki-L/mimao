@@ -248,18 +248,27 @@ class NovelPaginator {
     }
 
     for (var i = 0; i < metrics.length; i++) {
-      final lineHeight = metrics[i].height;
+      final start = lineStarts[i];
+      final end = i + 1 < lineStarts.length ? lineStarts[i + 1] : text.length;
+      // 避头尾会把字符挪到上一行，切片因此可能比原来那一行多折一行；
+      // 页高必须按「实际要渲染的切片」重新测量，否则渲染时会撑破页高。
+      final sliceHeight = _measureSliceHeight(
+        text,
+        start,
+        end,
+        style,
+        align,
+        width,
+      );
       final beforeLine = _current.isEmpty
           ? 0.0
           : (i == 0 ? spacingBefore : 0.0);
       if (_current.isNotEmpty &&
-          _used + beforeLine + lineHeight > maxHeight + _epsilon) {
+          _used + beforeLine + sliceHeight > maxHeight + _epsilon) {
         _flushPage();
       }
       final gapOnPage = _current.isEmpty ? 0.0 : (i == 0 ? spacingBefore : 0.0);
       _used += gapOnPage;
-      final start = lineStarts[i];
-      final end = i + 1 < lineStarts.length ? lineStarts[i + 1] : text.length;
       if (end > start) {
         _append(
           NovelTextSlice(
@@ -270,9 +279,32 @@ class NovelPaginator {
           ),
         );
       }
-      _used += lineHeight;
+      _used += sliceHeight;
     }
     painter.dispose();
+  }
+
+  /// 单个切片（渲染层就是一段独立 Text）的真实高度。
+  double _measureSliceHeight(
+    String text,
+    int start,
+    int end,
+    TextStyle style,
+    TextAlign align,
+    double width,
+  ) {
+    if (end <= start) return 0;
+    final painter = TextPainter(
+      text: TextSpan(text: text.substring(start, end), style: style),
+      textDirection: TextDirection.ltr,
+      textAlign: align,
+      textScaler: textScaler,
+      textHeightBehavior: textHeightBehavior,
+      maxLines: null,
+    )..layout(maxWidth: width);
+    final height = painter.height;
+    painter.dispose();
+    return height;
   }
 
   /// 同段相邻切片合并，减少每页的 Text 数量。

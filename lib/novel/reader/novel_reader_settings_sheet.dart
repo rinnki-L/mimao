@@ -104,6 +104,25 @@ class _NovelReaderSettingsSheetState extends State<NovelReaderSettingsSheet> {
 
   @override
   Widget build(BuildContext context) {
+    // 面板随当前阅读背景明暗实时切换：切到羊皮纸/纯白时不能还弹深色面板。
+    final base = Theme.of(context);
+    final themed = buildMimaoTheme(
+      seedColor: base.colorScheme.primary,
+      brightness: _settings.darkBackground ? Brightness.dark : Brightness.light,
+    );
+    final scheme = themed.colorScheme;
+    return Theme(
+      data: themed.copyWith(
+        textTheme: themed.textTheme.apply(
+          bodyColor: scheme.onSurface,
+          displayColor: scheme.onSurface,
+        ),
+      ),
+      child: Builder(builder: _buildSheet),
+    );
+  }
+
+  Widget _buildSheet(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     return Material(

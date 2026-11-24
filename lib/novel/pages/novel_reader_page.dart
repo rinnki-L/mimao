@@ -101,6 +101,9 @@ class _NovelReaderPageState extends State<NovelReaderPage>
   static const double _contentBottomGap = 44;
   static const double _footerHeight = 26;
 
+  /// 双栏列间距：分页与渲染必须用同一个值，否则列宽对不上会多折行。
+  static const double _twoColumnGap = 32;
+
   NovelReaderSettings get _settings => _controller.settings;
 
   /// 页眉占用的高度（关闭时为 0），分页可用高度要扣掉。
@@ -1348,26 +1351,27 @@ class _NovelReaderPageState extends State<NovelReaderPage>
                             top: insets.top,
                             left: 0,
                             right: 0,
-                            child: IgnorePointer(
-                              child: NovelReaderHeader(
-                                settings: settings,
-                                chapterTitle: _controller.displayTitle(
-                                  _controller.chapter?.title ??
-                                      widget.chapterTitle ??
+                            // 菜单展开时顶部栏占着这块，页眉让位，收起后再出现。
+                            child: ValueListenableBuilder<bool>(
+                              valueListenable: _chromeVisible,
+                              builder: (context, visible, child) =>
+                                  AnimatedOpacity(
+                                    opacity: visible ? 0 : 1,
+                                    duration: const Duration(milliseconds: 160),
+                                    child: child,
+                                  ),
+                              child: IgnorePointer(
+                                child: NovelReaderHeader(
+                                  settings: settings,
+                                  chapterTitle: _controller.displayTitle(
+                                    _controller.chapter?.title ??
+                                        widget.chapterTitle ??
+                                        '',
+                                  ),
+                                  bookTitle:
+                                      _controller.detail?.title ??
+                                      widget.title ??
                                       '',
-                                ),
-                                bookTitle:
-                                    _controller.detail?.title ??
-                                    widget.title ??
-                                    '',
-                                page: settings.pageMode == NovelPageMode.page
-                                    ? displayPage
-                                    : null,
-                                pageCount:
-                                    settings.pageMode == NovelPageMode.page
-                                    ? displayPageCount
-                                    : null,
-                                percent: _controller.bookPercent(
                                   page: settings.pageMode == NovelPageMode.page
                                       ? displayPage
                                       : null,
@@ -1375,6 +1379,16 @@ class _NovelReaderPageState extends State<NovelReaderPage>
                                       settings.pageMode == NovelPageMode.page
                                       ? displayPageCount
                                       : null,
+                                  percent: _controller.bookPercent(
+                                    page:
+                                        settings.pageMode == NovelPageMode.page
+                                        ? displayPage
+                                        : null,
+                                    pageCount:
+                                        settings.pageMode == NovelPageMode.page
+                                        ? displayPageCount
+                                        : null,
+                                  ),
                                 ),
                               ),
                             ),
@@ -1481,12 +1495,15 @@ class _NovelReaderPageState extends State<NovelReaderPage>
                               _controller.paragraphText(paragraph),
                               style: body,
                               textAlign: _controller.bodyTextAlign,
+                              textHeightBehavior:
+                                  _controller.textHeightBehavior,
                             ),
                           )
                         : Text(
                             _controller.paragraphText(paragraph),
                             style: body,
                             textAlign: _controller.bodyTextAlign,
+                            textHeightBehavior: _controller.textHeightBehavior,
                           ),
                   ),
                 );
@@ -1628,7 +1645,9 @@ class _NovelReaderPageState extends State<NovelReaderPage>
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: <Widget>[
                           Expanded(child: _buildPageBody(pages[spread[0]])),
-                          const SizedBox(width: 28),
+                          // 列间距必须与分页时的 columnGap 一致：这里少给宽度，
+                          // 每列实际可用宽就比测量时窄，正文会多折一行把页撑破。
+                          const SizedBox(width: _twoColumnGap),
                           Expanded(
                             child: _buildPageBody(pages[spread[1]], column: 1),
                           ),
