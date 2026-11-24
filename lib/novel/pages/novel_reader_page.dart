@@ -205,6 +205,10 @@ class _NovelReaderPageState extends State<NovelReaderPage>
     final epoch = _controller.contentEpoch;
     final changed = epoch != _lastEpoch;
     if (changed) {
+      // 换章时先把本章已读时长结掉，再重置计时；否则章与章之间的时间会被
+      // reset() 静默丢弃（旧实现只在退页面/切后台才 flush）。首章没有上一段
+      // 可结，跳过。
+      if (_lastEpoch >= 0) _flushReadingTime();
       _lastEpoch = epoch;
       _paragraphKeys.clear();
       _session
