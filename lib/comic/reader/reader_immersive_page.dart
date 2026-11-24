@@ -762,6 +762,19 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage>
                       ),
                       onPressed: () => unawaited(_toggleFullscreen()),
                     ),
+                  if (widget.commentSource != null)
+                    IconButton(
+                      key: const Key('reader-comments'),
+                      tooltip: '章节评论',
+                      icon: const Icon(Icons.forum_outlined),
+                      onPressed: () => unawaited(_openComments()),
+                    ),
+                  IconButton(
+                    key: const Key('reader-diagnostics-button'),
+                    tooltip: '阅读诊断',
+                    icon: const Icon(Icons.monitor_heart_outlined),
+                    onPressed: () => unawaited(_openDiagnostics()),
+                  ),
                   IconButton(
                     key: const Key('reader-save-image'),
                     tooltip: '保存当前图片',
