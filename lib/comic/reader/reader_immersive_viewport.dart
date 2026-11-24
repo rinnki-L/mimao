@@ -24,6 +24,7 @@ import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import '../../core/theme.dart';
 import 'reader_cache.dart';
 import 'reader_continuous_scroll.dart';
+import 'reader_diagnostics.dart';
 import 'reader_eink_refresh.dart';
 import 'reader_flow.dart';
 import 'reader_image_size.dart';
@@ -94,6 +95,7 @@ class ReaderViewport extends StatefulWidget {
     required this.onTapCenter,
     this.chapterTitles = const <String>[],
     this.viewportController,
+    this.diagnostics,
   });
 
   final ReaderSettings settings;
@@ -103,6 +105,9 @@ class ReaderViewport extends StatefulWidget {
   final VoidCallback onTapCenter;
   final List<String> chapterTitles;
   final ReaderViewportController? viewportController;
+
+  /// 可选：阅读诊断采集器。null 时零开销（不建 span、不记事件）。
+  final ReaderDiagnostics? diagnostics;
 
   @override
   State<ReaderViewport> createState() => _ReaderViewportState();
@@ -541,6 +546,12 @@ class _ReaderViewportState extends State<ReaderViewport>
       final flowIndex = _crossChapter ? best.index : _toFlowIndex(best.index);
       if (flowIndex != null) {
         unawaited(widget.reading.reportFlowIndex(flowIndex));
+        widget.diagnostics?.recordNavigation(
+          ReaderDiagnosticNavigation.viewport,
+          page: best.index,
+          chapter: widget.reading.currentChapter,
+          viewportPage: best.index.toDouble(),
+        );
       } else {
         unawaited(widget.reading.goToPage(best.index));
       }
@@ -614,6 +625,13 @@ class _ReaderViewportState extends State<ReaderViewport>
     if (start >= segment.length) return;
     final imageNumber = start + 1;
     unawaited(widget.reading.goToPage(imageNumber));
+    widget.diagnostics?.recordNavigation(
+      ReaderDiagnosticNavigation.pageSelected,
+      page: imageNumber,
+      targetPage: imageNumber,
+      chapter: widget.reading.currentChapter,
+      viewportPage: index.toDouble(),
+    );
     _maybeEinkRefresh();
     final position = widget.reading.position;
     _lastSyncedChapter = position.chapter;
@@ -1085,6 +1103,7 @@ class _ReaderViewportState extends State<ReaderViewport>
       longPressToZoom: widget.settings.longPressToZoom,
       onTapAt: _onTapAt,
       onState: (ready, failed) => _onImageState(request, ready, failed),
+      diagnostics: widget.diagnostics,
     );
   }
 
@@ -1137,6 +1156,7 @@ class _ImmersiveImageSlot extends StatefulWidget {
     required this.longPressToZoom,
     required this.onTapAt,
     required this.onState,
+    this.diagnostics,
   });
 
   final int index;
@@ -1158,6 +1178,7 @@ class _ImmersiveImageSlot extends StatefulWidget {
   final bool longPressToZoom;
   final ValueChanged<double> onTapAt;
   final void Function(bool ready, bool failed) onState;
+  final ReaderDiagnostics? diagnostics;
 
   @override
   State<_ImmersiveImageSlot> createState() => _ImmersiveImageSlotState();
@@ -1215,19 +1236,32 @@ class _ImmersiveImageSlotState extends State<_ImmersiveImageSlot> {
   }
 
   Future<void> _load() async {
+    // 诊断身份用请求的缓存身份（字符串），只在本轮内映射成匿名编号。
+    final identity = widget.request.cacheIdentity.hashCode;
+    final readSpan = widget.diagnostics?.beginImageSpan(
+      identity,
+      ReaderDiagnosticStage.read,
+    );
     try {
       final bytes = await widget.cache.loadRequest(widget.request);
+      readSpan?.finish();
       if (!mounted) return;
       setState(() {
         _bytes = bytes;
         _error = null;
       });
       widget.onState(true, false);
+      final decodeSpan = widget.diagnostics?.beginImageSpan(
+        identity,
+        ReaderDiagnosticStage.decode,
+      );
       final size = await widget.sizeCache.measure(widget.request, bytes);
+      decodeSpan?.finish();
       if (!mounted || !identical(_bytes, bytes)) return;
       if (size != null && size != _size) setState(() => _size = size);
       unawaited(_measureCrop(bytes));
     } on Object catch (error) {
+      readSpan?.finish(failed: true);
       if (!mounted) return;
       setState(() => _error = error);
       widget.onState(false, true);

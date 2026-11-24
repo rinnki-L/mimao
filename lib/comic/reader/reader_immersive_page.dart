@@ -26,6 +26,8 @@ import '../../core/theme.dart';
 
 import 'reader_cache.dart';
 import 'reader_chapter_source.dart';
+import 'reader_diagnostics.dart';
+import 'reader_diagnostics_sheet.dart';
 import 'reader_image_size.dart';
 import 'reader_immersive_controller.dart';
 import 'reader_immersive_viewport.dart';
@@ -91,6 +93,7 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage>
   ReaderViewMode? _autoMode;
   int _autoModeGeneration = 0;
   final ReaderImageSizeCache _detectSizes = ReaderImageSizeCache();
+  late final ReaderDiagnostics _diagnostics = ReaderDiagnostics();
 
   @override
   void initState() {
@@ -138,6 +141,7 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage>
     _reading.dispose();
     _chromeVisible.dispose();
     _detectSizes.clear();
+    _diagnostics.dispose();
     super.dispose();
   }
 
@@ -149,6 +153,7 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage>
     if (!active) {
       // 切后台时把最后一次滚动位置补写掉，自动阅读下一拍自然停住。
       unawaited(_reading.flushProgress());
+      _diagnostics.stop(ReaderDiagnosticStop.background);
     }
   }
 
@@ -203,6 +208,24 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage>
     if (mounted && wasVisible) _chromeVisible.value = true;
   }
 
+  Future<void> _openDiagnostics() async {
+    _diagnostics.stop(ReaderDiagnosticStop.review);
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => SizedBox(
+        height: MediaQuery.sizeOf(context).height * 0.85,
+        child: ReaderDiagnosticsSheet(
+          diagnostics: _diagnostics,
+          mode: _effectiveSettings.mode,
+          refreshRate: MediaQuery.maybeOf(context)?.devicePixelRatio == null
+              ? 60
+              : View.of(context).display.refreshRate,
+        ),
+      ),
+    );
+  }
+
   Future<void> _showContextMenu(TapDownDetails details) async {
     if (!_supportsFullscreen) return; // 桌面右键菜单；触屏长按仍用于缩放
     final position = details.globalPosition;
@@ -226,6 +249,7 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage>
           value: 'auto',
           child: Text(_autoReading ? '停止自动阅读' : '自动阅读'),
         ),
+        const PopupMenuItem<String>(value: 'diagnostics', child: Text('阅读诊断')),
       ],
     );
     if (!mounted || action == null) return;
@@ -240,6 +264,8 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage>
         await _toggleFullscreen();
       case 'auto':
         _toggleAutoReading();
+      case 'diagnostics':
+        await _openDiagnostics();
     }
   }
 
@@ -548,6 +574,7 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage>
                                 onTapCenter: _toggleChrome,
                                 chapterTitles: widget.chapterTitles,
                                 viewportController: _viewport,
+                                diagnostics: _diagnostics,
                               ),
                               // 阅读亮度遮罩（不压暗时透明、不吃事件）。
                               Positioned.fill(
