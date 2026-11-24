@@ -107,6 +107,20 @@ void main() {
     expect(env.loaded, contains('c1-p4.png'));
   });
 
+  testWidgets('自动版式：常规页样本切到右到左翻页', (tester) async {
+    // 测试图片是 1×1，高/宽 = 1，落在页漫区间；连续 4 张有效样本即可判定。
+    store = MemoryReaderSettingsStore(const ReaderSettings(autoLayout: true));
+    await tester.pumpWidget(_app(cache: env.cache, store: store));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('immersive-gallery')), findsOneWidget);
+    expect(find.textContaining('已按图片版式切换为'), findsWidgets);
+    // 只覆盖本次打开，不把检测结果写回默认模式。
+    expect((await store.load()).mode, ReaderViewMode.waterfallTopToBottom);
+  });
+
   testWidgets('桌面右键弹出阅读操作菜单', (tester) async {
     await tester.pumpWidget(_app(cache: env.cache, store: store));
     await tester.pumpAndSettle();

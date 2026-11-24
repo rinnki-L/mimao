@@ -12,6 +12,7 @@ import 'reader_view_mode.dart';
 class ReaderSettings {
   const ReaderSettings({
     this.mode = ReaderViewMode.waterfallTopToBottom,
+    this.autoLayout = false,
     this.imagesPerPage = 1,
     this.singleImageOnFirstPage = true,
     this.tapToTurnPages = true,
@@ -29,6 +30,9 @@ class ReaderSettings {
   });
 
   final ReaderViewMode mode;
+
+  /// 按图片宽高比自动切换阅读模式（只影响本次打开，不改保存的默认模式）。
+  final bool autoLayout;
   final int imagesPerPage; // 分页模式每屏图数 1~5；连续/瀑布强制为 1
   final bool singleImageOnFirstPage;
   final bool tapToTurnPages;
@@ -46,6 +50,7 @@ class ReaderSettings {
 
   ReaderSettings copyWith({
     ReaderViewMode? mode,
+    bool? autoLayout,
     int? imagesPerPage,
     bool? singleImageOnFirstPage,
     bool? tapToTurnPages,
@@ -62,6 +67,7 @@ class ReaderSettings {
     int? dimBrightness,
   }) => ReaderSettings(
     mode: mode ?? this.mode,
+    autoLayout: autoLayout ?? this.autoLayout,
     imagesPerPage: imagesPerPage ?? this.imagesPerPage,
     singleImageOnFirstPage:
         singleImageOnFirstPage ?? this.singleImageOnFirstPage,
@@ -85,6 +91,7 @@ class ReaderSettings {
 
   Map<String, Object?> toJson() => <String, Object?>{
     'mode': mode.name,
+    'autoLayout': autoLayout,
     'imagesPerPage': imagesPerPage,
     'singleImageOnFirstPage': singleImageOnFirstPage,
     'tapToTurnPages': tapToTurnPages,
@@ -112,6 +119,7 @@ class ReaderSettings {
     }
     return ReaderSettings(
       mode: mode,
+      autoLayout: _bool(json['autoLayout'], false),
       imagesPerPage: _int(json['imagesPerPage'], 1, 1, 5),
       singleImageOnFirstPage: _bool(json['singleImageOnFirstPage'], true),
       tapToTurnPages: _bool(json['tapToTurnPages'], true),

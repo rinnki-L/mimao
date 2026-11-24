@@ -88,6 +88,14 @@ class _ReaderSettingsPanelState extends State<ReaderSettingsPanel> {
                 children: <Widget>[
                   _sectionTitle(theme, '阅读模式'),
                   _buildModeChips(theme),
+                  _switchTile(
+                    key: 'reader-settings-auto-layout',
+                    title: '自动选择阅读模式',
+                    subtitle: '按后续图片宽高比判断条漫/页漫；只影响本次打开',
+                    value: _settings.autoLayout,
+                    onChanged: (value) =>
+                        _apply(_settings.copyWith(autoLayout: value)),
+                  ),
                   _sectionTitle(theme, '分页设置'),
                   _buildImagesPerPage(theme),
                   _switchTile(

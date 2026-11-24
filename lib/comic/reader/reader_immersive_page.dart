@@ -26,11 +26,15 @@ import '../../core/theme.dart';
 
 import 'reader_cache.dart';
 import 'reader_chapter_source.dart';
+import 'reader_image_size.dart';
 import 'reader_immersive_controller.dart';
 import 'reader_immersive_viewport.dart';
+import 'reader_layout_detect.dart';
+import 'reader_models.dart';
 import 'reader_progress.dart';
 import 'reader_settings.dart';
 import 'reader_settings_panel.dart';
+import 'reader_view_mode.dart';
 import 'reader_waterfall_controller.dart';
 
 /// 沉浸式阅读页对外接口。
@@ -83,6 +87,11 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage>
   bool _appActive = true;
   DateTime _lastInteraction = DateTime.fromMillisecondsSinceEpoch(0);
 
+  /// 自动版式判断结果：只影响本次打开，不改保存的默认模式。
+  ReaderViewMode? _autoMode;
+  int _autoModeGeneration = 0;
+  final ReaderImageSizeCache _detectSizes = ReaderImageSizeCache();
+
   @override
   void initState() {
     super.initState();
@@ -105,11 +114,15 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage>
   Future<void> _loadSettings() async {
     final loaded = await widget.settingsStore.load();
     _settings = loaded.copyWith(mode: loaded.mode);
-    _reading.updateSettings(_settings);
+    _reading.updateSettings(_effectiveSettings);
     if (!mounted) return;
     setState(() => _settingsReady = true);
     await _waterfall.start();
+    if (mounted && _settings.autoLayout) unawaited(_detectLayout());
   }
+
+  ReaderSettings get _effectiveSettings =>
+      _autoMode == null ? _settings : _settings.copyWith(mode: _autoMode);
 
   void _onWaterfallChanged() {
     // 瀑布流段变化时：非瀑布模式下保持单章；瀑布模式下视图自然重建。
@@ -124,6 +137,7 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage>
     _waterfall.dispose();
     _reading.dispose();
     _chromeVisible.dispose();
+    _detectSizes.clear();
     super.dispose();
   }
 
@@ -149,9 +163,22 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage>
   void _applySettings(ReaderSettings next) {
     final intervalChanged =
         next.autoReadingInterval != _settings.autoReadingInterval;
-    setState(() => _settings = next);
-    _reading.updateSettings(next);
-    unawaited(widget.settingsStore.save(next));
+    final wasAuto = _settings.autoLayout;
+    // 用户手动选了别的模式（或关掉自动）→ 以用户选择为准，取消本次自动结果。
+    if (!next.autoLayout || (_autoMode != null && next.mode != _autoMode)) {
+      _autoMode = null;
+      _autoModeGeneration++;
+    }
+    if (!wasAuto && next.autoLayout) unawaited(_detectLayout());
+    final autoMode = _autoMode;
+    // 自动版式只是本次打开的内存覆盖：面板改其它项时，落盘仍写用户原来的
+    // 默认模式，不把检测结果偷偷变成默认。
+    final stored = autoMode != null && next.mode == autoMode
+        ? next.copyWith(mode: _settings.mode)
+        : next;
+    setState(() => _settings = stored);
+    _reading.updateSettings(_effectiveSettings);
+    unawaited(widget.settingsStore.save(stored));
     if (_autoReading && intervalChanged) _startAutoReading();
   }
 
@@ -167,7 +194,7 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage>
       context: context,
       isScrollControlled: true,
       builder: (_) => ReaderSettingsPanel(
-        initial: _settings,
+        initial: _effectiveSettings,
         onChanged: _applySettings,
         onClose: () => Navigator.of(context).pop(),
       ),
@@ -258,7 +285,7 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage>
         _stopAutoReading();
         return;
       }
-      if (_settings.mode.isGallery) {
+      if (_effectiveSettings.mode.isGallery) {
         unawaited(_viewport.turnGalleryPage(1));
       } else {
         unawaited(_viewport.scrollViewport(1));
@@ -278,7 +305,7 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage>
 
   Future<void> _turnByKeyboard(int direction) async {
     _lastInteraction = DateTime.now();
-    if (_settings.mode.isGallery) {
+    if (_effectiveSettings.mode.isGallery) {
       await _viewport.turnGalleryPage(direction);
     } else {
       await _viewport.scrollViewport(direction);
@@ -345,6 +372,72 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage>
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(content: Text(text)));
+  }
+
+  /// 采样当前章第 2~7 张，按宽高比推荐条漫/页漫。
+  ///
+  /// 700ms 内出结果就切；超时先用默认模式打开，后台采样完成后仍可切换。
+  /// 只改本次打开的内存模式，不覆盖保存的默认模式。
+  Future<void> _detectLayout() async {
+    final generation = ++_autoModeGeneration;
+    final segment = _waterfall.flow.segmentOf(_waterfall.initialChapter);
+    if (segment == null || segment.length < 5) return;
+    final candidates = <ImageRequest>[
+      for (var i = 1; i < segment.length && i < 7; i++) segment.images[i],
+    ];
+    if (candidates.length < 4) return;
+
+    final sizes = <Size>[];
+    Future<List<Size>> sample() async {
+      for (var i = 0; i < candidates.length; i += 2) {
+        if (!mounted || generation != _autoModeGeneration) break;
+        final measured = await Future.wait(
+          candidates.skip(i).take(2).map(_measureRequest),
+        );
+        sizes.addAll(measured.whereType<Size>());
+      }
+      return sizes;
+    }
+
+    final sampling = sample().timeout(
+      const Duration(seconds: 8),
+      onTimeout: () => sizes,
+    );
+    final result = await Future.any<Object?>(<Future<Object?>>[
+      sampling,
+      Future<void>.delayed(const Duration(milliseconds: 700)),
+    ]);
+    if (!mounted) return;
+    if (result is List<Size>) {
+      _applyDetectedLayout(result, generation);
+    } else {
+      // 先按默认模式打开；后台采样完成后再补一次判断。
+      unawaited(
+        sampling.then((late) => _applyDetectedLayout(late, generation)),
+      );
+    }
+  }
+
+  Future<Size?> _measureRequest(ImageRequest request) async {
+    try {
+      final bytes = await widget.imageCache.loadRequest(request);
+      return await _detectSizes.measure(request, bytes);
+    } on Object {
+      return null;
+    }
+  }
+
+  void _applyDetectedLayout(List<Size> sizes, int generation) {
+    if (!mounted ||
+        generation != _autoModeGeneration ||
+        !_settings.autoLayout) {
+      return;
+    }
+    final mode = detectReaderModeFromSizes(sizes);
+    if (mode == null || mode == _effectiveSettings.mode) return;
+    setState(() => _autoMode = mode);
+    _reading.updateSettings(_effectiveSettings);
+    _showSnack('已按图片版式切换为「${mode.label}」');
   }
 
   /// 保存当前显示的第一张图（翻页模式一屏多图时取左上/第一张）。
@@ -448,7 +541,7 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage>
                             fit: StackFit.expand,
                             children: [
                               ReaderViewport(
-                                settings: _settings,
+                                settings: _effectiveSettings,
                                 reading: _reading,
                                 waterfall: _waterfall,
                                 cache: widget.imageCache,
