@@ -1,6 +1,12 @@
 // 阅读视口：把"章节流"渲染成可翻页/可滚动的图片视图，承载点击热区、双击/
-// 长按/捏合缩放。全部用 Flutter 原生 PageView / CustomScrollView /
-// InteractiveViewer 实现，不依赖第三方图片或滚动库。
+// 长按/捏合缩放。翻页模式与连续/瀑布模式共用同一套图片槽与预取器。
+//
+// 对照 Venera-Next 的 gallery_view / continuous_view：
+// - 翻页模式按 ReaderPageLayout 把 1~N 张源图铺成一屏，首尾保留哨兵页切章；
+// - 连续/瀑布模式用 scrollable_positioned_list 做按项定位，配合
+//   ReaderContinuousScrollController 在图片异步测量后修正滚动位置；
+// - 可见项边界驱动进度上报与前后章预取，不再靠"图片加载完"猜位置；
+// - 图片槽先按编码头宽高占位、再解码显示，避免列表高度突然撑开。
 //
 // 全局流索引只在本文件里出现；位置变化经 [ImmersiveReaderController.reportFlowIndex]
 // 折算成真实章节/页再落库。
@@ -8,19 +14,67 @@
 // ignore_for_file: deprecated_member_use — 见 lib/main.dart 文件头同款说明。
 
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
 import 'reader_cache.dart';
+import 'reader_continuous_scroll.dart';
+import 'reader_flow.dart';
+import 'reader_image_size.dart';
 import 'reader_immersive_controller.dart';
 import 'reader_models.dart';
+import 'reader_page_layout.dart';
+import 'reader_precache.dart';
 import 'reader_settings.dart';
 import 'reader_view_mode.dart';
 import 'reader_waterfall_controller.dart';
 
-/// 渲染视图。管理 PageController / ScrollController 与手势。
+/// 阅读页给视口下命令的句柄（自动阅读、键盘、工具栏滑块共用）。
+///
+/// 视口是唯一拥有 PageController / ScrollController 的地方；页面不直接碰
+/// 滚动实现，只通过这个句柄问"当前图就绪了吗""帮我滚一屏"。
+class ReaderViewportController {
+  _ReaderViewportDelegate? _delegate;
+
+  void _attach(_ReaderViewportDelegate delegate) {
+    _delegate = delegate;
+  }
+
+  void _detach(_ReaderViewportDelegate delegate) {
+    if (identical(_delegate, delegate)) _delegate = null;
+  }
+
+  bool get isAttached => _delegate != null;
+
+  bool get isScrollMode => _delegate?.isScrollMode ?? false;
+
+  /// 当前可见图（翻页模式为整屏图）是否已加载或已失败。
+  bool get currentImageReady => _delegate?.currentImageReady ?? true;
+
+  /// 是否已到全书末尾（自动阅读据此停下，而不是空转写进度）。
+  bool get atEnd => _delegate?.atEnd ?? false;
+
+  Future<void> scrollViewport(int direction) =>
+      _delegate?.scrollViewport(direction) ?? Future<void>.value();
+
+  Future<void> turnGalleryPage(int direction) =>
+      _delegate?.turnGalleryPage(direction) ?? Future<void>.value();
+}
+
+/// 视口对页面暴露的最小能力集。
+abstract interface class _ReaderViewportDelegate {
+  bool get isScrollMode;
+  bool get currentImageReady;
+  bool get atEnd;
+  Future<void> scrollViewport(int direction);
+  Future<void> turnGalleryPage(int direction);
+}
+
+/// 渲染视图。管理 PageController / 滚动锚点与手势。
 class ReaderViewport extends StatefulWidget {
   const ReaderViewport({
     super.key,
@@ -29,6 +83,7 @@ class ReaderViewport extends StatefulWidget {
     required this.waterfall,
     required this.cache,
     required this.onTapCenter,
+    this.viewportController,
   });
 
   final ReaderSettings settings;
@@ -36,189 +91,645 @@ class ReaderViewport extends StatefulWidget {
   final ReaderWaterfallController waterfall;
   final ReaderImageCache cache;
   final VoidCallback onTapCenter;
+  final ReaderViewportController? viewportController;
 
   @override
   State<ReaderViewport> createState() => _ReaderViewportState();
 }
 
-class _ReaderViewportState extends State<ReaderViewport> {
+class _ReaderViewportState extends State<ReaderViewport>
+    implements _ReaderViewportDelegate {
   final PageController _pageController = PageController();
-  final ScrollController _scrollController = ScrollController();
-  double _zoom = 1.0;
-  bool _longPressZoom = false;
+  final ItemScrollController _itemScroll = ItemScrollController();
+  final ItemPositionsListener _positions = ItemPositionsListener.create();
+  final ScrollOffsetController _offset = ScrollOffsetController();
+  final ReaderImageSizeCache _sizes = ReaderImageSizeCache();
+  late final ReaderContinuousScrollController _scrollController;
+
+  late ReaderImagePreloader _preloader;
+
+  /// 最近一次上报的流索引（1 基；0 表示还没定位）。
+  int _lastFlowIndex = 1;
+
+  /// 最近一次由视口自己写入阅读控制器的位置，用来区分"外部跳页"。
+  int _lastSyncedChapter = 0;
+  int _lastSyncedPage = 0;
+
+  int _lastWaterfallRevision = -1;
+  bool _initialJumpScheduled = false;
+  bool _sentinelBusy = false;
+
+  /// 初始位置恢复完成前不回报可见项，否则第一帧会把保存的页码冲成第 1 页。
+  bool _reportingReady = false;
+
+  /// 向前补章插入内容时暂停上报，等锚点跳转完成再继续。
+  bool _suppressReports = false;
+  bool _emptyPrefetchScheduled = false;
+
+  /// 已就绪/已失败的图片身份（按 cacheIdentity），供自动阅读判断。
+  final Set<String> _readyIds = <String>{};
+  final Set<String> _failedIds = <String>{};
+
+  /// 已做解码预热的图片身份（有界，避免无限增长）。
+  final Set<String> _decodedIds = <String>{};
+
+  bool _disposed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController = ReaderContinuousScrollController(
+      _positions.itemPositions,
+      onPositionChanged: _onScrollPositionChanged,
+      canAnchor: (index) => index > 0 && index <= _flowImageCount,
+    );
+    _positions.itemPositions.addListener(_onItemPositionsChanged);
+    _preloader = _createPreloader();
+    widget.viewportController?._attach(this);
+  }
+
+  ReaderImagePreloader _createPreloader() => ReaderImagePreloader(
+    cache: widget.cache,
+    decodeAhead: 2,
+    onBytes: _onPrefetchedBytes,
+  );
+
+  @override
+  void didUpdateWidget(covariant ReaderViewport oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.viewportController, widget.viewportController)) {
+      oldWidget.viewportController?._detach(this);
+      widget.viewportController?._attach(this);
+    }
+    if (!identical(oldWidget.cache, widget.cache)) {
+      _preloader.dispose();
+      _preloader = _createPreloader();
+    }
+    if (oldWidget.settings.mode != widget.settings.mode) {
+      _initialJumpScheduled = false;
+      _reportingReady = false;
+      _lastFlowIndex = 1;
+    }
+    if (widget.waterfall.revision != _lastWaterfallRevision) {
+      _lastWaterfallRevision = widget.waterfall.revision;
+      _syncToReadingPosition(animate: false);
+    }
+    final position = widget.reading.position;
+    if (position.chapter != _lastSyncedChapter ||
+        position.page != _lastSyncedPage) {
+      _lastSyncedChapter = position.chapter;
+      _lastSyncedPage = position.page;
+      _syncToReadingPosition();
+    }
+    if (_flowImageCount > 0) _scheduleInitialJump();
+    _preloader.update(_prefetchRequests());
+  }
 
   @override
   void dispose() {
-    _pageController.dispose();
+    _disposed = true;
+    widget.viewportController?._detach(this);
+    _positions.itemPositions.removeListener(_onItemPositionsChanged);
+    _preloader.dispose();
+    _sizes.clear();
     _scrollController.dispose();
+    _pageController.dispose();
     super.dispose();
   }
 
   bool get _gallery => widget.settings.mode.isGallery;
 
-  /// 当前视图里的总"图片位"数量（瀑布/连续 = 流图片数；分页 = 当前章页数）。
-  int get _itemCount {
-    if (_gallery) {
-      final count = widget.reading.position.pageCount;
-      // 首尾哨兵页：滑动越界切上一章/下一章。
-      return count + 2;
-    }
-    return widget.waterfall.flow.imageCount + 2; // 顶部/流末保留位
-  }
+  int get _flowImageCount => widget.waterfall.flow.imageCount;
 
-  /// 视图 index → 一张图的地址；null 表示哨兵位。
-  ImageRequest? _imageAt(int index) {
-    if (_gallery) {
-      if (index == 0 || index == _itemCount - 1) return null;
-      final chapter = widget.waterfall.flow.segmentOf(
-        widget.reading.currentChapter,
-      );
-      final page = index; // 1 基
-      final url = chapter != null && page <= chapter.length
-          ? chapter.images[page - 1]
-          : null;
-      if (url == null) return null;
-      return chapterRequest(chapter!.chapterId, page, url);
-    }
-    final image = widget.waterfall.flow.imageAt(index);
-    if (image == null) return null;
-    return ImageRequest.withReferer(
-      url: image.url,
-      referer: _refererFor(image.url),
+  ReaderPageLayout get _layout => ReaderPageLayout(
+    imagesPerPage: _gallery ? widget.settings.imagesPerPage.clamp(1, 5) : 1,
+    singleImageOnFirstPage: _gallery && widget.settings.singleImageOnFirstPage,
+  );
+
+  ReaderChapterSegment? get _segment =>
+      widget.waterfall.flow.segmentOf(widget.reading.currentChapter);
+
+  @override
+  bool get isScrollMode => !_gallery;
+
+  @override
+  bool get currentImageReady {
+    final requests = _currentRequests;
+    if (requests.isEmpty) return true;
+    return requests.every(
+      (request) =>
+          _readyIds.contains(request.cacheIdentity) ||
+          _failedIds.contains(request.cacheIdentity),
     );
   }
 
-  /// 从源引擎注入的每图请求头里取对应项；没有则只有 Referer。
-  ImageRequest chapterRequest(String chapterId, int page, String url) {
-    // 生产集成可把 imageRequests 注入到段；这里默认按站点推导 Referer。
-    return ImageRequest.withReferer(url: url, referer: _refererFor(url));
+  @override
+  bool get atEnd {
+    if (_gallery) {
+      final reading = widget.reading;
+      return reading.currentChapter >= widget.waterfall.source.chapterCount &&
+          reading.displayPage >= reading.displayPageCount;
+    }
+    if (widget.waterfall.flow.lastChapter <
+        widget.waterfall.source.chapterCount) {
+      return false;
+    }
+    if (widget.waterfall.loadingAfter) return false;
+    if (!_scrollController.hasClients) return false;
+    final position = _scrollController.position;
+    if (!position.hasContentDimensions) return false;
+    return position.maxScrollExtent - position.pixels <= 1;
   }
 
-  String? _refererFor(String url) {
-    final uri = Uri.tryParse(url);
-    if (uri == null || !uri.hasScheme) return null;
-    return '${uri.scheme}://${uri.authority}/';
+  /// 当前正在看的图（翻页模式是整屏，滚动模式是最大可见项）。
+  List<ImageRequest> get _currentRequests {
+    if (_gallery) {
+      final segment = _segment;
+      if (segment == null || segment.length == 0) return const <ImageRequest>[];
+      final page = widget.reading.position.displayPage;
+      final (start, end) = _layout.imageRange(page, segment.length);
+      return <ImageRequest>[
+        for (var i = start; i < end; i++) _requestForUrl(segment.images[i]),
+      ];
+    }
+    final image = widget.waterfall.flow.imageAt(_lastFlowIndex);
+    return image == null
+        ? const <ImageRequest>[]
+        : <ImageRequest>[_requestForUrl(image.url)];
   }
 
-  void _onTapUp(TapUpDetails details, BoxConstraints constraints) {
+  // ── 预取窗口 ────────────────────────────────────────────────────────
+
+  List<ImageRequest> _prefetchRequests() {
+    final limit = widget.settings.preloadCount.clamp(1, 16);
+    final result = <ImageRequest>[];
+    final seen = <String>{};
+    void add(ImageRequest request) {
+      if (seen.add(request.cacheIdentity)) result.add(request);
+    }
+
+    if (_gallery) {
+      final segment = _segment;
+      if (segment == null || segment.length == 0) return result;
+      final layout = _layout;
+      final pageCount = layout.pageCount(segment.length);
+      final current = widget.reading.position.displayPage.clamp(1, pageCount);
+      void addPage(int page) {
+        final (start, end) = layout.imageRange(page, segment.length);
+        for (var i = start; i < end; i++) {
+          add(_requestForUrl(segment.images[i]));
+        }
+      }
+
+      addPage(current);
+      for (
+        var page = current + 1;
+        page <= math.min(pageCount, current + limit);
+        page++
+      ) {
+        addPage(page);
+      }
+      if (current > 1) addPage(current - 1);
+      // 下一章已预取进流时，顺手把它的头几张图也灌进缓存。
+      final next = widget.waterfall.flow.segmentOf(
+        widget.reading.currentChapter + 1,
+      );
+      if (next != null) {
+        for (var i = 0; i < math.min(next.length, 2); i++) {
+          add(_requestForUrl(next.images[i]));
+        }
+      }
+      return result;
+    }
+
+    final flow = widget.waterfall.flow;
+    if (flow.imageCount == 0) return result;
+    final current = _lastFlowIndex.clamp(1, flow.imageCount);
+    for (
+      var index = current;
+      index <= math.min(flow.imageCount, current + limit);
+      index++
+    ) {
+      final image = flow.imageAt(index);
+      if (image != null) add(_requestForUrl(image.url));
+    }
+    for (var index = current - 1; index >= math.max(1, current - 2); index--) {
+      final image = flow.imageAt(index);
+      if (image != null) add(_requestForUrl(image.url));
+    }
+    return result;
+  }
+
+  void _onPrefetchedBytes(ImageRequest request, Uint8List bytes) {
+    if (_disposed) return;
+    // 先量尺寸：等图片真正进入列表时，占位高度已经是真实宽高比。
+    unawaited(_sizes.measure(request, bytes));
+    final id = request.cacheIdentity;
+    if (_decodedIds.add(id)) {
+      if (_decodedIds.length > 64) _decodedIds.remove(_decodedIds.first);
+      if (mounted) {
+        unawaited(
+          precacheImage(
+            MemoryImage(bytes),
+            context,
+            onError: (Object error, StackTrace? stack) {
+              // 预热失败不影响真正显示时的重试。
+            },
+          ),
+        );
+      }
+    }
+  }
+
+  // ── 位置同步 ────────────────────────────────────────────────────────
+
+  void _onScrollPositionChanged() {
+    if (!mounted) return;
+    // 首帧列表还没发布可见项时，先按阅读位置恢复一次。
+    if (_lastFlowIndex <= 1 && !_initialJumpScheduled) {
+      _scheduleInitialJump();
+    }
+  }
+
+  void _scheduleInitialJump() {
+    if (_initialJumpScheduled || _disposed) return;
+    if (_flowImageCount <= 0) return;
+    _initialJumpScheduled = true;
+    _reportingReady = false;
+    _syncToReadingPosition(animate: false);
+  }
+
+  void _syncToReadingPosition({bool animate = true}) {
+    if (_disposed) return;
+    final position = widget.reading.position;
+    _lastSyncedChapter = position.chapter;
+    _lastSyncedPage = position.page;
+    if (_gallery) {
+      if (_segment == null) return;
+      _scheduleGalleryJump(_layout.pageForImage(position.page));
+      return;
+    }
+    final index =
+        widget.waterfall.flow.indexOf(
+          ReaderImagePosition(
+            chapter: position.chapter,
+            chapterId: position.chapterId,
+            page: position.page,
+          ),
+        ) ??
+        1;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_disposed || !mounted || !_itemScroll.isAttached) {
+        if (mounted) _reportingReady = true;
+        return;
+      }
+      final allowed = animate && widget.settings.pageAnimation;
+      if (allowed) {
+        unawaited(
+          _itemScroll.scrollTo(
+            index: index,
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+          ),
+        );
+      } else {
+        _itemScroll.jumpTo(index: index);
+      }
+      _reportingReady = true;
+    });
+  }
+
+  void _scheduleGalleryJump(int page) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_disposed || !mounted || !_pageController.hasClients) {
+        if (mounted) _reportingReady = true;
+        return;
+      }
+      final segment = _segment;
+      final count = segment?.length ?? 0;
+      if (count == 0) {
+        _reportingReady = true;
+        return;
+      }
+      final target = page.clamp(1, _layout.pageCount(count));
+      if (widget.settings.pageAnimation) {
+        unawaited(
+          _pageController.animateToPage(
+            target,
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+          ),
+        );
+      } else {
+        _pageController.jumpToPage(target);
+      }
+      _reportingReady = true;
+    });
+  }
+
+  void _onItemPositionsChanged() {
+    if (_disposed || _gallery || !_reportingReady || _suppressReports) return;
+    final positions = _positions.itemPositions.value;
+    final imageCount = _flowImageCount;
+    if (imageCount <= 0) return;
+
+    ItemPosition? best;
+    var bestVisible = -1.0;
+    var bestDistance = double.infinity;
+    for (final item in positions) {
+      if (item.index < 1 || item.index > imageCount) continue;
+      final leading = item.itemLeadingEdge;
+      final trailing = item.itemTrailingEdge;
+      if (trailing <= 0 || leading >= 1) continue;
+      final visible = math.min(trailing, 1.0) - math.max(leading, 0.0);
+      final distance = ((leading + trailing) / 2 - 0.5).abs();
+      final better =
+          visible > bestVisible + 0.000001 ||
+          ((visible - bestVisible).abs() <= 0.000001 &&
+              (item.index == _lastFlowIndex ||
+                  (best?.index != _lastFlowIndex &&
+                      distance < bestDistance - 0.000001)));
+      if (better) {
+        best = item;
+        bestVisible = visible;
+        bestDistance = distance;
+      }
+    }
+    if (best == null) return;
+    if (best.index != _lastFlowIndex) {
+      _lastFlowIndex = best.index;
+      unawaited(widget.reading.reportFlowIndex(best.index));
+      final position = widget.reading.position;
+      _lastSyncedChapter = position.chapter;
+      _lastSyncedPage = position.page;
+      _preloader.update(_prefetchRequests());
+      _prefetchChapters(best.index);
+    }
+  }
+
+  void _prefetchChapters(int current) {
+    final threshold = widget.settings.preloadCount.clamp(1, 16);
+    unawaited(
+      widget.waterfall.ensureAfter(current: current, threshold: threshold),
+    );
+    unawaited(_ensureBeforeWithAnchor(current, threshold));
+  }
+
+  /// 向前补章会插在当前项之前，插入后必须把滚动锚点一起挪过去。
+  Future<void> _ensureBeforeWithAnchor(int current, int threshold) async {
+    final inserted = await widget.waterfall.ensureBefore(
+      current: current,
+      threshold: threshold,
+    );
+    if (_disposed || !mounted || inserted <= 0) return;
+    _suppressReports = true;
+    _lastFlowIndex += inserted;
+    final target = _lastFlowIndex;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_disposed && mounted && _itemScroll.isAttached) {
+        _itemScroll.jumpTo(index: target);
+      }
+      _suppressReports = false;
+    });
+  }
+
+  void _onGalleryPageChanged(int index, int total, int pageCount) {
+    if (_sentinelBusy) return;
+    if (index == 0) {
+      unawaited(_handleSentinel(-1, pageCount));
+      return;
+    }
+    if (index == total - 1) {
+      unawaited(_handleSentinel(1, pageCount));
+      return;
+    }
+    final segment = _segment;
+    if (segment == null) return;
+    final (start, _) = _layout.imageRange(index, segment.length);
+    if (start >= segment.length) return;
+    final imageNumber = start + 1;
+    unawaited(widget.reading.goToPage(imageNumber));
+    final position = widget.reading.position;
+    _lastSyncedChapter = position.chapter;
+    _lastSyncedPage = position.page;
+    _preloader.update(_prefetchRequests());
+
+    // 接近章尾就提前把下一章章节段拉进流，哨兵切章不再等网络。
+    if (index >= pageCount - 2) {
+      unawaited(
+        widget.waterfall.ensureAfter(
+          current: _flowImageCount,
+          threshold: widget.settings.preloadCount.clamp(1, 16),
+        ),
+      );
+    }
+  }
+
+  Future<void> _handleSentinel(int direction, int pageCount) async {
+    if (_sentinelBusy) return;
+    _sentinelBusy = true;
+    try {
+      final moved = direction > 0
+          ? await widget.reading.nextChapter()
+          : await widget.reading.previousChapter();
+      if (_disposed || !mounted) return;
+      final position = widget.reading.position;
+      _lastSyncedChapter = position.chapter;
+      _lastSyncedPage = position.page;
+      if (moved) {
+        final segment = _segment;
+        final target = direction > 0
+            ? 1
+            : _layout.pageCount(segment?.length ?? 0);
+        _scheduleGalleryJump(target);
+        _initialJumpScheduled = true;
+      } else {
+        _scheduleGalleryJump(direction > 0 ? pageCount : 1);
+      }
+    } finally {
+      _sentinelBusy = false;
+    }
+  }
+
+  // ── 对外命令 ────────────────────────────────────────────────────────
+
+  @override
+  Future<void> scrollViewport(int direction) async {
+    if (_gallery || direction == 0) return;
+    final extent = _scrollController.hasClients
+        ? _scrollController.position.viewportDimension
+        : MediaQuery.sizeOf(context).height;
+    await _scrollController.scrollBy(
+      direction * extent * 0.85,
+      duration: widget.settings.pageAnimation
+          ? const Duration(milliseconds: 260)
+          : null,
+    );
+  }
+
+  @override
+  Future<void> turnGalleryPage(int direction) async {
+    if (!_gallery || direction == 0) return;
+    await widget.reading.turnDisplayPage(direction);
+  }
+
+  // ── 点击热区 ────────────────────────────────────────────────────────
+
+  void _onTapAt(double ratio) {
     if (!widget.settings.tapToTurnPages) {
       widget.onTapCenter();
       return;
     }
-    final mode = widget.settings.mode;
-    final pos = details.localPosition;
-    final extent = mode.isVertical
-        ? constraints.maxHeight
-        : constraints.maxWidth;
-    final offset = mode.isVertical ? pos.dy : pos.dx;
-    final ratio = extent <= 0 ? 0.5 : offset / extent;
     if (ratio < 0.3) {
-      unawaited(widget.reading.turnPage(_forward(-1)));
+      _turn(_forward(-1));
     } else if (ratio > 0.7) {
-      unawaited(widget.reading.turnPage(_forward(1)));
+      _turn(_forward(1));
     } else {
       widget.onTapCenter();
     }
   }
 
   int _forward(int direction) {
-    var d = direction;
-    if (widget.settings.mode.isReverse) d = -d;
-    if (widget.settings.reverseTapToTurnPages) d = -d;
-    return d;
+    var delta = direction;
+    if (widget.settings.mode.isReverse) delta = -delta;
+    if (widget.settings.reverseTapToTurnPages) delta = -delta;
+    return delta;
   }
+
+  void _turn(int direction) {
+    if (direction == 0) return;
+    if (_gallery) {
+      unawaited(widget.reading.turnDisplayPage(direction));
+    } else {
+      unawaited(scrollViewport(direction));
+    }
+  }
+
+  // ── 构建 ────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
+    _preloader.update(_prefetchRequests());
+    // 首次 build 时章节可能已经加载完成（start 的 Future 在首帧前就 resolve），
+    // 此时 didUpdateWidget 不会再来一次；在 build 里补一次初始定位。
+    if (_flowImageCount > 0) _scheduleInitialJump();
     final mode = widget.settings.mode;
     final content = _gallery ? _buildGallery(mode) : _buildScroll(mode);
-
-    return LayoutBuilder(
-      builder: (context, constraints) => GestureDetector(
-        // 点击热区翻页 / 中间唤出菜单栏。
-        onTapUp: (details) => _onTapUp(details, constraints),
-        // 长按放大（按住时放大，松开还原）。
-        onLongPressStart: widget.settings.longPressToZoom
-            ? (_) => setState(() => _longPressZoom = true)
-            : null,
-        onLongPressEnd: widget.settings.longPressToZoom
-            ? (_) => setState(() => _longPressZoom = false)
-            : null,
-        child: Listener(
-          // 鼠标滚轮：翻页模式翻页，连续模式滚动。
-          onPointerSignal: (event) {
-            if (event is PointerScrollEvent && _gallery) {
-              unawaited(
-                widget.reading.turnPage(
-                  _forward(event.scrollDelta.dy > 0 ? 1 : -1),
-                ),
-              );
-            }
-          },
-          child: content,
-        ),
-      ),
+    return Listener(
+      onPointerSignal: (event) {
+        if (event is PointerScrollEvent && _gallery) {
+          final delta = event.scrollDelta.dy != 0
+              ? event.scrollDelta.dy
+              : event.scrollDelta.dx;
+          if (delta != 0) {
+            unawaited(widget.reading.turnDisplayPage(delta > 0 ? 1 : -1));
+          }
+        }
+      },
+      child: content,
     );
   }
 
   Widget _buildGallery(ReaderViewMode mode) {
-    final count = _itemCount;
-    final initial = widget.reading.position.page.clamp(1, count - 1);
-    WidgetsPostFrame.maybeJump(_pageController, initial);
+    final segment = _segment;
+    if (segment == null || segment.length == 0) return _buildStatus();
+    final layout = _layout;
+    final pageCount = layout.pageCount(segment.length);
+    if (pageCount <= 0) return _buildEmptyChapter();
+    final total = pageCount + 2;
     return PageView.builder(
       key: const Key('immersive-gallery'),
       controller: _pageController,
       scrollDirection: mode.isVertical ? Axis.vertical : Axis.horizontal,
       reverse: mode.isReverse,
-      itemCount: count,
-      onPageChanged: (index) {
-        // 哨兵页：尝试切章；无相邻章则弹回第一张/最后一张。
-        if (index == 0) {
-          unawaited(_handleSentinel(-1));
-        } else if (index == count - 1) {
-          unawaited(_handleSentinel(1));
-        } else {
-          unawaited(widget.reading.goToPage(index));
+      itemCount: total,
+      onPageChanged: (index) => _onGalleryPageChanged(index, total, pageCount),
+      itemBuilder: (context, index) {
+        if (index == 0 || index == total - 1) {
+          return const SizedBox.shrink(key: Key('immersive-gallery-sentinel'));
         }
+        final (start, end) = layout.imageRange(index, segment.length);
+        if (start >= end) return const SizedBox.shrink();
+        return _buildGalleryPage(segment, start, end, mode);
       },
-      itemBuilder: (context, index) => _buildSlot(index),
     );
   }
 
-  Future<void> _handleSentinel(int direction) async {
-    final moved = direction > 0
-        ? await widget.reading.nextChapter()
-        : await widget.reading.previousChapter();
-    if (moved) {
-      WidgetsPostFrame.maybeJump(
-        _pageController,
-        direction > 0 ? 1 : _itemCount - 2,
-      );
-    } else {
-      WidgetsPostFrame.maybeJump(
-        _pageController,
-        direction > 0 ? _itemCount - 2 : 1,
+  Widget _buildGalleryPage(
+    ReaderChapterSegment segment,
+    int start,
+    int end,
+    ReaderViewMode mode,
+  ) {
+    if (end - start == 1) {
+      return _buildSlot(
+        _requestForUrl(segment.images[start]),
+        index: start + 1,
+        fill: true,
+        vertical: mode.isVertical,
       );
     }
+    final images = <Widget>[
+      for (var i = start; i < end; i++)
+        Expanded(
+          child: _buildSlot(
+            _requestForUrl(segment.images[i]),
+            index: i + 1,
+            fill: true,
+            vertical: mode.isVertical,
+            alignment: _galleryAlignment(i - start, end - start, mode),
+          ),
+        ),
+    ];
+    if (images.length == 1) return images.first;
+    if (mode.isReverse) {
+      images.setAll(0, images.reversed.toList());
+    }
+    return mode.isVertical ? Column(children: images) : Row(children: images);
+  }
+
+  Alignment _galleryAlignment(int offset, int count, ReaderViewMode mode) {
+    if (count < 2) return Alignment.center;
+    if (mode.isVertical) {
+      return offset == 0 ? Alignment.bottomCenter : Alignment.topCenter;
+    }
+    return offset == 0 ? Alignment.centerRight : Alignment.centerLeft;
   }
 
   Widget _buildScroll(ReaderViewMode mode) {
-    return ListView.builder(
+    final imageCount = _flowImageCount;
+    if (imageCount <= 0) return _buildStatus();
+    final total = imageCount + 2;
+    return ScrollablePositionedList.builder(
       key: const Key('immersive-scroll'),
-      controller: _scrollController,
+      itemCount: total,
+      itemScrollController: _itemScroll,
+      itemPositionsListener: _positions,
+      scrollOffsetController: _offset,
       scrollDirection: mode.isVertical ? Axis.vertical : Axis.horizontal,
       reverse: mode.isReverse,
-      itemCount: _itemCount,
+      physics: ReaderContinuousLayoutPhysics(controller: _scrollController),
       itemBuilder: (context, index) {
         if (index == 0) {
           return SizedBox(
             key: const Key('immersive-flow-top'),
-            width: mode.isVertical ? double.infinity : 1,
-            height: mode.isVertical ? 1 : double.infinity,
+            width: mode.isVertical ? double.infinity : 0.01,
+            height: mode.isVertical ? 0.01 : double.infinity,
           );
         }
-        if (index == _itemCount - 1) return _buildFlowEnd();
-        return _buildSlot(index);
+        if (index == total - 1) return _buildFlowEnd();
+        final image = widget.waterfall.flow.imageAt(index);
+        if (image == null) return const SizedBox.shrink();
+        return ReaderContinuousScrollAnchor(
+          controller: _scrollController,
+          index: index,
+          child: _buildSlot(
+            _requestForUrl(image.url),
+            index: index,
+            fill: false,
+            vertical: mode.isVertical,
+          ),
+        );
       },
     );
   }
@@ -241,11 +752,8 @@ class _ReaderViewportState extends State<ReaderViewport> {
             children: [
               Text('下一章加载失败：${controller.afterError}'),
               TextButton(
-                onPressed: () => unawaited(
-                  controller.retryAfter(
-                    current: widget.waterfall.flow.imageCount,
-                  ),
-                ),
+                onPressed: () =>
+                    unawaited(controller.retryAfter(current: _flowImageCount)),
                 child: const Text('点此重试'),
               ),
             ],
@@ -260,75 +768,180 @@ class _ReaderViewportState extends State<ReaderViewport> {
     );
   }
 
-  Widget _buildSlot(int index) {
-    final request = _imageAt(index);
-    if (request == null) {
-      return SizedBox(
-        key: Key('immersive-slot-empty-$index'),
-        width: widget.settings.mode.isVertical ? double.infinity : 1,
-        height: widget.settings.mode.isVertical ? 1 : double.infinity,
+  Widget _buildStatus() {
+    final controller = widget.waterfall;
+    // 章节已加载但为空：不是"加载中"，也不能永远转圈；尝试自动接下一章。
+    if (controller.flow.segmentCount > 0 && controller.flow.imageCount == 0) {
+      if (!_emptyPrefetchScheduled) {
+        _emptyPrefetchScheduled = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (_disposed || !mounted) return;
+          unawaited(
+            controller.ensureAfter(
+              current: 0,
+              threshold: widget.settings.preloadCount.clamp(1, 16),
+            ),
+          );
+        });
+      }
+      return _buildEmptyChapter();
+    }
+    if (controller.afterError != null) {
+      return Center(
+        key: const Key('immersive-chapter-error'),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('章节加载失败：${controller.afterError}'),
+            const SizedBox(height: 8),
+            TextButton(
+              onPressed: () =>
+                  unawaited(controller.retryAfter(current: _flowImageCount)),
+              child: const Text('点此重试'),
+            ),
+          ],
+        ),
       );
     }
+    return const Center(
+      key: Key('immersive-chapter-loading'),
+      child: CircularProgressIndicator(),
+    );
+  }
+
+  Widget _buildEmptyChapter() => Center(
+    key: const Key('immersive-empty-chapter'),
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Text('本章暂无图片'),
+        const SizedBox(height: 8),
+        TextButton(
+          onPressed: () => unawaited(
+            widget.waterfall.ensureAfter(
+              current: 0,
+              threshold: widget.settings.preloadCount.clamp(1, 16),
+            ),
+          ),
+          child: const Text('加载下一章'),
+        ),
+      ],
+    ),
+  );
+
+  Widget _buildSlot(
+    ImageRequest request, {
+    required int index,
+    required bool fill,
+    required bool vertical,
+    Alignment alignment = Alignment.center,
+  }) {
     return _ImmersiveImageSlot(
       key: Key('immersive-image-$index'),
+      index: index,
       request: request,
       cache: widget.cache,
-      index: index,
-      zoom: _zoom,
-      longPressZoom: _longPressZoom,
-      doubleTapToZoom: widget.settings.doubleTapToZoom,
+      sizeCache: _sizes,
+      fill: fill,
+      vertical: vertical,
+      alignment: alignment,
       limitWidth: widget.settings.limitImageWidth,
-      isVertical: widget.settings.mode.isVertical,
-      onZoom: (value) => setState(() => _zoom = value),
-      onVisible: () {
-        if (!_gallery) {
-          unawaited(widget.reading.reportFlowIndex(index));
-        }
-      },
+      sideMargin: widget.settings.sideMargin,
+      doubleTapToZoom: widget.settings.doubleTapToZoom,
+      longPressToZoom: widget.settings.longPressToZoom,
+      onTapAt: _onTapAt,
+      onState: (ready, failed) => _onImageState(request, ready, failed),
     );
+  }
+
+  void _onImageState(ImageRequest request, bool ready, bool failed) {
+    final id = request.cacheIdentity;
+    if (ready) {
+      _readyIds.add(id);
+    } else {
+      _readyIds.remove(id);
+    }
+    if (failed) {
+      _failedIds.add(id);
+    } else if (ready) {
+      _failedIds.remove(id);
+    }
+  }
+
+  ImageRequest _requestForUrl(String url) =>
+      ImageRequest.withReferer(url: url, referer: _refererFor(url));
+
+  String? _refererFor(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null || !uri.hasScheme) return null;
+    return '${uri.scheme}://${uri.authority}/';
   }
 }
 
-/// 单张图槽：加载 / 错误 / 成功三态 + 双击/长按/捏合缩放。
+/// 单张图槽：编码头宽高占位 → 解码显示；单击热区、双击/长按/捏合缩放。
 class _ImmersiveImageSlot extends StatefulWidget {
   const _ImmersiveImageSlot({
     super.key,
+    required this.index,
     required this.request,
     required this.cache,
-    required this.index,
-    required this.zoom,
-    required this.longPressZoom,
-    required this.doubleTapToZoom,
+    required this.sizeCache,
+    required this.fill,
+    required this.vertical,
+    required this.alignment,
     required this.limitWidth,
-    required this.isVertical,
-    required this.onZoom,
-    required this.onVisible,
+    required this.sideMargin,
+    required this.doubleTapToZoom,
+    required this.longPressToZoom,
+    required this.onTapAt,
+    required this.onState,
   });
 
+  final int index;
   final ImageRequest request;
   final ReaderImageCache cache;
-  final int index;
-  final double zoom;
-  final bool longPressZoom;
-  final bool doubleTapToZoom;
+  final ReaderImageSizeCache sizeCache;
+
+  /// true = 铺满父级可用框（翻页模式）；false = 按宽高比给连续列表一个确定高度。
+  final bool fill;
+  final bool vertical;
+  final Alignment alignment;
   final bool limitWidth;
-  final bool isVertical;
-  final ValueChanged<double> onZoom;
-  final VoidCallback onVisible;
+  final int sideMargin;
+  final bool doubleTapToZoom;
+  final bool longPressToZoom;
+  final ValueChanged<double> onTapAt;
+  final void Function(bool ready, bool failed) onState;
 
   @override
   State<_ImmersiveImageSlot> createState() => _ImmersiveImageSlotState();
 }
 
 class _ImmersiveImageSlotState extends State<_ImmersiveImageSlot> {
+  static const double _estimatedRatio = 0.72; // 常见漫画页宽/高，仅作占位
+  static const double _maxImageWidth = 720;
+
   Uint8List? _bytes;
+  Size? _size;
   Object? _error;
   final TransformationController _transform = TransformationController();
+  Matrix4? _savedTransform;
+  Offset _lastTapPosition = Offset.zero;
+  Offset _doubleTapPosition = Offset.zero;
 
   @override
   void initState() {
     super.initState();
-    _load();
+    _size = widget.sizeCache.peek(widget.request);
+    final cached = widget.cache.peekRequest(widget.request);
+    if (cached != null) {
+      _bytes = cached;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) widget.onState(true, false);
+      });
+    } else {
+      unawaited(_load());
+    }
   }
 
   @override
@@ -336,8 +949,18 @@ class _ImmersiveImageSlotState extends State<_ImmersiveImageSlot> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.request.cacheIdentity != widget.request.cacheIdentity) {
       _bytes = null;
+      _size = widget.sizeCache.peek(widget.request);
       _error = null;
-      _load();
+      _transform.value = Matrix4.identity();
+      final cached = widget.cache.peekRequest(widget.request);
+      if (cached != null) {
+        _bytes = cached;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) widget.onState(true, false);
+        });
+      } else {
+        unawaited(_load());
+      }
     }
   }
 
@@ -349,10 +972,14 @@ class _ImmersiveImageSlotState extends State<_ImmersiveImageSlot> {
         _bytes = bytes;
         _error = null;
       });
-      widget.onVisible();
+      widget.onState(true, false);
+      final size = await widget.sizeCache.measure(widget.request, bytes);
+      if (!mounted || !identical(_bytes, bytes)) return;
+      if (size != null && size != _size) setState(() => _size = size);
     } on Object catch (error) {
       if (!mounted) return;
       setState(() => _error = error);
+      widget.onState(false, true);
     }
   }
 
@@ -362,92 +989,170 @@ class _ImmersiveImageSlotState extends State<_ImmersiveImageSlot> {
     super.dispose();
   }
 
+  void _toggleDoubleTapZoom() {
+    final current = _transform.value.getMaxScaleOnAxis();
+    if (current > 1.05) {
+      _transform.value = Matrix4.identity();
+      return;
+    }
+    const zoom = 2.2;
+    final point = _doubleTapPosition;
+    _transform.value = Matrix4.identity()
+      ..translateByDouble(-point.dx * (zoom - 1), -point.dy * (zoom - 1), 0, 1)
+      ..scaleByDouble(zoom, zoom, zoom, 1);
+  }
+
+  void _startLongPressZoom() {
+    _savedTransform = _transform.value.clone();
+    const zoom = 1.75;
+    _transform.value = Matrix4.identity()..scaleByDouble(zoom, zoom, zoom, 1);
+  }
+
+  void _endLongPressZoom() {
+    final saved = _savedTransform;
+    _savedTransform = null;
+    if (saved != null) _transform.value = saved;
+  }
+
+  double _ratio() {
+    final size = _size;
+    if (size == null || size.width <= 0 || size.height <= 0) {
+      return _estimatedRatio;
+    }
+    return size.width / size.height;
+  }
+
+  /// 连续列表里给这一项一个确定高度（图片解码前就占好位）。
+  Widget _sizedContent(Widget child, BoxConstraints constraints) {
+    final ratio = _ratio();
+    final maxWidth = constraints.maxWidth.isFinite
+        ? constraints.maxWidth
+        : MediaQuery.sizeOf(context).width;
+    final maxHeight = constraints.maxHeight.isFinite
+        ? constraints.maxHeight
+        : MediaQuery.sizeOf(context).height;
+    double width;
+    double height;
+    if (widget.vertical) {
+      width = maxWidth;
+      if (widget.limitWidth) width = math.min(width, _maxImageWidth);
+      width *= 1 - 2 * widget.sideMargin / 100;
+      height = width / ratio;
+    } else {
+      height = math.min(maxHeight, _maxImageWidth);
+      width = height * ratio;
+      if (width > maxWidth) {
+        width = maxWidth;
+        height = width / ratio;
+      }
+    }
+    return Center(
+      child: SizedBox(width: width, height: height, child: child),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    if (_error != null) {
-      return GestureDetector(
-        key: Key('immersive-image-error-${widget.index}'),
-        onTap: _load,
-        child: SizedBox(
-          height: widget.isVertical ? 320 : 480,
-          width: widget.isVertical ? 320 : 320,
-          child: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.broken_image_outlined, size: 48),
-                const SizedBox(height: 8),
-                Text('图片加载失败：$_error'),
-                const SizedBox(height: 4),
-                const Text('点此重试'),
-              ],
+    final bytes = _bytes;
+    final error = _error;
+
+    if (error != null) {
+      return LayoutBuilder(
+        builder: (context, constraints) => _wrapSlotBox(
+          constraints,
+          GestureDetector(
+            key: Key('immersive-image-error-${widget.index}'),
+            onTap: () {
+              setState(() => _error = null);
+              unawaited(_load());
+            },
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.broken_image_outlined, size: 48),
+                  const SizedBox(height: 8),
+                  Text('图片加载失败', style: Theme.of(context).textTheme.bodyMedium),
+                  const SizedBox(height: 4),
+                  const Text('点此重试'),
+                ],
+              ),
             ),
           ),
         ),
       );
     }
-    final bytes = _bytes;
+
     if (bytes == null) {
-      return SizedBox(
-        key: const Key('immersive-image-loading'),
-        height: widget.isVertical ? 320 : 480,
-        width: widget.isVertical ? 320 : 320,
-        child: const Center(child: CircularProgressIndicator()),
-      );
-    }
-
-    // constrained:false 会把无界高度传给 OverflowBox，在 ListView 的
-    // 纵向 item（0<=h<=Infinity）里直接布局崩。改用 bounded 的显示尺寸：
-    // 图片按可用宽/高给一个确定 extent，高度由宽高比算出（有限），
-    // InteractiveViewer 用默认 constrained:true 在有限框内缩放/平移。
-    final effectiveZoom = widget.longPressZoom ? 1.75 : widget.zoom;
-    if (effectiveZoom != 1.0) {
-      _transform.value = Matrix4.diagonal3Values(
-        effectiveZoom,
-        effectiveZoom,
-        1.0,
-      );
-    }
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final available = widget.isVertical
-            ? constraints.maxWidth
-            : constraints.maxHeight;
-        final extent = available.isFinite ? available : 800.0;
-        final capped = widget.limitWidth ? extent.clamp(0.0, 720.0) : extent;
-        final image = Image(
-          image: MemoryImage(bytes),
-          fit: BoxFit.contain,
-          width: widget.isVertical ? capped : null,
-          height: widget.isVertical ? null : capped,
-          errorBuilder: (context, error, stack) =>
-              const Center(child: Icon(Icons.broken_image_outlined)),
-        );
-        return Center(
-          child: InteractiveViewer(
-            key: Key('immersive-image-${widget.index}'),
-            transformationController: _transform,
-            minScale: 1.0,
-            maxScale: 4.0,
-            onInteractionEnd: (_) => widget.onZoom(
-              _transform.value.getMaxScaleOnAxis().clamp(1.0, 4.0),
-            ),
-            child: image,
+      return LayoutBuilder(
+        builder: (context, constraints) => _wrapSlotBox(
+          constraints,
+          const Center(
+            key: Key('immersive-image-loading'),
+            child: CircularProgressIndicator(),
           ),
-        );
-      },
+        ),
+      );
+    }
+
+    Widget image = SizedBox.expand(
+      child: Image(
+        image: MemoryImage(bytes),
+        fit: BoxFit.contain,
+        alignment: widget.alignment,
+        filterQuality: FilterQuality.medium,
+        gaplessPlayback: true,
+        errorBuilder: (context, error, stack) =>
+            const Center(child: Icon(Icons.broken_image_outlined)),
+      ),
+    );
+
+    final useDoubleTap = widget.doubleTapToZoom;
+    image = GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTapDown: useDoubleTap
+          ? (details) => _lastTapPosition = details.localPosition
+          : null,
+      onTapUp: useDoubleTap ? null : _handleTapAt,
+      onTap: useDoubleTap ? () => _handleTapPosition(_lastTapPosition) : null,
+      onDoubleTapDown: useDoubleTap
+          ? (details) => _doubleTapPosition = details.localPosition
+          : null,
+      onDoubleTap: useDoubleTap ? _toggleDoubleTapZoom : null,
+      onLongPressStart: widget.longPressToZoom
+          ? (_) => _startLongPressZoom()
+          : null,
+      onLongPressEnd: widget.longPressToZoom
+          ? (_) => _endLongPressZoom()
+          : null,
+      child: InteractiveViewer(
+        transformationController: _transform,
+        minScale: 1.0,
+        maxScale: 4.0,
+        child: image,
+      ),
+    );
+
+    if (widget.fill) return SizedBox.expand(child: image);
+    return LayoutBuilder(
+      builder: (context, constraints) => _sizedContent(image, constraints),
     );
   }
-}
 
-/// PageController 初始跳转的小工具（在首帧后执行，避免在 build 中直接 jump）。
-abstract final class WidgetsPostFrame {
-  static void maybeJump(PageController controller, int page) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (controller.hasClients) {
-        controller.jumpToPage(page.clamp(0, 0x7fffffff));
-      }
-    });
+  void _handleTapAt(TapUpDetails details) =>
+      _handleTapPosition(details.localPosition);
+
+  void _handleTapPosition(Offset localPosition) {
+    final box = context.size;
+    if (box == null || box.isEmpty) return;
+    final ratio = widget.vertical
+        ? localPosition.dy / box.height
+        : localPosition.dx / box.width;
+    widget.onTapAt(ratio.clamp(0.0, 1.0));
+  }
+
+  Widget _wrapSlotBox(BoxConstraints constraints, Widget child) {
+    if (widget.fill) return SizedBox.expand(child: child);
+    return _sizedContent(child, constraints);
   }
 }

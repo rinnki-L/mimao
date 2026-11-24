@@ -158,6 +158,7 @@ class _ReaderSettingsPanelState extends State<ReaderSettingsPanel> {
                     onChanged: (value) =>
                         _apply(_settings.copyWith(limitImageWidth: value)),
                   ),
+                  _buildSideMargin(theme),
                   _buildDimBrightness(theme),
                   _sectionTitle(theme, '性能与自动'),
                   _buildPreloadCount(theme),
@@ -242,6 +243,28 @@ class _ReaderSettingsPanelState extends State<ReaderSettingsPanel> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildSideMargin(ThemeData theme) {
+    return _sliderTile(
+      theme,
+      key: 'reader-settings-side-margin',
+      title: '条漫缩小（每侧边距）',
+      subtitle: '纵向连续/瀑布时左右各留白；0% 为铺满，仅影响显示',
+      valueLabel: '${_settings.sideMargin}%',
+      slider: Slider(
+        key: const Key('reader-settings-side-margin-slider'),
+        value: _settings.sideMargin.toDouble(),
+        min: 0,
+        max: 30,
+        divisions: 30,
+        label: '${_settings.sideMargin}%',
+        activeColor: theme.colorScheme.primary,
+        thumbColor: theme.colorScheme.primary,
+        onChanged: (value) =>
+            _apply(_settings.copyWith(sideMargin: value.round())),
       ),
     );
   }

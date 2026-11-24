@@ -194,11 +194,28 @@ class ReaderWaterfallController extends ChangeNotifier {
   }
 
   /// 清空 [afterError] 并重试向后补章（UI 的"点此重试"）。
+  ///
+  /// 流为空时（起始章就没加载成功）走 [retryInitial]：`ensureAfter` 在空流上
+  /// 会直接返回，旧实现因此留下一个永远点不动的重试按钮。
   Future<void> retryAfter({required int current}) async {
-    if (_disposed || _afterError == null) return;
+    if (_disposed) return;
+    if (_flow.isEmpty) {
+      await retryInitial();
+      return;
+    }
+    if (_afterError == null) return;
     _afterError = null;
     _notify();
     await ensureAfter(current: current);
+  }
+
+  /// 起始章加载失败后重试整章加载。
+  Future<void> retryInitial() async {
+    if (_disposed || !_flow.isEmpty) return;
+    _afterError = null;
+    _started = false;
+    _notify();
+    await start();
   }
 
   /// 显式跳章。目标章已在 flow 内时直接返回 true（不发请求，视图用现有段

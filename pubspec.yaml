@@ -56,6 +56,10 @@ dependencies:
   flutter_inappwebview: 6.2.0-beta.3
   html: ^0.15.7
   crypto: ^3.0.8
+  # 漫画阅读器 · 连续/瀑布模式的按项定位与可见项探测（对齐上游 Venera-Next
+  # continuous_view 的实现）：跳章恢复、滑条定位、滚动进度都靠它；纯 Dart，
+  # 不碰原生。视觉样式仍只来自 lib/core/theme.dart。
+  scrollable_positioned_list: ^0.3.8
 
   # M4 骨架 · 音乐 API 客户端：酷狗概念版信封协议需要 AES-128-CBC（PKCS7）与
   # RSA PKCS#1 v1.5（点对点翻译 EchoMusicNext crates/echo-api util/crypto.rs；

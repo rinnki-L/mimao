@@ -17,6 +17,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/theme.dart';
 
@@ -70,9 +71,11 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage> {
   bool _settingsReady = false;
 
   final ValueNotifier<bool> _chromeVisible = ValueNotifier<bool>(true);
+  final ReaderViewportController _viewport = ReaderViewportController();
   bool _menuLocked = false;
   Timer? _autoReadTimer;
   bool _autoReading = false;
+  DateTime _lastInteraction = DateTime.fromMillisecondsSinceEpoch(0);
 
   @override
   void initState() {
@@ -116,9 +119,12 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage> {
   }
 
   void _applySettings(ReaderSettings next) {
+    final intervalChanged =
+        next.autoReadingInterval != _settings.autoReadingInterval;
     setState(() => _settings = next);
     _reading.updateSettings(next);
     unawaited(widget.settingsStore.save(next));
+    if (_autoReading && intervalChanged) _startAutoReading();
   }
 
   void _toggleChrome() {
@@ -127,25 +133,55 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage> {
   }
 
   void _toggleAutoReading() {
-    setState(() => _autoReading = !_autoReading);
     if (_autoReading) {
-      _startAutoReading();
-    } else {
-      _autoReadTimer?.cancel();
-      _autoReadTimer = null;
+      _stopAutoReading();
+      return;
     }
+    setState(() => _autoReading = true);
+    _startAutoReading();
   }
 
   void _startAutoReading() {
     _autoReadTimer?.cancel();
     final seconds = _settings.autoReadingInterval;
     _autoReadTimer = Timer.periodic(Duration(seconds: seconds), (_) {
+      if (!mounted) return;
+      // 手指/滚轮刚动过：这一拍不推进（真正的"暂停"感）。
+      if (DateTime.now().difference(_lastInteraction) <
+          const Duration(milliseconds: 900)) {
+        return;
+      }
+      // 当前图还没就绪：等下一拍，别把空白页翻过去。
+      if (!_viewport.currentImageReady) return;
+      if (_viewport.atEnd) {
+        _stopAutoReading();
+        return;
+      }
       if (_settings.mode.isGallery) {
-        unawaited(_reading.turnPage(1));
+        unawaited(_viewport.turnGalleryPage(1));
       } else {
-        unawaited(_reading.scrollByViewport(1));
+        unawaited(_viewport.scrollViewport(1));
       }
     });
+  }
+
+  void _stopAutoReading() {
+    _autoReadTimer?.cancel();
+    _autoReadTimer = null;
+    if (mounted && _autoReading) setState(() => _autoReading = false);
+  }
+
+  void _noteInteraction() {
+    _lastInteraction = DateTime.now();
+  }
+
+  Future<void> _turnByKeyboard(int direction) async {
+    _lastInteraction = DateTime.now();
+    if (_settings.mode.isGallery) {
+      await _viewport.turnGalleryPage(direction);
+    } else {
+      await _viewport.scrollViewport(direction);
+    }
   }
 
   Future<void> _openChapterMenu() async {
@@ -188,9 +224,26 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage> {
       ),
     );
     if (picked != null) {
-      await _waterfall.goToChapter(picked);
-      await _reading.syncToFlow();
+      await _runChapterAction(() => _reading.goToChapter(picked));
     }
+  }
+
+  Future<void> _runChapterAction(Future<bool> Function() action) async {
+    final ok = await action();
+    if (!mounted) return;
+    final message = _reading.message;
+    if (message != null) {
+      _showSnack(message);
+    } else if (!ok) {
+      _showSnack('没有可去的章节');
+    }
+  }
+
+  void _showSnack(String text) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(text)));
   }
 
   @override
@@ -200,38 +253,65 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage> {
       backgroundColor: theme.colorScheme.surface,
       body: !_settingsReady
           ? const Center(child: CircularProgressIndicator())
-          : AnimatedBuilder(
-              animation: _waterfall,
-              builder: (context, _) {
-                return AnimatedBuilder(
-                  animation: _reading,
-                  builder: (context, __) => Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      ReaderViewport(
-                        settings: _settings,
-                        reading: _reading,
-                        waterfall: _waterfall,
-                        cache: widget.imageCache,
-                        onTapCenter: _toggleChrome,
-                      ),
-                      // 阅读亮度遮罩（不压暗时透明、不吃事件）。
-                      Positioned.fill(
-                        child: IgnorePointer(
-                          child: ColoredBox(
-                            color: Colors.black.withValues(
-                              alpha: 1 - _settings.dimBrightness / 100,
-                            ),
-                          ),
-                        ),
-                      ),
-                      if (_settings.showPageNumber) _buildPageBadge(theme),
-                      _buildTopBar(theme),
-                      _buildBottomBar(theme),
-                    ],
-                  ),
-                );
+          : CallbackShortcuts(
+              bindings: <ShortcutActivator, VoidCallback>{
+                const SingleActivator(LogicalKeyboardKey.arrowRight): () =>
+                    unawaited(_turnByKeyboard(1)),
+                const SingleActivator(LogicalKeyboardKey.arrowDown): () =>
+                    unawaited(_turnByKeyboard(1)),
+                const SingleActivator(LogicalKeyboardKey.arrowLeft): () =>
+                    unawaited(_turnByKeyboard(-1)),
+                const SingleActivator(LogicalKeyboardKey.arrowUp): () =>
+                    unawaited(_turnByKeyboard(-1)),
+                const SingleActivator(LogicalKeyboardKey.pageDown): () =>
+                    unawaited(_turnByKeyboard(1)),
+                const SingleActivator(LogicalKeyboardKey.pageUp): () =>
+                    unawaited(_turnByKeyboard(-1)),
+                const SingleActivator(LogicalKeyboardKey.space): () =>
+                    unawaited(_turnByKeyboard(1)),
               },
+              child: Focus(
+                autofocus: true,
+                child: Listener(
+                  onPointerDown: (_) => _noteInteraction(),
+                  onPointerSignal: (_) => _noteInteraction(),
+                  child: AnimatedBuilder(
+                    animation: _waterfall,
+                    builder: (context, _) {
+                      return AnimatedBuilder(
+                        animation: _reading,
+                        builder: (context, __) => Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            ReaderViewport(
+                              settings: _settings,
+                              reading: _reading,
+                              waterfall: _waterfall,
+                              cache: widget.imageCache,
+                              onTapCenter: _toggleChrome,
+                              viewportController: _viewport,
+                            ),
+                            // 阅读亮度遮罩（不压暗时透明、不吃事件）。
+                            Positioned.fill(
+                              child: IgnorePointer(
+                                child: ColoredBox(
+                                  color: Colors.black.withValues(
+                                    alpha: 1 - _settings.dimBrightness / 100,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            if (_settings.showPageNumber)
+                              _buildPageBadge(theme),
+                            _buildTopBar(theme),
+                            _buildBottomBar(theme),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
             ),
     );
   }
@@ -253,7 +333,7 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage> {
               borderRadius: MimaoShapes.sm,
             ),
             child: Text(
-              '${_reading.chapterTitle} · ${pos.page}/${pos.pageCount}',
+              '${_reading.chapterTitle} · ${pos.displayPage}/${pos.displayPageCount}',
               style: theme.textTheme.labelMedium,
             ),
           ),
@@ -313,9 +393,10 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage> {
                     key: const Key('reader-settings'),
                     tooltip: '阅读设置',
                     icon: const Icon(Icons.tune),
-                    onPressed: () {
-                      _chromeVisible.value = false;
-                      showModalBottomSheet<void>(
+                    onPressed: () async {
+                      final wasVisible = _chromeVisible.value;
+                      if (!_menuLocked) _chromeVisible.value = false;
+                      await showModalBottomSheet<void>(
                         context: context,
                         isScrollControlled: true,
                         builder: (_) => ReaderSettingsPanel(
@@ -324,6 +405,8 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage> {
                           onClose: () => Navigator.of(context).pop(),
                         ),
                       );
+                      // 锁菜单时不能把面板藏掉后又不还原，否则解锁按钮也看不见。
+                      if (mounted && wasVisible) _chromeVisible.value = true;
                     },
                   ),
                 ],
@@ -370,8 +453,9 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage> {
                           key: const Key('reader-prev-chapter'),
                           tooltip: '上一章',
                           icon: const Icon(Icons.keyboard_double_arrow_left),
-                          onPressed: () =>
-                              unawaited(_reading.previousChapter()),
+                          onPressed: () => unawaited(
+                            _runChapterAction(_reading.previousChapter),
+                          ),
                         ),
                         IconButton(
                           key: const Key('reader-chapter-menu'),
@@ -393,7 +477,9 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage> {
                           key: const Key('reader-next-chapter'),
                           tooltip: '下一章',
                           icon: const Icon(Icons.keyboard_double_arrow_right),
-                          onPressed: () => unawaited(_reading.nextChapter()),
+                          onPressed: () => unawaited(
+                            _runChapterAction(_reading.nextChapter),
+                          ),
                         ),
                       ],
                     ),
@@ -410,20 +496,21 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage> {
 
   Widget _buildProgressSlider(ThemeData theme) {
     final pos = _reading.position;
-    final max = pos.pageCount < 1 ? 1 : pos.pageCount;
+    final max = pos.displayPageCount < 1 ? 1 : pos.displayPageCount;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Row(
         children: [
-          Text('${pos.page}'),
+          Text('${pos.displayPage}'),
           Expanded(
             child: Slider(
               key: const Key('reader-progress-slider'),
-              value: pos.page.clamp(1, max).toDouble(),
+              value: pos.displayPage.clamp(1, max).toDouble(),
               min: 1,
               max: max.toDouble(),
               divisions: max <= 1 ? 1 : max - 1,
-              onChanged: (value) => unawaited(_reading.goToPage(value.round())),
+              onChanged: (value) =>
+                  unawaited(_reading.goToDisplayPage(value.round())),
             ),
           ),
           Text('$max'),
