@@ -2,9 +2,8 @@
 // 与其他模块页面同款说明。
 /// 小说「我的」：书源/阅读数据总览 + 规则入口 + 其它（设置/记录/缓存/文件/关于）。
 ///
-/// 能被真实执行的入口全部接本地服务；替换净化、TXT 目录规则、字典/标签规则、
-/// 书签这类依赖书源引擎或阅读器的入口保留在列表里但明确标"未接入"，点击给出
-/// 说明，不做假跳转。
+/// 能被真实执行的入口全部接本地服务；TXT 目录规则、字典/标签规则、书签
+/// 这类尚未实现的入口保留在列表里并标注「暂未提供」，点击给出说明，不做假跳转。
 library;
 
 import 'dart:io';
@@ -137,7 +136,7 @@ class _NovelProfilePageState extends State<NovelProfilePage> {
   Future<void> _clearSearchHistory() async {
     final api = widget.searchHistory;
     if (api == null) {
-      _toast('搜索历史未接线。');
+      _toast('搜索历史服务未启用，暂时不能清除。重启应用后再试。');
       return;
     }
     await api.clear();
@@ -148,7 +147,7 @@ class _NovelProfilePageState extends State<NovelProfilePage> {
   Future<void> _clearReadingHistory() async {
     final api = widget.history;
     if (api == null) {
-      _toast('阅读记录未接线。');
+      _toast('阅读记录服务未启用，暂时不能清空。重启应用后再试。');
       return;
     }
     final confirmed = await showDialog<bool>(
@@ -196,7 +195,8 @@ class _NovelProfilePageState extends State<NovelProfilePage> {
               _InfoLine(label: '搜索历史', value: '${data.searchCount} 条'),
               const SizedBox(height: 12),
               Text(
-                '正文缓存随阅读器接入；当前可清理的是搜索历史与阅读记录。',
+                '正文缓存由书源引擎按书管理，暂未提供一键清理；'
+                '当前可清理的是搜索历史与阅读记录。',
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
                 ),
@@ -385,19 +385,19 @@ class _NovelProfilePageState extends State<NovelProfilePage> {
                   _ProfileRow(
                     icon: Icons.format_list_numbered,
                     title: 'TXT 目录规则',
-                    subtitle: '需要阅读器',
+                    subtitle: '暂未提供',
                     onTap: () => _showUnavailable('TXT 目录规则'),
                   ),
                   _ProfileRow(
                     icon: Icons.translate,
                     title: '字典规则',
-                    subtitle: '需要书源引擎',
+                    subtitle: '暂未提供',
                     onTap: () => _showUnavailable('字典规则'),
                   ),
                   _ProfileRow(
                     icon: Icons.sell_outlined,
                     title: '标签规则',
-                    subtitle: '需要书源引擎',
+                    subtitle: '暂未提供',
                     onTap: () => _showUnavailable('标签规则'),
                   ),
                 ],
@@ -437,7 +437,7 @@ class _NovelProfilePageState extends State<NovelProfilePage> {
                   _ProfileRow(
                     icon: Icons.bookmark_border,
                     title: '书签',
-                    subtitle: '阅读器接入后可用',
+                    subtitle: '暂未提供',
                     onTap: () => _showUnavailable('书签'),
                   ),
                   _ProfileRow(

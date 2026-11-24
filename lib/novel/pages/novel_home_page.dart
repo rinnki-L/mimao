@@ -3,7 +3,7 @@
 /// 小说「首页」：最近阅读 + 阅读统计 + 今日目标 + 书源状态 + 我的书架横条。
 ///
 /// 所有数字来自本地库：最近阅读 = novel_history 最新一条，累计阅读 = 历史条数，
-/// 阅读时长 = 阅读时长按天表之和（阅读器未接入时为 0，不估算）。书源卡读真实
+/// 阅读时长 = 阅读时长按天表之和（没有记录时为 0，不估算）。书源卡读真实
 /// 书源仓库；没有任何数据时给"为什么空 + 下一步做什么"的空态。
 library;
 
@@ -28,6 +28,7 @@ class NovelHomePage extends StatefulWidget {
     this.searchHistory,
     this.stats,
     this.sourceImporter,
+    this.engineWired = false,
     this.openRoute,
     this.onSelectTab,
     this.prefs,
@@ -45,6 +46,10 @@ class NovelHomePage extends StatefulWidget {
   final NovelSearchHistoryApi? searchHistory;
   final NovelStatsApi? stats;
   final NovelSourceImporter? sourceImporter;
+
+  /// 在线书源引擎是否已由模块注入；书源引擎卡据此说明可用范围。
+  final bool engineWired;
+
   final NovelRouteOpener? openRoute;
   final ValueChanged<int>? onSelectTab;
 
@@ -202,7 +207,7 @@ class _NovelHomePageState extends State<NovelHomePage> with RouteAware {
   Future<void> _editGoal(_HomeData data) async {
     final statsApi = widget.stats;
     if (statsApi == null) {
-      _toast('阅读统计未接线，目标暂时不能保存。');
+      _toast('阅读统计服务未启用，目标暂时不能保存。重启应用后再试。');
       return;
     }
     final minutes = await showDialog<int>(
@@ -384,7 +389,7 @@ class _NovelHomePageState extends State<NovelHomePage> with RouteAware {
                                   widget.onSelectTab?.call(3),
                             ),
                             const SizedBox(height: 16),
-                            const _CapabilityCard(),
+                            _CapabilityCard(wired: widget.engineWired),
                           ],
                         ),
                       ),
@@ -757,7 +762,7 @@ class _GoalCard extends StatelessWidget {
     final caption = goal <= 0
         ? '还没有设置今日目标。点右侧按钮设一个时长，完成后这里会填满。'
         : minutes == 0
-        ? '今天还没有阅读记录。阅读器接入后，阅读页停留时间会自动累计到这里。'
+        ? '今天还没有阅读记录。在阅读页停留的时间会自动累计到这里。'
         : remaining > 0
         ? '今天已读 $minutes 分钟，还差 $remaining 分钟达成目标。'
         : '今天已读 $minutes 分钟，目标已达成。';
@@ -857,7 +862,7 @@ class _SourceCard extends StatelessWidget {
     final cs = theme.colorScheme;
     final enabled = sources.where((s) => s.enabled).length;
     final status = !wired
-        ? '书源功能未接线'
+        ? '书源功能未启用'
         : sources.isEmpty
         ? '还没有书源'
         : '已导入 ${sources.length} 个书源 · $enabled 个启用';
@@ -877,7 +882,9 @@ class _SourceCard extends StatelessWidget {
           Text(status, style: theme.textTheme.bodyMedium),
           const SizedBox(height: 4),
           Text(
-            sources.isEmpty
+            !wired
+                ? '当前版本没有加载书源仓库，无法导入书源。重启应用后再试。'
+                : sources.isEmpty
                 ? '打开书源网站，点网页里的「一键导入」即可把书源存到本机。'
                 : '书源订阅与管理都在「订阅」页；发现页可按分组筛选和启停。',
             style: theme.textTheme.bodySmall?.copyWith(
@@ -891,7 +898,9 @@ class _SourceCard extends StatelessWidget {
 }
 
 class _CapabilityCard extends StatelessWidget {
-  const _CapabilityCard();
+  const _CapabilityCard({required this.wired});
+
+  final bool wired;
 
   @override
   Widget build(BuildContext context) {
@@ -901,11 +910,17 @@ class _CapabilityCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          NovelSectionHeader(icon: Icons.construction, title: '书源引擎状态'),
+          NovelSectionHeader(
+            icon: wired ? Icons.check_circle_outline : Icons.construction,
+            title: '书源引擎',
+          ),
           const SizedBox(height: 10),
           Text(
-            '跨源搜索、目录抓取与正文阅读仍在接入中。当前版本可以先导入、分组和'
-            '启停书源；书架与阅读记录读取真实本地库。',
+            wired
+                ? '已接入：搜索、发现分类、目录抓取与正文阅读都走已导入的书源。'
+                      '还没导入书源的话，先去「订阅 → 导入规则」。'
+                : '未启用：当前只能导入、分组和启停书源，搜索仅匹配本地书架与'
+                      '阅读记录。重启应用后再试。',
             style: theme.textTheme.bodySmall?.copyWith(
               color: cs.onSurfaceVariant,
             ),

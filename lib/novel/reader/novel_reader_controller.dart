@@ -216,7 +216,9 @@ class NovelReaderController extends ChangeNotifier {
     final key = sourceKey ?? '';
     if (engine == null || store == null || key.isEmpty) {
       loadingDetail = false;
-      loadError = '阅读器未接线（缺少书源引擎或书源信息）';
+      loadError = key.isEmpty
+          ? '这本书没有关联书源，无法加载正文。返回书架从书源重新添加。'
+          : '书源引擎未启用，无法加载正文。重启应用后再试。';
       notifyListeners();
       return;
     }

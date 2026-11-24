@@ -2,9 +2,9 @@
 // 与其他模块页面同款说明。
 /// 小说「发现」：左侧分组筛选栏 + 书源列表（搜索、启停、进管理页）。
 ///
-/// 参考图里「发现」是书源内容流；书源引擎尚未接入，所以本页只做真实可用的
-/// 书源侧：按 `bookSourceGroup` 分组、按名称/地址搜索、启停落仓库。内容榜单
-/// 用一条能力边界横幅说明，不摆假书。
+/// 参考图里「发现」是书源内容流；本页做书源侧：按 `bookSourceGroup` 分组、
+/// 按名称/地址搜索、启停落仓库，点书源进入它的分类榜单（`NovelExploreSheet`）。
+/// 引擎未注入时降级为纯书源管理，并用一条能力提示说明，不摆假书。
 library;
 
 import 'dart:async';
@@ -254,8 +254,8 @@ class _NovelDiscoverPageState extends State<NovelDiscoverPage> {
                 : widget.sourceImporter == null
                 ? NovelEmptyState(
                     icon: Icons.source_outlined,
-                    title: '书源仓库未接线',
-                    message: '书源导入与发现需要书源仓库；当前宿主没有注入该能力。',
+                    title: '书源仓库未启用',
+                    message: '当前版本没有加载书源仓库，无法导入或浏览书源。重启应用后再试。',
                   )
                 : _sources.isEmpty
                 ? NovelEmptyState(

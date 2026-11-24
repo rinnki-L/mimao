@@ -104,7 +104,7 @@ class NovelPrefs extends Table {
   Set<Column> get primaryKey => {key};
 }
 
-/// 按天聚合的阅读时长（秒）。当前阅读器尚未接入，写入方是未来阅读页；
+/// 按天聚合的阅读时长（秒）。写入方是阅读页（退出 / 切章时结算）；
 /// 统计卡与今日目标都从这里取数，不估算、不造假。
 @DataClassName('NovelReadingDayRow')
 class NovelReadingDays extends Table {

@@ -420,7 +420,7 @@ abstract interface class NovelReaderSettingsStore {
   Future<void> save(NovelReaderSettings settings);
 }
 
-/// 模块 kv 版设置存储；[prefs] 为空时读写都落在内存里（测试/未接线）。
+/// 模块 kv 版设置存储；[prefs] 为空时读写都落在内存里（测试/依赖未注入）。
 class PrefsNovelReaderSettingsStore implements NovelReaderSettingsStore {
   PrefsNovelReaderSettingsStore(this.prefs);
 

@@ -185,7 +185,7 @@ class _NovelBookDetailPageState extends State<NovelBookDetailPage> {
   Future<void> _toggleCollect(_DetailData data) async {
     final api = widget.collect;
     if (api == null) {
-      _toast('书架未接线，暂时不能收藏。');
+      _toast('书架服务未启用，暂时不能收藏。重启应用后再试。');
       return;
     }
     try {
@@ -801,8 +801,8 @@ class _TocBoundaryCard extends StatelessWidget {
           const NovelSectionHeader(icon: Icons.list_alt, title: '目录与正文'),
           const SizedBox(height: 10),
           Text(
-            '目录、简介与正文需要书源引擎抓取，当前还未接入。接入后这里会直接'
-            '列出章节，并行内跳转阅读。',
+            '这本书没有关联书源，无法抓取目录与正文（导入书单里的书常见这种'
+            '情况）。回到书架从书源重新添加，或在搜索页按书名重新搜索。',
             style: theme.textTheme.bodySmall?.copyWith(
               color: cs.onSurfaceVariant,
             ),

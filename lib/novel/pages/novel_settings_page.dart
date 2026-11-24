@@ -2,8 +2,8 @@
 // 与其他模块页面同款说明。
 /// 小说设置页：今日阅读目标、数据清理、规则管理与关于。
 ///
-/// 主题/外观归壳的全局设置抽屉，这里不重复；本页只放小说模块自己的设置。
-/// 字号/行距/翻页等待阅读器接入后启用，当前明确标注，不做假开关。
+/// 主题/外观归壳的全局设置抽屉，这里不重复。字号/行距/翻页在阅读页右上角
+/// 调整，这里只给入口说明，不重复放一套开关。
 library;
 
 import 'package:flutter/material.dart';
@@ -107,7 +107,7 @@ class _NovelSettingsPageState extends State<NovelSettingsPage> {
   Future<void> _editGoal(int initial) async {
     final stats = widget.stats;
     if (stats == null) {
-      _toast('阅读统计未接线，目标暂时不能保存。');
+      _toast('阅读统计服务未启用，目标暂时不能保存。重启应用后再试。');
       return;
     }
     final minutes = await showDialog<int>(
@@ -127,7 +127,7 @@ class _NovelSettingsPageState extends State<NovelSettingsPage> {
   Future<void> _clearSearchHistory() async {
     final api = widget.searchHistory;
     if (api == null) {
-      _toast('搜索历史未接线。');
+      _toast('搜索历史服务未启用，暂时不能清除。重启应用后再试。');
       return;
     }
     try {
@@ -142,7 +142,7 @@ class _NovelSettingsPageState extends State<NovelSettingsPage> {
   Future<void> _clearReadingHistory() async {
     final api = widget.history;
     if (api == null) {
-      _toast('阅读记录未接线。');
+      _toast('阅读记录服务未启用，暂时不能清空。重启应用后再试。');
       return;
     }
     final confirmed = await showDialog<bool>(
@@ -233,7 +233,7 @@ class _NovelSettingsPageState extends State<NovelSettingsPage> {
                       icon: Icons.swap_horiz,
                       title: '翻页方式',
                       subtitle: '在阅读页右上角调整',
-                      onTap: () => _toast('打开一本书，在阅读页右上角调整字号。'),
+                      onTap: () => _toast('打开一本书，在阅读页右上角调整翻页方式。'),
                     ),
                   ],
                 ),

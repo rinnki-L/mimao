@@ -376,7 +376,7 @@ class _NovelShelfPageState extends State<NovelShelfPage> with RouteAware {
   Future<void> _showGroupManage(List<String> groups) async {
     final collect = widget.collect;
     if (collect == null) {
-      _toast('书架未接线，暂时不能管理分组。');
+      _toast('书架服务未启用，暂时不能管理分组。重启应用后再试。');
       return;
     }
     final changed = await showDialog<bool>(
@@ -389,7 +389,7 @@ class _NovelShelfPageState extends State<NovelShelfPage> with RouteAware {
   Future<void> _assignGroup(List<_ShelfBook> books) async {
     final collect = widget.collect;
     if (collect == null) {
-      _toast('书架未接线，暂时不能设置分组。');
+      _toast('书架服务未启用，暂时不能设置分组。重启应用后再试。');
       return;
     }
     if (_selected.isEmpty) return;
@@ -506,7 +506,7 @@ class _NovelShelfPageState extends State<NovelShelfPage> with RouteAware {
   Future<void> _exportBooklist() async {
     final collect = widget.collect;
     if (collect == null) {
-      _toast('书架未接线，暂时不能导出。');
+      _toast('书架服务未启用，暂时不能导出。重启应用后再试。');
       return;
     }
     try {
@@ -544,7 +544,7 @@ class _NovelShelfPageState extends State<NovelShelfPage> with RouteAware {
   Future<void> _importBooklist() async {
     final collect = widget.collect;
     if (collect == null) {
-      _toast('书架未接线，暂时不能导入书单。');
+      _toast('书架服务未启用，暂时不能导入书单。重启应用后再试。');
       return;
     }
     try {
@@ -1109,10 +1109,6 @@ class _ShelfMenuButton extends StatelessWidget {
           enabled: canWrite && hasData,
           child: const Text('导出书单'),
         ),
-        const PopupMenuDivider(),
-        const PopupMenuItem<String>(enabled: false, child: Text('添加本地（需阅读器）')),
-        const PopupMenuItem<String>(enabled: false, child: Text('更新目录（需书源引擎）')),
-        const PopupMenuItem<String>(enabled: false, child: Text('添加网址（需书源引擎）')),
       ],
     );
   }
@@ -1405,8 +1401,8 @@ class _ShelfEmpty extends StatelessWidget {
       icon: Icons.collections_bookmark_outlined,
       title: '书架还是空的',
       message:
-          '收藏书籍或开始阅读后会排在这里。当前书源引擎尚未接入，'
-          '可以先在「订阅」导入书源，或从别处导出一份 mimao 书单再导入。',
+          '收藏书籍或开始阅读后会排在这里。先在「订阅 → 导入规则」导入书源，'
+          '再用「去发现」搜索并收藏；也可以导入一份 mimao 书单。',
       action: Wrap(
         spacing: 8,
         runSpacing: 8,

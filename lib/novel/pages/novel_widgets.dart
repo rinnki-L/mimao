@@ -934,7 +934,7 @@ class _NovelGoalDialogState extends State<NovelGoalDialog> {
             ],
             decoration: InputDecoration(
               labelText: '每天阅读分钟数',
-              helperText: '阅读器接入后按实际阅读时间累计',
+              helperText: '按阅读页实际停留时间累计',
               errorText: _error,
             ),
             onSubmitted: (_) => _submit(),

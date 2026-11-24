@@ -199,7 +199,7 @@ class NovelSourceImporter {
   ) async {
     final rssStore = this.rssStore;
     if (rssStore == null) {
-      throw const NovelSourceImportException('订阅源仓库未接线，无法保存订阅源');
+      throw const NovelSourceImportException('当前没有可用的订阅源仓库，无法保存订阅源');
     }
     final sources = <NovelRssSource>[];
     for (final raw in rawItems) {
@@ -226,7 +226,7 @@ class NovelSourceImporter {
   ) async {
     final replaceStore = this.replaceStore;
     if (replaceStore == null) {
-      throw const NovelSourceImportException('替换规则仓库未接线，无法保存替换规则');
+      throw const NovelSourceImportException('当前没有可用的替换规则仓库，无法保存替换规则');
     }
     final rules = <NovelReplaceRule>[];
     for (final raw in rawItems) {

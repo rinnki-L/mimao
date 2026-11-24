@@ -50,7 +50,7 @@ void main() {
     }
   });
 
-  testWidgets('tab 切换：点到「订阅」显示书源仓库未接线空态', (tester) async {
+  testWidgets('tab 切换：点到「订阅」显示书源仓库未启用空态', (tester) async {
     await tester.pumpWidget(
       const MaterialApp(home: NovelModulePage(embedded: true)),
     );
@@ -62,7 +62,7 @@ void main() {
     final bar = tester.widget<NavigationBar>(find.byType(NavigationBar));
     expect(bar.selectedIndex, 3);
     expect(find.text('订阅'), findsWidgets);
-    expect(find.text('书源仓库未接线'), findsOneWidget);
+    expect(find.text('书源仓库未启用'), findsOneWidget);
   });
 
   testWidgets('首页不再有书源管理入口（入口收归「订阅 → 导入规则」）', (tester) async {

@@ -80,7 +80,7 @@ class NovelReaderPosition {
   }
 }
 
-/// 模块 kv 版位置存储；[prefs] 为空时退化为内存（测试/未接线）。
+/// 模块 kv 版位置存储；[prefs] 为空时退化为内存（测试/依赖未注入）。
 class NovelReaderPositionStore {
   NovelReaderPositionStore(this.prefs, {this.capacity = 200});
 

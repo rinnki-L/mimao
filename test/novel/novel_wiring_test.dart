@@ -130,7 +130,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
-    // 没有本地书/书源匹配 → 明示本地无结果 + 跨源搜索未接入。
+    // 没有本地书/书源匹配 → 明示本地无结果；在线结果由引擎在下方单独给。
     expect(find.textContaining('本地没有匹配'), findsOneWidget);
     expect(await searchHistory.recent(), <String>['三体']);
   });

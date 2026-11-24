@@ -16,7 +16,6 @@ enum NovelRoute {
   read('novel/read', '阅读', Icons.auto_stories),
   search('novel/search', '搜索', Icons.search),
   sourceManage('novel/source-manage', '规则管理', Icons.source),
-  sourceEdit('novel/source-edit', '书源编辑', Icons.edit_note),
   history('novel/history', '阅读记录', Icons.history),
   settings('novel/settings', '设置', Icons.settings);
 

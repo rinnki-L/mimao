@@ -213,8 +213,8 @@ class _NovelSubscribePageState extends State<NovelSubscribePage> {
                 : widget.sourceImporter == null
                 ? NovelEmptyState(
                     icon: Icons.rss_feed,
-                    title: '书源仓库未接线',
-                    message: '书源订阅需要书源仓库；当前宿主没有注入该能力。',
+                    title: '书源仓库未启用',
+                    message: '当前版本没有加载书源仓库，无法读取或导入订阅。重启应用后再试。',
                   )
                 : _subscriptions.isEmpty
                 ? NovelEmptyState(

@@ -178,7 +178,7 @@ void main() {
       );
     });
 
-    test('空文件 / 未接线的仓库都收敛为可读异常', () async {
+    test('空文件 / 缺失的仓库都收敛为可读异常', () async {
       fetcher.text = '[]';
       expect(
         () => importer.importFromLink('https://x/empty.json'),
@@ -203,7 +203,7 @@ void main() {
           isA<NovelSourceImportException>().having(
             (e) => e.message,
             'message',
-            contains('订阅源仓库未接线'),
+            contains('没有可用的订阅源仓库'),
           ),
         ),
       );

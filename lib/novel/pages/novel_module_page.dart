@@ -50,7 +50,7 @@ class NovelModulePage extends StatefulWidget {
   final NovelRouteOpener? onOpenRoute;
 
   /// 本地数据层三服务（由 NovelModule 注入）。null 时对应区域显示空态，
-  /// 保证无依赖的骨架测试与"未接线"场景不崩。
+  /// 保证无依赖的骨架测试与依赖未注入的场景不崩。
   final NovelCollectApi? collect;
   final NovelHistoryApi? history;
   final NovelSearchHistoryApi? searchHistory;
@@ -136,6 +136,7 @@ class _NovelModulePageState extends State<NovelModulePage> {
         searchHistory: widget.searchHistory,
         stats: widget.stats,
         sourceImporter: widget.sourceImporter,
+        engineWired: widget.onlineEngine != null,
         openRoute: _openRoute,
         onSelectTab: _selectTab,
         prefs: widget.prefs,

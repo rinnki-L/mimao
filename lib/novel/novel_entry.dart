@@ -86,8 +86,8 @@ class NovelModule implements AppModule {
 
   @override
   Widget buildHome(BuildContext context) {
-    // 数据层已接线；书源导入已接线。抓取流水线（engine/dataSource）仍是纯
-    // 接口零实现，搜索/阅读/目录页一律给能力边界说明，不假装已联通。
+    // 数据层、书源导入与抓取流水线（LegadoNovelEngine）都已接线；宿主没注入
+    // 某项依赖时，对应页面降级为能力说明，不假装已联通。
     final importer = sourceImporter;
     final statsApi = stats;
     final prefsApi = _prefs;
