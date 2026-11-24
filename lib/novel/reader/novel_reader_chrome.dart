@@ -188,6 +188,9 @@ class NovelReaderBottomPanel extends StatelessWidget {
     required this.page,
     required this.pageCount,
     required this.onSeekPage,
+    this.scrollMode = false,
+    this.progress = 0,
+    this.onSeekProgress,
     required this.onPrevChapter,
     required this.onNextChapter,
     required this.onSearch,
@@ -208,6 +211,11 @@ class NovelReaderBottomPanel extends StatelessWidget {
   final int page;
   final int pageCount;
   final ValueChanged<int> onSeekPage;
+
+  /// 滚动模式没有「页」的概念，进度条改按章内滚动比例走。
+  final bool scrollMode;
+  final double progress;
+  final ValueChanged<double>? onSeekProgress;
   final VoidCallback onPrevChapter;
   final VoidCallback onNextChapter;
   final VoidCallback onSearch;
@@ -298,16 +306,26 @@ class NovelReaderBottomPanel extends StatelessWidget {
                   onPressed: onPrevChapter,
                 ),
                 Expanded(
-                  child: _slimSlider(
-                    context,
-                    key: 'novel-reader-page-slider',
-                    value: page.clamp(1, maxPage).toDouble(),
-                    min: 1,
-                    max: maxPage.toDouble(),
-                    divisions: maxPage <= 1 ? 1 : maxPage - 1,
-                    label: '$page/$maxPage',
-                    onChanged: (value) => onSeekPage(value.round()),
-                  ),
+                  child: scrollMode
+                      ? _slimSlider(
+                          context,
+                          key: 'novel-reader-page-slider',
+                          value: (progress * 100).clamp(0, 100),
+                          min: 0,
+                          max: 100,
+                          label: '${(progress * 100).round()}%',
+                          onChanged: onSeekProgress,
+                        )
+                      : _slimSlider(
+                          context,
+                          key: 'novel-reader-page-slider',
+                          value: page.clamp(1, maxPage).toDouble(),
+                          min: 1,
+                          max: maxPage.toDouble(),
+                          divisions: maxPage <= 1 ? 1 : maxPage - 1,
+                          label: '$page/$maxPage',
+                          onChanged: (value) => onSeekPage(value.round()),
+                        ),
                 ),
                 IconButton(
                   key: const Key('novel-reader-next-page'),
@@ -444,8 +462,10 @@ class NovelReaderFooter extends StatelessWidget {
   final NovelReaderSettings settings;
   final String chapterTitle;
   final String bookTitle;
-  final int page;
-  final int pageCount;
+
+  /// 滚动模式传 null，页脚只显示百分比。
+  final int? page;
+  final int? pageCount;
   final double percent;
 
   @override
@@ -460,8 +480,13 @@ class NovelReaderFooter extends StatelessWidget {
     };
     final rightText = switch (settings.footerRight) {
       NovelFooterRight.pageAndPercent =>
-        '$page/$pageCount  ${percent.toStringAsFixed(1)}%',
-      NovelFooterRight.page => '$page/$pageCount',
+        page == null || pageCount == null
+            ? '${percent.toStringAsFixed(1)}%'
+            : '$page/$pageCount  ${percent.toStringAsFixed(1)}%',
+      NovelFooterRight.page =>
+        page == null || pageCount == null
+            ? '${percent.toStringAsFixed(1)}%'
+            : '$page/$pageCount',
       NovelFooterRight.percent => '${percent.toStringAsFixed(1)}%',
       NovelFooterRight.none => '',
     };
@@ -512,9 +537,20 @@ class NovelCatalogSheet extends StatefulWidget {
 }
 
 class _NovelCatalogSheetState extends State<NovelCatalogSheet> {
-  late final ScrollController _scroll = ScrollController(
-    initialScrollOffset: (widget.currentIndex - 4).clamp(0, 100000) * 48.0,
-  );
+  late final ScrollController _scroll = ScrollController();
+  final GlobalKey _selectedKey = GlobalKey();
+
+  @override
+  void initState() {
+    super.initState();
+    // 卷行/章节行高不一致，不能再按固定 48px 估算；等首帧布局完再按真实
+    // 位置居中（与 legado 目录定位一致，字号/密度变了也不会偏）。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final target = _selectedKey.currentContext;
+      if (target == null) return;
+      Scrollable.ensureVisible(target, alignment: 0.5, duration: Duration.zero);
+    });
+  }
 
   @override
   void dispose() {
@@ -575,6 +611,7 @@ class _NovelCatalogSheetState extends State<NovelCatalogSheet> {
                   }
                   final selected = index == widget.currentIndex;
                   return ListTile(
+                    key: selected ? _selectedKey : null,
                     dense: true,
                     selected: selected,
                     selectedTileColor: theme.colorScheme.secondaryContainer

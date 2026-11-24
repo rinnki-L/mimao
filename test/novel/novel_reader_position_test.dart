@@ -1,7 +1,10 @@
 // 页内位置存储：往返、章节匹配、清空、容量淘汰。
 
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mimao/novel/library_api.dart';
+import 'package:mimao/novel/reader/novel_locator.dart';
 import 'package:mimao/novel/reader/novel_reader_position.dart';
 
 class _FakePrefs implements NovelPrefsApi {
@@ -81,5 +84,86 @@ void main() {
     expect(await store.load('book1'), isNotNull);
     await store.clear('book1');
     expect(await store.load('book1'), isNull);
+  });
+
+  test('locator 往返保留段落与字符偏移', () async {
+    final prefs = _FakePrefs();
+    final store = NovelReaderPositionStore(prefs);
+    await store.save(
+      'book1',
+      NovelReaderPosition(
+        chapterUrl: '/c/3',
+        chapterId: 'c3',
+        chapterIndex: 2,
+        page: 4,
+        pageCount: 13,
+        scrollRatio: 0.4,
+        locator: const NovelLocator(
+          chapterIndex: 2,
+          paragraph: 7,
+          charOffset: 15,
+          sourceKey: 's1',
+        ),
+      ),
+    );
+
+    final loaded = await NovelReaderPositionStore(prefs).load('book1');
+    expect(loaded!.locator, isNotNull);
+    expect(loaded.locator!.paragraph, 7);
+    expect(loaded.locator!.charOffset, 15);
+    expect(loaded.locator!.chapterIndex, 2);
+  });
+
+  test('按书源分键：换源不串位置，且保存后清掉旧键', () async {
+    final prefs = _FakePrefs();
+    final store = NovelReaderPositionStore(prefs);
+    await store.save(
+      'book1',
+      _position(chapterUrl: '/s1/c1', chapterIndex: 1),
+      sourceKey: 's1',
+    );
+    await store.save(
+      'book1',
+      _position(chapterUrl: '/s2/c9', chapterIndex: 9),
+      sourceKey: 's2',
+    );
+
+    expect(
+      (await NovelReaderPositionStore(
+        prefs,
+      ).load('book1', sourceKey: 's1'))!.chapterIndex,
+      1,
+    );
+    expect(
+      (await NovelReaderPositionStore(
+        prefs,
+      ).load('book1', sourceKey: 's2'))!.chapterIndex,
+      9,
+    );
+    // 新键接管后不再保留无 sourceKey 的 legacy 键。
+    final all = jsonDecode(prefs.values[NovelReaderPositionStore.key]!) as Map;
+    expect(all.containsKey('book1'), isFalse);
+    expect(all.containsKey('s1|book1'), isTrue);
+    expect(all.containsKey('s2|book1'), isTrue);
+  });
+
+  test('旧 bookId 键可读，保存后迁移到 sourceKey 键', () async {
+    final prefs = _FakePrefs();
+    prefs.values[NovelReaderPositionStore.key] = jsonEncode(<String, Object?>{
+      'book1': _position(chapterUrl: '/legacy/c4', chapterIndex: 3).toJson(),
+    });
+    final store = NovelReaderPositionStore(prefs);
+
+    final legacy = await store.load('book1', sourceKey: 's1');
+    expect(legacy!.chapterIndex, 3);
+
+    await store.save(
+      'book1',
+      _position(chapterUrl: '/s1/c5', chapterIndex: 4),
+      sourceKey: 's1',
+    );
+    final all = jsonDecode(prefs.values[NovelReaderPositionStore.key]!) as Map;
+    expect(all.containsKey('book1'), isFalse);
+    expect(all.containsKey('s1|book1'), isTrue);
   });
 }

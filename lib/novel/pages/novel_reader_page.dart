@@ -6,9 +6,11 @@
 /// - 沉浸式全屏（Windows 隐藏标题栏/任务栏，Android 沉浸系统栏）；
 /// - 顶部栏：缓存本章 / 刷新本章 / 换源 / 更多 + 当前书源名；
 /// - 底部菜单：亮度滑杆、章节进度滑杆、书内搜索 / 自动翻页 / 目录 / 朗读 / 设置；
-/// - 页脚：章节名 + 本章页码 + 全书百分比；
+/// - 页脚：章节名 + 本章页码 + 全书百分比（滚动模式只显示百分比）；
 /// - 阅读设置：字号、Ttf 字体、背景预设/自定义/夜间、行距段距边距、翻页动画；
-/// - 页内位置落模块 kv，历史库仍记章级进度（双记账不变）。
+/// - 章内位置落模块 kv（含字符偏移 locator），历史库仍记章级进度（双记账不变）；
+/// - 相邻章预取 + 会话内 LRU：换章不白屏，加载失败保留当前正文；
+/// - 分页在帧后调度，不再每帧在 build 里同步排版。
 ///
 /// 路由参数：`bookId`、`title`、`author`、`sourceKey`、`bookUrl`、`chapterId`、
 /// `chapterIndex`、`chapterUrl`、`chapterTitle`。缺目录时按 bookId 重新抓目录。
@@ -26,15 +28,15 @@ import 'package:mimao/novel/engine/online_engine.dart';
 import 'package:mimao/novel/library_api.dart';
 import 'package:mimao/novel/models/novel_models.dart';
 import 'package:mimao/novel/reader/novel_immersive.dart';
+import 'package:mimao/novel/reader/novel_locator.dart';
 import 'package:mimao/novel/reader/novel_reader_chrome.dart';
-import 'package:mimao/novel/reader/novel_reader_position.dart';
+import 'package:mimao/novel/reader/novel_reader_controller.dart';
 import 'package:mimao/novel/reader/novel_reader_settings.dart';
 import 'package:mimao/novel/reader/novel_reader_settings_sheet.dart';
 import 'package:mimao/novel/reader/novel_search_sheet.dart';
 import 'package:mimao/novel/reader/novel_source_switch_sheet.dart';
 import 'package:mimao/novel/reader/novel_text_pagination.dart';
 import 'package:mimao/novel/reader/novel_tts.dart';
-import 'package:mimao/novel/source/novel_rule_model.dart';
 import 'package:mimao/novel/source/novel_rule_store.dart';
 import 'package:mimao/novel/source/novel_source_model.dart';
 import 'package:mimao/novel/source/novel_source_store.dart';
@@ -91,7 +93,8 @@ class NovelReaderPage extends StatefulWidget {
   State<NovelReaderPage> createState() => _NovelReaderPageState();
 }
 
-class _NovelReaderPageState extends State<NovelReaderPage> {
+class _NovelReaderPageState extends State<NovelReaderPage>
+    with WidgetsBindingObserver {
   static const double _contentTopGap = 12;
   static const double _contentBottomGap = 44;
   static const double _footerHeight = 26;
@@ -104,514 +107,198 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
   static bool get _supportsAutoBrightness => !kIsWeb && Platform.isAndroid;
 
   final ScrollController _scroll = ScrollController();
+  final FocusNode _focus = FocusNode(debugLabel: 'novel-reader');
   final ValueNotifier<bool> _chromeVisible = ValueNotifier<bool>(true);
   final ValueNotifier<double> _scrollRatio = ValueNotifier<double>(0);
   final Stopwatch _session = Stopwatch();
+  final Map<int, GlobalKey> _paragraphKeys = <int, GlobalKey>{};
 
-  late final NovelReaderSettingsStore _settingsStore;
-  late final NovelReaderPositionStore _positionStore;
+  late final NovelReaderController _controller;
 
-  NovelReaderSettings _settings = const NovelReaderSettings();
-  bool _settingsReady = false;
-
-  NovelBookSource? _source;
-  NovelDetail? _detail;
-  NovelChapter? _chapter;
-  NovelContent? _content;
-  String? _loadError;
-  bool _loadingDetail = true;
-  bool _loadingContent = false;
-  List<NovelReplaceRule> _replaceRules = const <NovelReplaceRule>[];
-  Future<void> _replaceRulesReady = Future<void>.value();
-
-  List<NovelTextPage> _pages = const <NovelTextPage>[];
-  String _paginationKey = '';
-  int _pageIndex = 0;
-  int _pageDirection = 1;
-  double? _pendingPageRatio;
-  NovelReaderPosition? _pendingRestore;
-  bool _pendingStartAtEnd = false;
-  NovelReaderPosition? _savedPosition;
-  NovelSummary? _historyOverride;
+  int _lastEpoch = -1;
+  bool _restoreScheduled = false;
 
   bool _autoReading = false;
   Timer? _autoTimer;
-  Timer? _saveTimer;
-  Timer? _settingsTimer;
-  bool _torndown = false;
-  int _loadSeq = 0;
-  bool _ensuringTts = false;
+  bool _appPaused = false;
 
   NovelTtsEngine? _tts;
   bool _speaking = false;
+  bool _ensuringTts = false;
   int _ttsParagraph = 0;
+
+  int? _highlightParagraph;
+  Timer? _highlightTimer;
 
   @override
   void initState() {
     super.initState();
-    _session.start();
-    _settingsStore =
-        widget.settingsStore ?? PrefsNovelReaderSettingsStore(widget.prefs);
-    _positionStore = NovelReaderPositionStore(widget.prefs);
+    _controller = NovelReaderController(
+      bookId: widget.bookId,
+      title: widget.title,
+      author: widget.author,
+      sourceKey: widget.sourceKey,
+      bookUrl: widget.bookUrl,
+      chapterId: widget.chapterId,
+      chapterIndex: widget.chapterIndex,
+      chapterUrl: widget.chapterUrl,
+      chapterTitle: widget.chapterTitle,
+      coverUrl: widget.coverUrl,
+      chapters: widget.chapters,
+      onlineEngine: widget.onlineEngine,
+      sourceStore: widget.sourceStore,
+      history: widget.history,
+      prefs: widget.prefs,
+      replaceRules: widget.replaceRules,
+      settingsStore: widget.settingsStore,
+    );
+    _controller.addListener(_onControllerChanged);
     _scroll.addListener(_onScroll);
-    _replaceRulesReady = _loadReplaceRules();
-    unawaited(_prepare());
+    _session.start();
+    WidgetsBinding.instance.addObserver(this);
+    unawaited(_controller.init());
     unawaited(NovelImmersive.enter());
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _autoTimer?.cancel();
-    _saveTimer?.cancel();
-    _settingsTimer?.cancel();
+    _highlightTimer?.cancel();
     _flushReadingTime();
-    _savePositionNow();
-    _torndown = true;
+    unawaited(_controller.savePositionNow());
+    _controller.removeListener(_onControllerChanged);
+    _controller.dispose();
     _scroll.removeListener(_onScroll);
     _scroll.dispose();
     _scrollRatio.dispose();
     _chromeVisible.dispose();
+    _focus.dispose();
     unawaited(_stopTts());
     unawaited(NovelImmersive.exit());
     super.dispose();
   }
 
-  Future<void> _prepare() async {
-    final loaded = await _settingsStore.load();
-    final position = await _positionStore.load(widget.bookId);
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.paused:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.detached:
+        _appPaused = true;
+        _autoTimer?.cancel();
+        _autoTimer = null;
+        _flushReadingTime();
+        unawaited(_stopTts());
+      case AppLifecycleState.resumed:
+        _appPaused = false;
+        _session.start();
+        if (_autoReading) _startAutoTimer();
+      case AppLifecycleState.inactive:
+        // 桌面上切换窗口会频繁出现 inactive，不当作后台。
+        break;
+    }
+  }
+
+  void _onControllerChanged() {
     if (!mounted) return;
-    setState(() {
-      _settings = loaded;
-      _savedPosition = position;
-      _settingsReady = true;
-    });
-    await _bootstrap();
-  }
-
-  /// 读替换规则；失败不阻断阅读，按「没有规则」继续。
-  Future<void> _loadReplaceRules() async {
-    final store = widget.replaceRules;
-    if (store == null) return;
-    try {
-      final rules = await store.loadAll();
-      if (mounted) setState(() => _replaceRules = rules);
-    } on Object {
-      // 规则读坏了不该让正文打不开。
-    }
-  }
-
-  /// 把替换规则作用到正文与标题上：`scopeTitle` / `scopeContent` 分别控制，
-  /// 作用范围按书名 / 书源 key / 书源地址匹配（空范围 = 全局）。
-  NovelContent _applyReplaceRules(NovelContent content) {
-    if (_replaceRules.isEmpty) return content;
-    final detail = _detail;
-    final bookTitle = detail?.title ?? widget.title ?? '';
-    final sourceKey = detail?.ref.sourceKey ?? widget.sourceKey ?? '';
-    final bookUrl = detail?.ref.bookUrl ?? widget.bookUrl ?? '';
-    final applicable = _replaceRules
-        .where(
-          (rule) =>
-              rule.enabled &&
-              rule.appliesToBook(
-                bookTitle: bookTitle,
-                sourceKey: sourceKey,
-                bookUrl: bookUrl,
-              ),
-        )
-        .toList();
-    if (applicable.isEmpty) return content;
-    final titleRules = applicable.where((rule) => rule.scopeTitle).toList();
-    final contentRules = applicable.where((rule) => rule.scopeContent).toList();
-    return NovelContent(
-      chapterId: content.chapterId,
-      title: titleRules.isEmpty
-          ? content.title
-          : applyReplaceRules(content.title, titleRules),
-      paragraphs: contentRules.isEmpty
-          ? content.paragraphs
-          : <String>[
-              for (final paragraph in content.paragraphs)
-                applyReplaceRules(paragraph, contentRules),
-            ],
-    );
-  }
-
-  Future<void> _bootstrap() async {
-    final engine = widget.onlineEngine;
-    final store = widget.sourceStore;
-    final sourceKey = widget.sourceKey ?? '';
-    if (engine == null || store == null || sourceKey.isEmpty) {
-      setState(() {
-        _loadingDetail = false;
-        _loadError = '阅读器未接线（缺少书源引擎或书源信息）';
-      });
-      return;
-    }
-    final preloaded = widget.chapters;
-    if (preloaded != null && preloaded.isNotEmpty) {
-      final detail = NovelDetail(
-        ref: NovelRef(
-          id: widget.bookId,
-          sourceKey: sourceKey,
-          bookUrl: widget.bookUrl ?? widget.bookId,
-        ),
-        title: widget.title ?? '',
-        coverUrl: widget.coverUrl ?? '',
-        author: widget.author ?? '',
-        chapters: preloaded,
-      );
-      setState(() {
-        _detail = detail;
-        _loadingDetail = false;
-      });
-      // 源仍需用于正文抓取；只靠 key 从仓库取一次。
-      try {
-        final sources = await store.loadAll();
-        for (final candidate in sources) {
-          if (candidate.key == sourceKey) {
-            _source = candidate;
-            break;
-          }
-        }
-      } on Object {
-        // 忽略：下面统一判空。
-      }
-      if (!mounted) return;
-      if (_source == null) {
-        setState(() => _loadError = '找不到书源（可能已被删除）');
-        return;
-      }
-      final chapter = _pickChapter(detail.chapters);
-      if (chapter == null) {
-        setState(() => _loadError = '目录为空，无法开始阅读');
-        return;
-      }
-      await _openChapter(chapter);
-      return;
-    }
-    setState(() {
-      _loadingDetail = true;
-      _loadError = null;
-    });
-    try {
-      final sources = await store.loadAll();
-      NovelBookSource? source;
-      for (final candidate in sources) {
-        if (candidate.key == sourceKey) {
-          source = candidate;
-          break;
-        }
-      }
-      if (source == null) {
-        throw StateError('找不到书源（可能已被删除）');
-      }
-      final ref = NovelRef(
-        id: widget.bookId,
-        sourceKey: sourceKey,
-        bookUrl: widget.bookUrl ?? widget.bookId,
-      );
-      final detail = await engine.bookDetail(
-        source,
-        ref,
-        titleHint: widget.title,
-        authorHint: widget.author,
-      );
-      if (!mounted) return;
-      setState(() {
-        _source = source;
-        _detail = detail;
-        _loadingDetail = false;
-      });
-      final chapter = _pickChapter(detail.chapters);
-      if (chapter == null) {
-        setState(() => _loadError = '目录为空，无法开始阅读');
-        return;
-      }
-      await _openChapter(chapter);
-    } on Object catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _loadingDetail = false;
-        _loadError = '$error';
-      });
-    }
-  }
-
-  NovelChapter? _pickChapter(List<NovelChapter> chapters) {
-    if (chapters.isEmpty) return null;
-    final id = widget.chapterId;
-    if (id != null && id.isNotEmpty) {
-      for (final chapter in chapters) {
-        if (chapter.id == id || chapter.url == id) return chapter;
-      }
-    }
-    final index = widget.chapterIndex;
-    if (index != null && index >= 0 && index < chapters.length) {
-      return chapters[index];
-    }
-    return chapters.first;
-  }
-
-  Future<void> _openChapter(
-    NovelChapter chapter, {
-    bool atEnd = false,
-    bool refresh = false,
-  }) async {
-    final engine = widget.onlineEngine;
-    final source = _source;
-    final detail = _detail;
-    if (engine == null || source == null || detail == null) return;
-    final seq = ++_loadSeq;
-    final reopening = _chapter != null && _chapter!.id == chapter.id;
-    final resumeFrom = reopening ? _currentSavedPosition() : null;
-    await _stopTts();
-    _flushReadingTime();
-    _savePositionNow();
-    if (!mounted) return;
-    setState(() {
-      _chapter = chapter;
-      _content = null;
-      _loadingContent = true;
-      _loadError = null;
-      _pageIndex = 0;
-      _pageDirection = 1;
-      _paginationKey = '';
-      _pages = const <NovelTextPage>[];
-      _pendingPageRatio = null;
-    });
-    _scrollRatio.value = 0;
-    if (_scroll.hasClients) _scroll.jumpTo(0);
-    try {
-      var content = refresh
-          ? await _refreshContent(engine, source, detail.ref, chapter)
-          : await engine.contentFor(source, detail.ref, chapter);
-      // 规则可能还在读盘；等它落地再展示，避免首屏先出现未净化的正文。
-      await _replaceRulesReady;
-      if (!mounted || seq != _loadSeq) return;
-      content = _applyReplaceRules(content);
-      final saved = resumeFrom ?? _savedPosition;
-      final canRestore =
-          saved != null &&
-          (resumeFrom != null ||
-              saved.matches(
-                chapterUrl: chapter.url,
-                chapterId: chapter.id,
-                chapterIndex: chapter.index,
-              ));
-      setState(() {
-        _content = content;
-        _loadingContent = false;
-        _pendingRestore = canRestore ? saved : null;
-        _pendingStartAtEnd = !canRestore && atEnd;
-      });
-      // 引擎的 chapter.index 是 0 起（对齐 legado），历史库存的"读到第几章"
-      // 是 1 起且 0 表示无进度（novel_db.dart 的契约）。落库前 +1，否则第 1 章
-      // （index=0）会被当成"没读"显示"读过"，第 N 章少显示一章。
+    final epoch = _controller.contentEpoch;
+    final changed = epoch != _lastEpoch;
+    if (changed) {
+      _lastEpoch = epoch;
+      _paragraphKeys.clear();
       _session
         ..reset()
         ..start();
-      // 先恢复页内位置，再写历史：历史库慢/失败不该把用户扔回章首。
-      _schedulePositionRestore();
-      try {
-        await widget.history?.saveProgress(
-          _historyOverride ?? detail.summary,
-          chapter.index + 1,
-          detail.chapters.length,
-        );
-      } on Object {
-        // 历史写入失败不阻断阅读。
-      }
-    } on Object catch (error) {
-      if (!mounted || seq != _loadSeq) return;
-      setState(() {
-        _loadingContent = false;
-        _loadError = '$error';
+      _highlightParagraph = null;
+      unawaited(_stopTts());
+    }
+    setState(() {});
+    if (!_restoreScheduled) {
+      _restoreScheduled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _restoreScheduled = false;
+        if (mounted) _handleScrollRestore(resetToTop: changed);
       });
     }
   }
 
-  Future<NovelContent> _refreshContent(
-    NovelOnlineEngine engine,
-    NovelBookSource source,
-    NovelRef ref,
-    NovelChapter chapter,
-  ) {
-    if (engine is NovelContentRefresh) {
-      return (engine as NovelContentRefresh).refreshContent(
-        source,
-        ref,
-        chapter,
+  /// 滚动模式的落位：新章先回顶，再按 locator / 比例 / atEnd 还原。
+  /// 翻页模式的落位在控制器排版完成时直接算好 pageIndex。
+  void _handleScrollRestore({required bool resetToTop}) {
+    if (_controller.settings.pageMode != NovelPageMode.scroll) return;
+    if (!_scroll.hasClients) return;
+    if (resetToTop) _scroll.jumpTo(0);
+    final restore = _controller.takeScrollRestore();
+    if (restore == null) return;
+    if (restore.atEnd) {
+      _scroll.jumpTo(_scroll.position.maxScrollExtent);
+      return;
+    }
+    final position = restore.position;
+    if (position == null) return;
+    final locator = position.locator;
+    if (locator != null &&
+        !locator.isTitle &&
+        locator.chapterIndex == (_controller.chapter?.index ?? -1)) {
+      _jumpToParagraph(locator.paragraph, locator.charOffset);
+      return;
+    }
+    final max = _scroll.position.maxScrollExtent;
+    _scroll.jumpTo(
+      (position.scrollRatio.clamp(0.0, 1.0) * max).clamp(0.0, max),
+    );
+  }
+
+  GlobalKey _paragraphKey(int paragraph) =>
+      _paragraphKeys.putIfAbsent(paragraph, GlobalKey.new);
+
+  void _jumpToParagraph(int paragraph, [int charOffset = 0]) {
+    final key = _paragraphKey(paragraph);
+    final target = key.currentContext;
+    if (target != null) {
+      unawaited(
+        Scrollable.ensureVisible(
+          target,
+          alignment: 0,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOut,
+        ),
       );
+      return;
     }
-    return engine.contentFor(source, ref, chapter);
-  }
-
-  void _flushReadingTime() {
-    if (!_session.isRunning) return;
-    _session.stop();
-    final elapsed = _session.elapsed;
-    if (elapsed.inSeconds > 0) {
-      unawaited(widget.stats?.addReadingTime(elapsed) ?? Future<void>.value());
+    // 段落还没被 ListView 构建：先按段落比例粗定位，再在下一帧精确定位。
+    if (_scroll.hasClients) {
+      final total = _controller.content?.paragraphs.length ?? 1;
+      final max = _scroll.position.maxScrollExtent;
+      final ratio = total <= 1 ? 0.0 : paragraph / total;
+      _scroll.jumpTo((ratio * max).clamp(0.0, max));
     }
-  }
-
-  // ── 章节切换 ──────────────────────────────────────────────────────────
-  NovelChapter? _neighborChapter(int delta) {
-    final detail = _detail;
-    final chapter = _chapter;
-    if (detail == null || chapter == null) return null;
-    var index = chapter.index + delta;
-    while (index >= 0 && index < detail.chapters.length) {
-      final candidate = detail.chapters[index];
-      if (!candidate.isVolume) return candidate;
-      index += delta;
-    }
-    return null;
-  }
-
-  Future<void> _nextChapter() async {
-    final next = _neighborChapter(1);
-    if (next != null) await _openChapter(next);
-  }
-
-  Future<void> _previousChapter({bool atEnd = false}) async {
-    final previous = _neighborChapter(-1);
-    if (previous != null) await _openChapter(previous, atEnd: atEnd);
-  }
-
-  // ── 排版与进度 ────────────────────────────────────────────────────────
-  TextStyle _bodyStyle() {
-    final family = _settings.fontFamily.isEmpty
-        ? MimaoFonts.family
-        : _settings.fontFamily;
-    return TextStyle(
-      fontFamily: family,
-      fontWeight: MimaoFonts.regular,
-      fontSize: _settings.fontSize,
-      height: _settings.lineHeight,
-      color: novelReaderTextColor(_settings),
-    );
-  }
-
-  TextStyle _titleStyle() => _bodyStyle().copyWith(
-    fontSize: _settings.fontSize + 6,
-    fontWeight: MimaoFonts.bold,
-    height: 1.4,
-  );
-
-  String _paragraphText(int index) {
-    final paragraphs = _content?.paragraphs ?? const <String>[];
-    if (index < 0 || index >= paragraphs.length) return '';
-    return '　　${paragraphs[index]}';
-  }
-
-  List<NovelTextPage> _pagesFor(BoxConstraints constraints, EdgeInsets insets) {
-    final content = _content;
-    if (content == null) {
-      _pages = const <NovelTextPage>[];
-      return _pages;
-    }
-    final double top = insets.top + _contentTopGap;
-    final double bottom = insets.bottom + _contentBottomGap;
-    final double width =
-        (constraints.maxWidth - _settings.horizontalPadding * 2).clamp(
-          80.0,
-          double.infinity,
-        );
-    final double height = (constraints.maxHeight - top - bottom).clamp(
-      80.0,
-      double.infinity,
-    );
-    final scaler = MediaQuery.textScalerOf(context);
-    final key = <Object?>[
-      _chapter?.id,
-      content.title,
-      content.paragraphs.length,
-      width,
-      height,
-      _settings.fontSize,
-      _settings.lineHeight,
-      _settings.fontFamily,
-      _settings.paragraphSpacing,
-      _settings.horizontalPadding,
-      scaler.scale(16),
-    ].join('|');
-    if (key == _paginationKey) return _pages;
-
-    final pages = NovelPaginator(
-      title: content.title.isEmpty ? (_chapter?.title ?? '') : content.title,
-      paragraphs: content.paragraphs,
-      bodyStyle: _bodyStyle(),
-      titleStyle: _titleStyle(),
-      maxWidth: width,
-      maxHeight: height,
-      paragraphSpacing: _settings.paragraphSpacing,
-      titleSpacing: 18,
-      textScaler: scaler,
-    ).paginate();
-    _paginationKey = key;
-    _pages = pages;
-
-    final ratio = _pendingPageRatio;
-    if (ratio != null) {
-      _pendingPageRatio = null;
-      _pageIndex = (ratio * (pages.length - 1)).round().clamp(
-        0,
-        pages.length - 1,
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final built = key.currentContext;
+      if (built == null) return;
+      unawaited(
+        Scrollable.ensureVisible(
+          built,
+          alignment: 0,
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+        ),
       );
-      if (_settings.pageMode == NovelPageMode.scroll) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted || !_scroll.hasClients) return;
-          final max = _scroll.position.maxScrollExtent;
-          _scroll.jumpTo((ratio * max).clamp(0.0, max));
-        });
-      }
-    } else if (_pageIndex >= pages.length) {
-      _pageIndex = pages.length - 1;
-    }
-    return pages;
+    });
   }
 
-  int _currentPage(int pageCount) {
-    if (pageCount <= 1) return 1;
-    if (_settings.pageMode == NovelPageMode.page) {
-      return _pageIndex.clamp(0, pageCount - 1) + 1;
+  int _visibleParagraph() {
+    final top = MediaQuery.paddingOf(context).top + _contentTopGap + 12;
+    var result = 0;
+    for (final entry in _paragraphKeys.entries) {
+      final box = entry.value.currentContext?.findRenderObject();
+      if (box is! RenderBox || !box.hasSize) continue;
+      final dy = box.localToGlobal(Offset.zero).dy;
+      if (dy <= top && entry.key >= result) result = entry.key;
     }
-    final page = (_scrollRatio.value * pageCount).floor() + 1;
-    return page.clamp(1, pageCount);
-  }
-
-  /// 章内位置比例：滚动模式以滚动比例为准，翻页模式按页码比例。
-  double _currentPageRatio() {
-    final count = _pages.length;
-    if (_settings.pageMode == NovelPageMode.page) {
-      return count <= 1 ? 0 : _pageIndex / (count - 1);
-    }
-    return _scrollRatio.value;
-  }
-
-  void _scheduleSettingsSave() {
-    _settingsTimer?.cancel();
-    _settingsTimer = Timer(
-      const Duration(milliseconds: 300),
-      () => unawaited(_settingsStore.save(_settings)),
-    );
-  }
-
-  double _bookPercent(int page, int pageCount) {
-    final chapters = _detail?.chapters.length ?? 0;
-    final chapter = _chapter;
-    if (chapters <= 0 || chapter == null) return 0;
-    if (pageCount <= 0) {
-      return ((chapter.index + 1) / chapters * 100).clamp(0.0, 100.0);
-    }
-    // 与 legado 一致：整书进度 = (章下标 + 当前页/本章页数) / 总章数。
-    final value = (chapter.index + page / pageCount) / chapters * 100;
-    final atLastPage = chapter.index >= chapters - 1 && page >= pageCount;
-    final clamped = value.clamp(0.0, 100.0);
-    // 还没读到最后一页时最多显示 99.9%，避免"没读完就 100%"。
-    if (clamped >= 100 && !atLastPage) return 99.9;
-    return clamped;
+    return result;
   }
 
   void _onScroll() {
@@ -623,109 +310,49 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     if ((ratio - _scrollRatio.value).abs() >= 0.001) {
       _scrollRatio.value = ratio;
     }
-    _scheduleSavePosition();
-  }
-
-  void _scheduleSavePosition() {
-    _saveTimer?.cancel();
-    _saveTimer = Timer(const Duration(milliseconds: 600), _savePositionNow);
-  }
-
-  NovelReaderPosition? _currentSavedPosition() {
-    final chapter = _chapter;
-    if (chapter == null) return null;
-    final pageCount = _pages.isEmpty ? 1 : _pages.length;
-    return NovelReaderPosition(
-      chapterUrl: chapter.url,
-      chapterId: chapter.id,
-      chapterIndex: chapter.index,
-      page: _currentPage(pageCount),
-      pageCount: pageCount,
-      scrollRatio: _scrollRatio.value,
+    _controller.onScroll(
+      ratio,
+      visibleParagraph: _controller.settings.pageMode == NovelPageMode.scroll
+          ? _visibleParagraph()
+          : null,
     );
   }
 
-  void _savePositionNow() {
-    final position = _currentSavedPosition();
-    if (position == null || _torndown) return;
-    _savedPosition = position;
-    unawaited(_positionStore.save(widget.bookId, position));
-  }
-
-  void _schedulePositionRestore() {
-    final restore = _pendingRestore;
-    final startAtEnd = _pendingStartAtEnd;
-    if (restore == null && !startAtEnd) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      _pendingRestore = null;
-      _pendingStartAtEnd = false;
-      final count = _pages.length;
-      if (count == 0) return;
-      if (_settings.pageMode == NovelPageMode.page) {
-        final restored = restore == null
-            ? count - 1
-            : restore.pageCount <= 1
-            ? 0
-            : ((restore.page - 1) / (restore.pageCount - 1) * (count - 1))
-                  .round();
-        final index = restored.clamp(0, count - 1);
-        setState(() {
-          _pageDirection = 1;
-          _pageIndex = index;
-        });
-      } else if (_scroll.hasClients) {
-        final max = _scroll.position.maxScrollExtent;
-        final ratio = restore != null
-            ? restore.scrollRatio.clamp(0.0, 1.0)
-            : 1.0;
-        _scroll.jumpTo((ratio * max).clamp(0.0, max));
-      }
-    });
-  }
-
-  void _seekPage(int page) {
-    final count = _pages.length;
-    if (count <= 1) return;
-    final index = (page - 1).clamp(0, count - 1);
-    if (_settings.pageMode == NovelPageMode.page) {
-      if (index == _pageIndex) return;
-      setState(() {
-        _pageDirection = index > _pageIndex ? 1 : -1;
-        _pageIndex = index;
-      });
-    } else if (_scroll.hasClients) {
-      final max = _scroll.position.maxScrollExtent;
-      final target = count <= 1 ? 0.0 : index / (count - 1) * max;
-      unawaited(
-        _scroll.animateTo(
-          target.clamp(0.0, max),
-          duration: const Duration(milliseconds: 240),
-          curve: Curves.easeOut,
-        ),
-      );
+  Future<void> _flushReadingTime() async {
+    if (!_session.isRunning) return;
+    _session.stop();
+    final elapsed = _session.elapsed;
+    if (elapsed.inSeconds <= 0) return;
+    try {
+      await widget.stats?.addReadingTime(elapsed);
+    } on Object {
+      // 统计失败不影响阅读。
     }
-    _scheduleSavePosition();
   }
+
+  // ── 章节切换 ──────────────────────────────────────────────────────────
+  Future<void> _nextChapter() => _controller.nextChapter();
+
+  Future<void> _previousChapter({bool atEnd = false}) =>
+      _controller.previousChapter(atEnd: atEnd);
 
   void _turnPage(int direction) {
-    if (!_settingsReady || _content == null) return;
-    final pageCount = _pages.length;
-    if (_settings.pageMode == NovelPageMode.page) {
-      final next = _pageIndex + direction;
+    final settings = _controller.settings;
+    if (!_controller.settingsReady || _controller.content == null) return;
+    if (settings.pageMode == NovelPageMode.page) {
+      final pages = _controller.pages;
+      if (pages.isEmpty) return;
+      final next = _controller.pageIndex + direction;
       if (next < 0) {
         unawaited(_previousChapter(atEnd: true));
         return;
       }
-      if (next >= pageCount) {
+      if (next >= pages.length) {
         unawaited(_nextChapter());
         return;
       }
-      setState(() {
-        _pageDirection = direction;
-        _pageIndex = next;
-      });
-      _scheduleSavePosition();
+      _controller.setPageIndex(next, direction: direction);
+      unawaited(_controller.savePositionNow());
       return;
     }
     if (!_scroll.hasClients) return;
@@ -759,8 +386,36 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     );
   }
 
+  void _scrollToEdge(double ratio) {
+    if (!_scroll.hasClients) return;
+    final max = _scroll.position.maxScrollExtent;
+    unawaited(
+      _scroll.animateTo(
+        (ratio * max).clamp(0.0, max),
+        duration: const Duration(milliseconds: 240),
+        curve: Curves.easeOut,
+      ),
+    );
+  }
+
   void _toggleChrome() {
     _chromeVisible.value = !_chromeVisible.value;
+  }
+
+  /// 点按分区挂在正文手势上，而不是盖一层全屏热区。
+  ///
+  /// 旧实现的热区在正文之上，会把章末「下一章」按钮和选文长按一起吃掉；
+  /// 现在由正文自己识别左/中/右 3:4:3，按钮等更深的手势优先。
+  void _handleTapAt(TapUpDetails details) {
+    final width = MediaQuery.sizeOf(context).width;
+    final dx = details.globalPosition.dx;
+    if (dx < width * 0.3) {
+      _turnPage(-1);
+    } else if (dx > width * 0.7) {
+      _turnPage(1);
+    } else {
+      _toggleChrome();
+    }
   }
 
   void _handleEscape() {
@@ -771,66 +426,47 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     }
   }
 
+  void _refocusReader() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focus.requestFocus();
+    });
+  }
+
   // ── 设置 ──────────────────────────────────────────────────────────────
   void _applySettings(NovelReaderSettings next) {
-    final previous = _settings;
-    final oldInterval = previous.autoPageSeconds;
-    final ratio = _currentPageRatio();
-    final modeChanged = next.pageMode != previous.pageMode;
-    final layoutChanged =
-        next.fontSize != previous.fontSize ||
-        next.lineHeight != previous.lineHeight ||
-        next.paragraphSpacing != previous.paragraphSpacing ||
-        next.horizontalPadding != previous.horizontalPadding ||
-        next.fontFamily != previous.fontFamily;
-    setState(() {
-      _settings = next;
-      if (layoutChanged) _paginationKey = '';
-      if (layoutChanged || modeChanged) _pendingPageRatio = ratio;
-    });
-    _scheduleSettingsSave();
-    if (modeChanged && next.pageMode == NovelPageMode.scroll) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || !_scroll.hasClients) return;
-        final max = _scroll.position.maxScrollExtent;
-        _scroll.jumpTo((ratio * max).clamp(0.0, max));
-      });
-    }
+    final oldInterval = _controller.settings.autoPageSeconds;
+    _controller.applySettings(next);
     if (_autoReading && next.autoPageSeconds != oldInterval) {
       _startAutoTimer();
     }
   }
 
   void _setBrightness(double value) {
-    final next = _settings.copyWith(
+    final current = _controller.settings;
+    final next = current.copyWith(
       dimBrightness: value.round(),
       // 手动拖亮度即退出「跟随系统」。
       autoBrightness: false,
     );
-    if (next.dimBrightness == _settings.dimBrightness &&
-        !_settings.autoBrightness) {
+    if (next.dimBrightness == current.dimBrightness &&
+        !current.autoBrightness) {
       return;
     }
-    setState(() => _settings = next);
-    _settingsTimer?.cancel();
-    _settingsTimer = Timer(
-      const Duration(milliseconds: 350),
-      () => unawaited(_settingsStore.save(_settings)),
-    );
+    _controller.applySettings(next);
   }
 
   int _dimBeforeAuto = 100;
 
   void _toggleAutoBrightness() {
-    final turningOn = !_settings.autoBrightness;
-    if (turningOn) _dimBeforeAuto = _settings.dimBrightness;
-    final next = _settings.copyWith(
-      autoBrightness: turningOn,
-      // 跟随系统 = 阅读遮罩不压暗，亮度交给系统；关掉后恢复原值。
-      dimBrightness: turningOn ? 100 : _dimBeforeAuto,
+    final current = _controller.settings;
+    final turningOn = !current.autoBrightness;
+    if (turningOn) _dimBeforeAuto = current.dimBrightness;
+    _controller.applySettings(
+      current.copyWith(
+        autoBrightness: turningOn,
+        dimBrightness: turningOn ? 100 : _dimBeforeAuto,
+      ),
     );
-    setState(() => _settings = next);
-    unawaited(_settingsStore.save(next));
   }
 
   // ── 自动翻页 ──────────────────────────────────────────────────────────
@@ -849,7 +485,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
       _stopAutoReading();
       return;
     }
-    if (_content == null) {
+    if (_controller.content == null) {
       _showSnack('正文还没加载完，暂时不能自动翻页');
       return;
     }
@@ -859,12 +495,13 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
 
   void _startAutoTimer() {
     _autoTimer?.cancel();
-    _autoTimer = Timer.periodic(Duration(seconds: _settings.autoPageSeconds), (
-      _,
-    ) {
-      if (!mounted || !_autoReading) return;
-      _turnPage(1);
-    });
+    _autoTimer = Timer.periodic(
+      Duration(seconds: _controller.settings.autoPageSeconds),
+      (_) {
+        if (!mounted || !_autoReading || _appPaused) return;
+        _turnPage(1);
+      },
+    );
   }
 
   void _stopAutoReading() {
@@ -896,7 +533,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
       return;
     }
     if (_ensuringTts) return;
-    final content = _content;
+    final content = _controller.content;
     if (content == null) return;
     _ensuringTts = true;
     final tts = await _ensureTts();
@@ -912,12 +549,16 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
   }
 
   int _firstParagraphOnPage() {
-    if (_pages.isEmpty) return 0;
-    final index = (_currentPage(_pages.length) - 1).clamp(0, _pages.length - 1);
-    for (final slice in _pages[index].slices) {
-      if (!slice.isTitle) return slice.paragraph;
+    if (_controller.settings.pageMode == NovelPageMode.page) {
+      final pages = _controller.pages;
+      if (pages.isEmpty) return 0;
+      final index = _controller.pageIndex.clamp(0, pages.length - 1);
+      for (final slice in pages[index].slices) {
+        if (!slice.isTitle) return slice.paragraph;
+      }
+      return 0;
     }
-    return 0;
+    return _visibleParagraph();
   }
 
   Future<void> _speakParagraphs(
@@ -953,16 +594,22 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
   Future<void> _openSettings() async {
     _pauseAutoForSheet();
     _chromeVisible.value = false;
+    final pageCount = _controller.pages.isEmpty ? 1 : _controller.pages.length;
+    final pageMode = _controller.settings.pageMode == NovelPageMode.page;
+    final page = _controller.currentPage(pageCount);
     final info = NovelReaderBookInfo(
-      bookTitle: _detail?.title ?? widget.title ?? '',
-      author: _detail?.author ?? widget.author ?? '',
-      sourceName: _source?.name ?? '',
-      chapterTitle: _chapter?.title ?? '',
-      chapterIndex: (_chapter?.index ?? 0) + 1,
-      chapterCount: _detail?.chapters.length ?? 0,
-      page: _currentPage(_pages.length),
-      pageCount: _pages.isEmpty ? 1 : _pages.length,
-      percent: _bookPercent(_currentPage(_pages.length), _pages.length),
+      bookTitle: _controller.detail?.title ?? widget.title ?? '',
+      author: _controller.detail?.author ?? widget.author ?? '',
+      sourceName: _controller.source?.name ?? '',
+      chapterTitle: _controller.chapter?.title ?? '',
+      chapterIndex: (_controller.chapter?.index ?? 0) + 1,
+      chapterCount: _controller.detail?.chapters.length ?? 0,
+      page: page,
+      pageCount: pageCount,
+      percent: _controller.bookPercent(
+        page: pageMode ? page : null,
+        pageCount: pageMode ? pageCount : null,
+      ),
     );
     await showModalBottomSheet<void>(
       context: context,
@@ -978,7 +625,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
             MediaQuery.paddingOf(sheetContext).bottom + 12,
           ),
           child: NovelReaderSettingsSheet(
-            initial: _settings,
+            initial: _controller.settings,
             info: info,
             onChanged: _applySettings,
             onClose: () => Navigator.of(sheetContext).pop(),
@@ -989,12 +636,13 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     if (mounted) {
       _chromeVisible.value = true;
       _resumeAutoFromSheet();
+      _refocusReader();
     }
   }
 
   Future<void> _openCatalog() async {
     _pauseAutoForSheet();
-    final detail = _detail;
+    final detail = _controller.detail;
     if (detail == null) return;
     _chromeVisible.value = false;
     final chapters = <({String title, bool isVolume, bool isVip})>[
@@ -1013,8 +661,8 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
       builder: (sheetContext) => _sheetTheme(
         NovelCatalogSheet(
           chapters: chapters,
-          currentIndex: _chapter?.index ?? 0,
-          settings: _settings,
+          currentIndex: _controller.chapter?.index ?? 0,
+          settings: _controller.settings,
           onPick: (index) => Navigator.of(sheetContext).pop(index),
         ),
       ),
@@ -1022,18 +670,19 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     if (mounted) {
       _chromeVisible.value = true;
       _resumeAutoFromSheet();
+      _refocusReader();
     }
     if (picked != null && mounted && picked < detail.chapters.length) {
       final target = detail.chapters[picked];
-      if (!target.isVolume) await _openChapter(target);
+      if (!target.isVolume) await _controller.openChapter(target);
     }
   }
 
   Future<void> _openSearch() async {
     _pauseAutoForSheet();
     final engine = widget.onlineEngine;
-    final source = _source;
-    final detail = _detail;
+    final source = _controller.source;
+    final detail = _controller.detail;
     if (engine == null || source == null || detail == null) return;
     _chromeVisible.value = false;
     final titles = <String>[
@@ -1047,7 +696,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
       builder: (sheetContext) => _sheetTheme(
         NovelSearchSheet(
           chapterTitles: titles,
-          currentChapterIndex: _chapter?.index ?? 0,
+          currentChapterIndex: _controller.chapter?.index ?? 0,
           loadChapter: (index) async {
             if (index < 0 || index >= detail.chapters.length) {
               return const <String>[];
@@ -1063,7 +712,17 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
           },
           onPick: (chapterIndex, paragraph) {
             // 搜索面板自己 pop 回阅读页，这里不能再 pop 一次。
-            unawaited(_jumpToParagraph(chapterIndex, paragraph));
+            unawaited(_jumpToHit(chapterIndex, paragraph, 0, titles));
+          },
+          onPickHit: (hit) {
+            unawaited(
+              _jumpToHit(
+                hit.chapterIndex,
+                hit.paragraph,
+                hit.charOffset,
+                titles,
+              ),
+            );
           },
         ),
       ),
@@ -1071,29 +730,38 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     if (mounted) {
       _chromeVisible.value = true;
       _resumeAutoFromSheet();
+      _refocusReader();
     }
   }
 
-  Future<void> _jumpToParagraph(int chapterIndex, int paragraph) async {
-    final detail = _detail;
+  Future<void> _jumpToHit(
+    int chapterIndex,
+    int paragraph,
+    int charOffset,
+    List<String> titles,
+  ) async {
+    final detail = _controller.detail;
     if (detail == null ||
         chapterIndex < 0 ||
         chapterIndex >= detail.chapters.length) {
       return;
     }
     final chapter = detail.chapters[chapterIndex];
-    if (_chapter?.index != chapterIndex) {
-      await _openChapter(chapter);
-    }
+    if (chapter.isVolume) return;
+    await _controller.jumpToLocator(
+      NovelLocator(
+        chapterIndex: chapterIndex,
+        paragraph: paragraph,
+        charOffset: charOffset,
+        sourceKey: detail.ref.sourceKey,
+      ),
+    );
     if (!mounted) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final index = _pages.indexWhere(
-        (page) => page.slices.any(
-          (slice) => !slice.isTitle && slice.paragraph >= paragraph,
-        ),
-      );
-      if (index >= 0) _seekPage(index + 1);
+    // 跨章跳转时正文 epoch 会变，等高亮要放在跳转之后，否则会被清掉。
+    _highlightTimer?.cancel();
+    setState(() => _highlightParagraph = paragraph);
+    _highlightTimer = Timer(const Duration(seconds: 2), () {
+      if (mounted) setState(() => _highlightParagraph = null);
     });
   }
 
@@ -1101,7 +769,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     _pauseAutoForSheet();
     final engine = widget.onlineEngine;
     final store = widget.sourceStore;
-    final detail = _detail;
+    final detail = _controller.detail;
     if (engine == null || store == null || detail == null) return;
     _chromeVisible.value = false;
     List<NovelBookSource> sources;
@@ -1125,7 +793,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
         NovelSourceSwitchSheet(
           title: detail.title,
           author: detail.author,
-          currentSourceKey: _source?.key ?? '',
+          currentSourceKey: _controller.source?.key ?? '',
           sources: sources,
           engine: engine,
         ),
@@ -1134,112 +802,23 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     if (mounted) {
       _chromeVisible.value = true;
       _resumeAutoFromSheet();
+      _refocusReader();
     }
     if (hit == null || !mounted) return;
-    await _switchSource(hit.source, hit.book);
-  }
-
-  Future<void> _switchSource(NovelBookSource source, NovelSummary book) async {
-    final engine = widget.onlineEngine;
-    if (engine == null) return;
-    final oldChapter = _chapter;
-    _savePositionNow();
-    _flushReadingTime();
-    await _stopTts();
-    setState(() {
-      _loadingDetail = true;
-      _loadError = null;
-    });
     try {
-      final ref = NovelRef(
-        id: book.id,
-        sourceKey: source.key,
-        bookUrl: book.bookUrl.isEmpty ? book.id : book.bookUrl,
-      );
-      final detail = await engine.bookDetail(
-        source,
-        ref,
-        titleHint: book.title,
-        authorHint: book.author,
-      );
-      if (!mounted) return;
-      final targetIndex = _matchChapterIndex(detail.chapters, oldChapter);
-      if (detail.chapters.isEmpty) {
-        throw StateError('新书源目录为空');
-      }
-      final target = detail.chapters[targetIndex];
-      // 保持同一本书的 history 行（widget.bookId），只更新源信息；
-      // 这样书架/时间线不会因为换源多出一条重复记录。
-      _historyOverride = NovelSummary(
-        id: widget.bookId,
-        title: detail.title,
-        coverUrl: detail.coverUrl,
-        author: detail.author,
-        sourceKey: source.key,
-        bookUrl: ref.bookUrl,
-        intro: detail.intro,
-        kind: detail.kind,
-        latestChapter: detail.latestChapter,
-        wordCount: detail.wordCount,
-      );
-      setState(() {
-        _source = source;
-        _detail = detail;
-        _chapter = null;
-        _content = null;
-        _loadingDetail = false;
-      });
-      await _openChapter(target);
-      if (mounted) _showSnack('已切换到「${source.name}」');
+      await _controller.switchSource(hit.source, hit.book);
+      if (mounted) _showSnack('已切换到「${hit.source.name}」');
     } on Object catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _loadingDetail = false;
-        _loadError = '$error';
-      });
-      _showSnack('换源失败：$error');
+      if (mounted) _showSnack('换源失败：$error');
     }
   }
-
-  int _matchChapterIndex(
-    List<NovelChapter> chapters,
-    NovelChapter? oldChapter,
-  ) {
-    if (chapters.isEmpty) return 0;
-    if (oldChapter == null) return 0;
-    final target = _normalizeTitle(oldChapter.title);
-    if (target.isNotEmpty) {
-      for (var i = 0; i < chapters.length; i++) {
-        if (!chapters[i].isVolume &&
-            _normalizeTitle(chapters[i].title) == target) {
-          return i;
-        }
-      }
-    }
-    // 标题对不上时按旧下标兜底，但不能落在卷名行上。
-    final start = oldChapter.index.clamp(0, chapters.length - 1);
-    if (!chapters[start].isVolume) return start;
-    for (var offset = 1; offset < chapters.length; offset++) {
-      final forward = start + offset;
-      if (forward < chapters.length && !chapters[forward].isVolume) {
-        return forward;
-      }
-      final backward = start - offset;
-      if (backward >= 0 && !chapters[backward].isVolume) return backward;
-    }
-    return start;
-  }
-
-  String _normalizeTitle(String value) => value
-      .replaceAll(RegExp(r'[\s《》「」『』（）()\[\]【】\-—_·,，。.!！?？:：;；]'), '')
-      .toLowerCase();
 
   // ── 缓存 / 更多 ───────────────────────────────────────────────────────
   Future<void> _downloadCurrentChapter() async {
     final engine = widget.onlineEngine;
-    final source = _source;
-    final detail = _detail;
-    final chapter = _chapter;
+    final source = _controller.source;
+    final detail = _controller.detail;
+    final chapter = _controller.chapter;
     if (engine == null || source == null || detail == null || chapter == null) {
       return;
     }
@@ -1252,15 +831,15 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
   }
 
   Future<void> _refreshCurrentChapter() async {
-    final chapter = _chapter;
+    final chapter = _controller.chapter;
     if (chapter == null) return;
-    await _openChapter(chapter, refresh: true);
+    await _controller.refreshCurrentChapter();
   }
 
   Future<void> _cacheWholeBook() async {
     final engine = widget.onlineEngine;
-    final source = _source;
-    final detail = _detail;
+    final source = _controller.source;
+    final detail = _controller.detail;
     if (engine == null || source == null || detail == null) return;
     final chapters = <NovelChapter>[
       for (final chapter in detail.chapters)
@@ -1387,6 +966,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     if (mounted) {
       _chromeVisible.value = true;
       _resumeAutoFromSheet();
+      _refocusReader();
     }
     switch (picked) {
       case 'cache':
@@ -1399,17 +979,24 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
   }
 
   Future<void> _showBookInfo() async {
-    final detail = _detail;
+    final detail = _controller.detail;
     if (detail == null) return;
-    final page = _currentPage(_pages.isEmpty ? 1 : _pages.length);
-    final pageCount = _pages.isEmpty ? 1 : _pages.length;
+    final pageCount = _controller.pages.isEmpty ? 1 : _controller.pages.length;
+    final pageMode = _controller.settings.pageMode == NovelPageMode.page;
+    final page = _controller.currentPage(pageCount);
     final rows = <(String, String)>[
       ('书名', detail.title),
       ('作者', detail.author.isEmpty ? '—' : detail.author),
-      ('书源', _source?.name ?? '—'),
-      ('章节', '${(_chapter?.index ?? 0) + 1} / ${detail.chapters.length}'),
-      ('本章页码', '$page / $pageCount'),
-      ('全书进度', '${_bookPercent(page, pageCount).toStringAsFixed(1)}%'),
+      ('书源', _controller.source?.name ?? '—'),
+      (
+        '章节',
+        '${(_controller.chapter?.index ?? 0) + 1} / ${detail.chapters.length}',
+      ),
+      if (pageMode) ('本章页码', '$page / $pageCount'),
+      (
+        '全书进度',
+        '${_controller.bookPercent(page: pageMode ? page : null, pageCount: pageMode ? pageCount : null).toStringAsFixed(1)}%',
+      ),
     ];
     await showDialog<void>(
       context: context,
@@ -1453,6 +1040,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
         );
       },
     );
+    _refocusReader();
   }
 
   void _showSnack(String message) {
@@ -1469,7 +1057,9 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
   ThemeData _sheetThemeData() {
     final base = buildMimaoTheme(
       seedColor: Theme.of(context).colorScheme.primary,
-      brightness: _settings.darkBackground ? Brightness.dark : Brightness.light,
+      brightness: _controller.settings.darkBackground
+          ? Brightness.dark
+          : Brightness.light,
     );
     final scheme = base.colorScheme;
     return base.copyWith(
@@ -1487,29 +1077,52 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
   @override
   Widget build(BuildContext context) {
     final insets = MediaQuery.paddingOf(context);
-    final background = novelReaderBackgroundColor(_settings);
+    final settings = _controller.settings;
+    final background = novelReaderBackgroundColor(settings);
     return CallbackShortcuts(
       bindings: <ShortcutActivator, VoidCallback>{
         const SingleActivator(LogicalKeyboardKey.arrowLeft): () =>
             _turnPage(-1),
         const SingleActivator(LogicalKeyboardKey.arrowRight): () =>
             _turnPage(1),
+        const SingleActivator(LogicalKeyboardKey.arrowUp): () => _turnPage(-1),
+        const SingleActivator(LogicalKeyboardKey.arrowDown): () => _turnPage(1),
+        const SingleActivator(LogicalKeyboardKey.pageUp): () => _turnPage(-1),
+        const SingleActivator(LogicalKeyboardKey.pageDown): () => _turnPage(1),
+        const SingleActivator(LogicalKeyboardKey.home): () => _scrollToEdge(0),
+        const SingleActivator(LogicalKeyboardKey.end): () => _scrollToEdge(1),
         const SingleActivator(LogicalKeyboardKey.space): _toggleAutoReading,
         const SingleActivator(LogicalKeyboardKey.escape): _handleEscape,
       },
       child: Focus(
+        focusNode: _focus,
         autofocus: true,
         child: Scaffold(
           backgroundColor: background,
-          body: !_settingsReady
+          body: !_controller.settingsReady
               ? Center(
                   child: CircularProgressIndicator(
-                    color: novelReaderTextColor(_settings),
+                    color: novelReaderTextColor(settings),
                   ),
                 )
               : LayoutBuilder(
                   builder: (context, constraints) {
-                    final pages = _pagesFor(constraints, insets);
+                    final width =
+                        (constraints.maxWidth - settings.horizontalPadding * 2)
+                            .clamp(80.0, double.infinity);
+                    final height =
+                        (constraints.maxHeight -
+                                insets.top -
+                                _contentTopGap -
+                                insets.bottom -
+                                _contentBottomGap)
+                            .clamp(80.0, double.infinity);
+                    _controller.updateLayout(
+                      width: width,
+                      height: height,
+                      textScaler: MediaQuery.textScalerOf(context),
+                    );
+                    final pages = _controller.pages;
                     final pageCount = pages.isEmpty ? 1 : pages.length;
                     return Stack(
                       fit: StackFit.expand,
@@ -1519,48 +1132,27 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
                           child: IgnorePointer(
                             child: ColoredBox(
                               color: const Color(0xFF000000).withValues(
-                                alpha: 1 - _settings.dimBrightness / 100,
+                                alpha: 1 - settings.dimBrightness / 100,
                               ),
                             ),
                           ),
                         ),
-                        if (_settings.eyeProtection)
+                        if (settings.eyeProtection)
                           const Positioned.fill(
                             child: IgnorePointer(
                               child: ColoredBox(color: Color(0x1AFFB74D)),
                             ),
                           ),
-                        Positioned.fill(
-                          child: Row(
-                            children: <Widget>[
-                              Expanded(
-                                flex: 3,
-                                child: GestureDetector(
-                                  key: const Key('novel-reader-tap-prev'),
-                                  behavior: HitTestBehavior.translucent,
-                                  onTap: () => _turnPage(-1),
-                                ),
-                              ),
-                              Expanded(
-                                flex: 4,
-                                child: GestureDetector(
-                                  key: const Key('novel-reader-tap-center'),
-                                  behavior: HitTestBehavior.translucent,
-                                  onTap: _toggleChrome,
-                                ),
-                              ),
-                              Expanded(
-                                flex: 3,
-                                child: GestureDetector(
-                                  key: const Key('novel-reader-tap-next'),
-                                  behavior: HitTestBehavior.translucent,
-                                  onTap: () => _turnPage(1),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        if (_settings.showFooter)
+                        if (_controller.content != null &&
+                            (_controller.pendingChapter != null ||
+                                (_controller.loadingContent &&
+                                    _controller.content != null))) ...<Widget>[
+                          _buildChapterLoading(insets),
+                        ] else if (_controller.content != null &&
+                            _controller.loadError != null) ...<Widget>[
+                          _buildChapterLoadError(insets),
+                        ],
+                        if (settings.showFooter)
                           Positioned(
                             left: 0,
                             right: 0,
@@ -1581,18 +1173,27 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
                               child: ValueListenableBuilder<double>(
                                 valueListenable: _scrollRatio,
                                 builder: (context, _, __) {
-                                  final page = _currentPage(pageCount);
+                                  final pageMode =
+                                      settings.pageMode == NovelPageMode.page;
+                                  final page = _controller.currentPage(
+                                    pageCount,
+                                  );
                                   return NovelReaderFooter(
-                                    settings: _settings,
+                                    settings: settings,
                                     chapterTitle:
-                                        _chapter?.title ??
+                                        _controller.chapter?.title ??
                                         widget.chapterTitle ??
                                         '',
                                     bookTitle:
-                                        _detail?.title ?? widget.title ?? '',
-                                    page: page,
-                                    pageCount: pageCount,
-                                    percent: _bookPercent(page, pageCount),
+                                        _controller.detail?.title ??
+                                        widget.title ??
+                                        '',
+                                    page: pageMode ? page : null,
+                                    pageCount: pageMode ? pageCount : null,
+                                    percent: _controller.bookPercent(
+                                      page: pageMode ? page : null,
+                                      pageCount: pageMode ? pageCount : null,
+                                    ),
                                   );
                                 },
                               ),
@@ -1610,81 +1211,102 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
   }
 
   Widget _buildContent(EdgeInsets insets, List<NovelTextPage> pages) {
-    if (_loadingDetail) {
+    if (_controller.loadingDetail) {
       return _centeredMessage('正在加载目录…');
     }
-    if (_content == null) {
-      if (_loadError != null) {
+    if (_controller.content == null) {
+      if (_controller.loadError != null) {
         return _centeredMessage(
-          _loadError!,
+          _controller.loadError!,
           actionLabel: '重试',
-          onAction: () {
-            if (_chapter == null) {
-              unawaited(_bootstrap());
-            } else {
-              unawaited(_openChapter(_chapter!));
-            }
-          },
+          onAction: () => unawaited(_controller.retry()),
         );
       }
-      return _centeredMessage(_loadingContent ? '正在加载正文…' : '暂无正文');
+      return _centeredMessage(_controller.loadingContent ? '正在加载正文…' : '暂无正文');
     }
-    return _settings.pageMode == NovelPageMode.page
-        ? _buildPageMode(insets, pages)
-        : _buildScrollMode(insets);
+    if (_controller.settings.pageMode == NovelPageMode.page) {
+      if (pages.isEmpty) {
+        return _centeredMessage(_controller.paginating ? '正在排版…' : '暂无正文');
+      }
+      return _buildPageMode(insets, pages);
+    }
+    return _buildScrollMode(insets);
   }
 
   Widget _buildScrollMode(EdgeInsets insets) {
-    final content = _content!;
-    final body = _bodyStyle();
-    final title = _titleStyle();
+    final content = _controller.content!;
+    final body = _controller.bodyStyle();
+    final title = _controller.titleStyle();
     final chapterTitle = content.title.isEmpty
-        ? (_chapter?.title ?? '')
+        ? (_controller.chapter?.title ?? '')
         : content.title;
     final paragraphs = content.paragraphs;
-    return SelectionArea(
-      child: NotificationListener<ScrollEndNotification>(
-        onNotification: (_) {
-          _scheduleSavePosition();
-          return false;
-        },
-        child: ListView.builder(
-          key: const Key('novel-reader-scroll'),
-          controller: _scroll,
-          padding: EdgeInsets.fromLTRB(
-            _settings.horizontalPadding,
-            insets.top + _contentTopGap,
-            _settings.horizontalPadding,
-            insets.bottom + _contentBottomGap + 16,
-          ),
-          itemCount: paragraphs.length + 2,
-          itemBuilder: (context, index) {
-            if (index == 0) {
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 18),
-                child: Text(chapterTitle, style: title),
-              );
-            }
-            final paragraph = index - 1;
-            if (paragraph < paragraphs.length) {
-              return Padding(
-                padding: EdgeInsets.only(
-                  bottom: paragraph == paragraphs.length - 1
-                      ? 0
-                      : _settings.paragraphSpacing,
-                ),
-                child: Text(_paragraphText(paragraph), style: body),
-              );
-            }
-            return _buildChapterEnd();
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTapUp: _handleTapAt,
+      child: SelectionArea(
+        child: NotificationListener<ScrollEndNotification>(
+          onNotification: (_) {
+            unawaited(_controller.savePositionNow());
+            return false;
           },
+          child: ListView.builder(
+            key: const Key('novel-reader-scroll'),
+            controller: _scroll,
+            padding: EdgeInsets.fromLTRB(
+              _controller.settings.horizontalPadding,
+              insets.top + _contentTopGap,
+              _controller.settings.horizontalPadding,
+              insets.bottom + _contentBottomGap + 16,
+            ),
+            itemCount: paragraphs.length + 2,
+            itemBuilder: (context, index) {
+              if (index == 0) {
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 18),
+                  child: Text(chapterTitle, style: title),
+                );
+              }
+              final paragraph = index - 1;
+              if (paragraph < paragraphs.length) {
+                return KeyedSubtree(
+                  key: _paragraphKey(paragraph),
+                  child: Padding(
+                    padding: EdgeInsets.only(
+                      bottom: paragraph == paragraphs.length - 1
+                          ? 0
+                          : _controller.settings.paragraphSpacing,
+                    ),
+                    child: _highlightParagraph == paragraph
+                        ? DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.primary.withValues(alpha: 0.18),
+                              borderRadius: MimaoShapes.sm,
+                            ),
+                            child: Text(
+                              _controller.paragraphText(paragraph),
+                              style: body,
+                            ),
+                          )
+                        : Text(
+                            _controller.paragraphText(paragraph),
+                            style: body,
+                          ),
+                  ),
+                );
+              }
+              return _buildChapterEnd();
+            },
+          ),
         ),
       ),
     );
   }
 
   Widget _buildChapterEnd() {
-    final hasNext = _neighborChapter(1) != null;
+    final hasNext = _controller.hasNext;
     return Padding(
       padding: const EdgeInsets.only(top: 28, bottom: 8),
       child: Column(
@@ -1700,7 +1322,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
             '点击屏幕中间可呼出菜单，点左右两侧翻页',
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: novelReaderSecondaryColor(_settings),
+              color: novelReaderSecondaryColor(_controller.settings),
             ),
           ),
         ],
@@ -1709,10 +1331,10 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
   }
 
   Widget _buildPageMode(EdgeInsets insets, List<NovelTextPage> pages) {
-    if (pages.isEmpty) return _centeredMessage('正在排版…');
-    final index = _pageIndex.clamp(0, pages.length - 1);
-    final duration = _settings.pageAnimation
-        ? Duration(milliseconds: _settings.pageAnimationMs)
+    final index = _controller.pageIndex.clamp(0, pages.length - 1);
+    final settings = _controller.settings;
+    final duration = settings.pageAnimation
+        ? Duration(milliseconds: settings.pageAnimationMs)
         : Duration.zero;
     return Listener(
       onPointerSignal: (event) {
@@ -1725,6 +1347,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
       },
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
+        onTapUp: _handleTapAt,
         onHorizontalDragEnd: (details) {
           final velocity = details.primaryVelocity ?? 0;
           if (velocity > 220) {
@@ -1747,7 +1370,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
             ),
             transitionBuilder: (child, animation) {
               final offset = Tween<Offset>(
-                begin: Offset(_pageDirection.toDouble() * 0.12, 0),
+                begin: Offset(_controller.pageDirection.toDouble() * 0.12, 0),
                 end: Offset.zero,
               ).animate(animation);
               return FadeTransition(
@@ -1756,12 +1379,12 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
               );
             },
             child: KeyedSubtree(
-              key: ValueKey<String>('page-${_chapter?.id}-$index'),
+              key: ValueKey<String>('page-${_controller.chapter?.id}-$index'),
               child: Padding(
                 padding: EdgeInsets.fromLTRB(
-                  _settings.horizontalPadding,
+                  settings.horizontalPadding,
                   insets.top + _contentTopGap,
-                  _settings.horizontalPadding,
+                  settings.horizontalPadding,
                   insets.bottom + _contentBottomGap,
                 ),
                 child: _buildPageBody(pages[index]),
@@ -1774,12 +1397,15 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
   }
 
   Widget _buildPageBody(NovelTextPage page) {
-    final content = _content;
+    final content = _controller.content;
     if (content == null) return const SizedBox.shrink();
-    final body = _bodyStyle();
-    final titleStyle = _titleStyle();
+    final body = _controller.bodyStyle();
+    final highlight = Theme.of(
+      context,
+    ).colorScheme.primary.withValues(alpha: 0.22);
+    final titleStyle = _controller.titleStyle();
     final chapterTitle = content.title.isEmpty
-        ? (_chapter?.title ?? '')
+        ? (_controller.chapter?.title ?? '')
         : content.title;
     final children = <Widget>[];
     var afterTitle = false;
@@ -1796,7 +1422,7 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
         afterTitle = true;
         continue;
       }
-      final full = _paragraphText(slice.paragraph);
+      final full = _controller.paragraphText(slice.paragraph);
       final start = slice.start.clamp(0, full.length);
       final end = slice.end.clamp(start, full.length);
       if (afterTitle) {
@@ -1804,18 +1430,99 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
         afterTitle = false;
       } else if (previousParagraph != null &&
           previousParagraph != slice.paragraph) {
-        children.add(SizedBox(height: _settings.paragraphSpacing));
+        children.add(SizedBox(height: _controller.settings.paragraphSpacing));
       }
       if (end > start) {
-        children.add(Text(full.substring(start, end), style: body));
+        final substring = full.substring(start, end);
+        children.add(
+          Text(
+            substring,
+            style: _highlightParagraph == slice.paragraph
+                ? body.copyWith(backgroundColor: highlight)
+                : body,
+          ),
+        );
       }
       previousParagraph = slice.paragraph;
     }
     return ClipRect(
+      key: const Key('novel-reader-page-body'),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: children,
+      ),
+    );
+  }
+
+  /// 换章加载条：正文还在，只在底部提示，不再整屏替换。
+  Widget _buildChapterLoading(EdgeInsets insets) {
+    final settings = _controller.settings;
+    final target = _controller.pendingChapter;
+    return Positioned(
+      left: 16,
+      right: 16,
+      bottom: (settings.showFooter ? _footerHeight : 8) + insets.bottom + 16,
+      child: IgnorePointer(
+        child: Material(
+          key: const Key('novel-reader-chapter-loading'),
+          color: novelReaderPanelColor(settings),
+          shape: RoundedRectangleBorder(borderRadius: MimaoShapes.md),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                const LinearProgressIndicator(minHeight: 2),
+                const SizedBox(height: 8),
+                Text(
+                  target == null ? '正在刷新本章…' : '正在加载「${target.title}」…',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: novelReaderSecondaryColor(settings),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildChapterLoadError(EdgeInsets insets) {
+    final settings = _controller.settings;
+    return Positioned(
+      left: 16,
+      right: 16,
+      bottom: (settings.showFooter ? _footerHeight : 8) + insets.bottom + 16,
+      child: Material(
+        color: novelReaderPanelColor(settings),
+        shape: RoundedRectangleBorder(borderRadius: MimaoShapes.md),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 6, 6, 6),
+          child: Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  '章节加载失败，当前页仍是上一章',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: novelReaderSecondaryColor(settings),
+                  ),
+                ),
+              ),
+              TextButton(
+                key: const Key('novel-reader-chapter-retry'),
+                onPressed: () => unawaited(_controller.retry()),
+                child: const Text('重试'),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1825,8 +1532,8 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
     String? actionLabel,
     VoidCallback? onAction,
   }) {
-    final text = novelReaderTextColor(_settings);
-    final secondary = novelReaderSecondaryColor(_settings);
+    final text = novelReaderTextColor(_controller.settings);
+    final secondary = novelReaderSecondaryColor(_controller.settings);
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
@@ -1869,10 +1576,10 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
           child: IgnorePointer(ignoring: !visible, child: child),
         ),
         child: NovelReaderTopBar(
-          settings: _settings,
-          bookTitle: _detail?.title ?? widget.title ?? '',
-          chapterTitle: _chapter?.title ?? widget.chapterTitle ?? '',
-          sourceName: _source?.name ?? '',
+          settings: _controller.settings,
+          bookTitle: _controller.detail?.title ?? widget.title ?? '',
+          chapterTitle: _controller.chapter?.title ?? widget.chapterTitle ?? '',
+          sourceName: _controller.source?.name ?? '',
           onBack: () => Navigator.of(context).maybePop(),
           onDownload: () => unawaited(_downloadCurrentChapter()),
           onRefresh: () => unawaited(_refreshCurrentChapter()),
@@ -1884,7 +1591,9 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
   }
 
   Widget _buildBottomPanel(int pageCount) {
-    final bottom = _settings.showFooter
+    final settings = _controller.settings;
+    final pageMode = settings.pageMode == NovelPageMode.page;
+    final bottom = settings.showFooter
         ? _footerHeight + MediaQuery.paddingOf(context).bottom
         : 8 + MediaQuery.paddingOf(context).bottom;
     return Positioned(
@@ -1901,16 +1610,29 @@ class _NovelReaderPageState extends State<NovelReaderPage> {
         ),
         child: ValueListenableBuilder<double>(
           valueListenable: _scrollRatio,
-          builder: (context, _, __) => NovelReaderBottomPanel(
-            settings: _settings,
-            brightness: _settings.dimBrightness.toDouble(),
+          builder: (context, ratio, __) => NovelReaderBottomPanel(
+            settings: settings,
+            brightness: settings.dimBrightness.toDouble(),
             onBrightnessChanged: _setBrightness,
             showAutoBrightness: _supportsAutoBrightness,
-            autoBrightness: _settings.autoBrightness,
+            autoBrightness: settings.autoBrightness,
             onToggleAutoBrightness: _toggleAutoBrightness,
-            page: _currentPage(pageCount),
-            pageCount: pageCount,
-            onSeekPage: _seekPage,
+            page: pageMode ? _controller.currentPage(pageCount) : 1,
+            pageCount: pageMode ? pageCount : 1,
+            onSeekPage: _controller.seekPage,
+            scrollMode: !pageMode,
+            progress: ratio,
+            onSeekProgress: (value) {
+              if (!_scroll.hasClients) return;
+              final max = _scroll.position.maxScrollExtent;
+              unawaited(
+                _scroll.animateTo(
+                  (value * max).clamp(0.0, max),
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeOut,
+                ),
+              );
+            },
             onPrevChapter: () => unawaited(_previousChapter()),
             onNextChapter: () => unawaited(_nextChapter()),
             onSearch: () => unawaited(_openSearch()),

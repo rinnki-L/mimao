@@ -15,11 +15,15 @@ class NovelSearchHit {
     required this.chapterTitle,
     required this.paragraph,
     required this.snippet,
+    this.charOffset = 0,
   });
 
   final int chapterIndex;
   final String chapterTitle;
   final int paragraph;
+
+  /// 命中词在段落内的起始偏移（不含段首缩进）。
+  final int charOffset;
   final String snippet;
 }
 
@@ -30,6 +34,8 @@ class NovelSearchSheet extends StatefulWidget {
     required this.currentChapterIndex,
     required this.loadChapter,
     required this.onPick,
+    this.onPickHit,
+    this.ignoreCase = true,
   });
 
   /// 与章节下标一一对应的标题（卷名不算命中，但保留占位）。
@@ -37,6 +43,10 @@ class NovelSearchSheet extends StatefulWidget {
   final int currentChapterIndex;
   final Future<List<String>> Function(int chapterIndex) loadChapter;
   final void Function(int chapterIndex, int paragraph) onPick;
+
+  /// 需要字符偏移时用它；为空时回退到 [onPick]。
+  final ValueChanged<NovelSearchHit>? onPickHit;
+  final bool ignoreCase;
 
   @override
   State<NovelSearchSheet> createState() => _NovelSearchSheetState();
@@ -49,6 +59,7 @@ class _NovelSearchSheetState extends State<NovelSearchSheet> {
   final FocusNode _focus = FocusNode();
 
   bool _wholeBook = true;
+  bool _ignoreCase = true;
   bool _searching = false;
   int _runId = 0;
   int _done = 0;
@@ -94,9 +105,11 @@ class _NovelSearchSheetState extends State<NovelSearchSheet> {
       try {
         final paragraphs = await widget.loadChapter(index);
         if (!mounted || runId != _runId) return;
+        final needle = _ignoreCase ? keyword.toLowerCase() : keyword;
         for (var p = 0; p < paragraphs.length; p++) {
           final paragraph = paragraphs[p];
-          final at = paragraph.indexOf(keyword);
+          final haystack = _ignoreCase ? paragraph.toLowerCase() : paragraph;
+          final at = haystack.indexOf(needle);
           if (at < 0) continue;
           final start = (at - 16).clamp(0, paragraph.length);
           final end = (at + keyword.length + 30).clamp(start, paragraph.length);
@@ -105,6 +118,7 @@ class _NovelSearchSheetState extends State<NovelSearchSheet> {
               chapterIndex: index,
               chapterTitle: widget.chapterTitles[index],
               paragraph: p,
+              charOffset: at,
               snippet: paragraph.substring(start, end),
             ),
           );
@@ -201,6 +215,12 @@ class _NovelSearchSheetState extends State<NovelSearchSheet> {
                     onSelectionChanged: (selection) =>
                         setState(() => _wholeBook = selection.first),
                   ),
+                  const SizedBox(width: 8),
+                  TextButton(
+                    key: const Key('novel-search-case'),
+                    onPressed: () => setState(() => _ignoreCase = !_ignoreCase),
+                    child: Text(_ignoreCase ? 'Aa 忽略大小写' : 'Aa 区分大小写'),
+                  ),
                   const Spacer(),
                   if (_searching)
                     Text(
@@ -284,7 +304,12 @@ class _NovelSearchSheetState extends State<NovelSearchSheet> {
                           ),
                           onTap: () {
                             Navigator.of(context).pop();
-                            widget.onPick(hit.chapterIndex, hit.paragraph);
+                            final pickHit = widget.onPickHit;
+                            if (pickHit != null) {
+                              pickHit(hit);
+                            } else {
+                              widget.onPick(hit.chapterIndex, hit.paragraph);
+                            }
                           },
                         );
                       },

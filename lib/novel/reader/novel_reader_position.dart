@@ -8,6 +8,7 @@ import 'dart:convert';
 
 import 'package:mimao/novel/library_api.dart'
     show NovelPrefsApi, novelPrefReaderPositions;
+import 'package:mimao/novel/reader/novel_locator.dart';
 
 class NovelReaderPosition {
   const NovelReaderPosition({
@@ -17,6 +18,7 @@ class NovelReaderPosition {
     this.page = 1,
     this.pageCount = 1,
     this.scrollRatio = 0,
+    this.locator,
   });
 
   /// 章节地址/稳定 id，用来判断保存位置是否还是同一章。
@@ -32,6 +34,10 @@ class NovelReaderPosition {
 
   /// 滚动模式下的滚动比例 0..1。
   final double scrollRatio;
+
+  /// 章内绝对位置（段 + 字符偏移）。旧版本没有这个字段，读到时为 null，
+  /// 仍按 page/scrollRatio 回退。
+  final NovelLocator? locator;
 
   bool matches({
     required String chapterUrl,
@@ -51,6 +57,7 @@ class NovelReaderPosition {
     'page': page,
     'pageCount': pageCount,
     'scrollRatio': scrollRatio,
+    'locator': locator?.toJson(),
     'updatedAt': DateTime.now().millisecondsSinceEpoch,
   };
 
@@ -68,6 +75,7 @@ class NovelReaderPosition {
       scrollRatio: (json['scrollRatio'] is num)
           ? (json['scrollRatio']! as num).toDouble()
           : 0,
+      locator: NovelLocator.fromJson(json['locator']),
     );
   }
 }
@@ -80,6 +88,10 @@ class NovelReaderPositionStore {
   final int capacity;
 
   static const String key = novelPrefReaderPositions;
+
+  /// 存储键：同一本书换源后位置不串（`sourceKey|bookId`）。
+  static String keyFor(String bookId, {String sourceKey = ''}) =>
+      sourceKey.isEmpty ? bookId : '$sourceKey|$bookId';
 
   Map<String, Object?>? _memory;
 
@@ -101,26 +113,45 @@ class NovelReaderPositionStore {
     return _memory = <String, Object?>{};
   }
 
-  Future<NovelReaderPosition?> load(String bookId) async {
+  Future<NovelReaderPosition?> load(
+    String bookId, {
+    String sourceKey = '',
+  }) async {
     if (bookId.isEmpty) return null;
     final all = await _readAll();
-    final raw = all[bookId];
+    final scoped = all[keyFor(bookId, sourceKey: sourceKey)];
+    // 旧版本只按 bookId 存；新键没有时读一次旧键，下次保存自动迁到新键。
+    final raw = scoped ?? (sourceKey.isEmpty ? null : all[bookId]);
     if (raw is! Map) return null;
     return NovelReaderPosition.fromJson(Map<String, Object?>.from(raw));
   }
 
-  Future<void> save(String bookId, NovelReaderPosition position) async {
+  Future<void> save(
+    String bookId,
+    NovelReaderPosition position, {
+    String sourceKey = '',
+  }) async {
     if (bookId.isEmpty) return;
     final all = await _readAll();
-    all[bookId] = position.toJson();
+    final storageKey = keyFor(bookId, sourceKey: sourceKey);
+    all[storageKey] = position.toJson();
+    if (storageKey != bookId) {
+      // 新键已接管，旧键留着只会让下次又读到旧位置。
+      all.remove(bookId);
+    }
     _trim(all);
     await _write(all);
   }
 
-  Future<void> clear(String bookId) async {
+  Future<void> clear(String bookId, {String sourceKey = ''}) async {
     if (bookId.isEmpty) return;
     final all = await _readAll();
-    if (all.remove(bookId) == null) return;
+    final storageKey = keyFor(bookId, sourceKey: sourceKey);
+    var removed = all.remove(storageKey) != null;
+    if (!removed && sourceKey.isNotEmpty) {
+      removed = all.remove(bookId) != null;
+    }
+    if (!removed) return;
     await _write(all);
   }
 
