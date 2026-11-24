@@ -3106,6 +3106,740 @@ class ComicLocalEntriesCompanion extends UpdateCompanion<ComicLocalRow> {
   }
 }
 
+class $ComicImageFavoriteEntriesTable extends ComicImageFavoriteEntries
+    with TableInfo<$ComicImageFavoriteEntriesTable, ComicImageFavoriteRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $ComicImageFavoriteEntriesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _sourceNameMeta = const VerificationMeta(
+    'sourceName',
+  );
+  @override
+  late final GeneratedColumn<String> sourceName = GeneratedColumn<String>(
+    'source_name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _comicIdMeta = const VerificationMeta(
+    'comicId',
+  );
+  @override
+  late final GeneratedColumn<String> comicId = GeneratedColumn<String>(
+    'comic_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _chapterIdMeta = const VerificationMeta(
+    'chapterId',
+  );
+  @override
+  late final GeneratedColumn<String> chapterId = GeneratedColumn<String>(
+    'chapter_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _pageMeta = const VerificationMeta('page');
+  @override
+  late final GeneratedColumn<int> page = GeneratedColumn<int>(
+    'page',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _comicTitleMeta = const VerificationMeta(
+    'comicTitle',
+  );
+  @override
+  late final GeneratedColumn<String> comicTitle = GeneratedColumn<String>(
+    'comic_title',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _chapterTitleMeta = const VerificationMeta(
+    'chapterTitle',
+  );
+  @override
+  late final GeneratedColumn<String> chapterTitle = GeneratedColumn<String>(
+    'chapter_title',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _imageUrlMeta = const VerificationMeta(
+    'imageUrl',
+  );
+  @override
+  late final GeneratedColumn<String> imageUrl = GeneratedColumn<String>(
+    'image_url',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _coverUrlMeta = const VerificationMeta(
+    'coverUrl',
+  );
+  @override
+  late final GeneratedColumn<String> coverUrl = GeneratedColumn<String>(
+    'cover_url',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _detailUrlMeta = const VerificationMeta(
+    'detailUrl',
+  );
+  @override
+  late final GeneratedColumn<String> detailUrl = GeneratedColumn<String>(
+    'detail_url',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _pageCountMeta = const VerificationMeta(
+    'pageCount',
+  );
+  @override
+  late final GeneratedColumn<int> pageCount = GeneratedColumn<int>(
+    'page_count',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _chapterNumberMeta = const VerificationMeta(
+    'chapterNumber',
+  );
+  @override
+  late final GeneratedColumn<int> chapterNumber = GeneratedColumn<int>(
+    'chapter_number',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _collectedAtMeta = const VerificationMeta(
+    'collectedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> collectedAt = GeneratedColumn<DateTime>(
+    'collected_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    sourceName,
+    comicId,
+    chapterId,
+    page,
+    comicTitle,
+    chapterTitle,
+    imageUrl,
+    coverUrl,
+    detailUrl,
+    pageCount,
+    chapterNumber,
+    collectedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'comic_image_favorite';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<ComicImageFavoriteRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('source_name')) {
+      context.handle(
+        _sourceNameMeta,
+        sourceName.isAcceptableOrUnknown(data['source_name']!, _sourceNameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_sourceNameMeta);
+    }
+    if (data.containsKey('comic_id')) {
+      context.handle(
+        _comicIdMeta,
+        comicId.isAcceptableOrUnknown(data['comic_id']!, _comicIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_comicIdMeta);
+    }
+    if (data.containsKey('chapter_id')) {
+      context.handle(
+        _chapterIdMeta,
+        chapterId.isAcceptableOrUnknown(data['chapter_id']!, _chapterIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_chapterIdMeta);
+    }
+    if (data.containsKey('page')) {
+      context.handle(
+        _pageMeta,
+        page.isAcceptableOrUnknown(data['page']!, _pageMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_pageMeta);
+    }
+    if (data.containsKey('comic_title')) {
+      context.handle(
+        _comicTitleMeta,
+        comicTitle.isAcceptableOrUnknown(data['comic_title']!, _comicTitleMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_comicTitleMeta);
+    }
+    if (data.containsKey('chapter_title')) {
+      context.handle(
+        _chapterTitleMeta,
+        chapterTitle.isAcceptableOrUnknown(
+          data['chapter_title']!,
+          _chapterTitleMeta,
+        ),
+      );
+    }
+    if (data.containsKey('image_url')) {
+      context.handle(
+        _imageUrlMeta,
+        imageUrl.isAcceptableOrUnknown(data['image_url']!, _imageUrlMeta),
+      );
+    }
+    if (data.containsKey('cover_url')) {
+      context.handle(
+        _coverUrlMeta,
+        coverUrl.isAcceptableOrUnknown(data['cover_url']!, _coverUrlMeta),
+      );
+    }
+    if (data.containsKey('detail_url')) {
+      context.handle(
+        _detailUrlMeta,
+        detailUrl.isAcceptableOrUnknown(data['detail_url']!, _detailUrlMeta),
+      );
+    }
+    if (data.containsKey('page_count')) {
+      context.handle(
+        _pageCountMeta,
+        pageCount.isAcceptableOrUnknown(data['page_count']!, _pageCountMeta),
+      );
+    }
+    if (data.containsKey('chapter_number')) {
+      context.handle(
+        _chapterNumberMeta,
+        chapterNumber.isAcceptableOrUnknown(
+          data['chapter_number']!,
+          _chapterNumberMeta,
+        ),
+      );
+    }
+    if (data.containsKey('collected_at')) {
+      context.handle(
+        _collectedAtMeta,
+        collectedAt.isAcceptableOrUnknown(
+          data['collected_at']!,
+          _collectedAtMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_collectedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {
+    sourceName,
+    comicId,
+    chapterId,
+    page,
+  };
+  @override
+  ComicImageFavoriteRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ComicImageFavoriteRow(
+      sourceName: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source_name'],
+      )!,
+      comicId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}comic_id'],
+      )!,
+      chapterId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}chapter_id'],
+      )!,
+      page: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}page'],
+      )!,
+      comicTitle: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}comic_title'],
+      )!,
+      chapterTitle: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}chapter_title'],
+      )!,
+      imageUrl: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}image_url'],
+      )!,
+      coverUrl: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}cover_url'],
+      ),
+      detailUrl: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}detail_url'],
+      )!,
+      pageCount: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}page_count'],
+      )!,
+      chapterNumber: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}chapter_number'],
+      )!,
+      collectedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}collected_at'],
+      )!,
+    );
+  }
+
+  @override
+  $ComicImageFavoriteEntriesTable createAlias(String alias) {
+    return $ComicImageFavoriteEntriesTable(attachedDatabase, alias);
+  }
+}
+
+class ComicImageFavoriteRow extends DataClass
+    implements Insertable<ComicImageFavoriteRow> {
+  final String sourceName;
+  final String comicId;
+  final String chapterId;
+  final int page;
+
+  /// 漫画标题 / 章节标题：历史里删了书也要能显示。
+  final String comicTitle;
+  final String chapterTitle;
+
+  /// 图片地址与封面（可为空：本地漫画走 file://）。
+  final String imageUrl;
+  final String? coverUrl;
+
+  /// 详情地址：回跳时据此重新拉章节列表（本地漫画为空，走本地内容读取）。
+  final String detailUrl;
+
+  /// 章内总页数与章序号（1 基），用于"跳到该图"与排序。
+  final int pageCount;
+  final int chapterNumber;
+  final DateTime collectedAt;
+  const ComicImageFavoriteRow({
+    required this.sourceName,
+    required this.comicId,
+    required this.chapterId,
+    required this.page,
+    required this.comicTitle,
+    required this.chapterTitle,
+    required this.imageUrl,
+    this.coverUrl,
+    required this.detailUrl,
+    required this.pageCount,
+    required this.chapterNumber,
+    required this.collectedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['source_name'] = Variable<String>(sourceName);
+    map['comic_id'] = Variable<String>(comicId);
+    map['chapter_id'] = Variable<String>(chapterId);
+    map['page'] = Variable<int>(page);
+    map['comic_title'] = Variable<String>(comicTitle);
+    map['chapter_title'] = Variable<String>(chapterTitle);
+    map['image_url'] = Variable<String>(imageUrl);
+    if (!nullToAbsent || coverUrl != null) {
+      map['cover_url'] = Variable<String>(coverUrl);
+    }
+    map['detail_url'] = Variable<String>(detailUrl);
+    map['page_count'] = Variable<int>(pageCount);
+    map['chapter_number'] = Variable<int>(chapterNumber);
+    map['collected_at'] = Variable<DateTime>(collectedAt);
+    return map;
+  }
+
+  ComicImageFavoriteEntriesCompanion toCompanion(bool nullToAbsent) {
+    return ComicImageFavoriteEntriesCompanion(
+      sourceName: Value(sourceName),
+      comicId: Value(comicId),
+      chapterId: Value(chapterId),
+      page: Value(page),
+      comicTitle: Value(comicTitle),
+      chapterTitle: Value(chapterTitle),
+      imageUrl: Value(imageUrl),
+      coverUrl: coverUrl == null && nullToAbsent
+          ? const Value.absent()
+          : Value(coverUrl),
+      detailUrl: Value(detailUrl),
+      pageCount: Value(pageCount),
+      chapterNumber: Value(chapterNumber),
+      collectedAt: Value(collectedAt),
+    );
+  }
+
+  factory ComicImageFavoriteRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ComicImageFavoriteRow(
+      sourceName: serializer.fromJson<String>(json['sourceName']),
+      comicId: serializer.fromJson<String>(json['comicId']),
+      chapterId: serializer.fromJson<String>(json['chapterId']),
+      page: serializer.fromJson<int>(json['page']),
+      comicTitle: serializer.fromJson<String>(json['comicTitle']),
+      chapterTitle: serializer.fromJson<String>(json['chapterTitle']),
+      imageUrl: serializer.fromJson<String>(json['imageUrl']),
+      coverUrl: serializer.fromJson<String?>(json['coverUrl']),
+      detailUrl: serializer.fromJson<String>(json['detailUrl']),
+      pageCount: serializer.fromJson<int>(json['pageCount']),
+      chapterNumber: serializer.fromJson<int>(json['chapterNumber']),
+      collectedAt: serializer.fromJson<DateTime>(json['collectedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'sourceName': serializer.toJson<String>(sourceName),
+      'comicId': serializer.toJson<String>(comicId),
+      'chapterId': serializer.toJson<String>(chapterId),
+      'page': serializer.toJson<int>(page),
+      'comicTitle': serializer.toJson<String>(comicTitle),
+      'chapterTitle': serializer.toJson<String>(chapterTitle),
+      'imageUrl': serializer.toJson<String>(imageUrl),
+      'coverUrl': serializer.toJson<String?>(coverUrl),
+      'detailUrl': serializer.toJson<String>(detailUrl),
+      'pageCount': serializer.toJson<int>(pageCount),
+      'chapterNumber': serializer.toJson<int>(chapterNumber),
+      'collectedAt': serializer.toJson<DateTime>(collectedAt),
+    };
+  }
+
+  ComicImageFavoriteRow copyWith({
+    String? sourceName,
+    String? comicId,
+    String? chapterId,
+    int? page,
+    String? comicTitle,
+    String? chapterTitle,
+    String? imageUrl,
+    Value<String?> coverUrl = const Value.absent(),
+    String? detailUrl,
+    int? pageCount,
+    int? chapterNumber,
+    DateTime? collectedAt,
+  }) => ComicImageFavoriteRow(
+    sourceName: sourceName ?? this.sourceName,
+    comicId: comicId ?? this.comicId,
+    chapterId: chapterId ?? this.chapterId,
+    page: page ?? this.page,
+    comicTitle: comicTitle ?? this.comicTitle,
+    chapterTitle: chapterTitle ?? this.chapterTitle,
+    imageUrl: imageUrl ?? this.imageUrl,
+    coverUrl: coverUrl.present ? coverUrl.value : this.coverUrl,
+    detailUrl: detailUrl ?? this.detailUrl,
+    pageCount: pageCount ?? this.pageCount,
+    chapterNumber: chapterNumber ?? this.chapterNumber,
+    collectedAt: collectedAt ?? this.collectedAt,
+  );
+  ComicImageFavoriteRow copyWithCompanion(
+    ComicImageFavoriteEntriesCompanion data,
+  ) {
+    return ComicImageFavoriteRow(
+      sourceName: data.sourceName.present
+          ? data.sourceName.value
+          : this.sourceName,
+      comicId: data.comicId.present ? data.comicId.value : this.comicId,
+      chapterId: data.chapterId.present ? data.chapterId.value : this.chapterId,
+      page: data.page.present ? data.page.value : this.page,
+      comicTitle: data.comicTitle.present
+          ? data.comicTitle.value
+          : this.comicTitle,
+      chapterTitle: data.chapterTitle.present
+          ? data.chapterTitle.value
+          : this.chapterTitle,
+      imageUrl: data.imageUrl.present ? data.imageUrl.value : this.imageUrl,
+      coverUrl: data.coverUrl.present ? data.coverUrl.value : this.coverUrl,
+      detailUrl: data.detailUrl.present ? data.detailUrl.value : this.detailUrl,
+      pageCount: data.pageCount.present ? data.pageCount.value : this.pageCount,
+      chapterNumber: data.chapterNumber.present
+          ? data.chapterNumber.value
+          : this.chapterNumber,
+      collectedAt: data.collectedAt.present
+          ? data.collectedAt.value
+          : this.collectedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ComicImageFavoriteRow(')
+          ..write('sourceName: $sourceName, ')
+          ..write('comicId: $comicId, ')
+          ..write('chapterId: $chapterId, ')
+          ..write('page: $page, ')
+          ..write('comicTitle: $comicTitle, ')
+          ..write('chapterTitle: $chapterTitle, ')
+          ..write('imageUrl: $imageUrl, ')
+          ..write('coverUrl: $coverUrl, ')
+          ..write('detailUrl: $detailUrl, ')
+          ..write('pageCount: $pageCount, ')
+          ..write('chapterNumber: $chapterNumber, ')
+          ..write('collectedAt: $collectedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    sourceName,
+    comicId,
+    chapterId,
+    page,
+    comicTitle,
+    chapterTitle,
+    imageUrl,
+    coverUrl,
+    detailUrl,
+    pageCount,
+    chapterNumber,
+    collectedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ComicImageFavoriteRow &&
+          other.sourceName == this.sourceName &&
+          other.comicId == this.comicId &&
+          other.chapterId == this.chapterId &&
+          other.page == this.page &&
+          other.comicTitle == this.comicTitle &&
+          other.chapterTitle == this.chapterTitle &&
+          other.imageUrl == this.imageUrl &&
+          other.coverUrl == this.coverUrl &&
+          other.detailUrl == this.detailUrl &&
+          other.pageCount == this.pageCount &&
+          other.chapterNumber == this.chapterNumber &&
+          other.collectedAt == this.collectedAt);
+}
+
+class ComicImageFavoriteEntriesCompanion
+    extends UpdateCompanion<ComicImageFavoriteRow> {
+  final Value<String> sourceName;
+  final Value<String> comicId;
+  final Value<String> chapterId;
+  final Value<int> page;
+  final Value<String> comicTitle;
+  final Value<String> chapterTitle;
+  final Value<String> imageUrl;
+  final Value<String?> coverUrl;
+  final Value<String> detailUrl;
+  final Value<int> pageCount;
+  final Value<int> chapterNumber;
+  final Value<DateTime> collectedAt;
+  final Value<int> rowid;
+  const ComicImageFavoriteEntriesCompanion({
+    this.sourceName = const Value.absent(),
+    this.comicId = const Value.absent(),
+    this.chapterId = const Value.absent(),
+    this.page = const Value.absent(),
+    this.comicTitle = const Value.absent(),
+    this.chapterTitle = const Value.absent(),
+    this.imageUrl = const Value.absent(),
+    this.coverUrl = const Value.absent(),
+    this.detailUrl = const Value.absent(),
+    this.pageCount = const Value.absent(),
+    this.chapterNumber = const Value.absent(),
+    this.collectedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  ComicImageFavoriteEntriesCompanion.insert({
+    required String sourceName,
+    required String comicId,
+    required String chapterId,
+    required int page,
+    required String comicTitle,
+    this.chapterTitle = const Value.absent(),
+    this.imageUrl = const Value.absent(),
+    this.coverUrl = const Value.absent(),
+    this.detailUrl = const Value.absent(),
+    this.pageCount = const Value.absent(),
+    this.chapterNumber = const Value.absent(),
+    required DateTime collectedAt,
+    this.rowid = const Value.absent(),
+  }) : sourceName = Value(sourceName),
+       comicId = Value(comicId),
+       chapterId = Value(chapterId),
+       page = Value(page),
+       comicTitle = Value(comicTitle),
+       collectedAt = Value(collectedAt);
+  static Insertable<ComicImageFavoriteRow> custom({
+    Expression<String>? sourceName,
+    Expression<String>? comicId,
+    Expression<String>? chapterId,
+    Expression<int>? page,
+    Expression<String>? comicTitle,
+    Expression<String>? chapterTitle,
+    Expression<String>? imageUrl,
+    Expression<String>? coverUrl,
+    Expression<String>? detailUrl,
+    Expression<int>? pageCount,
+    Expression<int>? chapterNumber,
+    Expression<DateTime>? collectedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (sourceName != null) 'source_name': sourceName,
+      if (comicId != null) 'comic_id': comicId,
+      if (chapterId != null) 'chapter_id': chapterId,
+      if (page != null) 'page': page,
+      if (comicTitle != null) 'comic_title': comicTitle,
+      if (chapterTitle != null) 'chapter_title': chapterTitle,
+      if (imageUrl != null) 'image_url': imageUrl,
+      if (coverUrl != null) 'cover_url': coverUrl,
+      if (detailUrl != null) 'detail_url': detailUrl,
+      if (pageCount != null) 'page_count': pageCount,
+      if (chapterNumber != null) 'chapter_number': chapterNumber,
+      if (collectedAt != null) 'collected_at': collectedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  ComicImageFavoriteEntriesCompanion copyWith({
+    Value<String>? sourceName,
+    Value<String>? comicId,
+    Value<String>? chapterId,
+    Value<int>? page,
+    Value<String>? comicTitle,
+    Value<String>? chapterTitle,
+    Value<String>? imageUrl,
+    Value<String?>? coverUrl,
+    Value<String>? detailUrl,
+    Value<int>? pageCount,
+    Value<int>? chapterNumber,
+    Value<DateTime>? collectedAt,
+    Value<int>? rowid,
+  }) {
+    return ComicImageFavoriteEntriesCompanion(
+      sourceName: sourceName ?? this.sourceName,
+      comicId: comicId ?? this.comicId,
+      chapterId: chapterId ?? this.chapterId,
+      page: page ?? this.page,
+      comicTitle: comicTitle ?? this.comicTitle,
+      chapterTitle: chapterTitle ?? this.chapterTitle,
+      imageUrl: imageUrl ?? this.imageUrl,
+      coverUrl: coverUrl ?? this.coverUrl,
+      detailUrl: detailUrl ?? this.detailUrl,
+      pageCount: pageCount ?? this.pageCount,
+      chapterNumber: chapterNumber ?? this.chapterNumber,
+      collectedAt: collectedAt ?? this.collectedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (sourceName.present) {
+      map['source_name'] = Variable<String>(sourceName.value);
+    }
+    if (comicId.present) {
+      map['comic_id'] = Variable<String>(comicId.value);
+    }
+    if (chapterId.present) {
+      map['chapter_id'] = Variable<String>(chapterId.value);
+    }
+    if (page.present) {
+      map['page'] = Variable<int>(page.value);
+    }
+    if (comicTitle.present) {
+      map['comic_title'] = Variable<String>(comicTitle.value);
+    }
+    if (chapterTitle.present) {
+      map['chapter_title'] = Variable<String>(chapterTitle.value);
+    }
+    if (imageUrl.present) {
+      map['image_url'] = Variable<String>(imageUrl.value);
+    }
+    if (coverUrl.present) {
+      map['cover_url'] = Variable<String>(coverUrl.value);
+    }
+    if (detailUrl.present) {
+      map['detail_url'] = Variable<String>(detailUrl.value);
+    }
+    if (pageCount.present) {
+      map['page_count'] = Variable<int>(pageCount.value);
+    }
+    if (chapterNumber.present) {
+      map['chapter_number'] = Variable<int>(chapterNumber.value);
+    }
+    if (collectedAt.present) {
+      map['collected_at'] = Variable<DateTime>(collectedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ComicImageFavoriteEntriesCompanion(')
+          ..write('sourceName: $sourceName, ')
+          ..write('comicId: $comicId, ')
+          ..write('chapterId: $chapterId, ')
+          ..write('page: $page, ')
+          ..write('comicTitle: $comicTitle, ')
+          ..write('chapterTitle: $chapterTitle, ')
+          ..write('imageUrl: $imageUrl, ')
+          ..write('coverUrl: $coverUrl, ')
+          ..write('detailUrl: $detailUrl, ')
+          ..write('pageCount: $pageCount, ')
+          ..write('chapterNumber: $chapterNumber, ')
+          ..write('collectedAt: $collectedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$ComicDb extends GeneratedDatabase {
   _$ComicDb(QueryExecutor e) : super(e);
   $ComicDbManager get managers => $ComicDbManager(this);
@@ -3124,6 +3858,8 @@ abstract class _$ComicDb extends GeneratedDatabase {
       $ComicImageCacheEntriesTable(this);
   late final $ComicLocalEntriesTable comicLocalEntries =
       $ComicLocalEntriesTable(this);
+  late final $ComicImageFavoriteEntriesTable comicImageFavoriteEntries =
+      $ComicImageFavoriteEntriesTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -3136,6 +3872,7 @@ abstract class _$ComicDb extends GeneratedDatabase {
     comicDownloadTasks,
     comicImageCacheEntries,
     comicLocalEntries,
+    comicImageFavoriteEntries,
   ];
 }
 
@@ -4854,6 +5591,368 @@ typedef $$ComicLocalEntriesTableProcessedTableManager =
       ComicLocalRow,
       PrefetchHooks Function()
     >;
+typedef $$ComicImageFavoriteEntriesTableCreateCompanionBuilder =
+    ComicImageFavoriteEntriesCompanion Function({
+      required String sourceName,
+      required String comicId,
+      required String chapterId,
+      required int page,
+      required String comicTitle,
+      Value<String> chapterTitle,
+      Value<String> imageUrl,
+      Value<String?> coverUrl,
+      Value<String> detailUrl,
+      Value<int> pageCount,
+      Value<int> chapterNumber,
+      required DateTime collectedAt,
+      Value<int> rowid,
+    });
+typedef $$ComicImageFavoriteEntriesTableUpdateCompanionBuilder =
+    ComicImageFavoriteEntriesCompanion Function({
+      Value<String> sourceName,
+      Value<String> comicId,
+      Value<String> chapterId,
+      Value<int> page,
+      Value<String> comicTitle,
+      Value<String> chapterTitle,
+      Value<String> imageUrl,
+      Value<String?> coverUrl,
+      Value<String> detailUrl,
+      Value<int> pageCount,
+      Value<int> chapterNumber,
+      Value<DateTime> collectedAt,
+      Value<int> rowid,
+    });
+
+class $$ComicImageFavoriteEntriesTableFilterComposer
+    extends Composer<_$ComicDb, $ComicImageFavoriteEntriesTable> {
+  $$ComicImageFavoriteEntriesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get sourceName => $composableBuilder(
+    column: $table.sourceName,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get comicId => $composableBuilder(
+    column: $table.comicId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get chapterId => $composableBuilder(
+    column: $table.chapterId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get page => $composableBuilder(
+    column: $table.page,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get comicTitle => $composableBuilder(
+    column: $table.comicTitle,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get chapterTitle => $composableBuilder(
+    column: $table.chapterTitle,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get imageUrl => $composableBuilder(
+    column: $table.imageUrl,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get coverUrl => $composableBuilder(
+    column: $table.coverUrl,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get detailUrl => $composableBuilder(
+    column: $table.detailUrl,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get pageCount => $composableBuilder(
+    column: $table.pageCount,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get chapterNumber => $composableBuilder(
+    column: $table.chapterNumber,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get collectedAt => $composableBuilder(
+    column: $table.collectedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$ComicImageFavoriteEntriesTableOrderingComposer
+    extends Composer<_$ComicDb, $ComicImageFavoriteEntriesTable> {
+  $$ComicImageFavoriteEntriesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get sourceName => $composableBuilder(
+    column: $table.sourceName,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get comicId => $composableBuilder(
+    column: $table.comicId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get chapterId => $composableBuilder(
+    column: $table.chapterId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get page => $composableBuilder(
+    column: $table.page,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get comicTitle => $composableBuilder(
+    column: $table.comicTitle,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get chapterTitle => $composableBuilder(
+    column: $table.chapterTitle,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get imageUrl => $composableBuilder(
+    column: $table.imageUrl,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get coverUrl => $composableBuilder(
+    column: $table.coverUrl,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get detailUrl => $composableBuilder(
+    column: $table.detailUrl,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get pageCount => $composableBuilder(
+    column: $table.pageCount,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get chapterNumber => $composableBuilder(
+    column: $table.chapterNumber,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get collectedAt => $composableBuilder(
+    column: $table.collectedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$ComicImageFavoriteEntriesTableAnnotationComposer
+    extends Composer<_$ComicDb, $ComicImageFavoriteEntriesTable> {
+  $$ComicImageFavoriteEntriesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get sourceName => $composableBuilder(
+    column: $table.sourceName,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get comicId =>
+      $composableBuilder(column: $table.comicId, builder: (column) => column);
+
+  GeneratedColumn<String> get chapterId =>
+      $composableBuilder(column: $table.chapterId, builder: (column) => column);
+
+  GeneratedColumn<int> get page =>
+      $composableBuilder(column: $table.page, builder: (column) => column);
+
+  GeneratedColumn<String> get comicTitle => $composableBuilder(
+    column: $table.comicTitle,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get chapterTitle => $composableBuilder(
+    column: $table.chapterTitle,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get imageUrl =>
+      $composableBuilder(column: $table.imageUrl, builder: (column) => column);
+
+  GeneratedColumn<String> get coverUrl =>
+      $composableBuilder(column: $table.coverUrl, builder: (column) => column);
+
+  GeneratedColumn<String> get detailUrl =>
+      $composableBuilder(column: $table.detailUrl, builder: (column) => column);
+
+  GeneratedColumn<int> get pageCount =>
+      $composableBuilder(column: $table.pageCount, builder: (column) => column);
+
+  GeneratedColumn<int> get chapterNumber => $composableBuilder(
+    column: $table.chapterNumber,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get collectedAt => $composableBuilder(
+    column: $table.collectedAt,
+    builder: (column) => column,
+  );
+}
+
+class $$ComicImageFavoriteEntriesTableTableManager
+    extends
+        RootTableManager<
+          _$ComicDb,
+          $ComicImageFavoriteEntriesTable,
+          ComicImageFavoriteRow,
+          $$ComicImageFavoriteEntriesTableFilterComposer,
+          $$ComicImageFavoriteEntriesTableOrderingComposer,
+          $$ComicImageFavoriteEntriesTableAnnotationComposer,
+          $$ComicImageFavoriteEntriesTableCreateCompanionBuilder,
+          $$ComicImageFavoriteEntriesTableUpdateCompanionBuilder,
+          (
+            ComicImageFavoriteRow,
+            BaseReferences<
+              _$ComicDb,
+              $ComicImageFavoriteEntriesTable,
+              ComicImageFavoriteRow
+            >,
+          ),
+          ComicImageFavoriteRow,
+          PrefetchHooks Function()
+        > {
+  $$ComicImageFavoriteEntriesTableTableManager(
+    _$ComicDb db,
+    $ComicImageFavoriteEntriesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$ComicImageFavoriteEntriesTableFilterComposer(
+                $db: db,
+                $table: table,
+              ),
+          createOrderingComposer: () =>
+              $$ComicImageFavoriteEntriesTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$ComicImageFavoriteEntriesTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> sourceName = const Value.absent(),
+                Value<String> comicId = const Value.absent(),
+                Value<String> chapterId = const Value.absent(),
+                Value<int> page = const Value.absent(),
+                Value<String> comicTitle = const Value.absent(),
+                Value<String> chapterTitle = const Value.absent(),
+                Value<String> imageUrl = const Value.absent(),
+                Value<String?> coverUrl = const Value.absent(),
+                Value<String> detailUrl = const Value.absent(),
+                Value<int> pageCount = const Value.absent(),
+                Value<int> chapterNumber = const Value.absent(),
+                Value<DateTime> collectedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => ComicImageFavoriteEntriesCompanion(
+                sourceName: sourceName,
+                comicId: comicId,
+                chapterId: chapterId,
+                page: page,
+                comicTitle: comicTitle,
+                chapterTitle: chapterTitle,
+                imageUrl: imageUrl,
+                coverUrl: coverUrl,
+                detailUrl: detailUrl,
+                pageCount: pageCount,
+                chapterNumber: chapterNumber,
+                collectedAt: collectedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String sourceName,
+                required String comicId,
+                required String chapterId,
+                required int page,
+                required String comicTitle,
+                Value<String> chapterTitle = const Value.absent(),
+                Value<String> imageUrl = const Value.absent(),
+                Value<String?> coverUrl = const Value.absent(),
+                Value<String> detailUrl = const Value.absent(),
+                Value<int> pageCount = const Value.absent(),
+                Value<int> chapterNumber = const Value.absent(),
+                required DateTime collectedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => ComicImageFavoriteEntriesCompanion.insert(
+                sourceName: sourceName,
+                comicId: comicId,
+                chapterId: chapterId,
+                page: page,
+                comicTitle: comicTitle,
+                chapterTitle: chapterTitle,
+                imageUrl: imageUrl,
+                coverUrl: coverUrl,
+                detailUrl: detailUrl,
+                pageCount: pageCount,
+                chapterNumber: chapterNumber,
+                collectedAt: collectedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$ComicImageFavoriteEntriesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$ComicDb,
+      $ComicImageFavoriteEntriesTable,
+      ComicImageFavoriteRow,
+      $$ComicImageFavoriteEntriesTableFilterComposer,
+      $$ComicImageFavoriteEntriesTableOrderingComposer,
+      $$ComicImageFavoriteEntriesTableAnnotationComposer,
+      $$ComicImageFavoriteEntriesTableCreateCompanionBuilder,
+      $$ComicImageFavoriteEntriesTableUpdateCompanionBuilder,
+      (
+        ComicImageFavoriteRow,
+        BaseReferences<
+          _$ComicDb,
+          $ComicImageFavoriteEntriesTable,
+          ComicImageFavoriteRow
+        >,
+      ),
+      ComicImageFavoriteRow,
+      PrefetchHooks Function()
+    >;
 
 class $ComicDbManager {
   final _$ComicDb _db;
@@ -4875,4 +5974,9 @@ class $ComicDbManager {
       );
   $$ComicLocalEntriesTableTableManager get comicLocalEntries =>
       $$ComicLocalEntriesTableTableManager(_db, _db.comicLocalEntries);
+  $$ComicImageFavoriteEntriesTableTableManager get comicImageFavoriteEntries =>
+      $$ComicImageFavoriteEntriesTableTableManager(
+        _db,
+        _db.comicImageFavoriteEntries,
+      );
 }

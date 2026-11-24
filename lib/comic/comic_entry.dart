@@ -26,10 +26,12 @@ import 'package:mimao/comic/data/engine_comic_data_source.dart';
 import 'package:mimao/comic/download_api.dart';
 import 'package:mimao/comic/engine/engine.dart' show ComicSourceCatalog;
 import 'package:mimao/comic/history_service.dart';
+import 'package:mimao/comic/image_favorite_service.dart';
 import 'package:mimao/comic/library_api_impl.dart';
 import 'package:mimao/comic/local_comic_content.dart';
 import 'package:mimao/comic/local_comic_service.dart';
 import 'package:mimao/comic/pages/comic_module_page.dart';
+import 'package:mimao/comic/pages/comic_image_favorites_page.dart';
 import 'package:mimao/comic/pages/comic_module_settings.dart';
 import 'package:mimao/comic/read_later_service.dart';
 import 'package:mimao/comic/reader/reader_cache.dart' as reader;
@@ -58,6 +60,10 @@ typedef ImmersiveReaderBuilder =
       required int initialPage,
       required List<String> chapterTitles,
       required reader.NovelCommentSource? commentSource,
+      required ComicImageFavoriteService? imageFavorites,
+      required String sourceName,
+      required String comicId,
+      required String detailUrl,
     });
 
 /// 生产图片缓存：应用支持目录下 `comic_images/` 的磁盘 LRU
@@ -87,6 +93,7 @@ class ComicModule implements AppModule {
     this.localService,
     this.localContent,
     this.readLater,
+    this.imageFavorites,
     this.downloads,
     this.browseSource,
     this.sourceCatalog,
@@ -110,6 +117,9 @@ class ComicModule implements AppModule {
 
   /// 稍后阅读服务；null 时主页不显示该卡片。
   final ComicReadLaterService? readLater;
+
+  /// 单张图片收藏；null 时阅读器不显示收藏入口。
+  final ComicImageFavoriteService? imageFavorites;
 
   /// 在线下载能力；null 时详情页不显示下载按钮。
   final ComicDownloadApi? downloads;
@@ -212,6 +222,60 @@ class ComicModule implements AppModule {
           _openReader(item, detail, chapter, context),
       onImportSource: (url) => _syncSources(),
       onDeleteSource: (source) => _syncSources(),
+      onOpenImageFavorites: imageFavorites == null
+          ? null
+          : () => _openImageFavorites(context),
+    );
+  }
+
+  /// 打开「图片收藏」页；点缩略图回跳到该图所在章节。
+  Future<void> _openImageFavorites(BuildContext context) async {
+    final service = imageFavorites;
+    if (service == null) return;
+    final cache = await _resolveCache();
+    if (!context.mounted) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'comic/image-favorites'),
+        builder: (_) => ComicImageFavoritesPage(
+          service: service,
+          cache: cache,
+          onOpen: (favorite) => _openFavorite(favorite, context),
+        ),
+      ),
+    );
+  }
+
+  /// 回跳到收藏图片所在的章节页。
+  Future<void> _openFavorite(
+    ImageFavorite favorite,
+    BuildContext context,
+  ) async {
+    // 收藏只记 sourceName/comicId/chapterId/page；回跳靠详情页重新解析。
+    final item = ComicSummary(
+      id: favorite.comicId,
+      title: favorite.comicTitle,
+      sourceName: favorite.sourceName,
+      coverUrl: favorite.coverUrl ?? '',
+      detailUrl: favorite.detailUrl,
+    );
+    await _openReader(
+      item,
+      ComicDetail(
+        title: favorite.comicTitle,
+        coverUrl: favorite.coverUrl ?? '',
+        detailUrl: favorite.detailUrl,
+        description: '',
+        chapters: <ComicChapter>[
+          ComicChapter(
+            number: favorite.chapterNumber,
+            title: favorite.chapterTitle,
+            url: '',
+          ),
+        ],
+      ),
+      null,
+      context,
     );
   }
 
@@ -602,6 +666,10 @@ class ComicModule implements AppModule {
           initialPage: page,
           chapterTitles: titles,
           commentSource: commentSource,
+          imageFavorites: imageFavorites,
+          sourceName: ref.sourceName,
+          comicId: ref.id,
+          detailUrl: item.detailUrl,
         ),
       ),
     );

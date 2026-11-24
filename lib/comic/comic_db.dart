@@ -171,6 +171,45 @@ class ComicLocalEntries extends Table {
   Set<Column> get primaryKey => {id, sourceName};
 }
 
+/// 单张图片收藏（对齐 Venera-Next 的 image_favorites）。
+///
+/// 一行 = 「某部漫画某章第 N 张图被收藏」。主键用
+/// {sourceName, comicId, chapterId, page} 而不是自增 id：同一张图重复收藏
+/// 天然幂等，跨进程/跨设备合并也不会产生重复行。
+///
+/// [imageUrl] 存的是源给的图片地址（只作展示与回跳，不保证长期有效）；
+/// 阅读器回跳时按 chapterId + page 定位，不依赖地址还能打开。
+@DataClassName('ComicImageFavoriteRow')
+class ComicImageFavoriteEntries extends Table {
+  @override
+  String get tableName => 'comic_image_favorite';
+
+  TextColumn get sourceName => text()();
+  TextColumn get comicId => text()();
+  TextColumn get chapterId => text()();
+  IntColumn get page => integer()();
+
+  /// 漫画标题 / 章节标题：历史里删了书也要能显示。
+  TextColumn get comicTitle => text()();
+  TextColumn get chapterTitle => text().withDefault(const Constant(''))();
+
+  /// 图片地址与封面（可为空：本地漫画走 file://）。
+  TextColumn get imageUrl => text().withDefault(const Constant(''))();
+  TextColumn get coverUrl => text().nullable()();
+
+  /// 详情地址：回跳时据此重新拉章节列表（本地漫画为空，走本地内容读取）。
+  TextColumn get detailUrl => text().withDefault(const Constant(''))();
+
+  /// 章内总页数与章序号（1 基），用于"跳到该图"与排序。
+  IntColumn get pageCount => integer().withDefault(const Constant(0))();
+  IntColumn get chapterNumber => integer().withDefault(const Constant(0))();
+
+  DateTimeColumn get collectedAt => dateTime()();
+
+  @override
+  Set<Column> get primaryKey => {sourceName, comicId, chapterId, page};
+}
+
 @DriftDatabase(
   tables: [
     ComicCollectEntries,
@@ -180,6 +219,7 @@ class ComicLocalEntries extends Table {
     ComicDownloadTasks,
     ComicImageCacheEntries,
     ComicLocalEntries,
+    ComicImageFavoriteEntries,
   ],
 )
 class ComicDb extends _$ComicDb {
@@ -190,7 +230,7 @@ class ComicDb extends _$ComicDb {
   ComicDb.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   /// v1 → v2：新增「稍后阅读」表。旧库不重建，只补表（drift 的
   /// `createTable` 在 SQLite 上是幂等的 IF NOT EXISTS 语义）。
@@ -202,6 +242,10 @@ class ComicDb extends _$ComicDb {
     onUpgrade: (m, from, to) async {
       if (from < 2) {
         await m.createTable(comicReadLaterEntries);
+      }
+      // v2 → v3：新增「图片收藏」表；旧数据不动。
+      if (from < 3) {
+        await m.createTable(comicImageFavoriteEntries);
       }
     },
   );

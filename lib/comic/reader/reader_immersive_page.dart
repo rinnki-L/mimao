@@ -26,6 +26,7 @@ import '../../core/theme.dart';
 
 import 'reader_cache.dart';
 import 'reader_chapter_source.dart';
+import '../image_favorite_service.dart';
 import 'reader_comments.dart';
 import 'reader_comments_sheet.dart';
 import 'reader_diagnostics.dart';
@@ -55,6 +56,10 @@ class ImmersiveReaderPage extends StatefulWidget {
     this.initialPage = 1,
     this.chapterTitles = const <String>[],
     this.commentSource,
+    this.imageFavorites,
+    this.sourceName = '',
+    this.comicId = '',
+    this.detailUrl = '',
   });
 
   final String title;
@@ -75,6 +80,16 @@ class ImmersiveReaderPage extends StatefulWidget {
 
   /// 章节评论源；null 时不显示评论入口。
   final NovelCommentSource? commentSource;
+
+  /// 单张图片收藏服务；null 时不显示收藏入口。
+  final ComicImageFavoriteService? imageFavorites;
+
+  /// 收藏主键需要的来源 key 与作品 id（本地漫画 sourceName = 'local'）。
+  final String sourceName;
+  final String comicId;
+
+  /// 详情地址（收藏回跳时用）。
+  final String detailUrl;
 
   @override
   State<ImmersiveReaderPage> createState() => _ImmersiveReaderPageState();
@@ -259,6 +274,49 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage>
     }
   }
 
+  /// 收藏 / 取消收藏当前这张图。
+  ///
+  /// 第 1 页（封面页）不允许取消：它是这部作品在收藏列表里的代表图。
+  Future<void> _toggleImageFavorite() async {
+    final service = widget.imageFavorites;
+    if (service == null) return;
+    final position = _reading.position;
+    if (position.chapterId.isEmpty || position.page < 1) {
+      _showSnack('当前页没有稳定标识，无法收藏');
+      return;
+    }
+    final current = await _viewport.currentImage();
+    if (!mounted) return;
+    final url = current?.$2 ?? '';
+    try {
+      final result = await service.toggle(
+        ImageFavoriteInput(
+          sourceName: widget.sourceName,
+          comicId: widget.comicId,
+          comicTitle: widget.title,
+          chapterId: position.chapterId,
+          chapterNumber: position.chapter,
+          chapterTitle: _reading.chapterTitle,
+          page: position.page,
+          pageCount: position.pageCount,
+          imageUrl: url,
+          detailUrl: widget.detailUrl,
+        ),
+      );
+      if (!mounted) return;
+      switch (result) {
+        case ImageFavoriteResult.collected:
+          _showSnack('已收藏这张图');
+        case ImageFavoriteResult.uncollected:
+          _showSnack('已取消收藏');
+        case ImageFavoriteResult.protectedCover:
+          _showSnack('第一页是这部作品在收藏里的代表图，不能取消');
+      }
+    } on Object catch (error) {
+      if (mounted) _showSnack('收藏失败：$error');
+    }
+  }
+
   /// 打开当前章评论；源不支持时不显示入口，所以这里不再判空。
   Future<void> _openComments() async {
     final source = widget.commentSource;
@@ -324,6 +382,8 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage>
           value: 'auto',
           child: Text(_autoReading ? '停止自动阅读' : '自动阅读'),
         ),
+        if (widget.imageFavorites != null)
+          const PopupMenuItem<String>(value: 'favorite', child: Text('收藏这张图')),
         const PopupMenuItem<String>(value: 'comments', child: Text('章节评论')),
         const PopupMenuItem<String>(value: 'diagnostics', child: Text('阅读诊断')),
       ],
@@ -340,6 +400,8 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage>
         await _toggleFullscreen();
       case 'auto':
         _toggleAutoReading();
+      case 'favorite':
+        await _toggleImageFavorite();
       case 'comments':
         await _openComments();
       case 'diagnostics':
@@ -761,6 +823,13 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage>
                         _fullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
                       ),
                       onPressed: () => unawaited(_toggleFullscreen()),
+                    ),
+                  if (widget.imageFavorites != null)
+                    IconButton(
+                      key: const Key('reader-favorite-image'),
+                      tooltip: '收藏这张图',
+                      icon: const Icon(Icons.star_border),
+                      onPressed: () => unawaited(_toggleImageFavorite()),
                     ),
                   if (widget.commentSource != null)
                     IconButton(

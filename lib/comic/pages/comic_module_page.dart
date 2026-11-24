@@ -52,6 +52,7 @@ class ComicModulePage extends StatefulWidget {
     this.onStartReading,
     this.onImportSource,
     this.onDeleteSource,
+    this.onOpenImageFavorites,
   });
 
   final ComicDataSource dataSource;
@@ -111,6 +112,9 @@ class ComicModulePage extends StatefulWidget {
   /// 从 URL 导入源 / 删除源的回调，透传给源管理页。
   final ValueChanged<String>? onImportSource;
   final ValueChanged<ComicSourceInfo>? onDeleteSource;
+
+  /// 打开「图片收藏」页；null 时主页不显示该入口。
+  final VoidCallback? onOpenImageFavorites;
 
   @override
   State<ComicModulePage> createState() => _ComicModulePageState();
@@ -356,6 +360,7 @@ class _ComicModulePageState extends State<ComicModulePage> {
                   localApi: widget.localApi,
                   onOpenReadLater: _openReadLater,
                   onOpenLocalLibrary: _openLocalLibrary,
+                  onOpenImageFavorites: widget.onOpenImageFavorites,
                 ),
                 if (library != null)
                   ComicFavoritesPage(

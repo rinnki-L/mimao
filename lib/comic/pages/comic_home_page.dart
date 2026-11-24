@@ -41,6 +41,7 @@ class ComicHomePage extends StatefulWidget {
     this.localApi,
     this.onOpenReadLater,
     this.onOpenLocalLibrary,
+    this.onOpenImageFavorites,
   });
 
   final ComicDataSource dataSource;
@@ -79,6 +80,9 @@ class ComicHomePage extends StatefulWidget {
 
   /// 打开「本地漫画」管理页（模块层 push，返回后自增 refreshKey）。
   final VoidCallback? onOpenLocalLibrary;
+
+  /// 打开「图片收藏」页；null 时不显示入口。
+  final VoidCallback? onOpenImageFavorites;
 
   @override
   State<ComicHomePage> createState() => _ComicHomePageState();
@@ -270,6 +274,10 @@ class _ComicHomePageState extends State<ComicHomePage> {
                 ],
                 if (widget.localApi != null) ...<Widget>[
                   _buildLocalCard(data.local),
+                  const SizedBox(height: 12),
+                ],
+                if (widget.onOpenImageFavorites != null) ...<Widget>[
+                  _buildImageFavoritesCard(),
                   const SizedBox(height: 12),
                 ],
                 _buildSourceCard(data.sources),
@@ -481,6 +489,42 @@ class _ComicHomePageState extends State<ComicHomePage> {
   /// 保留启用统计副标题与前几个源 chips。无 [sourceLister]（fixture/未接线）
   /// 或读取失败时清单为空，显示导入提示而非崩；点卡片仍交给模块层的
   /// [onOpenSources] 处理。
+  /// 图片收藏入口：一行卡头，点进收藏页。
+  Widget _buildImageFavoritesCard() {
+    final cs = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    return Card(
+      key: const Key('comic-home-image-favorites-card'),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        key: const Key('comic-home-image-favorites-tap'),
+        onTap: widget.onOpenImageFavorites,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              _HomeCardHeader(
+                icon: Icons.star_outline,
+                title: '图片收藏',
+                trailing: Icon(
+                  Icons.chevron_right,
+                  size: 20,
+                  color: cs.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '阅读时收藏的单张图片',
+                style: textTheme.bodySmall?.apply(color: cs.onSurfaceVariant),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildSourceCard(List<ComicSourceInfo> sources) {
     final onOpenSources = widget.onOpenSources;
     final cs = Theme.of(context).colorScheme;
