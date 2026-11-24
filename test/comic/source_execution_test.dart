@@ -148,6 +148,18 @@ void main() {
     }
   });
 
+  test('③c imageHeaders 单张懒解析 onImageLoad', () async {
+    if (!_hasNativeJs) return;
+    final headers = await engineFor(pool!).imageHeaders(
+      'fixture',
+      'https://fixture.test/img/1.jpg',
+      'one',
+      episodeId: 'ch-1',
+    );
+    expect(headers['Referer'], 'https://fixture.test/');
+    expect(headers['X-Image'], 'https://fixture.test/img/1.jpg');
+  });
+
   test('④ 脚本语法错误不崩溃：返回带诊断的空结果', () async {
     if (!_hasNativeJs) return;
     final badPool = SourceExecutionPool(

@@ -80,7 +80,7 @@ class ComicModule implements AppModule {
     required this.history,
     required this.searchHistory,
     required this.loadChapterImages,
-    this.loadChapterImageRequests,
+    this.loadChapterImageResolver,
     this.localService,
     this.localContent,
     this.readLater,
@@ -122,12 +122,14 @@ class ComicModule implements AppModule {
   final Future<List<String>> Function(ComicSummary item, ComicChapter chapter)
   loadChapterImages;
 
-  /// 取一章的图片请求（含源注入的防盗链头）；null 时阅读器退回纯地址。
-  final Future<List<reader.ImageRequest>> Function(
+  /// 单张图懒解析源请求头（`comic.onImageLoad`）：阅读器预取到哪张才问哪张。
+  /// null 时阅读器只用地址 + 默认 UA/Referer。
+  final Future<reader.ImageRequest> Function(
     ComicSummary item,
     ComicChapter chapter,
+    String url,
   )?
-  loadChapterImageRequests;
+  loadChapterImageResolver;
 
   /// 阅读器图片缓存工厂；null 时回退内存缓存（不碰 path_provider，
   /// 便于模块级测试）。生产由 app_registry 注入 [defaultComicImageCache]。
@@ -411,12 +413,6 @@ class ComicModule implements AppModule {
           chapter >= 1 && chapter <= localImages.length
           ? localImages[chapter - 1].imageUrls
           : const <String>[];
-      Future<List<reader.ImageRequest>> requestsForLocal(int chapter) async {
-        final urls = await sourceForLocal(chapter);
-        return <reader.ImageRequest>[
-          for (final url in urls) reader.ImageRequest(url: url),
-        ];
-      }
 
       if (!context.mounted) return;
       await _pushImmersive(
@@ -428,7 +424,7 @@ class ComicModule implements AppModule {
         titles,
         ids,
         sourceForLocal,
-        requestsForLocal,
+        null,
         chapter,
         isLocal,
       );
@@ -450,23 +446,20 @@ class ComicModule implements AppModule {
       return loadChapterImages(item, dataChapters[chapter - 1]);
     }
 
-    Future<List<reader.ImageRequest>> requestsForOnline(int chapter) async {
-      if (chapter < 1 || chapter > dataChapters.length) {
-        return const <reader.ImageRequest>[];
+    Future<reader.ImageRequest> resolveForOnline(
+      int chapter,
+      String url,
+    ) async {
+      final resolver = loadChapterImageResolver;
+      if (resolver == null || chapter < 1 || chapter > dataChapters.length) {
+        return reader.ImageRequest(url: url);
       }
-      final requestLoader = loadChapterImageRequests;
-      if (requestLoader != null) {
-        try {
-          final requests = await requestLoader(item, dataChapters[chapter - 1]);
-          if (requests.isNotEmpty) return requests;
-        } on Object {
-          // 源级请求头解析失败时退回纯地址：图片加载器仍会补 UA/同源 Referer。
-        }
+      try {
+        return await resolver(item, dataChapters[chapter - 1], url);
+      } on Object {
+        // 单张图请求头解析失败时退回纯地址：加载器仍会补 UA/同源 Referer。
+        return reader.ImageRequest(url: url);
       }
-      final urls = await sourceForOnline(chapter);
-      return <reader.ImageRequest>[
-        for (final url in urls) reader.ImageRequest(url: url),
-      ];
     }
 
     await _pushImmersive(
@@ -478,7 +471,7 @@ class ComicModule implements AppModule {
       titles,
       ids,
       sourceForOnline,
-      requestsForOnline,
+      resolveForOnline,
       chapter,
       isLocal,
     );
@@ -531,7 +524,8 @@ class ComicModule implements AppModule {
     List<String> titles,
     List<String> ids,
     Future<List<String>> Function(int) loadImages,
-    Future<List<reader.ImageRequest>> Function(int) loadRequests,
+    Future<reader.ImageRequest> Function(int chapter, String url)?
+    resolveRequest,
     ComicChapter? chapter,
     bool isLocal,
   ) async {
@@ -544,21 +538,15 @@ class ComicModule implements AppModule {
       coverUrl,
     );
 
-    // 关键：起始章在进入阅读器之前抓。抓图可能撞反爬 → 弹验证 WebView
-    // （它加载站点章节页，看着像"站点自己的阅读器"）。此刻我们阅读器还没 push，
-    // 验证页在详情页之上弹出、关掉后回到详情页，不会盖住阅读器、更不会让
-    // 阅读器拿不到图变空白。其余章节仍交给阅读器按需懒加载。
-    //
-    // 用 loadRequests 而不是 loadImages：源支持 onImageLoad 时，起始章也能
-    // 带着防盗链头进缓存，不会因为预取路径不同而第一次读图就失败。
-    Map<int, List<reader.ImageRequest>> initialRequestCache =
-        const <int, List<reader.ImageRequest>>{};
+    // 关键：起始章在进入阅读器之前抓（撞反爬时验证页在详情页之上弹出，
+    // 不盖住阅读器）；其余章节仍交给阅读器按需懒加载。
+    // 这里只抓地址：每张图的 onImageLoad 延迟到真正要显示/预取时才解析，
+    // 避免打开一章先把整章钩子跑一遍（钩子里可能有网络请求）。
+    Map<int, List<String>> initialCache = const <int, List<String>>{};
     try {
-      final firstRequests = await loadRequests(chapterNumber);
-      if (firstRequests.isNotEmpty) {
-        initialRequestCache = <int, List<reader.ImageRequest>>{
-          chapterNumber: firstRequests,
-        };
+      final firstImages = await loadImages(chapterNumber);
+      if (firstImages.isNotEmpty) {
+        initialCache = <int, List<String>>{chapterNumber: firstImages};
       }
     } on Object {
       // 抓图失败（含用户取消验证）：仍进阅读器，让其在读该章时按 UI 重试，
@@ -570,8 +558,8 @@ class ComicModule implements AppModule {
       episodeIds: ids,
       titles: titles,
       loadImages: loadImages,
-      loadRequests: loadRequests,
-      initialRequestCache: initialRequestCache,
+      resolveRequest: resolveRequest,
+      initialCache: initialCache,
     );
     final cache = await _resolveCache();
     final recorder = ComicLibraryProgressRecorder(

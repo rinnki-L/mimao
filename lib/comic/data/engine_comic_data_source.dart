@@ -473,6 +473,30 @@ class EngineComicDataSource
     return List<source_engine.ComicImageRef>.unmodifiable(result.items);
   }
 
+  /// 单张图的懒解析请求头（阅读器预取到哪张才问哪张）。
+  Future<Map<String, String>> loadImageHeadersForChapter(
+    ComicSummary item,
+    ComicChapter chapter,
+    String imageUrl,
+  ) async {
+    final ep = tryDecodeComicEpisodeUrl(chapter.url);
+    if (ep == null) {
+      _addDiagnostics(<String>['章节地址无法反查：${chapter.url}']);
+      return const <String, String>{};
+    }
+    final key = (item.sourceName ?? '').trim();
+    if (key.isEmpty || key != ep.sourceKey) {
+      _addDiagnostics(<String>['章节来源不匹配：${ep.sourceKey} vs $key']);
+      return const <String, String>{};
+    }
+    return engine.imageHeaders(
+      key,
+      imageUrl,
+      ep.comicId,
+      episodeId: ep.episodeId,
+    );
+  }
+
   // ── ComicBrowseSource（发现 / 分类）──────────────────────────────
 
   @override

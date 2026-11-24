@@ -7,6 +7,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mimao/comic/reader/reader_cache.dart';
+import 'package:mimao/comic/reader/reader_models.dart';
 
 void main() {
   int loadCount = 0;
@@ -86,5 +87,28 @@ void main() {
     await disk.write('del.png', Uint8List.fromList(<int>[1]));
     await disk.remove('del.png');
     expect(await disk.read('del.png'), isNull);
+  });
+
+  test('延迟请求头：只解析一次，peek 按解析后身份命中', () async {
+    final cache = buildCache();
+    var resolveCount = 0;
+    final request = ImageRequest(
+      url: 'lazy.png',
+      resolve: () async {
+        resolveCount++;
+        return const ImageRequest(
+          url: 'lazy.png',
+          headers: <String, String>{'X-Test': '1'},
+        );
+      },
+    );
+
+    final bytes = await cache.loadRequest(request);
+    expect(resolveCount, 1);
+    expect(cache.hasRequest(request), isTrue);
+    expect(cache.peekRequest(request), same(bytes));
+
+    await cache.loadRequest(request);
+    expect(resolveCount, 1, reason: '同一请求身份不应重复跑 onImageLoad');
   });
 }

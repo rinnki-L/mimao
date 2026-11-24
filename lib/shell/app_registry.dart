@@ -286,13 +286,14 @@ Future<void> initAppModules({
         searchHistory: searchHistory,
         // 统一书架入口保留在壳层顶栏，漫画主页不再重复放快捷入口。
         loadChapterImages: adapter.loadImagesForChapter,
-        // 源支持 comic.onImageLoad 时，阅读器拿带防盗链头的 ImageRequest。
-        loadChapterImageRequests: (item, chapter) async {
-          final refs = await adapter.loadImageRefsForChapter(item, chapter);
-          return <ImageRequest>[
-            for (final ref in refs)
-              ImageRequest(url: ref.url, headers: ref.headers),
-          ];
+        // 源支持 comic.onImageLoad 时，阅读器预取到哪张才解析哪张的请求头。
+        loadChapterImageResolver: (item, chapter, url) async {
+          final headers = await adapter.loadImageHeadersForChapter(
+            item,
+            chapter,
+            url,
+          );
+          return ImageRequest(url: url, headers: headers);
         },
         imageCacheFactory: comicImageCacheFactory ?? defaultComicImageCache,
         // 沉浸式阅读器（七模式 + 跨章瀑布 + 手势 + 设置）：生产走这里。

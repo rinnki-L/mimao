@@ -17,6 +17,7 @@ class ImageRequest {
     required this.url,
     this.referer,
     this.headers = const <String, String>{},
+    this.resolve,
   });
 
   /// 按站点 Referer 构造（防盗链常用：图片 URL 同源根）。
@@ -30,6 +31,26 @@ class ImageRequest {
 
   /// 额外请求头（如站点要求的自定义头）。大小写不敏感由底层处理。
   final Map<String, String> headers;
+
+  /// 延迟解析器：源支持 `comic.onImageLoad` 时，真正要取这张图才调用，
+  /// 返回带请求头的完整请求。阅读器预取窗口最多只有几张，避免打开一章就
+  /// 把全章 N 次 JS 钩子跑一遍（钩子里可能有网络请求）。
+  final Future<ImageRequest> Function()? resolve;
+
+  /// 解析后的完整请求（无解析器时返回自身）。
+  Future<ImageRequest> resolved() async {
+    final resolve = this.resolve;
+    if (resolve == null) return this;
+    final request = await resolve();
+    // 防止解析器返回未带头部的自身导致递归。
+    return request.resolve == null
+        ? request
+        : ImageRequest(
+            url: request.url,
+            referer: request.referer,
+            headers: request.headers,
+          );
+  }
 
   /// 缓存身份：地址 + 头都参与，避免同一地址不同头时串图。
   /// 无头时退化为纯地址，与旧 [cacheKey](reader_cache.dart) 契约一致。

@@ -29,6 +29,7 @@ class LazyChapterSource
     required this.titles,
     Future<List<String>> Function(int chapter)? loadImages,
     Future<List<ImageRequest>> Function(int chapter)? loadRequests,
+    Future<ImageRequest> Function(int chapter, String url)? resolveRequest,
     Map<int, List<String>> initialCache = const <int, List<String>>{},
     Map<int, List<ImageRequest>> initialRequestCache =
         const <int, List<ImageRequest>>{},
@@ -39,6 +40,7 @@ class LazyChapterSource
        ),
        _loadImages = loadImages,
        _loadRequests = loadRequests,
+       _resolveRequest = resolveRequest,
        // 起始章在进入阅读器前已抓过（验证页在那时弹，不跟阅读器打架），
        // 预置进缓存，阅读器 start() 直接命中、不再发任何网络请求。
        _cache = _mergeInitial(initialCache, initialRequestCache);
@@ -51,6 +53,7 @@ class LazyChapterSource
 
   final Future<List<String>> Function(int chapter)? _loadImages;
   final Future<List<ImageRequest>> Function(int chapter)? _loadRequests;
+  final Future<ImageRequest> Function(int chapter, String url)? _resolveRequest;
 
   /// 已抓过的章缓存：翻回去不重复抓。
   final Map<int, List<ImageRequest>> _cache;
@@ -86,7 +89,14 @@ class LazyChapterSource
       requests = await requestLoader(chapter);
     } else {
       final urls = await _loadImages!(chapter);
-      requests = <ImageRequest>[for (final url in urls) ImageRequest(url: url)];
+      final resolver = _resolveRequest;
+      requests = <ImageRequest>[
+        for (final url in urls)
+          ImageRequest(
+            url: url,
+            resolve: resolver == null ? null : () => resolver(chapter, url),
+          ),
+      ];
     }
     if (scope.isCancelled) return const <ImageRequest>[];
     final result = List<ImageRequest>.unmodifiable(requests);

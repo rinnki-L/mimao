@@ -84,6 +84,35 @@ class ComicSourceEngine {
     return parseImages(execution.value);
   }
 
+  /// 单张图懒解析 `comic.onImageLoad`：返回该图的请求头。
+  ///
+  /// 阅读器预取到哪张才解析哪张，避免打开一章就把整章 N 次钩子全跑一遍
+  /// （钩子内部可能有网络请求）。源未定义钩子、钩子抛错或返回非 map 时
+  /// 返回空 map，加载器继续用默认 UA/Referer。
+  Future<Map<String, String>> imageHeaders(
+    String key,
+    String imageKey,
+    String comicId, {
+    String? episodeId,
+  }) async {
+    final ep = episodeId == null ? 'null' : _q(episodeId);
+    final execution = await _pool.execute(key, '''
+(async () => {
+  if (typeof source.comic.onImageLoad !== 'function') return null;
+  try {
+    const config = await source.comic.onImageLoad(
+      ${_q(imageKey)}, ${_q(comicId)}, $ep
+    );
+    return config && config.headers ? config.headers : null;
+  } catch (error) {
+    return null;
+  }
+})()
+''');
+    if (!execution.isOk) return const <String, String>{};
+    return _stringMap(execution.value);
+  }
+
   /// 章节图片 + 源注入的加载配置：一次 JS 调用里跑完 `loadEp` 与逐图
   /// `comic.onImageLoad`，返回 `{images, headers: {url: {headers}}}`。
   ///

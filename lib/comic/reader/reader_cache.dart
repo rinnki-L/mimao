@@ -240,6 +240,10 @@ class ReaderImageCache {
   final Map<String, Future<Uint8List>> _inflight =
       <String, Future<Uint8List>>{};
 
+  /// 未解析请求身份 → 已解析请求。预取先把 onImageLoad 头解析出来，图片槽
+  /// 再按同一未解析请求同步 peek，就能直接拿到字节而不闪加载态。
+  final Map<String, ImageRequest> _resolved = <String, ImageRequest>{};
+
   int hits = 0;
   int misses = 0;
   int evictions = 0;
@@ -250,13 +254,13 @@ class ReaderImageCache {
 
   /// 按完整请求信息判断内存里是否已有字节（不触发磁盘/网络）。
   bool hasRequest(ImageRequest request) =>
-      _memory.containsKey(cacheKey(request.cacheIdentity));
+      _memory.containsKey(cacheKey(_identity(request)));
 
   /// 同步取内存里的字节并刷新 LRU；未命中返回 null（不看磁盘）。
   ///
   /// 阅读视口用它把"已经预取好的下一张图"在首帧直接显示，避免闪一下加载态。
   Uint8List? peekRequest(ImageRequest request) {
-    final key = cacheKey(request.cacheIdentity);
+    final key = cacheKey(_identity(request));
     final cached = _memory.remove(key);
     if (cached == null) return null;
     _memory[key] = cached;
@@ -264,26 +268,40 @@ class ReaderImageCache {
     return cached;
   }
 
+  /// 未解析请求优先查到预取阶段解析出的最终请求身份。
+  String _identity(ImageRequest request) =>
+      (_resolved[request.cacheIdentity] ?? request).cacheIdentity;
+
   /// 取图（旧契约）：等价于 `loadRequest(ImageRequest(url: url))`。
   /// 无请求头时 cacheIdentity == url，缓存键与旧行为完全一致。
   Future<Uint8List> load(String url) => loadRequest(ImageRequest(url: url));
 
-  /// 取图：内存命中 → 磁盘命中 → loader 拉取并回填两级缓存。
+  /// 取图：解析延迟请求头 → 内存命中 → 磁盘命中 → loader 拉取并回填缓存。
   ///
   /// 缓存键由 [ImageRequest.cacheIdentity] 决定——地址 + 头都参与，
   /// 同一地址不同请求头不会串图；无头时与 [load] 的键一致。
-  Future<Uint8List> loadRequest(ImageRequest request) {
-    final key = cacheKey(request.cacheIdentity);
+  Future<Uint8List> loadRequest(ImageRequest request) async {
+    final cachedResolved = _resolved[request.cacheIdentity];
+    final resolved =
+        cachedResolved ??
+        (request.resolve == null ? request : await request.resolved());
+    if (cachedResolved == null && !identical(resolved, request)) {
+      _resolved[request.cacheIdentity] = resolved;
+      if (_resolved.length > maxMemoryEntries * 8) {
+        _resolved.remove(_resolved.keys.first);
+      }
+    }
+    final key = cacheKey(resolved.cacheIdentity);
     final cached = _memory.remove(key);
     if (cached != null) {
       _memory[key] = cached;
       hits++;
-      return Future.value(cached);
+      return cached;
     }
     final pending = _inflight[key];
     if (pending != null) return pending;
 
-    final future = _fetch(request, key);
+    final future = _fetch(resolved, key);
     _inflight[key] = future;
     return future.whenComplete(() => _inflight.remove(key));
   }

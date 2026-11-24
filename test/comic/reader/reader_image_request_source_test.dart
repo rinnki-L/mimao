@@ -91,4 +91,26 @@ void main() {
     expect(requests.single.url, 'a.jpg');
     expect(requests.single.headers, isEmpty);
   });
+
+  test('提供 resolveRequest 时只包地址，请求头延迟到真正取图', () async {
+    var resolveCalls = 0;
+    final source = LazyChapterSource(
+      episodeIds: const <String>['ep-1'],
+      titles: const <String>['第 1 章'],
+      loadImages: (_) async => <String>['a.jpg'],
+      resolveRequest: (chapter, url) async {
+        resolveCalls++;
+        return ImageRequest(
+          url: url,
+          headers: const <String, String>{'Referer': 'https://site/'},
+        );
+      },
+    );
+
+    final requests = await source.loadRequests(1, ReaderLoadScope());
+    expect(resolveCalls, 0, reason: '章节加载阶段不跑 onImageLoad');
+    final resolved = await requests.single.resolved();
+    expect(resolveCalls, 1);
+    expect(resolved.headers['Referer'], 'https://site/');
+  });
 }
