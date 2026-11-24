@@ -3,6 +3,7 @@
 
 // ignore_for_file: deprecated_member_use — 见 lib/main.dart 文件头同款说明。
 
+import 'package:flutter/gestures.dart' show kSecondaryMouseButton;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -104,5 +105,20 @@ void main() {
     expect(find.textContaining('2/3'), findsWidgets);
     expect(env.loaded, contains('c1-p3.png'));
     expect(env.loaded, contains('c1-p4.png'));
+  });
+
+  testWidgets('桌面右键弹出阅读操作菜单', (tester) async {
+    await tester.pumpWidget(_app(cache: env.cache, store: store));
+    await tester.pumpAndSettle();
+
+    await tester.tapAt(
+      tester.getCenter(find.byKey(const Key('immersive-scroll'))),
+      buttons: kSecondaryMouseButton,
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('阅读设置'), findsOneWidget);
+    expect(find.text('保存当前图片'), findsOneWidget);
+    expect(find.text('章节目录'), findsOneWidget);
   });
 }

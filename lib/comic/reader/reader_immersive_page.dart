@@ -67,7 +67,8 @@ class ImmersiveReaderPage extends StatefulWidget {
   State<ImmersiveReaderPage> createState() => _ImmersiveReaderPageState();
 }
 
-class _ImmersiveReaderPageState extends State<ImmersiveReaderPage> {
+class _ImmersiveReaderPageState extends State<ImmersiveReaderPage>
+    with WidgetsBindingObserver {
   late ReaderSettings _settings;
   late ImmersiveReaderController _reading;
   late ReaderWaterfallController _waterfall;
@@ -79,11 +80,13 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage> {
   Timer? _autoReadTimer;
   bool _autoReading = false;
   bool _fullscreen = false;
+  bool _appActive = true;
   DateTime _lastInteraction = DateTime.fromMillisecondsSinceEpoch(0);
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _waterfall = ReaderWaterfallController(
       source: widget.source,
       initialChapter: widget.initialChapter,
@@ -114,6 +117,7 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _autoReadTimer?.cancel();
     if (_fullscreen && _supportsFullscreen) unawaited(_restoreFullscreen());
     _waterfall.removeListener(_onWaterfallChanged);
@@ -121,6 +125,17 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage> {
     _reading.dispose();
     _chromeVisible.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final active = state == AppLifecycleState.resumed;
+    if (_appActive == active) return;
+    _appActive = active;
+    if (!active) {
+      // 切后台时把最后一次滚动位置补写掉，自动阅读下一拍自然停住。
+      unawaited(_reading.flushProgress());
+    }
   }
 
   Future<void> _restoreFullscreen() async {
@@ -143,6 +158,62 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage> {
   void _toggleChrome() {
     if (_menuLocked) return;
     _chromeVisible.value = !_chromeVisible.value;
+  }
+
+  Future<void> _openSettingsSheet() async {
+    final wasVisible = _chromeVisible.value;
+    if (!_menuLocked) _chromeVisible.value = false;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => ReaderSettingsPanel(
+        initial: _settings,
+        onChanged: _applySettings,
+        onClose: () => Navigator.of(context).pop(),
+      ),
+    );
+    // 锁菜单时不能把面板藏掉后又不还原，否则解锁按钮也看不见。
+    if (mounted && wasVisible) _chromeVisible.value = true;
+  }
+
+  Future<void> _showContextMenu(TapDownDetails details) async {
+    if (!_supportsFullscreen) return; // 桌面右键菜单；触屏长按仍用于缩放
+    final position = details.globalPosition;
+    final action = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        position.dx,
+        position.dy,
+        position.dx,
+        position.dy,
+      ),
+      items: <PopupMenuEntry<String>>[
+        const PopupMenuItem<String>(value: 'settings', child: Text('阅读设置')),
+        const PopupMenuItem<String>(value: 'chapters', child: Text('章节目录')),
+        const PopupMenuItem<String>(value: 'save', child: Text('保存当前图片')),
+        PopupMenuItem<String>(
+          value: 'fullscreen',
+          child: Text(_fullscreen ? '退出全屏' : '全屏'),
+        ),
+        PopupMenuItem<String>(
+          value: 'auto',
+          child: Text(_autoReading ? '停止自动阅读' : '自动阅读'),
+        ),
+      ],
+    );
+    if (!mounted || action == null) return;
+    switch (action) {
+      case 'settings':
+        await _openSettingsSheet();
+      case 'chapters':
+        await _openChapterMenu();
+      case 'save':
+        await _saveCurrentImage();
+      case 'fullscreen':
+        await _toggleFullscreen();
+      case 'auto':
+        _toggleAutoReading();
+    }
   }
 
   bool get _supportsFullscreen =>
@@ -170,9 +241,12 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage> {
 
   void _startAutoReading() {
     _autoReadTimer?.cancel();
+    _chromeVisible.value = false;
     final seconds = _settings.autoReadingInterval;
     _autoReadTimer = Timer.periodic(Duration(seconds: seconds), (_) {
-      if (!mounted) return;
+      if (!mounted || !_appActive) return;
+      // 菜单栏被唤出时视为暂停，用户看完/关掉菜单后继续。
+      if (_chromeVisible.value) return;
       // 手指/滚轮刚动过：这一拍不推进（真正的"暂停"感）。
       if (DateTime.now().difference(_lastInteraction) <
           const Duration(milliseconds: 900)) {
@@ -358,44 +432,49 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage> {
               },
               child: Focus(
                 autofocus: true,
-                child: Listener(
-                  onPointerDown: (_) => _noteInteraction(),
-                  onPointerSignal: (_) => _noteInteraction(),
-                  child: AnimatedBuilder(
-                    animation: _waterfall,
-                    builder: (context, _) {
-                      return AnimatedBuilder(
-                        animation: _reading,
-                        builder: (context, __) => Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            ReaderViewport(
-                              settings: _settings,
-                              reading: _reading,
-                              waterfall: _waterfall,
-                              cache: widget.imageCache,
-                              onTapCenter: _toggleChrome,
-                              chapterTitles: widget.chapterTitles,
-                              viewportController: _viewport,
-                            ),
-                            // 阅读亮度遮罩（不压暗时透明、不吃事件）。
-                            Positioned.fill(
-                              child: IgnorePointer(
-                                child: ColoredBox(
-                                  color: Colors.black.withValues(
-                                    alpha: 1 - _settings.dimBrightness / 100,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onSecondaryTapDown: (details) =>
+                      unawaited(_showContextMenu(details)),
+                  child: Listener(
+                    onPointerDown: (_) => _noteInteraction(),
+                    onPointerSignal: (_) => _noteInteraction(),
+                    child: AnimatedBuilder(
+                      animation: _waterfall,
+                      builder: (context, _) {
+                        return AnimatedBuilder(
+                          animation: _reading,
+                          builder: (context, __) => Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              ReaderViewport(
+                                settings: _settings,
+                                reading: _reading,
+                                waterfall: _waterfall,
+                                cache: widget.imageCache,
+                                onTapCenter: _toggleChrome,
+                                chapterTitles: widget.chapterTitles,
+                                viewportController: _viewport,
+                              ),
+                              // 阅读亮度遮罩（不压暗时透明、不吃事件）。
+                              Positioned.fill(
+                                child: IgnorePointer(
+                                  child: ColoredBox(
+                                    color: Colors.black.withValues(
+                                      alpha: 1 - _settings.dimBrightness / 100,
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
-                            if (_settings.showPageNumber)
-                              _buildPageBadge(theme),
-                            _buildTopBar(theme),
-                            _buildBottomBar(theme),
-                          ],
-                        ),
-                      );
-                    },
+                              if (_settings.showPageNumber)
+                                _buildPageBadge(theme),
+                              _buildTopBar(theme),
+                              _buildBottomBar(theme),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
                   ),
                 ),
               ),
@@ -495,21 +574,7 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage> {
                     key: const Key('reader-settings'),
                     tooltip: '阅读设置',
                     icon: const Icon(Icons.tune),
-                    onPressed: () async {
-                      final wasVisible = _chromeVisible.value;
-                      if (!_menuLocked) _chromeVisible.value = false;
-                      await showModalBottomSheet<void>(
-                        context: context,
-                        isScrollControlled: true,
-                        builder: (_) => ReaderSettingsPanel(
-                          initial: _settings,
-                          onChanged: _applySettings,
-                          onClose: () => Navigator.of(context).pop(),
-                        ),
-                      );
-                      // 锁菜单时不能把面板藏掉后又不还原，否则解锁按钮也看不见。
-                      if (mounted && wasVisible) _chromeVisible.value = true;
-                    },
+                    onPressed: () => unawaited(_openSettingsSheet()),
                   ),
                 ],
               ),

@@ -248,6 +248,13 @@ class ImmersiveReaderController extends ChangeNotifier {
     _notify();
   }
 
+  /// 立即把待合并的滚动位置落库（切后台 / 退出前调用）。
+  Future<void> flushProgress() async {
+    _persistTimer?.cancel();
+    _persistTimer = null;
+    await _persist();
+  }
+
   Future<void> _persist() async {
     final recorder = this.recorder;
     if (recorder == null) return;

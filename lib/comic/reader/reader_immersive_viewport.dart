@@ -745,6 +745,7 @@ class _ReaderViewportState extends State<ReaderViewport>
       controller: _pageController,
       scrollDirection: mode.isVertical ? Axis.vertical : Axis.horizontal,
       reverse: mode.isReverse,
+      allowImplicitScrolling: true,
       itemCount: total,
       onPageChanged: (index) => _onGalleryPageChanged(index, total, pageCount),
       itemBuilder: (context, index) {
