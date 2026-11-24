@@ -294,9 +294,8 @@ class _ImmersiveReaderPageState extends State<ImmersiveReaderPage>
         child: ReaderDiagnosticsSheet(
           diagnostics: _diagnostics,
           mode: _effectiveSettings.mode,
-          refreshRate: MediaQuery.maybeOf(context)?.devicePixelRatio == null
-              ? 60
-              : View.of(context).display.refreshRate,
+          appVersion: kReaderDiagnosticsAppVersion,
+          refreshRate: View.of(context).display.refreshRate,
         ),
       ),
     );

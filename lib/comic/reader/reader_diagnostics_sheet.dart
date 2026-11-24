@@ -18,6 +18,12 @@ import 'package:path_provider/path_provider.dart';
 import 'reader_diagnostics.dart';
 import 'reader_view_mode.dart';
 
+/// 诊断报告里记录的版本号；与 `pubspec.yaml` 的 version 保持一致。
+///
+/// 不引 package_info_plus（多一个平台插件只为读一个字符串不划算）；
+/// 升级版本时同步改这里，格式不合规时诊断会写成 unknown。
+const String kReaderDiagnosticsAppVersion = '0.1.0';
+
 /// 诊断面板。
 class ReaderDiagnosticsSheet extends StatefulWidget {
   const ReaderDiagnosticsSheet({
