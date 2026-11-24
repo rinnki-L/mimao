@@ -17,7 +17,8 @@
 library;
 
 import 'dart:async';
-import 'dart:io' show Platform;
+import 'dart:io' show File, Platform;
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/gestures.dart' show PointerScrollEvent;
@@ -31,6 +32,7 @@ import 'package:mimao/novel/reader/novel_immersive.dart';
 import 'package:mimao/novel/reader/novel_locator.dart';
 import 'package:mimao/novel/reader/novel_reader_chrome.dart';
 import 'package:mimao/novel/reader/novel_reader_controller.dart';
+import 'package:mimao/novel/reader/novel_reader_fonts.dart';
 import 'package:mimao/novel/reader/novel_reader_settings.dart';
 import 'package:mimao/novel/reader/novel_reader_settings_sheet.dart';
 import 'package:mimao/novel/reader/novel_search_sheet.dart';
@@ -99,6 +101,17 @@ class _NovelReaderPageState extends State<NovelReaderPage>
   static const double _contentBottomGap = 44;
   static const double _footerHeight = 26;
 
+  NovelReaderSettings get _settings => _controller.settings;
+
+  /// 页眉占用的高度（关闭时为 0），分页可用高度要扣掉。
+  double get _headerBandHeight =>
+      _settings.showHeader ? _settings.headerFontSize * 1.7 + 8 : 0;
+
+  /// 页脚条实际高度（随独立字号增长，最小沿用旧 26）。
+  double get _footerBandHeight => _settings.showFooter
+      ? math.max(_footerHeight, _settings.footerFontSize * 1.5 + 16)
+      : 0;
+
   static bool get _isTest =>
       !kIsWeb && Platform.environment.containsKey('FLUTTER_TEST');
 
@@ -157,6 +170,8 @@ class _NovelReaderPageState extends State<NovelReaderPage>
     _session.start();
     WidgetsBinding.instance.addObserver(this);
     unawaited(_controller.init());
+    // 导入字体要在首帧前尽量注册好；失败也不阻塞阅读（回退系统字体）。
+    unawaited(NovelFontRegistry.instance.loadAll());
     unawaited(NovelImmersive.enter());
   }
 
@@ -294,7 +309,11 @@ class _NovelReaderPageState extends State<NovelReaderPage>
   }
 
   int _visibleParagraph() {
-    final top = MediaQuery.paddingOf(context).top + _contentTopGap + 12;
+    final top =
+        MediaQuery.paddingOf(context).top +
+        _contentTopGap +
+        _headerBandHeight +
+        12;
     var result = 0;
     for (final entry in _paragraphKeys.entries) {
       final box = entry.value.currentContext?.findRenderObject();
@@ -340,12 +359,86 @@ class _NovelReaderPageState extends State<NovelReaderPage>
   Future<void> _previousChapter({bool atEnd = false}) =>
       _controller.previousChapter(atEnd: atEnd);
 
+  /// 双栏时分屏：标题页独占一屏，其余两列一屏；单栏时一页一屏。
+  List<List<int>> _spreads(List<NovelTextPage> pages) {
+    if (_controller.layoutColumns != 2 || pages.isEmpty) {
+      return <List<int>>[
+        for (var i = 0; i < pages.length; i++) <int>[i],
+      ];
+    }
+    final result = <List<int>>[];
+    var i = 0;
+    while (i < pages.length) {
+      if (pages[i].hasTitle) {
+        result.add(<int>[i]);
+        i += 1;
+      } else {
+        result.add(<int>[i, if (i + 1 < pages.length) i + 1]);
+        i += 2;
+      }
+    }
+    return result;
+  }
+
+  int _spreadIndexFor(List<List<int>> spreads, int pageIndex) {
+    for (var i = 0; i < spreads.length; i++) {
+      if (spreads[i].contains(pageIndex)) return i;
+    }
+    return spreads.isEmpty ? 0 : pageIndex.clamp(0, spreads.length - 1);
+  }
+
+  /// 屏幕上的页码/页数（双栏时按「屏」而不是按「列」计）。
+  int _displayPageCount(int rawPageCount) {
+    if (_controller.layoutColumns != 2) return rawPageCount;
+    final pages = _controller.pages;
+    if (pages.isEmpty) return rawPageCount;
+    return _spreads(pages).length;
+  }
+
+  int _displayPage(int rawPageCount) {
+    if (_controller.layoutColumns != 2) {
+      return _controller.currentPage(rawPageCount);
+    }
+    final pages = _controller.pages;
+    if (pages.isEmpty) return 1;
+    final spreads = _spreads(pages);
+    return _spreadIndexFor(spreads, _controller.pageIndex) + 1;
+  }
+
+  void _seekDisplayPage(int page) {
+    if (_controller.layoutColumns != 2) {
+      _controller.seekPage(page);
+      return;
+    }
+    final pages = _controller.pages;
+    if (pages.isEmpty) return;
+    final spreads = _spreads(pages);
+    final index = (page - 1).clamp(0, spreads.length - 1);
+    _controller.setPageIndex(spreads[index].first);
+  }
+
   void _turnPage(int direction) {
     final settings = _controller.settings;
     if (!_controller.settingsReady || _controller.content == null) return;
     if (settings.pageMode == NovelPageMode.page) {
       final pages = _controller.pages;
       if (pages.isEmpty) return;
+      if (_controller.layoutColumns == 2) {
+        final spreads = _spreads(pages);
+        final current = _spreadIndexFor(spreads, _controller.pageIndex);
+        final next = current + direction;
+        if (next < 0) {
+          unawaited(_previousChapter(atEnd: true));
+          return;
+        }
+        if (next >= spreads.length) {
+          unawaited(_nextChapter());
+          return;
+        }
+        _controller.setPageIndex(spreads[next].first, direction: direction);
+        unawaited(_controller.savePositionNow());
+        return;
+      }
       final next = _controller.pageIndex + direction;
       if (next < 0) {
         unawaited(_previousChapter(atEnd: true));
@@ -598,9 +691,12 @@ class _NovelReaderPageState extends State<NovelReaderPage>
   Future<void> _openSettings() async {
     _pauseAutoForSheet();
     _chromeVisible.value = false;
-    final pageCount = _controller.pages.isEmpty ? 1 : _controller.pages.length;
+    final rawPageCount = _controller.pages.isEmpty
+        ? 1
+        : _controller.pages.length;
+    final pageCount = _displayPageCount(rawPageCount);
     final pageMode = _controller.settings.pageMode == NovelPageMode.page;
-    final page = _controller.currentPage(pageCount);
+    final page = _displayPage(rawPageCount);
     final info = NovelReaderBookInfo(
       bookTitle: _controller.detail?.title ?? widget.title ?? '',
       author: _controller.detail?.author ?? widget.author ?? '',
@@ -985,9 +1081,12 @@ class _NovelReaderPageState extends State<NovelReaderPage>
   Future<void> _showBookInfo() async {
     final detail = _controller.detail;
     if (detail == null) return;
-    final pageCount = _controller.pages.isEmpty ? 1 : _controller.pages.length;
+    final rawPageCount = _controller.pages.isEmpty
+        ? 1
+        : _controller.pages.length;
+    final pageCount = _displayPageCount(rawPageCount);
     final pageMode = _controller.settings.pageMode == NovelPageMode.page;
-    final page = _controller.currentPage(pageCount);
+    final page = _displayPage(rawPageCount);
     final rows = <(String, String)>[
       ('书名', detail.title),
       ('作者', detail.author.isEmpty ? '—' : detail.author),
@@ -1118,19 +1217,57 @@ class _NovelReaderPageState extends State<NovelReaderPage>
                         (constraints.maxHeight -
                                 insets.top -
                                 _contentTopGap -
+                                _headerBandHeight -
                                 insets.bottom -
-                                _contentBottomGap)
+                                math.max(_contentBottomGap, _footerBandHeight))
                             .clamp(80.0, double.infinity);
                     _controller.updateLayout(
                       width: width,
                       height: height,
                       textScaler: MediaQuery.textScalerOf(context),
+                      viewportWidth: constraints.maxWidth,
+                      landscape:
+                          MediaQuery.orientationOf(context) ==
+                          Orientation.landscape,
                     );
                     final pages = _controller.pages;
                     final pageCount = pages.isEmpty ? 1 : pages.length;
+                    final displayPageCount = _displayPageCount(pageCount);
+                    final displayPage = _displayPage(pageCount);
                     return Stack(
                       fit: StackFit.expand,
                       children: <Widget>[
+                        if (settings.backgroundImagePath != null)
+                          Positioned.fill(
+                            child: IgnorePointer(
+                              child: Opacity(
+                                opacity: settings.backgroundImageOpacity / 100,
+                                child: Image.file(
+                                  File(settings.backgroundImagePath!),
+                                  fit: novelBackgroundBoxFit(
+                                    settings.backgroundImageFit,
+                                  ),
+                                  alignment: novelBackgroundAlignment(
+                                    settings.backgroundImageAlign,
+                                  ),
+                                  errorBuilder: (_, __, ___) =>
+                                      const SizedBox.shrink(),
+                                ),
+                              ),
+                            ),
+                          ),
+                        if (settings.backgroundTexture !=
+                            NovelBackgroundTexture.none)
+                          Positioned.fill(
+                            child: IgnorePointer(
+                              child: CustomPaint(
+                                painter: NovelBackgroundTexturePainter(
+                                  texture: settings.backgroundTexture,
+                                  color: novelReaderTextColor(settings),
+                                ),
+                              ),
+                            ),
+                          ),
                         _buildContent(insets, pages),
                         Positioned.fill(
                           child: IgnorePointer(
@@ -1179,32 +1316,71 @@ class _NovelReaderPageState extends State<NovelReaderPage>
                                 builder: (context, _, __) {
                                   final pageMode =
                                       settings.pageMode == NovelPageMode.page;
-                                  final page = _controller.currentPage(
-                                    pageCount,
-                                  );
+                                  final page = displayPage;
                                   return NovelReaderFooter(
                                     settings: settings,
-                                    chapterTitle:
-                                        _controller.chapter?.title ??
-                                        widget.chapterTitle ??
-                                        '',
+                                    chapterTitle: _controller.displayTitle(
+                                      _controller.chapter?.title ??
+                                          widget.chapterTitle ??
+                                          '',
+                                    ),
                                     bookTitle:
                                         _controller.detail?.title ??
                                         widget.title ??
                                         '',
                                     page: pageMode ? page : null,
-                                    pageCount: pageMode ? pageCount : null,
+                                    pageCount: pageMode
+                                        ? displayPageCount
+                                        : null,
                                     percent: _controller.bookPercent(
                                       page: pageMode ? page : null,
-                                      pageCount: pageMode ? pageCount : null,
+                                      pageCount: pageMode
+                                          ? displayPageCount
+                                          : null,
                                     ),
                                   );
                                 },
                               ),
                             ),
                           ),
+                        if (settings.showHeader)
+                          Positioned(
+                            top: insets.top,
+                            left: 0,
+                            right: 0,
+                            child: IgnorePointer(
+                              child: NovelReaderHeader(
+                                settings: settings,
+                                chapterTitle: _controller.displayTitle(
+                                  _controller.chapter?.title ??
+                                      widget.chapterTitle ??
+                                      '',
+                                ),
+                                bookTitle:
+                                    _controller.detail?.title ??
+                                    widget.title ??
+                                    '',
+                                page: settings.pageMode == NovelPageMode.page
+                                    ? displayPage
+                                    : null,
+                                pageCount:
+                                    settings.pageMode == NovelPageMode.page
+                                    ? displayPageCount
+                                    : null,
+                                percent: _controller.bookPercent(
+                                  page: settings.pageMode == NovelPageMode.page
+                                      ? displayPage
+                                      : null,
+                                  pageCount:
+                                      settings.pageMode == NovelPageMode.page
+                                      ? displayPageCount
+                                      : null,
+                                ),
+                              ),
+                            ),
+                          ),
                         _buildTopBar(),
-                        _buildBottomPanel(pageCount),
+                        _buildBottomPanel(displayPageCount),
                       ],
                     );
                   },
@@ -1241,10 +1417,13 @@ class _NovelReaderPageState extends State<NovelReaderPage>
     final content = _controller.content!;
     final body = _controller.bodyStyle();
     final title = _controller.titleStyle();
-    final chapterTitle = content.title.isEmpty
-        ? (_controller.chapter?.title ?? '')
-        : content.title;
+    final chapterTitle = _controller.displayTitle(
+      content.title.isEmpty
+          ? (_controller.chapter?.title ?? '')
+          : content.title,
+    );
     final paragraphs = content.paragraphs;
+    final showTitle = chapterTitle.isNotEmpty;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTapUp: _handleTapAt,
@@ -1259,19 +1438,28 @@ class _NovelReaderPageState extends State<NovelReaderPage>
             controller: _scroll,
             padding: EdgeInsets.fromLTRB(
               _controller.settings.horizontalPadding,
-              insets.top + _contentTopGap,
+              insets.top + _contentTopGap + _headerBandHeight,
               _controller.settings.horizontalPadding,
-              insets.bottom + _contentBottomGap + 16,
+              insets.bottom +
+                  math.max(_contentBottomGap, _footerBandHeight) +
+                  16,
             ),
-            itemCount: paragraphs.length + 2,
+            itemCount: paragraphs.length + (showTitle ? 2 : 1),
             itemBuilder: (context, index) {
-              if (index == 0) {
+              if (showTitle && index == 0) {
                 return Padding(
-                  padding: const EdgeInsets.only(bottom: 18),
-                  child: Text(chapterTitle, style: title),
+                  padding: EdgeInsets.only(
+                    top: _controller.settings.titleTopSpacing,
+                    bottom: _controller.settings.titleBottomSpacing,
+                  ),
+                  child: _buildTitleWidget(
+                    chapterTitle,
+                    style: title,
+                    align: _controller.titleTextAlign,
+                  ),
                 );
               }
-              final paragraph = index - 1;
+              final paragraph = index - (showTitle ? 1 : 0);
               if (paragraph < paragraphs.length) {
                 return KeyedSubtree(
                   key: _paragraphKey(paragraph),
@@ -1292,11 +1480,13 @@ class _NovelReaderPageState extends State<NovelReaderPage>
                             child: Text(
                               _controller.paragraphText(paragraph),
                               style: body,
+                              textAlign: _controller.bodyTextAlign,
                             ),
                           )
                         : Text(
                             _controller.paragraphText(paragraph),
                             style: body,
+                            textAlign: _controller.bodyTextAlign,
                           ),
                   ),
                 );
@@ -1307,6 +1497,41 @@ class _NovelReaderPageState extends State<NovelReaderPage>
         ),
       ),
     );
+  }
+
+  /// 章节标题：分段开启时「主标题 + 分隔符 + 副标题（缩小）」。
+  Widget _buildTitleWidget(
+    String title, {
+    required TextStyle style,
+    required TextAlign align,
+  }) {
+    final settings = _controller.settings;
+    if (!settings.titleSegment) {
+      return Text(title, style: style, textAlign: align);
+    }
+    final parts = title
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((part) => part.isNotEmpty)
+        .toList();
+    if (parts.length <= 1) {
+      return Text(title, style: style, textAlign: align);
+    }
+    final tailStyle = style.copyWith(
+      fontSize: style.fontSize == null
+          ? null
+          : style.fontSize! * settings.titleSegmentScale,
+    );
+    final spans = <InlineSpan>[TextSpan(text: parts.first, style: style)];
+    for (var i = 1; i < parts.length; i++) {
+      if (settings.titleSegmentDivider.isNotEmpty) {
+        spans.add(
+          TextSpan(text: settings.titleSegmentDivider, style: tailStyle),
+        );
+      }
+      spans.add(TextSpan(text: parts[i], style: tailStyle));
+    }
+    return Text.rich(TextSpan(children: spans), textAlign: align);
   }
 
   Widget _buildChapterEnd() {
@@ -1335,8 +1560,11 @@ class _NovelReaderPageState extends State<NovelReaderPage>
   }
 
   Widget _buildPageMode(EdgeInsets insets, List<NovelTextPage> pages) {
-    final index = _controller.pageIndex.clamp(0, pages.length - 1);
+    if (pages.isEmpty) return const SizedBox.shrink();
     final settings = _controller.settings;
+    final spreads = _spreads(pages);
+    final spreadIndex = _spreadIndexFor(spreads, _controller.pageIndex);
+    final spread = spreads[spreadIndex];
     final duration = settings.pageAnimation
         ? Duration(milliseconds: settings.pageAnimationMs)
         : Duration.zero;
@@ -1383,15 +1611,29 @@ class _NovelReaderPageState extends State<NovelReaderPage>
               );
             },
             child: KeyedSubtree(
-              key: ValueKey<String>('page-${_controller.chapter?.id}-$index'),
+              key: ValueKey<String>(
+                'spread-${_controller.chapter?.id}-$spreadIndex',
+              ),
               child: Padding(
                 padding: EdgeInsets.fromLTRB(
                   settings.horizontalPadding,
-                  insets.top + _contentTopGap,
+                  insets.top + _contentTopGap + _headerBandHeight,
                   settings.horizontalPadding,
-                  insets.bottom + _contentBottomGap,
+                  insets.bottom +
+                      math.max(_contentBottomGap, _footerBandHeight),
                 ),
-                child: _buildPageBody(pages[index]),
+                child: spread.length <= 1
+                    ? _buildPageBody(pages[spread[0]])
+                    : Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Expanded(child: _buildPageBody(pages[spread[0]])),
+                          const SizedBox(width: 28),
+                          Expanded(
+                            child: _buildPageBody(pages[spread[1]], column: 1),
+                          ),
+                        ],
+                      ),
               ),
             ),
           ),
@@ -1400,7 +1642,7 @@ class _NovelReaderPageState extends State<NovelReaderPage>
     );
   }
 
-  Widget _buildPageBody(NovelTextPage page) {
+  Widget _buildPageBody(NovelTextPage page, {int column = 0}) {
     final content = _controller.content;
     if (content == null) return const SizedBox.shrink();
     final body = _controller.bodyStyle();
@@ -1408,9 +1650,10 @@ class _NovelReaderPageState extends State<NovelReaderPage>
       context,
     ).colorScheme.primary.withValues(alpha: 0.22);
     final titleStyle = _controller.titleStyle();
-    final chapterTitle = content.title.isEmpty
+    final rawTitle = content.title.isEmpty
         ? (_controller.chapter?.title ?? '')
         : content.title;
+    final chapterTitle = _controller.displayTitle(rawTitle);
     final children = <Widget>[];
     var afterTitle = false;
     int? previousParagraph;
@@ -1419,8 +1662,19 @@ class _NovelReaderPageState extends State<NovelReaderPage>
         final start = slice.start.clamp(0, chapterTitle.length);
         final end = slice.end.clamp(start, chapterTitle.length);
         if (end > start) {
+          final isWholeTitle = start == 0 && end == chapterTitle.length;
           children.add(
-            Text(chapterTitle.substring(start, end), style: titleStyle),
+            isWholeTitle
+                ? _buildTitleWidget(
+                    chapterTitle,
+                    style: titleStyle,
+                    align: _controller.titleTextAlign,
+                  )
+                : Text(
+                    chapterTitle.substring(start, end),
+                    style: titleStyle,
+                    textAlign: _controller.titleTextAlign,
+                  ),
           );
         }
         afterTitle = true;
@@ -1430,7 +1684,7 @@ class _NovelReaderPageState extends State<NovelReaderPage>
       final start = slice.start.clamp(0, full.length);
       final end = slice.end.clamp(start, full.length);
       if (afterTitle) {
-        children.add(const SizedBox(height: 18));
+        children.add(SizedBox(height: _controller.settings.titleBottomSpacing));
         afterTitle = false;
       } else if (previousParagraph != null &&
           previousParagraph != slice.paragraph) {
@@ -1444,13 +1698,14 @@ class _NovelReaderPageState extends State<NovelReaderPage>
             style: _highlightParagraph == slice.paragraph
                 ? body.copyWith(backgroundColor: highlight)
                 : body,
+            textAlign: _controller.bodyTextAlign,
           ),
         );
       }
       previousParagraph = slice.paragraph;
     }
     return ClipRect(
-      key: const Key('novel-reader-page-body'),
+      key: Key('novel-reader-page-body${column == 0 ? '' : '-$column'}'),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1466,7 +1721,8 @@ class _NovelReaderPageState extends State<NovelReaderPage>
     return Positioned(
       left: 16,
       right: 16,
-      bottom: (settings.showFooter ? _footerHeight : 8) + insets.bottom + 16,
+      bottom:
+          (settings.showFooter ? _footerBandHeight : 8) + insets.bottom + 16,
       child: IgnorePointer(
         child: Material(
           key: const Key('novel-reader-chapter-loading'),
@@ -1501,7 +1757,8 @@ class _NovelReaderPageState extends State<NovelReaderPage>
     return Positioned(
       left: 16,
       right: 16,
-      bottom: (settings.showFooter ? _footerHeight : 8) + insets.bottom + 16,
+      bottom:
+          (settings.showFooter ? _footerBandHeight : 8) + insets.bottom + 16,
       child: Material(
         color: novelReaderPanelColor(settings),
         shape: RoundedRectangleBorder(borderRadius: MimaoShapes.md),
@@ -1598,7 +1855,7 @@ class _NovelReaderPageState extends State<NovelReaderPage>
     final settings = _controller.settings;
     final pageMode = settings.pageMode == NovelPageMode.page;
     final bottom = settings.showFooter
-        ? _footerHeight + MediaQuery.paddingOf(context).bottom
+        ? _footerBandHeight + MediaQuery.paddingOf(context).bottom
         : 8 + MediaQuery.paddingOf(context).bottom;
     return Positioned(
       left: 12,
@@ -1621,9 +1878,9 @@ class _NovelReaderPageState extends State<NovelReaderPage>
             showAutoBrightness: _supportsAutoBrightness,
             autoBrightness: settings.autoBrightness,
             onToggleAutoBrightness: _toggleAutoBrightness,
-            page: pageMode ? _controller.currentPage(pageCount) : 1,
+            page: pageMode ? _displayPage(pageCount) : 1,
             pageCount: pageMode ? pageCount : 1,
-            onSeekPage: _controller.seekPage,
+            onSeekPage: _seekDisplayPage,
             scrollMode: !pageMode,
             progress: ratio,
             onSeekProgress: (value) {

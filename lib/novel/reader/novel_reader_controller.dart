@@ -20,6 +20,7 @@ import 'package:mimao/novel/reader/novel_layout_service.dart';
 import 'package:mimao/novel/reader/novel_locator.dart';
 import 'package:mimao/novel/reader/novel_reader_position.dart';
 import 'package:mimao/novel/reader/novel_reader_settings.dart';
+import 'package:mimao/novel/reader/novel_chinese_convert.dart';
 import 'package:mimao/novel/reader/novel_text_pagination.dart';
 import 'package:mimao/novel/source/novel_rule_model.dart';
 import 'package:mimao/novel/source/novel_rule_store.dart';
@@ -102,6 +103,9 @@ class NovelReaderController extends ChangeNotifier {
   List<NovelTextPage> pages = const <NovelTextPage>[];
   int pageIndex = 0;
   int pageDirection = 1;
+
+  /// 最近一次排版用的列数（1/2）；页面据此决定是否并排两列。
+  int layoutColumns = 1;
 
   /// 正文换过一次就 +1；页面据此重置滚动位置。
   int contentEpoch = 0;
@@ -561,40 +565,109 @@ class NovelReaderController extends ChangeNotifier {
     if (target != null) await openChapter(target, refresh: true);
   }
 
+  /// 正文样式：字体、字距、加粗/斜体、下划线、阴影。
   TextStyle bodyStyle() {
     final family = settings.fontFamily.isEmpty
         ? MimaoFonts.family
         : settings.fontFamily;
+    final underline = settings.underlineStyle != NovelUnderlineStyle.none;
+    // Flutter 的 TextStyle 没有「下划线距文字多远」这个参数；把该值折进
+    // 行高（按字号归一），至少让「间距」调大时下划线不再压字。
+    final underlineExtra = underline
+        ? settings.underlineSpacing / settings.fontSize
+        : 0.0;
     return TextStyle(
       fontFamily: family,
-      fontWeight: MimaoFonts.regular,
+      fontWeight: settings.textBold ? MimaoFonts.bold : MimaoFonts.regular,
+      fontStyle: settings.textItalic ? FontStyle.italic : FontStyle.normal,
       fontSize: settings.fontSize,
-      height: settings.lineHeight,
+      height: settings.lineHeight + underlineExtra,
+      letterSpacing: settings.letterSpacing,
       color: Color(settings.textColorArgb),
+      decoration: underline ? TextDecoration.underline : TextDecoration.none,
+      decorationStyle: _underlineStyle(settings.underlineStyle),
+      decorationThickness: underline ? settings.underlineThickness : null,
+      shadows: _textShadows(),
     );
   }
 
+  List<Shadow>? _textShadows() {
+    if (settings.shadowRadius <= 0) return null;
+    final color = settings.shadowColorArgb;
+    return <Shadow>[
+      Shadow(
+        offset: Offset(settings.shadowOffsetX, settings.shadowOffsetY),
+        blurRadius: settings.shadowRadius,
+        color: color != null
+            ? Color(color)
+            : Color(settings.textColorArgb).withValues(alpha: 0.45),
+      ),
+    ];
+  }
+
+  static TextDecorationStyle? _underlineStyle(NovelUnderlineStyle style) =>
+      switch (style) {
+        NovelUnderlineStyle.none => null,
+        NovelUnderlineStyle.solid => TextDecorationStyle.solid,
+        NovelUnderlineStyle.wave => TextDecorationStyle.wavy,
+        NovelUnderlineStyle.dash => TextDecorationStyle.dashed,
+      };
+
   TextStyle titleStyle() => bodyStyle().copyWith(
-    fontSize: settings.fontSize + 6,
+    fontSize: settings.effectiveTitleFontSize.clamp(
+      NovelReaderSettings.minFontSize,
+      NovelReaderSettings.maxFontSize + 20,
+    ),
     fontWeight: MimaoFonts.bold,
+    fontStyle: FontStyle.normal,
     height: 1.4,
+    decoration: TextDecoration.none,
+    decorationStyle: null,
+    decorationThickness: null,
+    letterSpacing: settings.letterSpacing / 2,
   );
 
+  /// 行距是否含行内留白：false 时只拉开行与行之间，不往首末行上下加高。
+  TextHeightBehavior get textHeightBehavior => TextHeightBehavior(
+    applyHeightToFirstAscent: settings.lineHeightIncludesPadding,
+    applyHeightToLastDescent: settings.lineHeightIncludesPadding,
+  );
+
+  TextAlign get bodyTextAlign =>
+      settings.textAlignJustify ? TextAlign.justify : TextAlign.start;
+
+  TextAlign get titleTextAlign => settings.titleMode == NovelTitleMode.center
+      ? TextAlign.center
+      : TextAlign.start;
+
+  /// 正文段落（含缩进与简繁转换）；分页与渲染共用，保证切片偏移一致。
   String paragraphText(int index) {
     final paragraphs = content?.paragraphs ?? const <String>[];
     if (index < 0 || index >= paragraphs.length) return '';
-    return '　　${paragraphs[index]}';
+    return '${settings.indent}${_convert(paragraphs[index])}';
   }
+
+  /// 章节标题的展示文本（简繁转换；隐藏模式返回空串）。
+  String displayTitle(String raw) {
+    if (settings.titleMode == NovelTitleMode.hide) return '';
+    return _convert(raw);
+  }
+
+  String _convert(String text) =>
+      convertNovelChinese(text, settings.chineseConvert);
 
   /// 页面在 LayoutBuilder 里调用；只登记尺寸，真正排版在帧后。
   void updateLayout({
     required double width,
     required double height,
     required TextScaler textScaler,
+    double? viewportWidth,
+    bool landscape = true,
   }) {
     final current = content;
     if (current == null) return;
     if (settings.pageMode == NovelPageMode.scroll) {
+      layoutColumns = 1;
       if (pages.isNotEmpty || paginating) {
         pages = const <NovelTextPage>[];
         paginating = false;
@@ -604,6 +677,16 @@ class NovelReaderController extends ChangeNotifier {
       return;
     }
     if (width <= 0 || height <= 0) return;
+
+    // 双栏：窗口 ≥1100 且横向时按两列排版；页面层再把相邻两列并排。
+    final columns =
+        settings.twoColumn &&
+            (viewportWidth ?? (width + settings.horizontalPadding * 2)) >=
+                1100 &&
+            landscape
+        ? 2
+        : 1;
+    layoutColumns = columns;
 
     final key = <Object?>[
       chapter?.id,
@@ -616,6 +699,19 @@ class NovelReaderController extends ChangeNotifier {
       settings.fontFamily,
       settings.paragraphSpacing,
       settings.horizontalPadding,
+      settings.textAlignJustify,
+      settings.letterSpacing,
+      settings.textBold,
+      settings.textItalic,
+      settings.indentCount,
+      settings.lineHeightIncludesPadding,
+      settings.titleMode,
+      settings.titleSize,
+      settings.titleSizeRelative,
+      settings.titleTopSpacing,
+      settings.titleBottomSpacing,
+      settings.chineseConvert,
+      columns,
       textScaler.scale(16),
     ].join('|');
     if (key == _layoutKey && pages.isNotEmpty) return;
@@ -623,18 +719,33 @@ class NovelReaderController extends ChangeNotifier {
 
     _requestedKey = key;
     paginating = true;
+    final rawTitle = current.title.isEmpty
+        ? (chapter?.title ?? '')
+        : current.title;
+    final title = displayTitle(rawTitle);
+    final paragraphs = <String>[
+      for (final paragraph in current.paragraphs) _convert(paragraph),
+    ];
     layoutService.schedule(
       NovelLayoutRequest(
         key: key,
-        title: current.title.isEmpty ? (chapter?.title ?? '') : current.title,
-        paragraphs: current.paragraphs,
+        title: title,
+        paragraphs: paragraphs,
         bodyStyle: bodyStyle(),
         titleStyle: titleStyle(),
         maxWidth: width,
         maxHeight: height,
         paragraphSpacing: settings.paragraphSpacing,
-        titleSpacing: 18,
+        titleSpacing: settings.titleBottomSpacing,
+        titleTopSpacing: settings.titleTopSpacing,
+        indent: settings.indent,
         textScaler: textScaler,
+        bodyTextAlign: bodyTextAlign,
+        titleTextAlign: titleTextAlign,
+        textHeightBehavior: textHeightBehavior,
+        kinsoku: true,
+        columns: columns,
+        columnGap: 32,
       ),
       onReady: (readyKey, readyPages) {
         if (_disposed || readyKey != _requestedKey) return;
@@ -692,7 +803,20 @@ class NovelReaderController extends ChangeNotifier {
         next.lineHeight != previous.lineHeight ||
         next.paragraphSpacing != previous.paragraphSpacing ||
         next.horizontalPadding != previous.horizontalPadding ||
-        next.fontFamily != previous.fontFamily;
+        next.fontFamily != previous.fontFamily ||
+        next.textAlignJustify != previous.textAlignJustify ||
+        next.letterSpacing != previous.letterSpacing ||
+        next.textBold != previous.textBold ||
+        next.textItalic != previous.textItalic ||
+        next.indentCount != previous.indentCount ||
+        next.lineHeightIncludesPadding != previous.lineHeightIncludesPadding ||
+        next.titleMode != previous.titleMode ||
+        next.titleSize != previous.titleSize ||
+        next.titleSizeRelative != previous.titleSizeRelative ||
+        next.titleTopSpacing != previous.titleTopSpacing ||
+        next.titleBottomSpacing != previous.titleBottomSpacing ||
+        next.chineseConvert != previous.chineseConvert ||
+        next.twoColumn != previous.twoColumn;
 
     settings = next;
     if (layoutChanged || modeChanged) {

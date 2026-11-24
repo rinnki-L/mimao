@@ -5,9 +5,13 @@
 // 面板只持有设置的本地副本，每次修改经 [onChanged] 抛出完整快照，阅读页据此
 // 立即重建并落盘；面板自身不读盘。
 
+import 'dart:async';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/theme.dart';
+import 'novel_reader_fonts.dart';
 import 'novel_reader_settings.dart';
 
 /// 「信息」页签展示的只读书籍信息。
@@ -35,10 +39,11 @@ class NovelReaderBookInfo {
   final double percent;
 }
 
-enum _SettingsTab { global, menu, info, more }
+enum _SettingsTab { global, typography, menu, info, more }
 
 const Map<_SettingsTab, String> _tabLabels = <_SettingsTab, String>{
   _SettingsTab.global: '全局',
+  _SettingsTab.typography: '排版',
   _SettingsTab.menu: '菜单',
   _SettingsTab.info: '信息',
   _SettingsTab.more: '更多',
@@ -68,6 +73,29 @@ class NovelReaderSettingsSheet extends StatefulWidget {
 class _NovelReaderSettingsSheetState extends State<NovelReaderSettingsSheet> {
   late NovelReaderSettings _settings = widget.initial;
   _SettingsTab _tab = _SettingsTab.global;
+  List<NovelFontFile> _importedFonts = const <NovelFontFile>[];
+  late final TextEditingController _dividerController;
+
+  @override
+  void initState() {
+    super.initState();
+    _dividerController = TextEditingController(
+      text: widget.initial.titleSegmentDivider,
+    );
+    unawaited(_loadImportedFonts());
+  }
+
+  @override
+  void dispose() {
+    _dividerController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadImportedFonts() async {
+    final fonts = await NovelFontRegistry.instance.list();
+    if (!mounted) return;
+    setState(() => _importedFonts = fonts);
+  }
 
   void _apply(NovelReaderSettings next) {
     setState(() => _settings = next);
@@ -117,6 +145,7 @@ class _NovelReaderSettingsSheetState extends State<NovelReaderSettingsSheet> {
                 alignment: Alignment.topCenter,
                 child: switch (_tab) {
                   _SettingsTab.global => _buildGlobal(context),
+                  _SettingsTab.typography => _buildTypography(context),
                   _SettingsTab.menu => _buildMenu(context),
                   _SettingsTab.info => _buildInfo(context),
                   _SettingsTab.more => _buildMore(context),
@@ -294,6 +323,115 @@ class _NovelReaderSettingsSheetState extends State<NovelReaderSettingsSheet> {
             color: theme.colorScheme.onSurfaceVariant,
           ),
         ),
+        const Divider(height: 18),
+        _buildBackgroundImage(context),
+        const SizedBox(height: 4),
+        _buildBackgroundTexture(context),
+      ],
+    );
+  }
+
+  Widget _buildBackgroundImage(BuildContext context) {
+    final theme = Theme.of(context);
+    final path = _settings.backgroundImagePath;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Row(
+          children: <Widget>[
+            Text('背景图', style: theme.textTheme.bodyMedium),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                path == null ? '未选择（点右侧选择本地图片）' : '已选择本地图片',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+            TextButton.icon(
+              key: const Key('novel-settings-background-image'),
+              onPressed: _pickBackgroundImage,
+              icon: const Icon(Icons.image_outlined, size: 18),
+              label: Text(path == null ? '选择' : '更换'),
+            ),
+            if (path != null)
+              IconButton(
+                key: const Key('novel-settings-background-image-clear'),
+                tooltip: '移除背景图',
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(Icons.close, size: 18),
+                onPressed: () =>
+                    _apply(_settings.copyWith(clearBackgroundImage: true)),
+              ),
+          ],
+        ),
+        if (path != null) ...<Widget>[
+          _enumDropdownRow<NovelBackgroundFit>(
+            key: 'novel-settings-background-image-fit',
+            title: '铺放',
+            value: _settings.backgroundImageFit,
+            values: NovelBackgroundFit.values,
+            labelOf: (value) => value.label,
+            onChanged: (value) =>
+                _apply(_settings.copyWith(backgroundImageFit: value)),
+          ),
+          _enumDropdownRow<NovelBackgroundAlign>(
+            key: 'novel-settings-background-image-align',
+            title: '对齐（九宫格）',
+            value: _settings.backgroundImageAlign,
+            values: NovelBackgroundAlign.values,
+            labelOf: (value) => value.label,
+            onChanged: (value) =>
+                _apply(_settings.copyWith(backgroundImageAlign: value)),
+          ),
+          _sliderRow(
+            context,
+            key: 'novel-settings-background-image-opacity',
+            title: '图片透明度',
+            valueLabel: '${_settings.backgroundImageOpacity}%',
+            value: _settings.backgroundImageOpacity.toDouble(),
+            min: NovelReaderSettings.minBackgroundImageOpacity.toDouble(),
+            max: NovelReaderSettings.maxBackgroundImageOpacity.toDouble(),
+            divisions: 20,
+            onChanged: (value) => _apply(
+              _settings.copyWith(backgroundImageOpacity: value.round()),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildBackgroundTexture(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      children: <Widget>[
+        Text('背景纹理', style: theme.textTheme.bodyMedium),
+        const SizedBox(width: 12),
+        Expanded(
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<NovelBackgroundTexture>(
+              key: const Key('novel-settings-background-texture'),
+              isExpanded: true,
+              value: _settings.backgroundTexture,
+              items: <DropdownMenuItem<NovelBackgroundTexture>>[
+                for (final texture in NovelBackgroundTexture.values)
+                  DropdownMenuItem<NovelBackgroundTexture>(
+                    value: texture,
+                    child: Text(texture.label),
+                  ),
+              ],
+              onChanged: (value) {
+                if (value != null) {
+                  _apply(_settings.copyWith(backgroundTexture: value));
+                }
+              },
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -338,6 +476,401 @@ class _NovelReaderSettingsSheetState extends State<NovelReaderSettingsSheet> {
       ],
     );
   }
+
+  // ── 排版 ──────────────────────────────────────────────────────────────
+  Widget _buildTypography(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        _card(
+          child: Column(
+            children: <Widget>[
+              SwitchListTile(
+                key: const Key('novel-settings-bold'),
+                contentPadding: EdgeInsets.zero,
+                title: const Text('正文加粗'),
+                value: _settings.textBold,
+                onChanged: (value) =>
+                    _apply(_settings.copyWith(textBold: value)),
+              ),
+              SwitchListTile(
+                key: const Key('novel-settings-italic'),
+                contentPadding: EdgeInsets.zero,
+                title: const Text('正文斜体'),
+                value: _settings.textItalic,
+                onChanged: (value) =>
+                    _apply(_settings.copyWith(textItalic: value)),
+              ),
+              SwitchListTile(
+                key: const Key('novel-settings-justify'),
+                contentPadding: EdgeInsets.zero,
+                title: const Text('两端对齐'),
+                subtitle: const Text('中文段落左右两边都对齐'),
+                value: _settings.textAlignJustify,
+                onChanged: (value) =>
+                    _apply(_settings.copyWith(textAlignJustify: value)),
+              ),
+              SwitchListTile(
+                key: const Key('novel-settings-line-height-padding'),
+                contentPadding: EdgeInsets.zero,
+                title: const Text('行距包含行内留白'),
+                subtitle: const Text('关闭后行距只拉开行与行之间'),
+                value: _settings.lineHeightIncludesPadding,
+                onChanged: (value) => _apply(
+                  _settings.copyWith(lineHeightIncludesPadding: value),
+                ),
+              ),
+              _sliderRow(
+                context,
+                key: 'novel-settings-letter-spacing',
+                title: '字距',
+                valueLabel: _settings.letterSpacing.toStringAsFixed(1),
+                value: _settings.letterSpacing,
+                min: NovelReaderSettings.minLetterSpacing,
+                max: NovelReaderSettings.maxLetterSpacing,
+                divisions: 40,
+                onChanged: (value) =>
+                    _apply(_settings.copyWith(letterSpacing: value)),
+              ),
+              _sliderRow(
+                context,
+                key: 'novel-settings-indent',
+                title: '段首缩进',
+                valueLabel: '${_settings.indentCount} 字',
+                value: _settings.indentCount.toDouble(),
+                min: NovelReaderSettings.minIndentCount.toDouble(),
+                max: NovelReaderSettings.maxIndentCount.toDouble(),
+                divisions:
+                    NovelReaderSettings.maxIndentCount -
+                    NovelReaderSettings.minIndentCount,
+                onChanged: (value) =>
+                    _apply(_settings.copyWith(indentCount: value.round())),
+              ),
+              _enumDropdownRow<NovelChineseConvert>(
+                key: 'novel-settings-chinese-convert',
+                title: '简繁转换',
+                value: _settings.chineseConvert,
+                values: NovelChineseConvert.values,
+                labelOf: (value) => value.label,
+                onChanged: (value) =>
+                    _apply(_settings.copyWith(chineseConvert: value)),
+              ),
+            ],
+          ),
+        ),
+        _card(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Text('标题', style: theme.textTheme.titleSmall),
+              const SizedBox(height: 6),
+              SegmentedButton<NovelTitleMode>(
+                key: const Key('novel-settings-title-mode'),
+                showSelectedIcon: false,
+                segments: <ButtonSegment<NovelTitleMode>>[
+                  for (final mode in NovelTitleMode.values)
+                    ButtonSegment<NovelTitleMode>(
+                      value: mode,
+                      label: Text(mode.label),
+                    ),
+                ],
+                selected: <NovelTitleMode>{_settings.titleMode},
+                onSelectionChanged: (selection) =>
+                    _apply(_settings.copyWith(titleMode: selection.first)),
+              ),
+              SwitchListTile(
+                key: const Key('novel-settings-title-relative'),
+                contentPadding: EdgeInsets.zero,
+                title: const Text('标题字号相对正文'),
+                subtitle: const Text('关闭后按绝对字号渲染'),
+                value: _settings.titleSizeRelative,
+                onChanged: (value) =>
+                    _apply(_settings.copyWith(titleSizeRelative: value)),
+              ),
+              _sliderRow(
+                context,
+                key: 'novel-settings-title-size',
+                title: _settings.titleSizeRelative ? '标题字号偏移' : '标题字号',
+                valueLabel: _settings.titleSizeRelative
+                    ? '+${_settings.titleSize.round()}'
+                    : '${_settings.titleSize.round()}',
+                value: _settings.titleSize,
+                min: NovelReaderSettings.minTitleSize,
+                max: _settings.titleSizeRelative
+                    ? NovelReaderSettings.maxTitleSizeRelative
+                    : NovelReaderSettings.maxTitleSizeAbsolute,
+                divisions: _settings.titleSizeRelative ? 40 : 59,
+                onChanged: (value) =>
+                    _apply(_settings.copyWith(titleSize: value)),
+              ),
+              _sliderRow(
+                context,
+                key: 'novel-settings-title-top',
+                title: '标题上留白',
+                valueLabel: '${_settings.titleTopSpacing.round()}',
+                value: _settings.titleTopSpacing,
+                min: NovelReaderSettings.minTitleSpacing,
+                max: NovelReaderSettings.maxTitleSpacing,
+                divisions: 24,
+                onChanged: (value) =>
+                    _apply(_settings.copyWith(titleTopSpacing: value)),
+              ),
+              _sliderRow(
+                context,
+                key: 'novel-settings-title-bottom',
+                title: '标题下留白',
+                valueLabel: '${_settings.titleBottomSpacing.round()}',
+                value: _settings.titleBottomSpacing,
+                min: NovelReaderSettings.minTitleSpacing,
+                max: NovelReaderSettings.maxTitleSpacing,
+                divisions: 24,
+                onChanged: (value) =>
+                    _apply(_settings.copyWith(titleBottomSpacing: value)),
+              ),
+              SwitchListTile(
+                key: const Key('novel-settings-title-segment'),
+                contentPadding: EdgeInsets.zero,
+                title: const Text('标题分段'),
+                subtitle: const Text('按空白把「第X章 标题」拆成主标题与副标题'),
+                value: _settings.titleSegment,
+                onChanged: (value) =>
+                    _apply(_settings.copyWith(titleSegment: value)),
+              ),
+              if (_settings.titleSegment) ...<Widget>[
+                Row(
+                  children: <Widget>[
+                    SizedBox(
+                      width: 88,
+                      child: Text('分隔符', style: theme.textTheme.bodyMedium),
+                    ),
+                    Expanded(
+                      child: TextField(
+                        key: const Key('novel-settings-title-divider'),
+                        controller: _dividerController,
+                        decoration: const InputDecoration(
+                          isDense: true,
+                          hintText: '如 ·',
+                        ),
+                        onChanged: (value) => _apply(
+                          _settings.copyWith(titleSegmentDivider: value),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                _sliderRow(
+                  context,
+                  key: 'novel-settings-title-segment-scale',
+                  title: '副标题缩放',
+                  valueLabel: _settings.titleSegmentScale.toStringAsFixed(1),
+                  value: _settings.titleSegmentScale,
+                  min: NovelReaderSettings.minTitleSegmentScale,
+                  max: NovelReaderSettings.maxTitleSegmentScale,
+                  divisions: 14,
+                  onChanged: (value) =>
+                      _apply(_settings.copyWith(titleSegmentScale: value)),
+                ),
+              ],
+            ],
+          ),
+        ),
+        _card(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Text('文字装饰', style: theme.textTheme.titleSmall),
+              SwitchListTile(
+                key: const Key('novel-settings-shadow'),
+                contentPadding: EdgeInsets.zero,
+                title: const Text('文字阴影'),
+                value: _settings.shadowRadius > 0,
+                onChanged: (value) =>
+                    _apply(_settings.copyWith(shadowRadius: value ? 4 : 0)),
+              ),
+              if (_settings.shadowRadius > 0) ...<Widget>[
+                _sliderRow(
+                  context,
+                  key: 'novel-settings-shadow-radius',
+                  title: '阴影半径',
+                  valueLabel: _settings.shadowRadius.toStringAsFixed(1),
+                  value: _settings.shadowRadius,
+                  min: 0.5,
+                  max: NovelReaderSettings.maxShadowRadius,
+                  divisions: 31,
+                  onChanged: (value) =>
+                      _apply(_settings.copyWith(shadowRadius: value)),
+                ),
+                _sliderRow(
+                  context,
+                  key: 'novel-settings-shadow-dx',
+                  title: '阴影水平偏移',
+                  valueLabel: _settings.shadowOffsetX.toStringAsFixed(0),
+                  value: _settings.shadowOffsetX,
+                  min: NovelReaderSettings.minShadowOffset,
+                  max: NovelReaderSettings.maxShadowOffset,
+                  divisions: 16,
+                  onChanged: (value) =>
+                      _apply(_settings.copyWith(shadowOffsetX: value)),
+                ),
+                _sliderRow(
+                  context,
+                  key: 'novel-settings-shadow-dy',
+                  title: '阴影垂直偏移',
+                  valueLabel: _settings.shadowOffsetY.toStringAsFixed(0),
+                  value: _settings.shadowOffsetY,
+                  min: NovelReaderSettings.minShadowOffset,
+                  max: NovelReaderSettings.maxShadowOffset,
+                  divisions: 16,
+                  onChanged: (value) =>
+                      _apply(_settings.copyWith(shadowOffsetY: value)),
+                ),
+                _buildShadowColorRow(context),
+              ],
+              _enumDropdownRow<NovelUnderlineStyle>(
+                key: 'novel-settings-underline',
+                title: '下划线',
+                value: _settings.underlineStyle,
+                values: NovelUnderlineStyle.values,
+                labelOf: (value) => value.label,
+                onChanged: (value) =>
+                    _apply(_settings.copyWith(underlineStyle: value)),
+              ),
+              if (_settings.underlineStyle !=
+                  NovelUnderlineStyle.none) ...<Widget>[
+                _sliderRow(
+                  context,
+                  key: 'novel-settings-underline-thickness',
+                  title: '下划线粗细',
+                  valueLabel: _settings.underlineThickness.toStringAsFixed(1),
+                  value: _settings.underlineThickness,
+                  min: NovelReaderSettings.minUnderlineThickness,
+                  max: NovelReaderSettings.maxUnderlineThickness,
+                  divisions: 14,
+                  onChanged: (value) =>
+                      _apply(_settings.copyWith(underlineThickness: value)),
+                ),
+                _sliderRow(
+                  context,
+                  key: 'novel-settings-underline-spacing',
+                  title: '下划线间距',
+                  valueLabel: _settings.underlineSpacing.toStringAsFixed(1),
+                  value: _settings.underlineSpacing,
+                  min: NovelReaderSettings.minUnderlineSpacing,
+                  max: NovelReaderSettings.maxUnderlineSpacing,
+                  divisions: 16,
+                  onChanged: (value) =>
+                      _apply(_settings.copyWith(underlineSpacing: value)),
+                ),
+                SwitchListTile(
+                  key: const Key('novel-settings-underline-extend'),
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('下划线延伸'),
+                  subtitle: const Text('延伸到段尾空白'),
+                  value: _settings.underlineExtend,
+                  onChanged: (value) =>
+                      _apply(_settings.copyWith(underlineExtend: value)),
+                ),
+              ],
+            ],
+          ),
+        ),
+        _card(
+          child: SwitchListTile(
+            key: const Key('novel-settings-two-column'),
+            contentPadding: EdgeInsets.zero,
+            title: const Text('双栏分页'),
+            subtitle: const Text('窗口 ≥1100 且横向时生效；标题页不拆'),
+            value: _settings.twoColumn,
+            onChanged: (value) => _apply(_settings.copyWith(twoColumn: value)),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildShadowColorRow(BuildContext context) {
+    final theme = Theme.of(context);
+    const palette = <(String, int?)>[
+      ('跟随文字', null),
+      ('黑', 0xFF000000),
+      ('白', 0xFFFFFFFF),
+      ('深灰', 0xFF333333),
+      ('强调色', null), // 占位，见下方特判
+    ];
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        children: <Widget>[
+          SizedBox(
+            width: 88,
+            child: Text('阴影颜色', style: theme.textTheme.bodyMedium),
+          ),
+          Expanded(
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: <Widget>[
+                for (var i = 0; i < palette.length; i++)
+                  InkWell(
+                    key: Key('novel-settings-shadow-color-$i'),
+                    borderRadius: MimaoShapes.sm,
+                    onTap: () => _apply(
+                      palette[i].$2 == null && i != palette.length - 1
+                          ? _settings.copyWith(clearShadowColor: true)
+                          : _applyShadowColor(
+                              i == palette.length - 1
+                                  ? theme.colorScheme.primary
+                                  : Color(palette[i].$2!),
+                            ),
+                    ),
+                    child: Container(
+                      width: 28,
+                      height: 28,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: i == 0
+                            ? theme.colorScheme.surfaceContainerHighest
+                            : i == palette.length - 1
+                            ? theme.colorScheme.primary
+                            : Color(palette[i].$2!),
+                        borderRadius: MimaoShapes.sm,
+                        border: Border.all(
+                          color: _shadowColorSelected(i, theme)
+                              ? theme.colorScheme.primary
+                              : theme.colorScheme.outlineVariant,
+                          width: _shadowColorSelected(i, theme) ? 2 : 1,
+                        ),
+                      ),
+                      child: i == 0
+                          ? Icon(
+                              Icons.text_fields,
+                              size: 14,
+                              color: theme.colorScheme.onSurfaceVariant,
+                            )
+                          : null,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  bool _shadowColorSelected(int index, ThemeData theme) {
+    final color = _settings.shadowColorArgb;
+    if (index == 0) return color == null;
+    if (index == 4) {
+      return color == theme.colorScheme.primary.toARGB32();
+    }
+    const values = <int>[0, 0xFF000000, 0xFFFFFFFF, 0xFF333333];
+    return index < values.length && color == values[index];
+  }
+
+  NovelReaderSettings _applyShadowColor(Color color) =>
+      _settings.copyWith(shadowColorArgb: color.toARGB32());
 
   // ── 菜单 ──────────────────────────────────────────────────────────────
   Widget _buildMenu(BuildContext context) {
@@ -390,25 +923,121 @@ class _NovelReaderSettingsSheetState extends State<NovelReaderSettingsSheet> {
       children: <Widget>[
         _card(
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              _footerSlotRow<NovelFooterLeft>(
+              Text('页脚三槽', style: theme.textTheme.titleSmall),
+              const SizedBox(height: 4),
+              _chromeSlotRow(
                 key: 'novel-settings-footer-left',
                 title: '页脚左槽',
-                value: _settings.footerLeft,
-                values: NovelFooterLeft.values,
-                labelOf: (value) => value.label,
-                onChanged: (value) =>
-                    _apply(_settings.copyWith(footerLeft: value)),
+                slots: _settings.footerSlots,
+                index: 0,
+                onChanged: (slots) =>
+                    _apply(_settings.copyWith(footerSlots: slots)),
               ),
-              _footerSlotRow<NovelFooterRight>(
+              _chromeSlotRow(
+                key: 'novel-settings-footer-center',
+                title: '页脚中槽',
+                slots: _settings.footerSlots,
+                index: 1,
+                onChanged: (slots) =>
+                    _apply(_settings.copyWith(footerSlots: slots)),
+              ),
+              _chromeSlotRow(
                 key: 'novel-settings-footer-right',
                 title: '页脚右槽',
-                value: _settings.footerRight,
-                values: NovelFooterRight.values,
-                labelOf: (value) => value.label,
-                onChanged: (value) =>
-                    _apply(_settings.copyWith(footerRight: value)),
+                slots: _settings.footerSlots,
+                index: 2,
+                onChanged: (slots) =>
+                    _apply(_settings.copyWith(footerSlots: slots)),
               ),
+              _sliderRow(
+                context,
+                key: 'novel-settings-footer-font-size',
+                title: '页脚字号',
+                valueLabel: _settings.footerFontSize.toStringAsFixed(0),
+                value: _settings.footerFontSize,
+                min: NovelReaderSettings.minChromeFontSize,
+                max: NovelReaderSettings.maxChromeFontSize,
+                divisions: 16,
+                onChanged: (value) =>
+                    _apply(_settings.copyWith(footerFontSize: value)),
+              ),
+              if (_settings.footerSlots.contains(NovelChromeSlot.custom))
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: TextFormField(
+                    key: const Key('novel-settings-footer-custom-text'),
+                    initialValue: _settings.footerCustomText,
+                    decoration: const InputDecoration(
+                      isDense: true,
+                      labelText: '页脚自定义文案',
+                    ),
+                    onChanged: (value) =>
+                        _apply(_settings.copyWith(footerCustomText: value)),
+                  ),
+                ),
+              const Divider(height: 14),
+              SwitchListTile(
+                key: const Key('novel-settings-show-header'),
+                contentPadding: EdgeInsets.zero,
+                title: const Text('显示页眉'),
+                value: _settings.showHeader,
+                onChanged: (value) =>
+                    _apply(_settings.copyWith(showHeader: value)),
+              ),
+              if (_settings.showHeader) ...<Widget>[
+                _chromeSlotRow(
+                  key: 'novel-settings-header-left',
+                  title: '页眉左槽',
+                  slots: _settings.headerSlots,
+                  index: 0,
+                  onChanged: (slots) =>
+                      _apply(_settings.copyWith(headerSlots: slots)),
+                ),
+                _chromeSlotRow(
+                  key: 'novel-settings-header-center',
+                  title: '页眉中槽',
+                  slots: _settings.headerSlots,
+                  index: 1,
+                  onChanged: (slots) =>
+                      _apply(_settings.copyWith(headerSlots: slots)),
+                ),
+                _chromeSlotRow(
+                  key: 'novel-settings-header-right',
+                  title: '页眉右槽',
+                  slots: _settings.headerSlots,
+                  index: 2,
+                  onChanged: (slots) =>
+                      _apply(_settings.copyWith(headerSlots: slots)),
+                ),
+                _sliderRow(
+                  context,
+                  key: 'novel-settings-header-font-size',
+                  title: '页眉字号',
+                  valueLabel: _settings.headerFontSize.toStringAsFixed(0),
+                  value: _settings.headerFontSize,
+                  min: NovelReaderSettings.minChromeFontSize,
+                  max: NovelReaderSettings.maxChromeFontSize,
+                  divisions: 16,
+                  onChanged: (value) =>
+                      _apply(_settings.copyWith(headerFontSize: value)),
+                ),
+                if (_settings.headerSlots.contains(NovelChromeSlot.custom))
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: TextFormField(
+                      key: const Key('novel-settings-header-custom-text'),
+                      initialValue: _settings.headerCustomText,
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        labelText: '页眉自定义文案',
+                      ),
+                      onChanged: (value) =>
+                          _apply(_settings.copyWith(headerCustomText: value)),
+                    ),
+                  ),
+              ],
             ],
           ),
         ),
@@ -448,8 +1077,34 @@ class _NovelReaderSettingsSheetState extends State<NovelReaderSettingsSheet> {
     );
   }
 
-  /// 页脚槽位下拉行（信息页签）。
-  Widget _footerSlotRow<T>({
+  /// 页眉/页脚单槽下拉行。
+  Widget _chromeSlotRow({
+    required String key,
+    required String title,
+    required List<NovelChromeSlot> slots,
+    required int index,
+    required ValueChanged<List<NovelChromeSlot>> onChanged,
+  }) {
+    final current = index < slots.length ? slots[index] : NovelChromeSlot.none;
+    return _enumDropdownRow<NovelChromeSlot>(
+      key: key,
+      title: title,
+      value: current,
+      values: NovelChromeSlot.values,
+      labelOf: (value) => value.label,
+      onChanged: (value) {
+        final next = List<NovelChromeSlot>.from(slots);
+        while (next.length < 3) {
+          next.add(NovelChromeSlot.none);
+        }
+        next[index] = value;
+        onChanged(next);
+      },
+    );
+  }
+
+  /// 通用枚举下拉行。
+  Widget _enumDropdownRow<T>({
     required String key,
     required String title,
     required T value,
@@ -767,6 +1422,7 @@ class _NovelReaderSettingsSheetState extends State<NovelReaderSettingsSheet> {
 
   // ── 弹窗 ──────────────────────────────────────────────────────────────
   Future<void> _pickFont() async {
+    var importRequested = false;
     final picked = await showDialog<NovelReaderFont>(
       context: context,
       builder: (context) => SimpleDialog(
@@ -788,12 +1444,77 @@ class _NovelReaderSettingsSheetState extends State<NovelReaderSettingsSheet> {
               ),
               onTap: () => Navigator.of(context).pop(font),
             ),
+          if (_importedFonts.isNotEmpty) const Divider(height: 8),
+          for (final font in _importedFonts)
+            ListTile(
+              leading: Icon(
+                _settings.fontFamily == font.family
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_off,
+                size: 20,
+              ),
+              title: Text(
+                font.label,
+                style: TextStyle(fontFamily: font.family),
+              ),
+              subtitle: const Text('导入字体'),
+              onTap: () => Navigator.of(
+                context,
+              ).pop(NovelReaderFont(font.label, font.family)),
+            ),
+          const Divider(height: 8),
+          ListTile(
+            key: const Key('novel-settings-font-import'),
+            leading: const Icon(Icons.file_open_outlined, size: 20),
+            title: const Text('导入本地字体…'),
+            subtitle: const Text('支持 .ttf / .otf'),
+            onTap: () {
+              importRequested = true;
+              Navigator.of(context).pop();
+            },
+          ),
         ],
       ),
     );
-    if (picked != null && mounted) {
+    if (!mounted) return;
+    if (importRequested) {
+      await _importFont();
+      return;
+    }
+    if (picked != null) {
       _apply(_settings.copyWith(fontFamily: picked.family));
     }
+  }
+
+  Future<void> _importFont() async {
+    final path = await pickNovelFontFile();
+    if (path == null || !mounted) return;
+    final font = await NovelFontRegistry.instance.importFile(path);
+    if (!mounted) return;
+    if (font == null) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(content: Text('字体导入失败，请确认文件是有效的 .ttf/.otf')),
+      );
+      return;
+    }
+    setState(() {
+      _importedFonts = <NovelFontFile>[
+        ..._importedFonts.where((item) => item.family != font.family),
+        font,
+      ]..sort((a, b) => a.label.compareTo(b.label));
+    });
+    _apply(_settings.copyWith(fontFamily: font.family));
+  }
+
+  Future<void> _pickBackgroundImage() async {
+    final files = await FilePicker.pickFiles(
+      dialogTitle: '选择阅读背景图',
+      type: FileType.image,
+    );
+    if (files.isEmpty || !mounted) return;
+    final path = files.first.path;
+    if (path == null) return;
+    _apply(_settings.copyWith(backgroundImagePath: path));
   }
 
   Future<void> _pickCustomColor() async {

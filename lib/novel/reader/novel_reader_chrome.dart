@@ -447,7 +447,109 @@ class NovelReaderBottomPanel extends StatelessWidget {
   }
 }
 
-/// 页脚：按设置里的左/右槽位拼内容（对照 legado 的页脚三槽）。
+/// 按槽位内容拼展示文本（页眉页脚共用；页码为空时退成百分比）。
+String novelChromeSlotText(
+  NovelChromeSlot slot, {
+  required String chapterTitle,
+  required String bookTitle,
+  required int? page,
+  required int? pageCount,
+  required double percent,
+  required String customText,
+}) {
+  return switch (slot) {
+    NovelChromeSlot.none => '',
+    NovelChromeSlot.chapter => chapterTitle,
+    NovelChromeSlot.book => bookTitle,
+    NovelChromeSlot.page => page == null ? '' : '$page/${pageCount ?? page}',
+    NovelChromeSlot.percent => '${percent.toStringAsFixed(1)}%',
+    NovelChromeSlot.pageAndPercent =>
+      page == null
+          ? '${percent.toStringAsFixed(1)}%'
+          : '$page/${pageCount ?? page}  ${percent.toStringAsFixed(1)}%',
+    NovelChromeSlot.custom => customText,
+  };
+}
+
+/// 页眉：三槽（左/中/右），字号独立于正文与页脚。
+class NovelReaderHeader extends StatelessWidget {
+  const NovelReaderHeader({
+    super.key,
+    required this.settings,
+    required this.chapterTitle,
+    required this.bookTitle,
+    required this.page,
+    required this.pageCount,
+    required this.percent,
+  });
+
+  final NovelReaderSettings settings;
+  final String chapterTitle;
+  final String bookTitle;
+  final int? page;
+  final int? pageCount;
+  final double percent;
+
+  @override
+  Widget build(BuildContext context) {
+    final secondary = novelReaderSecondaryColor(settings);
+    final style = TextStyle(
+      fontSize: settings.headerFontSize,
+      color: secondary,
+      fontFamily: settings.fontFamily.isEmpty ? null : settings.fontFamily,
+    );
+    final texts = <String>[
+      for (final slot in settings.headerSlots)
+        novelChromeSlotText(
+          slot,
+          chapterTitle: chapterTitle,
+          bookTitle: bookTitle,
+          page: page,
+          pageCount: pageCount,
+          percent: percent,
+          customText: settings.headerCustomText,
+        ),
+    ];
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        settings.horizontalPadding,
+        2,
+        settings.horizontalPadding,
+        4,
+      ),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Text(
+              texts[0],
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: style,
+            ),
+          ),
+          if (texts[1].isNotEmpty)
+            Text(
+              texts[1],
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: style,
+            ),
+          Expanded(
+            child: Text(
+              texts[2],
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.right,
+              style: style,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 页脚：三槽（左/中/右），字号独立。
 class NovelReaderFooter extends StatelessWidget {
   const NovelReaderFooter({
     super.key,
@@ -470,26 +572,24 @@ class NovelReaderFooter extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final secondary = novelReaderSecondaryColor(settings);
-    final style = theme.textTheme.labelSmall?.copyWith(color: secondary);
-    final leftText = switch (settings.footerLeft) {
-      NovelFooterLeft.chapter => chapterTitle,
-      NovelFooterLeft.book => bookTitle,
-      NovelFooterLeft.none => '',
-    };
-    final rightText = switch (settings.footerRight) {
-      NovelFooterRight.pageAndPercent =>
-        page == null || pageCount == null
-            ? '${percent.toStringAsFixed(1)}%'
-            : '$page/$pageCount  ${percent.toStringAsFixed(1)}%',
-      NovelFooterRight.page =>
-        page == null || pageCount == null
-            ? '${percent.toStringAsFixed(1)}%'
-            : '$page/$pageCount',
-      NovelFooterRight.percent => '${percent.toStringAsFixed(1)}%',
-      NovelFooterRight.none => '',
-    };
+    final style = TextStyle(
+      fontSize: settings.footerFontSize,
+      color: secondary,
+      fontFamily: settings.fontFamily.isEmpty ? null : settings.fontFamily,
+    );
+    final texts = <String>[
+      for (final slot in settings.footerSlots)
+        novelChromeSlotText(
+          slot,
+          chapterTitle: chapterTitle,
+          bookTitle: bookTitle,
+          page: page,
+          pageCount: pageCount,
+          percent: percent,
+          customText: settings.footerCustomText,
+        ),
+    ];
     return Padding(
       padding: EdgeInsets.fromLTRB(
         settings.horizontalPadding,
@@ -501,21 +601,112 @@ class NovelReaderFooter extends StatelessWidget {
         children: <Widget>[
           Expanded(
             child: Text(
-              leftText,
+              texts[0],
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: style,
             ),
           ),
-          if (rightText.isNotEmpty) ...<Widget>[
-            const SizedBox(width: 12),
-            Text(rightText, style: style),
-          ],
+          if (texts[1].isNotEmpty)
+            Text(
+              texts[1],
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: style,
+            ),
+          Expanded(
+            child: Text(
+              texts[2],
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.right,
+              style: style,
+            ),
+          ),
         ],
       ),
     );
   }
 }
+
+/// 背景纹理：纯代码绘制，颜色由阅读背景派生，不引资源图。
+class NovelBackgroundTexturePainter extends CustomPainter {
+  const NovelBackgroundTexturePainter({
+    required this.texture,
+    required this.color,
+  });
+
+  final NovelBackgroundTexture texture;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (texture == NovelBackgroundTexture.none) return;
+    final paint = Paint()
+      ..color = color.withValues(alpha: 0.06)
+      ..strokeWidth = 1;
+    switch (texture) {
+      case NovelBackgroundTexture.none:
+        return;
+      case NovelBackgroundTexture.dots:
+        const gap = 18.0;
+        for (var x = gap; x < size.width; x += gap) {
+          for (var y = gap; y < size.height; y += gap) {
+            canvas.drawCircle(Offset(x, y), 1.1, paint);
+          }
+        }
+      case NovelBackgroundTexture.lines:
+        const gap = 24.0;
+        for (var y = gap; y < size.height; y += gap) {
+          canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
+        }
+      case NovelBackgroundTexture.grid:
+        const gap = 26.0;
+        for (var y = gap; y < size.height; y += gap) {
+          canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
+        }
+        for (var x = gap; x < size.width; x += gap) {
+          canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
+        }
+      case NovelBackgroundTexture.diagonal:
+        const gap = 22.0;
+        for (var offset = -size.height; offset < size.width; offset += gap) {
+          canvas.drawLine(
+            Offset(offset, size.height),
+            Offset(offset + size.height, 0),
+            paint,
+          );
+        }
+    }
+  }
+
+  @override
+  bool shouldRepaint(NovelBackgroundTexturePainter oldDelegate) =>
+      oldDelegate.texture != texture || oldDelegate.color != color;
+}
+
+/// 背景图铺放方式 → BoxFit。
+BoxFit novelBackgroundBoxFit(NovelBackgroundFit fit) => switch (fit) {
+  NovelBackgroundFit.cover => BoxFit.cover,
+  NovelBackgroundFit.contain => BoxFit.contain,
+  NovelBackgroundFit.fill => BoxFit.fill,
+  NovelBackgroundFit.fitWidth => BoxFit.fitWidth,
+  NovelBackgroundFit.fitHeight => BoxFit.fitHeight,
+};
+
+/// 九宫格对齐 → Alignment。
+Alignment novelBackgroundAlignment(NovelBackgroundAlign align) =>
+    switch (align) {
+      NovelBackgroundAlign.topLeft => Alignment.topLeft,
+      NovelBackgroundAlign.topCenter => Alignment.topCenter,
+      NovelBackgroundAlign.topRight => Alignment.topRight,
+      NovelBackgroundAlign.centerLeft => Alignment.centerLeft,
+      NovelBackgroundAlign.center => Alignment.center,
+      NovelBackgroundAlign.centerRight => Alignment.centerRight,
+      NovelBackgroundAlign.bottomLeft => Alignment.bottomLeft,
+      NovelBackgroundAlign.bottomCenter => Alignment.bottomCenter,
+      NovelBackgroundAlign.bottomRight => Alignment.bottomRight,
+    };
 
 /// 章节目录（底部抽屉）：按卷分组，当前章高亮，VIP 章显示锁。
 class NovelCatalogSheet extends StatefulWidget {

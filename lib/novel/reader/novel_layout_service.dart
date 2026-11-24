@@ -28,6 +28,14 @@ class NovelLayoutRequest {
     required this.paragraphSpacing,
     required this.titleSpacing,
     required this.textScaler,
+    this.titleTopSpacing = 0,
+    this.indent = '　　',
+    this.bodyTextAlign = TextAlign.start,
+    this.titleTextAlign = TextAlign.start,
+    this.textHeightBehavior,
+    this.kinsoku = true,
+    this.columns = 1,
+    this.columnGap = 24,
   });
 
   final String key;
@@ -40,6 +48,14 @@ class NovelLayoutRequest {
   final double paragraphSpacing;
   final double titleSpacing;
   final TextScaler textScaler;
+  final double titleTopSpacing;
+  final String indent;
+  final TextAlign bodyTextAlign;
+  final TextAlign titleTextAlign;
+  final TextHeightBehavior? textHeightBehavior;
+  final bool kinsoku;
+  final int columns;
+  final double columnGap;
 }
 
 class NovelLayoutService {
@@ -101,7 +117,16 @@ class NovelLayoutService {
           maxHeight: request.maxHeight,
           paragraphSpacing: request.paragraphSpacing,
           titleSpacing: request.titleSpacing,
+          titleTopSpacing: request.titleTopSpacing,
+          titleBottomSpacing: request.titleSpacing,
+          indent: request.indent,
           textScaler: request.textScaler,
+          bodyTextAlign: request.bodyTextAlign,
+          titleTextAlign: request.titleTextAlign,
+          textHeightBehavior: request.textHeightBehavior,
+          kinsoku: request.kinsoku,
+          columns: request.columns,
+          columnGap: request.columnGap,
         ).paginate();
         _cache.remove(request.key);
         _cache[request.key] = pages;

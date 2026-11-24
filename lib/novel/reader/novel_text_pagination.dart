@@ -3,10 +3,17 @@
 // 纯函数式测量（TextPainter），不依赖 Widget 树，可在单测里直接喂
 // 固定 TextStyle 验证页数。页面渲染时按 [NovelTextSlice] 取子串，
 // 因此「跨页段落」既能精确切在行边界，又能保持换行位置不变。
+//
+// 版式参数全部来自 NovelReaderSettings：字距/加粗/斜体/缩进/两端对齐由
+// TextStyle/TextAlign 传入；行距是否含行内留白用 TextHeightBehavior 表达；
+// 双栏在分页层按「有效列宽」切，返回的仍是一列一页，页面层再把两列并排；
+// 避头尾断行走 [applyKinsokuBreaks]（纯函数，见 novel_line_break.dart）。
 
 import 'dart:math' as math;
 
 import 'package:flutter/painting.dart';
+
+import 'novel_line_break.dart';
 
 /// 一页里的一段文字切片：章节段落下标（标题为 -1）+ 子串范围。
 class NovelTextSlice {
@@ -34,11 +41,17 @@ class NovelTextSlice {
 
 /// 一页正文。
 class NovelTextPage {
-  const NovelTextPage(this.slices);
+  const NovelTextPage(this.slices, {this.columnIndex = 0});
 
   final List<NovelTextSlice> slices;
 
+  /// 双栏时这一页属于第几列（0 左 / 1 右）；单栏恒为 0。
+  final int columnIndex;
+
   bool get isEmpty => slices.isEmpty;
+
+  /// 这一页是否含章节标题（双栏渲染时标题页不拆）。
+  bool get hasTitle => slices.any((slice) => slice.isTitle);
 }
 
 /// 分页器：构造一次、调 [paginate] 一次。
@@ -52,9 +65,17 @@ class NovelPaginator {
     required this.maxHeight,
     this.paragraphSpacing = 12,
     this.titleSpacing = 18,
+    this.titleTopSpacing = 0,
+    double? titleBottomSpacing,
     this.indent = '　　',
     this.textScaler = TextScaler.noScaling,
-  });
+    this.bodyTextAlign = TextAlign.start,
+    this.titleTextAlign = TextAlign.start,
+    this.textHeightBehavior,
+    this.kinsoku = true,
+    this.columns = 1,
+    this.columnGap = 24,
+  }) : _titleBottomSpacing = titleBottomSpacing;
 
   final String title;
   final List<String> paragraphs;
@@ -63,13 +84,37 @@ class NovelPaginator {
   final double maxWidth;
   final double maxHeight;
   final double paragraphSpacing;
-  final double titleSpacing;
 
-  /// 段首缩进（两个全角空格，与中文排版一致）。
+  /// 旧参数：标题与正文之间的留白（没有 [titleBottomSpacing] 时生效）。
+  final double titleSpacing;
+  final double titleTopSpacing;
+  final double? _titleBottomSpacing;
+
+  /// 段首缩进（默认两个全角空格，与中文排版一致）。
   final String indent;
   final TextScaler textScaler;
+  final TextAlign bodyTextAlign;
+  final TextAlign titleTextAlign;
+  final TextHeightBehavior? textHeightBehavior;
+
+  /// 是否启用避头尾（默认开）。
+  final bool kinsoku;
+
+  /// 列数：1 = 单栏，2 = 双栏；双栏时按「(宽 - 间距) / 2」测每一列。
+  final int columns;
+  final double columnGap;
 
   static const double _epsilon = 0.5;
+
+  double get _effectiveTitleBottomSpacing =>
+      _titleBottomSpacing ?? titleSpacing;
+
+  /// 单列实际排版宽度。
+  double get effectiveWidth {
+    if (columns <= 1 || maxWidth <= 0) return maxWidth;
+    final available = maxWidth - columnGap * (columns - 1);
+    return math.max(0, available / columns);
+  }
 
   final List<NovelTextPage> _pages = <NovelTextPage>[];
   final List<NovelTextSlice> _current = <NovelTextSlice>[];
@@ -81,7 +126,8 @@ class NovelPaginator {
     _current.clear();
     _used = 0;
 
-    if (maxWidth <= 0 || maxHeight <= 0) {
+    final width = effectiveWidth;
+    if (width <= 0 || maxHeight <= 0) {
       return <NovelTextPage>[
         NovelTextPage(<NovelTextSlice>[
           if (title.isNotEmpty)
@@ -106,13 +152,17 @@ class NovelPaginator {
         title,
         paragraphIndex: -1,
         style: titleStyle,
-        spacingBefore: 0,
+        spacingBefore: titleTopSpacing,
         isTitle: true,
+        align: titleTextAlign,
+        widthOverride: columns > 1 ? maxWidth : null,
       );
+      // 双栏时标题页独占整宽，不跟正文切到同一列（「标题页不拆」）。
+      if (columns > 1) _flushPage();
     }
     for (var i = 0; i < paragraphs.length; i++) {
       final spacing = (i == 0 && title.isNotEmpty)
-          ? titleSpacing
+          ? _effectiveTitleBottomSpacing
           : (i == 0 ? 0.0 : paragraphSpacing);
       _placeBlock(
         '$indent${paragraphs[i]}',
@@ -120,6 +170,7 @@ class NovelPaginator {
         style: bodyStyle,
         spacingBefore: spacing,
         isTitle: false,
+        align: bodyTextAlign,
       );
     }
     _flushPage();
@@ -135,14 +186,19 @@ class NovelPaginator {
     required TextStyle style,
     required double spacingBefore,
     required bool isTitle,
+    required TextAlign align,
+    double? widthOverride,
   }) {
     if (text.isEmpty) return;
+    final width = widthOverride ?? effectiveWidth;
     final painter = TextPainter(
       text: TextSpan(text: text, style: style),
       textDirection: TextDirection.ltr,
+      textAlign: align,
       textScaler: textScaler,
+      textHeightBehavior: textHeightBehavior,
       maxLines: null,
-    )..layout(maxWidth: maxWidth);
+    )..layout(maxWidth: width);
 
     final metrics = painter.computeLineMetrics();
     if (metrics.isEmpty) {
@@ -183,6 +239,12 @@ class NovelPaginator {
     for (var i = 1; i < lineStarts.length; i++) {
       // getPositionForOffset 在行首偶尔会返回上一行末尾，这里收紧成单调递增。
       lineStarts[i] = lineStarts[i].clamp(lineStarts[i - 1], text.length);
+    }
+    if (kinsoku) {
+      final adjusted = applyKinsokuBreaks(text, lineStarts);
+      for (var i = 0; i < lineStarts.length; i++) {
+        lineStarts[i] = adjusted[i].clamp(0, text.length);
+      }
     }
 
     for (var i = 0; i < metrics.length; i++) {
@@ -229,7 +291,12 @@ class NovelPaginator {
 
   void _flushPage() {
     if (_current.isEmpty) return;
-    _pages.add(NovelTextPage(List<NovelTextSlice>.unmodifiable(_current)));
+    _pages.add(
+      NovelTextPage(
+        List<NovelTextSlice>.unmodifiable(_current),
+        columnIndex: _pages.length % (columns < 1 ? 1 : columns),
+      ),
+    );
     _current.clear();
     _used = 0;
   }

@@ -97,4 +97,80 @@ void main() {
     expect(pages, hasLength(1));
     expect(pages.single.slices, isNotEmpty);
   });
+
+  test('字距/缩进/两端对齐/避头尾一起启用，切片仍首尾相接', () {
+    const spaced = TextStyle(
+      fontSize: 16,
+      height: 1.6,
+      letterSpacing: 0.6,
+      fontFamily: 'Courier',
+    );
+    final paragraph = List<String>.filled(240, '文').join();
+    final paragraphs = <String>['$paragraph。', paragraph, paragraph];
+    final pages = NovelPaginator(
+      title: '第一章 风起',
+      paragraphs: paragraphs,
+      bodyStyle: spaced,
+      titleStyle: titleStyle,
+      maxWidth: 320,
+      maxHeight: 260,
+      paragraphSpacing: 10,
+      titleSpacing: 14,
+      titleTopSpacing: 6,
+      indent: '　　',
+      bodyTextAlign: TextAlign.justify,
+      titleTextAlign: TextAlign.center,
+      textHeightBehavior: const TextHeightBehavior(
+        applyHeightToFirstAscent: false,
+        applyHeightToLastDescent: false,
+      ),
+      kinsoku: true,
+      columns: 1,
+    ).paginate();
+    expect(pages.length, greaterThan(1));
+    _expectContinuous(pages, paragraphs, indent: '　　');
+  });
+
+  test('双栏：标题页独占整宽，正文切片仍无丢字', () {
+    final paragraph = List<String>.filled(200, '正').join();
+    final paragraphs = <String>[paragraph, paragraph, paragraph];
+    final pages = NovelPaginator(
+      title: '第一章',
+      paragraphs: paragraphs,
+      bodyStyle: bodyStyle,
+      titleStyle: titleStyle,
+      maxWidth: 640,
+      maxHeight: 280,
+      paragraphSpacing: 12,
+      titleSpacing: 18,
+      indent: '　　',
+      columns: 2,
+      columnGap: 32,
+    ).paginate();
+    expect(pages.first.hasTitle, isTrue);
+    expect(pages.first.slices.every((slice) => slice.isTitle), isTrue);
+    expect(pages.length, greaterThan(2));
+    _expectContinuous(pages, paragraphs, indent: '　　');
+  });
+}
+
+void _expectContinuous(
+  List<NovelTextPage> pages,
+  List<String> paragraphs, {
+  required String indent,
+}) {
+  for (var i = 0; i < paragraphs.length; i++) {
+    final text = '$indent${paragraphs[i]}';
+    final slices = <NovelTextSlice>[
+      for (final page in pages)
+        for (final slice in page.slices)
+          if (slice.paragraph == i) slice,
+    ];
+    expect(slices, isNotEmpty, reason: '段落 $i 没有切片');
+    expect(slices.first.start, 0);
+    expect(slices.last.end, text.length);
+    for (var j = 1; j < slices.length; j++) {
+      expect(slices[j].start, slices[j - 1].end, reason: '段落 $i 第 $j 段切片不相接');
+    }
+  }
 }
