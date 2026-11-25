@@ -25,6 +25,7 @@ class NovelBackupPage extends StatefulWidget {
     required this.service,
     required this.prefs,
     this.progressSync,
+    this.credentials,
     this.onChanged,
   });
 
@@ -33,6 +34,9 @@ class NovelBackupPage extends StatefulWidget {
 
   /// 进度同步（装配处注入）；null 时「立即同步」置灰并说明原因。
   final NovelProgressSync? progressSync;
+
+  /// 凭据存储缝（测试注入内存实现；生产走系统安全存储）。
+  final NovelCredentialStore? credentials;
 
   /// 备份/恢复/撤销完成时回调（首页据此重读数据）。
   final VoidCallback? onChanged;
@@ -83,13 +87,46 @@ class _NovelBackupPageState extends State<NovelBackupPage> {
 
   Future<void> _load() async {
     final prefs = widget.prefs;
-    final config = await readNovelWebDavConfig(prefs);
-    final settings = await NovelBackupSettings.load(prefs);
-    final remembered = await readNovelBackupPassword();
-    final lastBackup = DateTime.tryParse(
-      await prefs.read(novelWebdavLastBackupAtKey) ?? '',
+    NovelWebDavConfig? config;
+    NovelBackupSettings settings = const NovelBackupSettings(
+      mode: NovelAutoBackupMode.off,
+      encrypt: false,
+      progressAuto: false,
+      deviceName: '',
     );
-    final journal = await widget.service.lastUndo();
+    var remembered = '';
+    DateTime? lastBackup;
+    NovelBackupJournal? journal;
+    var error = '';
+    try {
+      config = await readNovelWebDavConfig(
+        prefs,
+        credentials: widget.credentials,
+      );
+    } on Object catch (e) {
+      error = '读 WebDAV 配置失败：$e';
+    }
+    try {
+      settings = await NovelBackupSettings.load(prefs);
+    } on Object catch (e) {
+      error = error.isEmpty ? '读备份设置失败：$e' : error;
+    }
+    try {
+      remembered = await readNovelBackupPassword(
+        credentials: widget.credentials,
+      );
+      lastBackup = DateTime.tryParse(
+        await prefs.read(novelWebdavLastBackupAtKey) ?? '',
+      );
+    } on Object {
+      // 安全存储不可用：当作"没有记住密码"，界面会提示重新输入。
+    }
+    try {
+      // 本地快照目录不可用（测试/无 path_provider）不该让整页打不开。
+      journal = await widget.service.lastUndo();
+    } on Object {
+      journal = null;
+    }
     if (!mounted) return;
     setState(() {
       _config = config;
@@ -102,6 +139,10 @@ class _NovelBackupPageState extends State<NovelBackupPage> {
       _lastBackupAt = lastBackup;
       _journal = journal;
       _ready = true;
+      if (error.isNotEmpty) {
+        _error = error;
+        _hint = '重启应用后再试；完整错误在应用日志里';
+      }
     });
   }
 
@@ -152,7 +193,11 @@ class _NovelBackupPageState extends State<NovelBackupPage> {
       });
       return false;
     }
-    final saved = await writeNovelWebDavConfig(widget.prefs, draft);
+    final saved = await writeNovelWebDavConfig(
+      widget.prefs,
+      draft,
+      credentials: widget.credentials,
+    );
     final settings = NovelBackupSettings(
       mode: _settings.mode,
       encrypt: _settings.encrypt,
@@ -166,9 +211,10 @@ class _NovelBackupPageState extends State<NovelBackupPage> {
     if (_backupPassword.text.isNotEmpty) {
       await writeNovelBackupPassword(
         _rememberBackupPassword ? _backupPassword.text : '',
+        credentials: widget.credentials,
       );
     } else {
-      await writeNovelBackupPassword('');
+      await writeNovelBackupPassword('', credentials: widget.credentials);
     }
     if (!mounted) return false;
     setState(() {
@@ -194,6 +240,7 @@ class _NovelBackupPageState extends State<NovelBackupPage> {
   }
 
   Future<String?> _askPassword() async {
+    if (!mounted) return null;
     final controller = TextEditingController();
     final result = await showDialog<String>(
       context: context,
@@ -298,25 +345,25 @@ class _NovelBackupPageState extends State<NovelBackupPage> {
     if (decision == null) return;
     if (!mounted) return;
 
-    await _run('正在应用恢复计划…', () async {
-      final report = await widget.service.apply(
-        preview,
-        useRemote: decision.useRemote,
-      );
-      if (!mounted) return;
-      setState(() {
-        _notice =
-            '恢复完成：应用 ${report.applied} 处'
-            '${report.failed > 0 ? '，${report.failed} 处失败' : ''}'
-            ' · 可在下方撤销';
-        if (report.errors.isNotEmpty) {
-          _error = '部分条目没写进去';
-          _hint = report.errors.take(3).join('；');
-        }
-      });
-      _journal = await widget.service.lastUndo();
-      widget.onChanged?.call();
+    // 注意：这里不能再套一层 _run——它会在 _busy 时直接返回，恢复就静默不执行。
+    setState(() => _busyLabel = '正在应用恢复计划…');
+    final report = await widget.service.apply(
+      preview,
+      useRemote: decision.useRemote,
+    );
+    if (!mounted) return;
+    setState(() {
+      _notice =
+          '恢复完成：应用 ${report.applied} 处'
+          '${report.failed > 0 ? '，${report.failed} 处失败' : ''}'
+          ' · 可在下方撤销';
+      if (report.errors.isNotEmpty) {
+        _error = '部分条目没写进去';
+        _hint = report.errors.take(3).join('；');
+      }
     });
+    _journal = await widget.service.lastUndo();
+    widget.onChanged?.call();
   });
 
   Future<void> _undo() async {
