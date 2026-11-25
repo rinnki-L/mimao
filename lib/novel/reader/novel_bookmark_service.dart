@@ -7,6 +7,7 @@
 // 3. 换源后按「章标题归一 + 段落序号」尽力重定位，失败标 unresolved 而不是删行。
 
 import 'package:drift/drift.dart';
+import 'package:mimao/novel/backup/novel_tombstone_service.dart';
 import 'package:mimao/novel/bookmark/novel_bookmark_models.dart';
 import 'package:mimao/novel/models/novel_models.dart';
 import 'package:mimao/novel/novel_db.dart';
@@ -122,6 +123,9 @@ class NovelBookmarkService implements NovelBookmarkApi {
 
   final NovelDb db;
 
+  /// 删除墓碑：书签/划线的删除要能跨设备传播，否则合并只会把旧副本复活。
+  late final NovelTombstoneService _tombstones = NovelTombstoneService(db);
+
   @override
   Future<List<NovelBookmark>> bookmarksForBook(
     String bookId, {
@@ -191,6 +195,7 @@ class NovelBookmarkService implements NovelBookmarkApi {
       final existing = await _findBookmarkRow(anchor);
       if (existing != null) {
         final removed = _bookmarkOf(existing);
+        await _tombstones.recordBookmark(existing);
         await (db.delete(
           db.novelBookmarkEntries,
         )..where((t) => t.id.equals(existing.id))).go();
@@ -262,6 +267,11 @@ class NovelBookmarkService implements NovelBookmarkApi {
 
   @override
   Future<bool> removeBookmark(int id) async {
+    final row = await (db.select(
+      db.novelBookmarkEntries,
+    )..where((t) => t.id.equals(id))).getSingleOrNull();
+    if (row == null) return false;
+    await _tombstones.recordBookmark(row);
     final affected = await (db.delete(
       db.novelBookmarkEntries,
     )..where((t) => t.id.equals(id))).go();
@@ -270,6 +280,12 @@ class NovelBookmarkService implements NovelBookmarkApi {
 
   @override
   Future<void> removeBookmarksForBook(String bookId) async {
+    final rows = await (db.select(
+      db.novelBookmarkEntries,
+    )..where((t) => t.bookId.equals(bookId))).get();
+    for (final row in rows) {
+      await _tombstones.recordBookmark(row);
+    }
     await (db.delete(
       db.novelBookmarkEntries,
     )..where((t) => t.bookId.equals(bookId))).go();
@@ -421,6 +437,11 @@ class NovelBookmarkService implements NovelBookmarkApi {
 
   @override
   Future<bool> removeMarking(int id) async {
+    final row = await (db.select(
+      db.novelMarkingEntries,
+    )..where((t) => t.id.equals(id))).getSingleOrNull();
+    if (row == null) return false;
+    await _tombstones.recordMarking(row);
     final affected = await (db.delete(
       db.novelMarkingEntries,
     )..where((t) => t.id.equals(id))).go();

@@ -433,6 +433,32 @@ class NovelTxtTocRules extends Table {
   DateTimeColumn get updatedAt => dateTime()();
 }
 
+/// 删除墓碑：让「删掉的书签/划线」能跨设备传播，不会被对侧合并复活。
+///
+/// 只记两件事：删的是哪一类、哪一条（自然键）。同一键只留最新一次删除
+/// （主键覆盖），超过 [novelTombstoneRetentionDays] 的由服务层 prune 掉。
+///
+/// 范围刻意只含书签 / 划线：取消收藏的传播牵涉"恢复要不要删书"，不在这张表里。
+@DataClassName('NovelTombstoneRow')
+class NovelTombstoneEntries extends Table {
+  @override
+  String get tableName => 'novel_tombstone';
+
+  /// `bookmark` / `marking`。
+  TextColumn get kind => text()();
+
+  /// 被删行的自然键（书 + 源 + 章 + 段 + 偏移）。
+  TextColumn get targetKey => text()();
+
+  /// 哪台设备删的（诊断用）。
+  TextColumn get deviceId => text().withDefault(const Constant(''))();
+
+  DateTimeColumn get deletedAt => dateTime()();
+
+  @override
+  Set<Column> get primaryKey => {kind, targetKey};
+}
+
 @DriftDatabase(
   tables: [
     NovelCollectEntries,
@@ -448,6 +474,7 @@ class NovelTxtTocRules extends Table {
     NovelTtsCacheEntries,
     NovelLocalBooks,
     NovelTxtTocRules,
+    NovelTombstoneEntries,
   ],
 )
 class NovelDb extends _$NovelDb {
@@ -470,7 +497,7 @@ class NovelDb extends _$NovelDb {
   });
 
   @override
-  int get schemaVersion => 8;
+  int get schemaVersion => 9;
 
   /// v1 → v2：书架分组列 + 模块 kv + 阅读时长按天表。三者都是增量，旧行无需
   /// 回填（groupName 缺省 null、今日/总时长从 0 起算）。
@@ -492,6 +519,9 @@ class NovelDb extends _$NovelDb {
   /// 的多设备同步打底。旧表的每一天迁成一行 `deviceId = 本机`、
   /// `bookId = ''`、`chapterIndex = 0` 的记录（只进日聚合，不进时间轴/章节维度），
   /// 迁完删旧表。迁移本身幂等：新表主键冲突走覆盖，重复执行不会翻倍。
+  ///
+  /// v8 → v9：删除墓碑表（书签/划线的删除跨设备传播）。纯增量，旧表一行不动；
+  /// 新表为空表示"历史上没有删除记录"，比补齐墓碑更保守。
   @override
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (m) => m.createAll(),
@@ -529,6 +559,9 @@ class NovelDb extends _$NovelDb {
       }
       if (from < 8) {
         await _migrateReadingRecords(m);
+      }
+      if (from < 9) {
+        await m.createTable(novelTombstoneEntries);
       }
     },
   );
@@ -627,4 +660,9 @@ class NovelDb extends _$NovelDb {
   Future<void> writePref(String key, String value) => into(
     novelPrefs,
   ).insertOnConflictUpdate(NovelPrefsCompanion.insert(key: key, value: value));
+
+  /// 模块 kv 删除。撤销恢复时把"原本不存在的键"真正清掉——写空串会把它变成
+  /// 一个存在的空值，读侧各处的容错并不一致。
+  Future<void> removePref(String key) =>
+      (delete(novelPrefs)..where((t) => t.key.equals(key))).go();
 }

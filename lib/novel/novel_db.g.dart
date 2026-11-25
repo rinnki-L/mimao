@@ -6830,6 +6830,324 @@ class NovelTxtTocRulesCompanion extends UpdateCompanion<NovelTxtTocRuleRow> {
   }
 }
 
+class $NovelTombstoneEntriesTable extends NovelTombstoneEntries
+    with TableInfo<$NovelTombstoneEntriesTable, NovelTombstoneRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $NovelTombstoneEntriesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _kindMeta = const VerificationMeta('kind');
+  @override
+  late final GeneratedColumn<String> kind = GeneratedColumn<String>(
+    'kind',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _targetKeyMeta = const VerificationMeta(
+    'targetKey',
+  );
+  @override
+  late final GeneratedColumn<String> targetKey = GeneratedColumn<String>(
+    'target_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _deviceIdMeta = const VerificationMeta(
+    'deviceId',
+  );
+  @override
+  late final GeneratedColumn<String> deviceId = GeneratedColumn<String>(
+    'device_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _deletedAtMeta = const VerificationMeta(
+    'deletedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> deletedAt = GeneratedColumn<DateTime>(
+    'deleted_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [kind, targetKey, deviceId, deletedAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'novel_tombstone';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<NovelTombstoneRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('kind')) {
+      context.handle(
+        _kindMeta,
+        kind.isAcceptableOrUnknown(data['kind']!, _kindMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_kindMeta);
+    }
+    if (data.containsKey('target_key')) {
+      context.handle(
+        _targetKeyMeta,
+        targetKey.isAcceptableOrUnknown(data['target_key']!, _targetKeyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_targetKeyMeta);
+    }
+    if (data.containsKey('device_id')) {
+      context.handle(
+        _deviceIdMeta,
+        deviceId.isAcceptableOrUnknown(data['device_id']!, _deviceIdMeta),
+      );
+    }
+    if (data.containsKey('deleted_at')) {
+      context.handle(
+        _deletedAtMeta,
+        deletedAt.isAcceptableOrUnknown(data['deleted_at']!, _deletedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_deletedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {kind, targetKey};
+  @override
+  NovelTombstoneRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return NovelTombstoneRow(
+      kind: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}kind'],
+      )!,
+      targetKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}target_key'],
+      )!,
+      deviceId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}device_id'],
+      )!,
+      deletedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}deleted_at'],
+      )!,
+    );
+  }
+
+  @override
+  $NovelTombstoneEntriesTable createAlias(String alias) {
+    return $NovelTombstoneEntriesTable(attachedDatabase, alias);
+  }
+}
+
+class NovelTombstoneRow extends DataClass
+    implements Insertable<NovelTombstoneRow> {
+  /// `bookmark` / `marking`。
+  final String kind;
+
+  /// 被删行的自然键（书 + 源 + 章 + 段 + 偏移）。
+  final String targetKey;
+
+  /// 哪台设备删的（诊断用）。
+  final String deviceId;
+  final DateTime deletedAt;
+  const NovelTombstoneRow({
+    required this.kind,
+    required this.targetKey,
+    required this.deviceId,
+    required this.deletedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['kind'] = Variable<String>(kind);
+    map['target_key'] = Variable<String>(targetKey);
+    map['device_id'] = Variable<String>(deviceId);
+    map['deleted_at'] = Variable<DateTime>(deletedAt);
+    return map;
+  }
+
+  NovelTombstoneEntriesCompanion toCompanion(bool nullToAbsent) {
+    return NovelTombstoneEntriesCompanion(
+      kind: Value(kind),
+      targetKey: Value(targetKey),
+      deviceId: Value(deviceId),
+      deletedAt: Value(deletedAt),
+    );
+  }
+
+  factory NovelTombstoneRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return NovelTombstoneRow(
+      kind: serializer.fromJson<String>(json['kind']),
+      targetKey: serializer.fromJson<String>(json['targetKey']),
+      deviceId: serializer.fromJson<String>(json['deviceId']),
+      deletedAt: serializer.fromJson<DateTime>(json['deletedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'kind': serializer.toJson<String>(kind),
+      'targetKey': serializer.toJson<String>(targetKey),
+      'deviceId': serializer.toJson<String>(deviceId),
+      'deletedAt': serializer.toJson<DateTime>(deletedAt),
+    };
+  }
+
+  NovelTombstoneRow copyWith({
+    String? kind,
+    String? targetKey,
+    String? deviceId,
+    DateTime? deletedAt,
+  }) => NovelTombstoneRow(
+    kind: kind ?? this.kind,
+    targetKey: targetKey ?? this.targetKey,
+    deviceId: deviceId ?? this.deviceId,
+    deletedAt: deletedAt ?? this.deletedAt,
+  );
+  NovelTombstoneRow copyWithCompanion(NovelTombstoneEntriesCompanion data) {
+    return NovelTombstoneRow(
+      kind: data.kind.present ? data.kind.value : this.kind,
+      targetKey: data.targetKey.present ? data.targetKey.value : this.targetKey,
+      deviceId: data.deviceId.present ? data.deviceId.value : this.deviceId,
+      deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('NovelTombstoneRow(')
+          ..write('kind: $kind, ')
+          ..write('targetKey: $targetKey, ')
+          ..write('deviceId: $deviceId, ')
+          ..write('deletedAt: $deletedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(kind, targetKey, deviceId, deletedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is NovelTombstoneRow &&
+          other.kind == this.kind &&
+          other.targetKey == this.targetKey &&
+          other.deviceId == this.deviceId &&
+          other.deletedAt == this.deletedAt);
+}
+
+class NovelTombstoneEntriesCompanion
+    extends UpdateCompanion<NovelTombstoneRow> {
+  final Value<String> kind;
+  final Value<String> targetKey;
+  final Value<String> deviceId;
+  final Value<DateTime> deletedAt;
+  final Value<int> rowid;
+  const NovelTombstoneEntriesCompanion({
+    this.kind = const Value.absent(),
+    this.targetKey = const Value.absent(),
+    this.deviceId = const Value.absent(),
+    this.deletedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  NovelTombstoneEntriesCompanion.insert({
+    required String kind,
+    required String targetKey,
+    this.deviceId = const Value.absent(),
+    required DateTime deletedAt,
+    this.rowid = const Value.absent(),
+  }) : kind = Value(kind),
+       targetKey = Value(targetKey),
+       deletedAt = Value(deletedAt);
+  static Insertable<NovelTombstoneRow> custom({
+    Expression<String>? kind,
+    Expression<String>? targetKey,
+    Expression<String>? deviceId,
+    Expression<DateTime>? deletedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (kind != null) 'kind': kind,
+      if (targetKey != null) 'target_key': targetKey,
+      if (deviceId != null) 'device_id': deviceId,
+      if (deletedAt != null) 'deleted_at': deletedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  NovelTombstoneEntriesCompanion copyWith({
+    Value<String>? kind,
+    Value<String>? targetKey,
+    Value<String>? deviceId,
+    Value<DateTime>? deletedAt,
+    Value<int>? rowid,
+  }) {
+    return NovelTombstoneEntriesCompanion(
+      kind: kind ?? this.kind,
+      targetKey: targetKey ?? this.targetKey,
+      deviceId: deviceId ?? this.deviceId,
+      deletedAt: deletedAt ?? this.deletedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (kind.present) {
+      map['kind'] = Variable<String>(kind.value);
+    }
+    if (targetKey.present) {
+      map['target_key'] = Variable<String>(targetKey.value);
+    }
+    if (deviceId.present) {
+      map['device_id'] = Variable<String>(deviceId.value);
+    }
+    if (deletedAt.present) {
+      map['deleted_at'] = Variable<DateTime>(deletedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('NovelTombstoneEntriesCompanion(')
+          ..write('kind: $kind, ')
+          ..write('targetKey: $targetKey, ')
+          ..write('deviceId: $deviceId, ')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$NovelDb extends GeneratedDatabase {
   _$NovelDb(QueryExecutor e) : super(e);
   $NovelDbManager get managers => $NovelDbManager(this);
@@ -6862,6 +7180,8 @@ abstract class _$NovelDb extends GeneratedDatabase {
   late final $NovelTxtTocRulesTable novelTxtTocRules = $NovelTxtTocRulesTable(
     this,
   );
+  late final $NovelTombstoneEntriesTable novelTombstoneEntries =
+      $NovelTombstoneEntriesTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -6880,6 +7200,7 @@ abstract class _$NovelDb extends GeneratedDatabase {
     novelTtsCacheEntries,
     novelLocalBooks,
     novelTxtTocRules,
+    novelTombstoneEntries,
   ];
 }
 
@@ -10420,6 +10741,206 @@ typedef $$NovelTxtTocRulesTableProcessedTableManager =
       NovelTxtTocRuleRow,
       PrefetchHooks Function()
     >;
+typedef $$NovelTombstoneEntriesTableCreateCompanionBuilder =
+    NovelTombstoneEntriesCompanion Function({
+      required String kind,
+      required String targetKey,
+      Value<String> deviceId,
+      required DateTime deletedAt,
+      Value<int> rowid,
+    });
+typedef $$NovelTombstoneEntriesTableUpdateCompanionBuilder =
+    NovelTombstoneEntriesCompanion Function({
+      Value<String> kind,
+      Value<String> targetKey,
+      Value<String> deviceId,
+      Value<DateTime> deletedAt,
+      Value<int> rowid,
+    });
+
+class $$NovelTombstoneEntriesTableFilterComposer
+    extends Composer<_$NovelDb, $NovelTombstoneEntriesTable> {
+  $$NovelTombstoneEntriesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get kind => $composableBuilder(
+    column: $table.kind,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get targetKey => $composableBuilder(
+    column: $table.targetKey,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get deviceId => $composableBuilder(
+    column: $table.deviceId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get deletedAt => $composableBuilder(
+    column: $table.deletedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$NovelTombstoneEntriesTableOrderingComposer
+    extends Composer<_$NovelDb, $NovelTombstoneEntriesTable> {
+  $$NovelTombstoneEntriesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get kind => $composableBuilder(
+    column: $table.kind,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get targetKey => $composableBuilder(
+    column: $table.targetKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get deviceId => $composableBuilder(
+    column: $table.deviceId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get deletedAt => $composableBuilder(
+    column: $table.deletedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$NovelTombstoneEntriesTableAnnotationComposer
+    extends Composer<_$NovelDb, $NovelTombstoneEntriesTable> {
+  $$NovelTombstoneEntriesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get kind =>
+      $composableBuilder(column: $table.kind, builder: (column) => column);
+
+  GeneratedColumn<String> get targetKey =>
+      $composableBuilder(column: $table.targetKey, builder: (column) => column);
+
+  GeneratedColumn<String> get deviceId =>
+      $composableBuilder(column: $table.deviceId, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get deletedAt =>
+      $composableBuilder(column: $table.deletedAt, builder: (column) => column);
+}
+
+class $$NovelTombstoneEntriesTableTableManager
+    extends
+        RootTableManager<
+          _$NovelDb,
+          $NovelTombstoneEntriesTable,
+          NovelTombstoneRow,
+          $$NovelTombstoneEntriesTableFilterComposer,
+          $$NovelTombstoneEntriesTableOrderingComposer,
+          $$NovelTombstoneEntriesTableAnnotationComposer,
+          $$NovelTombstoneEntriesTableCreateCompanionBuilder,
+          $$NovelTombstoneEntriesTableUpdateCompanionBuilder,
+          (
+            NovelTombstoneRow,
+            BaseReferences<
+              _$NovelDb,
+              $NovelTombstoneEntriesTable,
+              NovelTombstoneRow
+            >,
+          ),
+          NovelTombstoneRow,
+          PrefetchHooks Function()
+        > {
+  $$NovelTombstoneEntriesTableTableManager(
+    _$NovelDb db,
+    $NovelTombstoneEntriesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$NovelTombstoneEntriesTableFilterComposer(
+                $db: db,
+                $table: table,
+              ),
+          createOrderingComposer: () =>
+              $$NovelTombstoneEntriesTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$NovelTombstoneEntriesTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> kind = const Value.absent(),
+                Value<String> targetKey = const Value.absent(),
+                Value<String> deviceId = const Value.absent(),
+                Value<DateTime> deletedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => NovelTombstoneEntriesCompanion(
+                kind: kind,
+                targetKey: targetKey,
+                deviceId: deviceId,
+                deletedAt: deletedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String kind,
+                required String targetKey,
+                Value<String> deviceId = const Value.absent(),
+                required DateTime deletedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => NovelTombstoneEntriesCompanion.insert(
+                kind: kind,
+                targetKey: targetKey,
+                deviceId: deviceId,
+                deletedAt: deletedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$NovelTombstoneEntriesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$NovelDb,
+      $NovelTombstoneEntriesTable,
+      NovelTombstoneRow,
+      $$NovelTombstoneEntriesTableFilterComposer,
+      $$NovelTombstoneEntriesTableOrderingComposer,
+      $$NovelTombstoneEntriesTableAnnotationComposer,
+      $$NovelTombstoneEntriesTableCreateCompanionBuilder,
+      $$NovelTombstoneEntriesTableUpdateCompanionBuilder,
+      (
+        NovelTombstoneRow,
+        BaseReferences<
+          _$NovelDb,
+          $NovelTombstoneEntriesTable,
+          NovelTombstoneRow
+        >,
+      ),
+      NovelTombstoneRow,
+      PrefetchHooks Function()
+    >;
 
 class $NovelDbManager {
   final _$NovelDb _db;
@@ -10450,4 +10971,6 @@ class $NovelDbManager {
       $$NovelLocalBooksTableTableManager(_db, _db.novelLocalBooks);
   $$NovelTxtTocRulesTableTableManager get novelTxtTocRules =>
       $$NovelTxtTocRulesTableTableManager(_db, _db.novelTxtTocRules);
+  $$NovelTombstoneEntriesTableTableManager get novelTombstoneEntries =>
+      $$NovelTombstoneEntriesTableTableManager(_db, _db.novelTombstoneEntries);
 }
