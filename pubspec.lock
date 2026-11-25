@@ -26,7 +26,7 @@ packages:
     source: hosted
     version: "2.2.0"
   archive:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: archive
       sha256: "2fda90592c0afd219c5e285618a98da835cd10df38372666093d25dfe457a2d0"
@@ -137,6 +137,14 @@ packages:
       url: "https://pub.flutter-io.cn"
     source: hosted
     version: "2.0.4"
+  chinese_codec:
+    dependency: "direct main"
+    description:
+      name: chinese_codec
+      sha256: "6558184a0e2ba9d63dd784c9db4b6a072dd08a15bda39f0eb6d19ab5623c258f"
+      url: "https://pub.flutter-io.cn"
+    source: hosted
+    version: "0.1.3"
   cli_util:
     dependency: transitive
     description:

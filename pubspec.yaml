@@ -84,7 +84,7 @@ dependencies:
   archive: ^4.7.1
   chinese_codec: ^0.1.3
 
-# 小说阅读器朗读：Android 走 flutter_tts（系统语音引擎）；Windows 不用
+  # 小说阅读器朗读：Android 走 flutter_tts（系统语音引擎）；Windows 不用
   # 它的原生端，改走常驻 PowerShell + System.Speech（见
   # lib/novel/reader/novel_tts.dart）：逐段朗读、语速/音色、合成到 wav
   # （导出与缓存）、停止 = 结束宿主进程。flutter_tts 仍保留给 Android。
