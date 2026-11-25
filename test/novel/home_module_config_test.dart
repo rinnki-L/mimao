@@ -41,14 +41,15 @@ void main() {
 
     config = config.removeModule(custom.first.id);
     expect(
-      config.modules.where(
-        (m) => m.kind == NovelHomeModuleKind.customGroup,
-      ),
+      config.modules.where((m) => m.kind == NovelHomeModuleKind.customGroup),
       hasLength(1),
     );
 
     // 内置模块不可删。
-    expect(config.removeModule('recent').modules, hasLength(config.modules.length));
+    expect(
+      config.removeModule('recent').modules,
+      hasLength(config.modules.length),
+    );
     expect(
       config.removeModule('does-not-exist').modules,
       hasLength(config.modules.length),
@@ -75,10 +76,7 @@ void main() {
       '{"modules":[{"kind":"banner"},{"kind":"customGroup"}]}',
     );
     expect(decoded.modules, hasLength(7));
-    expect(
-      NovelHomeModuleConfig.decode('{oops').modules,
-      hasLength(7),
-    );
+    expect(NovelHomeModuleConfig.decode('{oops').modules, hasLength(7));
     expect(NovelHomeModuleConfig.decode(null).modules, hasLength(7));
   });
 

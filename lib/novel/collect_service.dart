@@ -178,10 +178,11 @@ class NovelCollectService extends ChangeNotifier implements NovelCollectApi {
     final existing = await db.collectRow(NovelRef(id: bookId));
     if (existing == null) return;
     final normalized = _normalizeGroup(path);
-    await (db.update(db.novelCollectEntries)..where((t) => t.id.equals(bookId)))
-        .write(
-          NovelCollectEntriesCompanion(customCoverPath: Value(normalized)),
-        );
+    await (db.update(
+      db.novelCollectEntries,
+    )..where((t) => t.id.equals(bookId))).write(
+      NovelCollectEntriesCompanion(customCoverPath: Value(normalized)),
+    );
     notifyListeners();
   }
 
@@ -224,22 +225,17 @@ class NovelCollectService extends ChangeNotifier implements NovelCollectApi {
     if (normalized.isEmpty) {
       throw ArgumentError.value(name, 'name', '系列名不能为空');
     }
-    await (db.update(
-      db.novelSeriesEntries,
-    )..where((t) => t.id.equals(id))).write(
-      NovelSeriesEntriesCompanion(name: Value(normalized)),
-    );
+    await (db.update(db.novelSeriesEntries)..where((t) => t.id.equals(id)))
+        .write(NovelSeriesEntriesCompanion(name: Value(normalized)));
     notifyListeners();
   }
 
   @override
   Future<void> deleteSeries(int id) async {
     await db.transaction(() async {
-      await (db.update(
-        db.novelCollectEntries,
-      )..where((t) => t.seriesId.equals(id))).write(
-        const NovelCollectEntriesCompanion(seriesId: Value(null)),
-      );
+      await (db.update(db.novelCollectEntries)
+            ..where((t) => t.seriesId.equals(id)))
+          .write(const NovelCollectEntriesCompanion(seriesId: Value(null)));
       await (db.delete(
         db.novelSeriesEntries,
       )..where((t) => t.id.equals(id))).go();

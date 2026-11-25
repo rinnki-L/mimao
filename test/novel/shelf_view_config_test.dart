@@ -105,11 +105,11 @@ void main() {
         const _Book('c'),
         const _Book('d'),
       ];
-      final ordered = applyShelfOrder<_Book>(
-        books,
-        <String>['c', 'a', 'gone'],
-        (book) => book.id,
-      );
+      final ordered = applyShelfOrder<_Book>(books, <String>[
+        'c',
+        'a',
+        'gone',
+      ], (book) => book.id);
       expect(ordered.map((book) => book.id).toList(), <String>[
         'c',
         'a',
@@ -139,7 +139,11 @@ void main() {
         books: books,
         folderOf: (book) => book.folder,
       );
-      expect(sections.map((s) => s.title).toList(), <String>['武侠', '科幻', '未分组']);
+      expect(sections.map((s) => s.title).toList(), <String>[
+        '武侠',
+        '科幻',
+        '未分组',
+      ]);
       expect(sections.last.books.map((b) => b.id).toList(), <String>['b', 'd']);
     });
 
@@ -167,7 +171,10 @@ void main() {
         seriesNames: <int, String>{1: '基地', 2: '沙丘'},
       );
       expect(grouping.hasSeries, isTrue);
-      expect(grouping.series.map((s) => s.title).toList(), <String>['基地', '沙丘']);
+      expect(grouping.series.map((s) => s.title).toList(), <String>[
+        '基地',
+        '沙丘',
+      ]);
       expect(grouping.series.first.books.map((b) => b.id).toList(), <String>[
         'b',
         'd',
