@@ -784,7 +784,10 @@ void _registerNovelDevCapabilities({
             for (final entry in rawArgs.entries) '${entry.key}': entry.value,
           }
         : const <String, Object?>{};
-    await pushNovelRoute<void>(nav.context, route, args: routeArgs);
+    // 不 await：push 的 Future 在路由被 pop 时才完成，await 会把 /eval 挂到
+    // 用户手动退出页面为止（dev 端点 120s 超时）。稍等一帧让页面推上去再返回。
+    unawaited(pushNovelRoute<void>(nav.context, route, args: routeArgs));
+    await Future<void>.delayed(const Duration(milliseconds: 250));
     return <String, Object?>{'ok': true, 'route': route.name};
   });
   devRegisterCapability('novel.open', (args) async {
@@ -806,41 +809,6 @@ void _registerNovelDevCapabilities({
       },
     );
     return <String, Object?>{'ok': true};
-  });
-  // 通用 push：任何 NovelRoute 都能直接推，省得为一个新页面再加一条能力。
-  //
-  // 截图验收要靠它：像「阅读统计」这种藏在长列表底部、又不在壳导航里的页面，
-  // /tap 的坐标落在视口外点不到（dev harness 没有滚动端点），只能从路由进。
-  devRegisterCapability('novel.pushRoute', (args) async {
-    final nav = MimaoApp.navigatorKey.currentState;
-    if (nav == null) {
-      return <String, Object?>{'ok': false, 'error': 'no navigator'};
-    }
-    final raw = args['route']?.toString() ?? '';
-    final route = NovelRoute.values.where(
-      (r) => r.routeName == raw || r.name == raw,
-    );
-    if (route.isEmpty) {
-      return <String, Object?>{
-        'ok': false,
-        'error': 'unknown route: $raw',
-        'routes': <String>[for (final r in NovelRoute.values) r.routeName],
-      };
-    }
-    final rawArgs = args['args'];
-    // 不 await：push 的 Future 在路由被 pop 时才完成，await 会把 /eval 请求
-    // 挂到用户手动退出页面为止（dev 端点 120s 超时）。
-    unawaited(
-      pushNovelRoute<void>(
-        nav.context,
-        route.first,
-        args: rawArgs is Map
-            ? rawArgs.map((key, value) => MapEntry('$key', value))
-            : const <String, Object?>{},
-      ),
-    );
-    await Future<void>.delayed(const Duration(milliseconds: 250));
-    return <String, Object?>{'ok': true, 'route': route.first.routeName};
   });
 }
 
