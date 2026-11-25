@@ -155,15 +155,23 @@ $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 Add-Type -AssemblyName System.Speech
 $sapi = New-Object System.Speech.Synthesis.SpeechSynthesizer
-function Reply([string]$line) {
-  [Console]::Out.WriteLine($line)
-  [Console]::Out.Flush()
-}
+# 命令通道走 loopback TCP，不走 stdin：Windows 下 Dart 写 PowerShell 的 stdin
+# 只有第一行能可靠到达（第二行起 ReadLine 收不到，表现为「只读第一段」）。
+# 先打一行 PORT，Dart 连上来之后逐行读 JSON 命令。
+$listener = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Loopback, 0)
+$listener.Start()
+[Console]::Out.WriteLine("PORT $($listener.LocalEndpoint.Port)")
+[Console]::Out.Flush()
+$client = $listener.AcceptTcpClient()
+$stream = $client.GetStream()
+$reader = New-Object System.IO.StreamReader($stream, [Text.Encoding]::UTF8)
+$writer = New-Object System.IO.StreamWriter($stream, [Text.Encoding]::UTF8)
+$writer.AutoFlush = $true
 function Decode([string]$b64) {
   return [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($b64))
 }
 while ($true) {
-  $line = [Console]::In.ReadLine()
+  $line = $reader.ReadLine()
   if ($null -eq $line) { break }
   if ([string]::IsNullOrWhiteSpace($line)) { continue }
   try {
@@ -178,13 +186,13 @@ while ($true) {
       }
       $json = ConvertTo-Json -InputObject @($list) -Compress
       if ([string]::IsNullOrEmpty($json)) { $json = '[]' }
-      Reply ('VOICES ' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($json)))
+      $writer.WriteLine('VOICES ' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($json)))
     } elseif ($op -eq 'speak') {
       if ($cmd.voice) { try { $sapi.SelectVoice([string]$cmd.voice) } catch {} }
       $sapi.Rate = [int]$cmd.rate
       $sapi.SetOutputToDefaultAudioDevice()
       $sapi.Speak((Decode ([string]$cmd.text)))
-      Reply 'OK'
+      $writer.WriteLine('OK')
     } elseif ($op -eq 'synth') {
       $path = Decode ([string]$cmd.path)
       # 每次合成用独立 synthesizer 并在 finally 里 Dispose：SetOutputToNull
@@ -200,7 +208,7 @@ while ($true) {
         try { $s.SetOutputToNull() } catch {}
         try { $s.Dispose() } catch {}
       }
-      Reply 'OK'
+      $writer.WriteLine('OK')
     } elseif ($op -eq 'play') {
       $path = Decode ([string]$cmd.path)
       # 共享读打开：文件即使还被上一手短暂持有，也能直接播放。
@@ -211,12 +219,12 @@ while ($true) {
       } finally {
         $stream.Dispose()
       }
-      Reply 'OK'
+      $writer.WriteLine('OK')
     } else {
-      Reply 'ERR unknown op'
+      $writer.WriteLine('ERR unknown op')
     }
   } catch {
-    Reply ('ERR ' + $_.Exception.Message)
+    $writer.WriteLine('ERR ' + $_.Exception.Message)
   }
 }
 ''';
@@ -237,6 +245,8 @@ int sapiRateFor(double rate) => ((rate - 1.0) * 10).round().clamp(-10, 10);
 /// Windows：常驻 PowerShell 宿主。
 class WindowsSapiTts implements NovelTtsEngine {
   Process? _process;
+  Socket? _socket;
+  StreamSubscription<String>? _socketSub;
   StreamSubscription<String>? _stdoutSub;
   StreamSubscription<String>? _stderrSub;
   Future<void>? _starting;
@@ -261,7 +271,7 @@ class WindowsSapiTts implements NovelTtsEngine {
   }
 
   Future<void> _ensureStarted() async {
-    if (_process != null) return;
+    if (_socket != null) return;
     final pending = _starting;
     if (pending != null) return pending;
     final future = _spawn();
@@ -282,15 +292,27 @@ class WindowsSapiTts implements NovelTtsEngine {
       '-EncodedCommand',
       _encodePowerShell(_sapiHostScript),
     ]);
-    _lines.reset();
     _process = process;
+    _lines.reset();
+    // 宿主先打一行 `PORT n`；之后所有命令/响应都走 loopback TCP。
+    final portLine = Completer<String>();
     _stdoutSub = process.stdout
         .transform(utf8.decoder)
         .transform(const LineSplitter())
         .listen(
-          _lines.add,
-          onError: (Object error) => _lines.fail(StateError('朗读引擎输出错误：$error')),
-          onDone: () => _lines.fail(StateError('朗读引擎已退出')),
+          (line) {
+            if (!portLine.isCompleted) portLine.complete(line);
+          },
+          onError: (Object error) {
+            if (!portLine.isCompleted) {
+              portLine.completeError(StateError('朗读引擎输出错误：$error'));
+            }
+          },
+          onDone: () {
+            if (!portLine.isCompleted) {
+              portLine.completeError(StateError('朗读引擎已退出'));
+            }
+          },
         );
     _stderrSub = process.stderr.transform(utf8.decoder).listen((line) {
       if (line.trim().isNotEmpty) _lastError = line.trim();
@@ -299,16 +321,51 @@ class WindowsSapiTts implements NovelTtsEngine {
       process.exitCode.then((code) {
         if (!identical(_process, process)) return;
         _process = null;
+        _socket = null;
         _lines.fail(
           StateError(
             '朗读引擎退出码 $code'
             '${_lastError == null ? '' : '：$_lastError'}',
           ),
         );
+        unawaited(_socketSub?.cancel());
         unawaited(_stdoutSub?.cancel());
         unawaited(_stderrSub?.cancel());
       }),
     );
+    String first;
+    try {
+      first = await portLine.future.timeout(const Duration(seconds: 15));
+    } on Object catch (error) {
+      await stop();
+      throw StateError('朗读引擎启动失败：$error');
+    }
+    if (!first.startsWith('PORT ')) {
+      await stop();
+      throw StateError(
+        '朗读引擎启动失败：$first'
+        '${_lastError == null ? '' : '（$_lastError）'}',
+      );
+    }
+    final port = int.tryParse(first.substring(5).trim()) ?? 0;
+    if (port <= 0) {
+      await stop();
+      throw StateError('朗读引擎端口无效：$first');
+    }
+    final socket = await Socket.connect(
+      InternetAddress.loopbackIPv4,
+      port,
+      timeout: const Duration(seconds: 5),
+    );
+    _socket = socket;
+    _socketSub = utf8.decoder
+        .bind(socket)
+        .transform(const LineSplitter())
+        .listen(
+          _lines.add,
+          onError: (Object error) => _lines.fail(StateError('朗读引擎连接错误：$error')),
+          onDone: () => _lines.fail(StateError('朗读引擎连接已断开')),
+        );
   }
 
   /// 一条命令 = 一行 JSON；响应按到达顺序一一对应。
@@ -322,10 +379,10 @@ class WindowsSapiTts implements NovelTtsEngine {
 
   Future<String> _requestNow(String payload) async {
     await _ensureStarted();
-    final process = _process;
-    if (process == null) throw StateError('朗读引擎未启动');
-    process.stdin.writeln(payload);
-    await process.stdin.flush();
+    final socket = _socket;
+    if (socket == null) throw StateError('朗读引擎未启动');
+    socket.add(utf8.encode('$payload\n'));
+    await socket.flush();
     final line = await _lines.next();
     if (line.startsWith('ERR')) {
       throw StateError('朗读引擎：${line.substring(3).trim()}');
@@ -432,8 +489,19 @@ class WindowsSapiTts implements NovelTtsEngine {
   @override
   Future<void> stop() async {
     final process = _process;
+    final socket = _socket;
     _process = null;
+    _socket = null;
     _lines.fail(StateError('朗读已停止'));
+    unawaited(_socketSub?.cancel());
+    _socketSub = null;
+    if (socket != null) {
+      try {
+        socket.destroy();
+      } on Object {
+        // 连接已经断开。
+      }
+    }
     if (process == null) return;
     try {
       process.kill();
