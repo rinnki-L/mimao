@@ -159,4 +159,68 @@ void main() {
         );
     expect((await db.select(db.novelTxtTocRules).getSingle()).name, '测试规则');
   });
+
+  test('v8→v9 迁移：三张规则表建成，旧收藏行不受影响', () async {
+    final executor = NativeDatabase.memory();
+    await executor.ensureOpen(_OpenUser());
+    await executor.runCustom(
+      'CREATE TABLE novel_collect (id TEXT NOT NULL PRIMARY KEY, '
+      'title TEXT NOT NULL, cover_url TEXT NULL, payload TEXT NOT NULL '
+      "DEFAULT '{}', group_name TEXT NULL, note TEXT NOT NULL DEFAULT '', "
+      'custom_cover_path TEXT NULL, series_id INTEGER NULL, '
+      'collected_at INTEGER NOT NULL)',
+    );
+    await executor.runCustom(
+      'INSERT INTO novel_collect (id, title, payload, collected_at) '
+      "VALUES ('b1', '老书', '{}', 0)",
+    );
+
+    final db = NovelDb.forTesting(executor);
+    addTearDown(() => db.close());
+
+    final migrator = Migrator(db);
+    await db.migration.onUpgrade(migrator, 8, 9);
+
+    final rows = await db.select(db.novelCollectEntries).get();
+    expect(rows, hasLength(1));
+    expect(rows.single.title, '老书');
+    expect(rows.single.groupName, isNull);
+
+    // 三张新表都可写可读；迁移不补业务数据（内置词典规则由服务首次读取时补）。
+    expect(await db.select(db.novelDictRules).get(), isEmpty);
+    await db
+        .into(db.novelDictRules)
+        .insert(
+          NovelDictRulesCompanion.insert(
+            name: '测试词典',
+            urlRule: 'https://dict.test/{{key}}',
+            updatedAt: DateTime(2026, 11, 25),
+          ),
+        );
+    expect((await db.select(db.novelDictRules).getSingle()).name, '测试词典');
+
+    expect(await db.select(db.novelTagGroupRules).get(), isEmpty);
+    await db
+        .into(db.novelTagGroupRules)
+        .insert(
+          NovelTagGroupRulesCompanion.insert(
+            name: '修仙',
+            pattern: '修真',
+            updatedAt: DateTime(2026, 11, 25),
+          ),
+        );
+    expect((await db.select(db.novelTagGroupRules).getSingle()).name, '修仙');
+
+    expect(await db.select(db.novelThemePackages).get(), isEmpty);
+    await db
+        .into(db.novelThemePackages)
+        .insert(
+          NovelThemePackagesCompanion.insert(
+            name: '主题',
+            packageJson: '{}',
+            importedAt: DateTime(2026, 11, 25),
+          ),
+        );
+    expect((await db.select(db.novelThemePackages).getSingle()).name, '主题');
+  });
 }

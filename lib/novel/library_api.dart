@@ -402,3 +402,8 @@ const String novelPrefReaderPositions = 'reader_positions';
 /// 只存与全局设置不同的字段，避免整份复制——否则用户以后改全局时，
 /// 每书那份旧快照会把改动吃掉。合并优先级：每书 > 全局 > 默认。
 const String novelPrefReaderBookSettings = 'reader_book_settings';
+
+/// 键盘辅助：`{version, showHints, bindings:[{keys, action, enabled}]}`。
+/// 单独一条 kv（不塞进 `reader_settings`）：键位是设备偏好，换设备/分享主题
+/// 时不该默认跟着走；主题包导出时按需显式带上。
+const String novelPrefKeyboardAssist = 'reader_keyboard_assist';

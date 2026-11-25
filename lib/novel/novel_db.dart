@@ -433,6 +433,92 @@ class NovelTxtTocRules extends Table {
   DateTimeColumn get updatedAt => dateTime()();
 }
 
+/// 词典查询规则（对照 legado 的 `DictRule`）：一条规则 = 一个站点。
+///
+/// `urlRule` 里的 `{{key}}` 在查询时替换成选中的词；`showRule` 是解析规则
+/// （空 = 直接显示整页正文）。`builtin` 的规则删掉后可用「恢复默认」找回。
+@DataClassName('NovelDictRuleRow')
+class NovelDictRules extends Table {
+  @override
+  String get tableName => 'novel_dict_rule';
+
+  IntColumn get id => integer().autoIncrement()();
+
+  TextColumn get name => text()();
+
+  /// 查询地址规则，支持 `{{key}}` 与 `,{...}` 选项（与书源同一套 AnalyzeUrl）。
+  TextColumn get urlRule => text()();
+
+  /// 结果解析规则；空串 = 直接展示返回正文（上游同语义）。
+  TextColumn get showRule => text().withDefault(const Constant(''))();
+
+  BoolColumn get enabled => boolean().withDefault(const Constant(true))();
+
+  /// 内置规则：可停用、可改，删除后可用「恢复默认」找回。
+  BoolColumn get builtin => boolean().withDefault(const Constant(false))();
+
+  IntColumn get sortOrder => integer().withDefault(const Constant(0))();
+
+  DateTimeColumn get updatedAt => dateTime()();
+}
+
+/// 标签分组规则（对照 legado 的 `TagGroupRule`）：正则命中分类标签 → 打一个组。
+///
+/// 只存规则本身；命中结果在用户点「应用到书架」时写进收藏行的 [groupName]
+/// （已有手工分组不覆盖，对齐上游「只加不减」）。[colorArgb] 是标签配色，
+/// 空 = 用主题默认色。
+@DataClassName('NovelTagGroupRuleRow')
+class NovelTagGroupRules extends Table {
+  @override
+  String get tableName => 'novel_tag_group_rule';
+
+  IntColumn get id => integer().autoIncrement()();
+
+  /// 标签名（= 书架分组名）。
+  TextColumn get name => text()();
+
+  /// 正则表达式，对书名与分类标签逐项匹配。
+  TextColumn get pattern => text()();
+
+  /// 标签颜色（ARGB）；null = 主题默认色。
+  IntColumn get colorArgb => integer().nullable()();
+
+  BoolColumn get enabled => boolean().withDefault(const Constant(true))();
+
+  IntColumn get sortOrder => integer().withDefault(const Constant(0))();
+
+  DateTimeColumn get updatedAt => dateTime()();
+}
+
+/// 已导入/保存的阅读主题包（JSON 原文 + 预览图 + 包版本）。
+///
+/// 主题包不落「解构后的设置」：只有 [packageJson] 是权威，应用时重新解码，
+/// 这样用户手改 JSON 后再次应用也能生效。[previewPngBase64] 只是列表缩略图，
+/// 缺失时页面现场渲染预览。
+@DataClassName('NovelThemePackageRow')
+class NovelThemePackages extends Table {
+  @override
+  String get tableName => 'novel_theme_package';
+
+  IntColumn get id => integer().autoIncrement()();
+
+  TextColumn get name => text()();
+
+  /// 完整主题包 JSON（含 format / version / settings / preview）。
+  TextColumn get packageJson => text()();
+
+  /// 包格式版本（[packageJson] 里的 version 抄一份，列表不必解析整包）。
+  IntColumn get packageVersion => integer().withDefault(const Constant(1))();
+
+  /// 预览图（PNG，base64）；null = 没有嵌入图，页面现场渲染。
+  TextColumn get previewPngBase64 => text().nullable()();
+
+  DateTimeColumn get importedAt => dateTime()();
+
+  /// 最近一次「应用」的时间；null = 只保存未应用。
+  DateTimeColumn get appliedAt => dateTime().nullable()();
+}
+
 @DriftDatabase(
   tables: [
     NovelCollectEntries,
@@ -448,6 +534,9 @@ class NovelTxtTocRules extends Table {
     NovelTtsCacheEntries,
     NovelLocalBooks,
     NovelTxtTocRules,
+    NovelDictRules,
+    NovelTagGroupRules,
+    NovelThemePackages,
   ],
 )
 class NovelDb extends _$NovelDb {
@@ -470,7 +559,7 @@ class NovelDb extends _$NovelDb {
   });
 
   @override
-  int get schemaVersion => 8;
+  int get schemaVersion => 9;
 
   /// v1 → v2：书架分组列 + 模块 kv + 阅读时长按天表。三者都是增量，旧行无需
   /// 回填（groupName 缺省 null、今日/总时长从 0 起算）。
@@ -492,6 +581,9 @@ class NovelDb extends _$NovelDb {
   /// 的多设备同步打底。旧表的每一天迁成一行 `deviceId = 本机`、
   /// `bookId = ''`、`chapterIndex = 0` 的记录（只进日聚合，不进时间轴/章节维度），
   /// 迁完删旧表。迁移本身幂等：新表主键冲突走覆盖，重复执行不会翻倍。
+  ///
+  /// v8 → v9：词典规则 / 标签分组规则 / 主题包三张表；纯增量，业务数据一行
+  /// 不动（内置词典规则由服务首次读取时补，迁移不写规则）。
   @override
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (m) => m.createAll(),
@@ -529,6 +621,11 @@ class NovelDb extends _$NovelDb {
       }
       if (from < 8) {
         await _migrateReadingRecords(m);
+      }
+      if (from < 9) {
+        await m.createTable(novelDictRules);
+        await m.createTable(novelTagGroupRules);
+        await m.createTable(novelThemePackages);
       }
     },
   );

@@ -6830,6 +6830,1445 @@ class NovelTxtTocRulesCompanion extends UpdateCompanion<NovelTxtTocRuleRow> {
   }
 }
 
+class $NovelDictRulesTable extends NovelDictRules
+    with TableInfo<$NovelDictRulesTable, NovelDictRuleRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $NovelDictRulesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+    'id',
+    aliasedName,
+    false,
+    hasAutoIncrement: true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'PRIMARY KEY AUTOINCREMENT',
+    ),
+  );
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+    'name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _urlRuleMeta = const VerificationMeta(
+    'urlRule',
+  );
+  @override
+  late final GeneratedColumn<String> urlRule = GeneratedColumn<String>(
+    'url_rule',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _showRuleMeta = const VerificationMeta(
+    'showRule',
+  );
+  @override
+  late final GeneratedColumn<String> showRule = GeneratedColumn<String>(
+    'show_rule',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _enabledMeta = const VerificationMeta(
+    'enabled',
+  );
+  @override
+  late final GeneratedColumn<bool> enabled = GeneratedColumn<bool>(
+    'enabled',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("enabled" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
+  );
+  static const VerificationMeta _builtinMeta = const VerificationMeta(
+    'builtin',
+  );
+  @override
+  late final GeneratedColumn<bool> builtin = GeneratedColumn<bool>(
+    'builtin',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("builtin" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _sortOrderMeta = const VerificationMeta(
+    'sortOrder',
+  );
+  @override
+  late final GeneratedColumn<int> sortOrder = GeneratedColumn<int>(
+    'sort_order',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    name,
+    urlRule,
+    showRule,
+    enabled,
+    builtin,
+    sortOrder,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'novel_dict_rule';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<NovelDictRuleRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+        _nameMeta,
+        name.isAcceptableOrUnknown(data['name']!, _nameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('url_rule')) {
+      context.handle(
+        _urlRuleMeta,
+        urlRule.isAcceptableOrUnknown(data['url_rule']!, _urlRuleMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_urlRuleMeta);
+    }
+    if (data.containsKey('show_rule')) {
+      context.handle(
+        _showRuleMeta,
+        showRule.isAcceptableOrUnknown(data['show_rule']!, _showRuleMeta),
+      );
+    }
+    if (data.containsKey('enabled')) {
+      context.handle(
+        _enabledMeta,
+        enabled.isAcceptableOrUnknown(data['enabled']!, _enabledMeta),
+      );
+    }
+    if (data.containsKey('builtin')) {
+      context.handle(
+        _builtinMeta,
+        builtin.isAcceptableOrUnknown(data['builtin']!, _builtinMeta),
+      );
+    }
+    if (data.containsKey('sort_order')) {
+      context.handle(
+        _sortOrderMeta,
+        sortOrder.isAcceptableOrUnknown(data['sort_order']!, _sortOrderMeta),
+      );
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  NovelDictRuleRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return NovelDictRuleRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      name: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name'],
+      )!,
+      urlRule: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}url_rule'],
+      )!,
+      showRule: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}show_rule'],
+      )!,
+      enabled: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}enabled'],
+      )!,
+      builtin: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}builtin'],
+      )!,
+      sortOrder: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}sort_order'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $NovelDictRulesTable createAlias(String alias) {
+    return $NovelDictRulesTable(attachedDatabase, alias);
+  }
+}
+
+class NovelDictRuleRow extends DataClass
+    implements Insertable<NovelDictRuleRow> {
+  final int id;
+  final String name;
+
+  /// 查询地址规则，支持 `{{key}}` 与 `,{...}` 选项（与书源同一套 AnalyzeUrl）。
+  final String urlRule;
+
+  /// 结果解析规则；空串 = 直接展示返回正文（上游同语义）。
+  final String showRule;
+  final bool enabled;
+
+  /// 内置规则：可停用、可改，删除后可用「恢复默认」找回。
+  final bool builtin;
+  final int sortOrder;
+  final DateTime updatedAt;
+  const NovelDictRuleRow({
+    required this.id,
+    required this.name,
+    required this.urlRule,
+    required this.showRule,
+    required this.enabled,
+    required this.builtin,
+    required this.sortOrder,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['name'] = Variable<String>(name);
+    map['url_rule'] = Variable<String>(urlRule);
+    map['show_rule'] = Variable<String>(showRule);
+    map['enabled'] = Variable<bool>(enabled);
+    map['builtin'] = Variable<bool>(builtin);
+    map['sort_order'] = Variable<int>(sortOrder);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    return map;
+  }
+
+  NovelDictRulesCompanion toCompanion(bool nullToAbsent) {
+    return NovelDictRulesCompanion(
+      id: Value(id),
+      name: Value(name),
+      urlRule: Value(urlRule),
+      showRule: Value(showRule),
+      enabled: Value(enabled),
+      builtin: Value(builtin),
+      sortOrder: Value(sortOrder),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory NovelDictRuleRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return NovelDictRuleRow(
+      id: serializer.fromJson<int>(json['id']),
+      name: serializer.fromJson<String>(json['name']),
+      urlRule: serializer.fromJson<String>(json['urlRule']),
+      showRule: serializer.fromJson<String>(json['showRule']),
+      enabled: serializer.fromJson<bool>(json['enabled']),
+      builtin: serializer.fromJson<bool>(json['builtin']),
+      sortOrder: serializer.fromJson<int>(json['sortOrder']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'name': serializer.toJson<String>(name),
+      'urlRule': serializer.toJson<String>(urlRule),
+      'showRule': serializer.toJson<String>(showRule),
+      'enabled': serializer.toJson<bool>(enabled),
+      'builtin': serializer.toJson<bool>(builtin),
+      'sortOrder': serializer.toJson<int>(sortOrder),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+    };
+  }
+
+  NovelDictRuleRow copyWith({
+    int? id,
+    String? name,
+    String? urlRule,
+    String? showRule,
+    bool? enabled,
+    bool? builtin,
+    int? sortOrder,
+    DateTime? updatedAt,
+  }) => NovelDictRuleRow(
+    id: id ?? this.id,
+    name: name ?? this.name,
+    urlRule: urlRule ?? this.urlRule,
+    showRule: showRule ?? this.showRule,
+    enabled: enabled ?? this.enabled,
+    builtin: builtin ?? this.builtin,
+    sortOrder: sortOrder ?? this.sortOrder,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  NovelDictRuleRow copyWithCompanion(NovelDictRulesCompanion data) {
+    return NovelDictRuleRow(
+      id: data.id.present ? data.id.value : this.id,
+      name: data.name.present ? data.name.value : this.name,
+      urlRule: data.urlRule.present ? data.urlRule.value : this.urlRule,
+      showRule: data.showRule.present ? data.showRule.value : this.showRule,
+      enabled: data.enabled.present ? data.enabled.value : this.enabled,
+      builtin: data.builtin.present ? data.builtin.value : this.builtin,
+      sortOrder: data.sortOrder.present ? data.sortOrder.value : this.sortOrder,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('NovelDictRuleRow(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('urlRule: $urlRule, ')
+          ..write('showRule: $showRule, ')
+          ..write('enabled: $enabled, ')
+          ..write('builtin: $builtin, ')
+          ..write('sortOrder: $sortOrder, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    name,
+    urlRule,
+    showRule,
+    enabled,
+    builtin,
+    sortOrder,
+    updatedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is NovelDictRuleRow &&
+          other.id == this.id &&
+          other.name == this.name &&
+          other.urlRule == this.urlRule &&
+          other.showRule == this.showRule &&
+          other.enabled == this.enabled &&
+          other.builtin == this.builtin &&
+          other.sortOrder == this.sortOrder &&
+          other.updatedAt == this.updatedAt);
+}
+
+class NovelDictRulesCompanion extends UpdateCompanion<NovelDictRuleRow> {
+  final Value<int> id;
+  final Value<String> name;
+  final Value<String> urlRule;
+  final Value<String> showRule;
+  final Value<bool> enabled;
+  final Value<bool> builtin;
+  final Value<int> sortOrder;
+  final Value<DateTime> updatedAt;
+  const NovelDictRulesCompanion({
+    this.id = const Value.absent(),
+    this.name = const Value.absent(),
+    this.urlRule = const Value.absent(),
+    this.showRule = const Value.absent(),
+    this.enabled = const Value.absent(),
+    this.builtin = const Value.absent(),
+    this.sortOrder = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+  });
+  NovelDictRulesCompanion.insert({
+    this.id = const Value.absent(),
+    required String name,
+    required String urlRule,
+    this.showRule = const Value.absent(),
+    this.enabled = const Value.absent(),
+    this.builtin = const Value.absent(),
+    this.sortOrder = const Value.absent(),
+    required DateTime updatedAt,
+  }) : name = Value(name),
+       urlRule = Value(urlRule),
+       updatedAt = Value(updatedAt);
+  static Insertable<NovelDictRuleRow> custom({
+    Expression<int>? id,
+    Expression<String>? name,
+    Expression<String>? urlRule,
+    Expression<String>? showRule,
+    Expression<bool>? enabled,
+    Expression<bool>? builtin,
+    Expression<int>? sortOrder,
+    Expression<DateTime>? updatedAt,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (name != null) 'name': name,
+      if (urlRule != null) 'url_rule': urlRule,
+      if (showRule != null) 'show_rule': showRule,
+      if (enabled != null) 'enabled': enabled,
+      if (builtin != null) 'builtin': builtin,
+      if (sortOrder != null) 'sort_order': sortOrder,
+      if (updatedAt != null) 'updated_at': updatedAt,
+    });
+  }
+
+  NovelDictRulesCompanion copyWith({
+    Value<int>? id,
+    Value<String>? name,
+    Value<String>? urlRule,
+    Value<String>? showRule,
+    Value<bool>? enabled,
+    Value<bool>? builtin,
+    Value<int>? sortOrder,
+    Value<DateTime>? updatedAt,
+  }) {
+    return NovelDictRulesCompanion(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      urlRule: urlRule ?? this.urlRule,
+      showRule: showRule ?? this.showRule,
+      enabled: enabled ?? this.enabled,
+      builtin: builtin ?? this.builtin,
+      sortOrder: sortOrder ?? this.sortOrder,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (urlRule.present) {
+      map['url_rule'] = Variable<String>(urlRule.value);
+    }
+    if (showRule.present) {
+      map['show_rule'] = Variable<String>(showRule.value);
+    }
+    if (enabled.present) {
+      map['enabled'] = Variable<bool>(enabled.value);
+    }
+    if (builtin.present) {
+      map['builtin'] = Variable<bool>(builtin.value);
+    }
+    if (sortOrder.present) {
+      map['sort_order'] = Variable<int>(sortOrder.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('NovelDictRulesCompanion(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('urlRule: $urlRule, ')
+          ..write('showRule: $showRule, ')
+          ..write('enabled: $enabled, ')
+          ..write('builtin: $builtin, ')
+          ..write('sortOrder: $sortOrder, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $NovelTagGroupRulesTable extends NovelTagGroupRules
+    with TableInfo<$NovelTagGroupRulesTable, NovelTagGroupRuleRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $NovelTagGroupRulesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+    'id',
+    aliasedName,
+    false,
+    hasAutoIncrement: true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'PRIMARY KEY AUTOINCREMENT',
+    ),
+  );
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+    'name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _patternMeta = const VerificationMeta(
+    'pattern',
+  );
+  @override
+  late final GeneratedColumn<String> pattern = GeneratedColumn<String>(
+    'pattern',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _colorArgbMeta = const VerificationMeta(
+    'colorArgb',
+  );
+  @override
+  late final GeneratedColumn<int> colorArgb = GeneratedColumn<int>(
+    'color_argb',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _enabledMeta = const VerificationMeta(
+    'enabled',
+  );
+  @override
+  late final GeneratedColumn<bool> enabled = GeneratedColumn<bool>(
+    'enabled',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("enabled" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
+  );
+  static const VerificationMeta _sortOrderMeta = const VerificationMeta(
+    'sortOrder',
+  );
+  @override
+  late final GeneratedColumn<int> sortOrder = GeneratedColumn<int>(
+    'sort_order',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    name,
+    pattern,
+    colorArgb,
+    enabled,
+    sortOrder,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'novel_tag_group_rule';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<NovelTagGroupRuleRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+        _nameMeta,
+        name.isAcceptableOrUnknown(data['name']!, _nameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('pattern')) {
+      context.handle(
+        _patternMeta,
+        pattern.isAcceptableOrUnknown(data['pattern']!, _patternMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_patternMeta);
+    }
+    if (data.containsKey('color_argb')) {
+      context.handle(
+        _colorArgbMeta,
+        colorArgb.isAcceptableOrUnknown(data['color_argb']!, _colorArgbMeta),
+      );
+    }
+    if (data.containsKey('enabled')) {
+      context.handle(
+        _enabledMeta,
+        enabled.isAcceptableOrUnknown(data['enabled']!, _enabledMeta),
+      );
+    }
+    if (data.containsKey('sort_order')) {
+      context.handle(
+        _sortOrderMeta,
+        sortOrder.isAcceptableOrUnknown(data['sort_order']!, _sortOrderMeta),
+      );
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  NovelTagGroupRuleRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return NovelTagGroupRuleRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      name: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name'],
+      )!,
+      pattern: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}pattern'],
+      )!,
+      colorArgb: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}color_argb'],
+      ),
+      enabled: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}enabled'],
+      )!,
+      sortOrder: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}sort_order'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $NovelTagGroupRulesTable createAlias(String alias) {
+    return $NovelTagGroupRulesTable(attachedDatabase, alias);
+  }
+}
+
+class NovelTagGroupRuleRow extends DataClass
+    implements Insertable<NovelTagGroupRuleRow> {
+  final int id;
+
+  /// 标签名（= 书架分组名）。
+  final String name;
+
+  /// 正则表达式，对书名与分类标签逐项匹配。
+  final String pattern;
+
+  /// 标签颜色（ARGB）；null = 主题默认色。
+  final int? colorArgb;
+  final bool enabled;
+  final int sortOrder;
+  final DateTime updatedAt;
+  const NovelTagGroupRuleRow({
+    required this.id,
+    required this.name,
+    required this.pattern,
+    this.colorArgb,
+    required this.enabled,
+    required this.sortOrder,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['name'] = Variable<String>(name);
+    map['pattern'] = Variable<String>(pattern);
+    if (!nullToAbsent || colorArgb != null) {
+      map['color_argb'] = Variable<int>(colorArgb);
+    }
+    map['enabled'] = Variable<bool>(enabled);
+    map['sort_order'] = Variable<int>(sortOrder);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    return map;
+  }
+
+  NovelTagGroupRulesCompanion toCompanion(bool nullToAbsent) {
+    return NovelTagGroupRulesCompanion(
+      id: Value(id),
+      name: Value(name),
+      pattern: Value(pattern),
+      colorArgb: colorArgb == null && nullToAbsent
+          ? const Value.absent()
+          : Value(colorArgb),
+      enabled: Value(enabled),
+      sortOrder: Value(sortOrder),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory NovelTagGroupRuleRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return NovelTagGroupRuleRow(
+      id: serializer.fromJson<int>(json['id']),
+      name: serializer.fromJson<String>(json['name']),
+      pattern: serializer.fromJson<String>(json['pattern']),
+      colorArgb: serializer.fromJson<int?>(json['colorArgb']),
+      enabled: serializer.fromJson<bool>(json['enabled']),
+      sortOrder: serializer.fromJson<int>(json['sortOrder']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'name': serializer.toJson<String>(name),
+      'pattern': serializer.toJson<String>(pattern),
+      'colorArgb': serializer.toJson<int?>(colorArgb),
+      'enabled': serializer.toJson<bool>(enabled),
+      'sortOrder': serializer.toJson<int>(sortOrder),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+    };
+  }
+
+  NovelTagGroupRuleRow copyWith({
+    int? id,
+    String? name,
+    String? pattern,
+    Value<int?> colorArgb = const Value.absent(),
+    bool? enabled,
+    int? sortOrder,
+    DateTime? updatedAt,
+  }) => NovelTagGroupRuleRow(
+    id: id ?? this.id,
+    name: name ?? this.name,
+    pattern: pattern ?? this.pattern,
+    colorArgb: colorArgb.present ? colorArgb.value : this.colorArgb,
+    enabled: enabled ?? this.enabled,
+    sortOrder: sortOrder ?? this.sortOrder,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  NovelTagGroupRuleRow copyWithCompanion(NovelTagGroupRulesCompanion data) {
+    return NovelTagGroupRuleRow(
+      id: data.id.present ? data.id.value : this.id,
+      name: data.name.present ? data.name.value : this.name,
+      pattern: data.pattern.present ? data.pattern.value : this.pattern,
+      colorArgb: data.colorArgb.present ? data.colorArgb.value : this.colorArgb,
+      enabled: data.enabled.present ? data.enabled.value : this.enabled,
+      sortOrder: data.sortOrder.present ? data.sortOrder.value : this.sortOrder,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('NovelTagGroupRuleRow(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('pattern: $pattern, ')
+          ..write('colorArgb: $colorArgb, ')
+          ..write('enabled: $enabled, ')
+          ..write('sortOrder: $sortOrder, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(id, name, pattern, colorArgb, enabled, sortOrder, updatedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is NovelTagGroupRuleRow &&
+          other.id == this.id &&
+          other.name == this.name &&
+          other.pattern == this.pattern &&
+          other.colorArgb == this.colorArgb &&
+          other.enabled == this.enabled &&
+          other.sortOrder == this.sortOrder &&
+          other.updatedAt == this.updatedAt);
+}
+
+class NovelTagGroupRulesCompanion
+    extends UpdateCompanion<NovelTagGroupRuleRow> {
+  final Value<int> id;
+  final Value<String> name;
+  final Value<String> pattern;
+  final Value<int?> colorArgb;
+  final Value<bool> enabled;
+  final Value<int> sortOrder;
+  final Value<DateTime> updatedAt;
+  const NovelTagGroupRulesCompanion({
+    this.id = const Value.absent(),
+    this.name = const Value.absent(),
+    this.pattern = const Value.absent(),
+    this.colorArgb = const Value.absent(),
+    this.enabled = const Value.absent(),
+    this.sortOrder = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+  });
+  NovelTagGroupRulesCompanion.insert({
+    this.id = const Value.absent(),
+    required String name,
+    required String pattern,
+    this.colorArgb = const Value.absent(),
+    this.enabled = const Value.absent(),
+    this.sortOrder = const Value.absent(),
+    required DateTime updatedAt,
+  }) : name = Value(name),
+       pattern = Value(pattern),
+       updatedAt = Value(updatedAt);
+  static Insertable<NovelTagGroupRuleRow> custom({
+    Expression<int>? id,
+    Expression<String>? name,
+    Expression<String>? pattern,
+    Expression<int>? colorArgb,
+    Expression<bool>? enabled,
+    Expression<int>? sortOrder,
+    Expression<DateTime>? updatedAt,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (name != null) 'name': name,
+      if (pattern != null) 'pattern': pattern,
+      if (colorArgb != null) 'color_argb': colorArgb,
+      if (enabled != null) 'enabled': enabled,
+      if (sortOrder != null) 'sort_order': sortOrder,
+      if (updatedAt != null) 'updated_at': updatedAt,
+    });
+  }
+
+  NovelTagGroupRulesCompanion copyWith({
+    Value<int>? id,
+    Value<String>? name,
+    Value<String>? pattern,
+    Value<int?>? colorArgb,
+    Value<bool>? enabled,
+    Value<int>? sortOrder,
+    Value<DateTime>? updatedAt,
+  }) {
+    return NovelTagGroupRulesCompanion(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      pattern: pattern ?? this.pattern,
+      colorArgb: colorArgb ?? this.colorArgb,
+      enabled: enabled ?? this.enabled,
+      sortOrder: sortOrder ?? this.sortOrder,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (pattern.present) {
+      map['pattern'] = Variable<String>(pattern.value);
+    }
+    if (colorArgb.present) {
+      map['color_argb'] = Variable<int>(colorArgb.value);
+    }
+    if (enabled.present) {
+      map['enabled'] = Variable<bool>(enabled.value);
+    }
+    if (sortOrder.present) {
+      map['sort_order'] = Variable<int>(sortOrder.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('NovelTagGroupRulesCompanion(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('pattern: $pattern, ')
+          ..write('colorArgb: $colorArgb, ')
+          ..write('enabled: $enabled, ')
+          ..write('sortOrder: $sortOrder, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $NovelThemePackagesTable extends NovelThemePackages
+    with TableInfo<$NovelThemePackagesTable, NovelThemePackageRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $NovelThemePackagesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+    'id',
+    aliasedName,
+    false,
+    hasAutoIncrement: true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'PRIMARY KEY AUTOINCREMENT',
+    ),
+  );
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+    'name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _packageJsonMeta = const VerificationMeta(
+    'packageJson',
+  );
+  @override
+  late final GeneratedColumn<String> packageJson = GeneratedColumn<String>(
+    'package_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _packageVersionMeta = const VerificationMeta(
+    'packageVersion',
+  );
+  @override
+  late final GeneratedColumn<int> packageVersion = GeneratedColumn<int>(
+    'package_version',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(1),
+  );
+  static const VerificationMeta _previewPngBase64Meta = const VerificationMeta(
+    'previewPngBase64',
+  );
+  @override
+  late final GeneratedColumn<String> previewPngBase64 = GeneratedColumn<String>(
+    'preview_png_base64',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _importedAtMeta = const VerificationMeta(
+    'importedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> importedAt = GeneratedColumn<DateTime>(
+    'imported_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _appliedAtMeta = const VerificationMeta(
+    'appliedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> appliedAt = GeneratedColumn<DateTime>(
+    'applied_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    name,
+    packageJson,
+    packageVersion,
+    previewPngBase64,
+    importedAt,
+    appliedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'novel_theme_package';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<NovelThemePackageRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+        _nameMeta,
+        name.isAcceptableOrUnknown(data['name']!, _nameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('package_json')) {
+      context.handle(
+        _packageJsonMeta,
+        packageJson.isAcceptableOrUnknown(
+          data['package_json']!,
+          _packageJsonMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_packageJsonMeta);
+    }
+    if (data.containsKey('package_version')) {
+      context.handle(
+        _packageVersionMeta,
+        packageVersion.isAcceptableOrUnknown(
+          data['package_version']!,
+          _packageVersionMeta,
+        ),
+      );
+    }
+    if (data.containsKey('preview_png_base64')) {
+      context.handle(
+        _previewPngBase64Meta,
+        previewPngBase64.isAcceptableOrUnknown(
+          data['preview_png_base64']!,
+          _previewPngBase64Meta,
+        ),
+      );
+    }
+    if (data.containsKey('imported_at')) {
+      context.handle(
+        _importedAtMeta,
+        importedAt.isAcceptableOrUnknown(data['imported_at']!, _importedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_importedAtMeta);
+    }
+    if (data.containsKey('applied_at')) {
+      context.handle(
+        _appliedAtMeta,
+        appliedAt.isAcceptableOrUnknown(data['applied_at']!, _appliedAtMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  NovelThemePackageRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return NovelThemePackageRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      name: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name'],
+      )!,
+      packageJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}package_json'],
+      )!,
+      packageVersion: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}package_version'],
+      )!,
+      previewPngBase64: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}preview_png_base64'],
+      ),
+      importedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}imported_at'],
+      )!,
+      appliedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}applied_at'],
+      ),
+    );
+  }
+
+  @override
+  $NovelThemePackagesTable createAlias(String alias) {
+    return $NovelThemePackagesTable(attachedDatabase, alias);
+  }
+}
+
+class NovelThemePackageRow extends DataClass
+    implements Insertable<NovelThemePackageRow> {
+  final int id;
+  final String name;
+
+  /// 完整主题包 JSON（含 format / version / settings / preview）。
+  final String packageJson;
+
+  /// 包格式版本（[packageJson] 里的 version 抄一份，列表不必解析整包）。
+  final int packageVersion;
+
+  /// 预览图（PNG，base64）；null = 没有嵌入图，页面现场渲染。
+  final String? previewPngBase64;
+  final DateTime importedAt;
+
+  /// 最近一次「应用」的时间；null = 只保存未应用。
+  final DateTime? appliedAt;
+  const NovelThemePackageRow({
+    required this.id,
+    required this.name,
+    required this.packageJson,
+    required this.packageVersion,
+    this.previewPngBase64,
+    required this.importedAt,
+    this.appliedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['name'] = Variable<String>(name);
+    map['package_json'] = Variable<String>(packageJson);
+    map['package_version'] = Variable<int>(packageVersion);
+    if (!nullToAbsent || previewPngBase64 != null) {
+      map['preview_png_base64'] = Variable<String>(previewPngBase64);
+    }
+    map['imported_at'] = Variable<DateTime>(importedAt);
+    if (!nullToAbsent || appliedAt != null) {
+      map['applied_at'] = Variable<DateTime>(appliedAt);
+    }
+    return map;
+  }
+
+  NovelThemePackagesCompanion toCompanion(bool nullToAbsent) {
+    return NovelThemePackagesCompanion(
+      id: Value(id),
+      name: Value(name),
+      packageJson: Value(packageJson),
+      packageVersion: Value(packageVersion),
+      previewPngBase64: previewPngBase64 == null && nullToAbsent
+          ? const Value.absent()
+          : Value(previewPngBase64),
+      importedAt: Value(importedAt),
+      appliedAt: appliedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(appliedAt),
+    );
+  }
+
+  factory NovelThemePackageRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return NovelThemePackageRow(
+      id: serializer.fromJson<int>(json['id']),
+      name: serializer.fromJson<String>(json['name']),
+      packageJson: serializer.fromJson<String>(json['packageJson']),
+      packageVersion: serializer.fromJson<int>(json['packageVersion']),
+      previewPngBase64: serializer.fromJson<String?>(json['previewPngBase64']),
+      importedAt: serializer.fromJson<DateTime>(json['importedAt']),
+      appliedAt: serializer.fromJson<DateTime?>(json['appliedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'name': serializer.toJson<String>(name),
+      'packageJson': serializer.toJson<String>(packageJson),
+      'packageVersion': serializer.toJson<int>(packageVersion),
+      'previewPngBase64': serializer.toJson<String?>(previewPngBase64),
+      'importedAt': serializer.toJson<DateTime>(importedAt),
+      'appliedAt': serializer.toJson<DateTime?>(appliedAt),
+    };
+  }
+
+  NovelThemePackageRow copyWith({
+    int? id,
+    String? name,
+    String? packageJson,
+    int? packageVersion,
+    Value<String?> previewPngBase64 = const Value.absent(),
+    DateTime? importedAt,
+    Value<DateTime?> appliedAt = const Value.absent(),
+  }) => NovelThemePackageRow(
+    id: id ?? this.id,
+    name: name ?? this.name,
+    packageJson: packageJson ?? this.packageJson,
+    packageVersion: packageVersion ?? this.packageVersion,
+    previewPngBase64: previewPngBase64.present
+        ? previewPngBase64.value
+        : this.previewPngBase64,
+    importedAt: importedAt ?? this.importedAt,
+    appliedAt: appliedAt.present ? appliedAt.value : this.appliedAt,
+  );
+  NovelThemePackageRow copyWithCompanion(NovelThemePackagesCompanion data) {
+    return NovelThemePackageRow(
+      id: data.id.present ? data.id.value : this.id,
+      name: data.name.present ? data.name.value : this.name,
+      packageJson: data.packageJson.present
+          ? data.packageJson.value
+          : this.packageJson,
+      packageVersion: data.packageVersion.present
+          ? data.packageVersion.value
+          : this.packageVersion,
+      previewPngBase64: data.previewPngBase64.present
+          ? data.previewPngBase64.value
+          : this.previewPngBase64,
+      importedAt: data.importedAt.present
+          ? data.importedAt.value
+          : this.importedAt,
+      appliedAt: data.appliedAt.present ? data.appliedAt.value : this.appliedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('NovelThemePackageRow(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('packageJson: $packageJson, ')
+          ..write('packageVersion: $packageVersion, ')
+          ..write('previewPngBase64: $previewPngBase64, ')
+          ..write('importedAt: $importedAt, ')
+          ..write('appliedAt: $appliedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    name,
+    packageJson,
+    packageVersion,
+    previewPngBase64,
+    importedAt,
+    appliedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is NovelThemePackageRow &&
+          other.id == this.id &&
+          other.name == this.name &&
+          other.packageJson == this.packageJson &&
+          other.packageVersion == this.packageVersion &&
+          other.previewPngBase64 == this.previewPngBase64 &&
+          other.importedAt == this.importedAt &&
+          other.appliedAt == this.appliedAt);
+}
+
+class NovelThemePackagesCompanion
+    extends UpdateCompanion<NovelThemePackageRow> {
+  final Value<int> id;
+  final Value<String> name;
+  final Value<String> packageJson;
+  final Value<int> packageVersion;
+  final Value<String?> previewPngBase64;
+  final Value<DateTime> importedAt;
+  final Value<DateTime?> appliedAt;
+  const NovelThemePackagesCompanion({
+    this.id = const Value.absent(),
+    this.name = const Value.absent(),
+    this.packageJson = const Value.absent(),
+    this.packageVersion = const Value.absent(),
+    this.previewPngBase64 = const Value.absent(),
+    this.importedAt = const Value.absent(),
+    this.appliedAt = const Value.absent(),
+  });
+  NovelThemePackagesCompanion.insert({
+    this.id = const Value.absent(),
+    required String name,
+    required String packageJson,
+    this.packageVersion = const Value.absent(),
+    this.previewPngBase64 = const Value.absent(),
+    required DateTime importedAt,
+    this.appliedAt = const Value.absent(),
+  }) : name = Value(name),
+       packageJson = Value(packageJson),
+       importedAt = Value(importedAt);
+  static Insertable<NovelThemePackageRow> custom({
+    Expression<int>? id,
+    Expression<String>? name,
+    Expression<String>? packageJson,
+    Expression<int>? packageVersion,
+    Expression<String>? previewPngBase64,
+    Expression<DateTime>? importedAt,
+    Expression<DateTime>? appliedAt,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (name != null) 'name': name,
+      if (packageJson != null) 'package_json': packageJson,
+      if (packageVersion != null) 'package_version': packageVersion,
+      if (previewPngBase64 != null) 'preview_png_base64': previewPngBase64,
+      if (importedAt != null) 'imported_at': importedAt,
+      if (appliedAt != null) 'applied_at': appliedAt,
+    });
+  }
+
+  NovelThemePackagesCompanion copyWith({
+    Value<int>? id,
+    Value<String>? name,
+    Value<String>? packageJson,
+    Value<int>? packageVersion,
+    Value<String?>? previewPngBase64,
+    Value<DateTime>? importedAt,
+    Value<DateTime?>? appliedAt,
+  }) {
+    return NovelThemePackagesCompanion(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      packageJson: packageJson ?? this.packageJson,
+      packageVersion: packageVersion ?? this.packageVersion,
+      previewPngBase64: previewPngBase64 ?? this.previewPngBase64,
+      importedAt: importedAt ?? this.importedAt,
+      appliedAt: appliedAt ?? this.appliedAt,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (packageJson.present) {
+      map['package_json'] = Variable<String>(packageJson.value);
+    }
+    if (packageVersion.present) {
+      map['package_version'] = Variable<int>(packageVersion.value);
+    }
+    if (previewPngBase64.present) {
+      map['preview_png_base64'] = Variable<String>(previewPngBase64.value);
+    }
+    if (importedAt.present) {
+      map['imported_at'] = Variable<DateTime>(importedAt.value);
+    }
+    if (appliedAt.present) {
+      map['applied_at'] = Variable<DateTime>(appliedAt.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('NovelThemePackagesCompanion(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('packageJson: $packageJson, ')
+          ..write('packageVersion: $packageVersion, ')
+          ..write('previewPngBase64: $previewPngBase64, ')
+          ..write('importedAt: $importedAt, ')
+          ..write('appliedAt: $appliedAt')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$NovelDb extends GeneratedDatabase {
   _$NovelDb(QueryExecutor e) : super(e);
   $NovelDbManager get managers => $NovelDbManager(this);
@@ -6862,6 +8301,11 @@ abstract class _$NovelDb extends GeneratedDatabase {
   late final $NovelTxtTocRulesTable novelTxtTocRules = $NovelTxtTocRulesTable(
     this,
   );
+  late final $NovelDictRulesTable novelDictRules = $NovelDictRulesTable(this);
+  late final $NovelTagGroupRulesTable novelTagGroupRules =
+      $NovelTagGroupRulesTable(this);
+  late final $NovelThemePackagesTable novelThemePackages =
+      $NovelThemePackagesTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -6880,6 +8324,9 @@ abstract class _$NovelDb extends GeneratedDatabase {
     novelTtsCacheEntries,
     novelLocalBooks,
     novelTxtTocRules,
+    novelDictRules,
+    novelTagGroupRules,
+    novelThemePackages,
   ];
 }
 
@@ -10420,6 +11867,755 @@ typedef $$NovelTxtTocRulesTableProcessedTableManager =
       NovelTxtTocRuleRow,
       PrefetchHooks Function()
     >;
+typedef $$NovelDictRulesTableCreateCompanionBuilder =
+    NovelDictRulesCompanion Function({
+      Value<int> id,
+      required String name,
+      required String urlRule,
+      Value<String> showRule,
+      Value<bool> enabled,
+      Value<bool> builtin,
+      Value<int> sortOrder,
+      required DateTime updatedAt,
+    });
+typedef $$NovelDictRulesTableUpdateCompanionBuilder =
+    NovelDictRulesCompanion Function({
+      Value<int> id,
+      Value<String> name,
+      Value<String> urlRule,
+      Value<String> showRule,
+      Value<bool> enabled,
+      Value<bool> builtin,
+      Value<int> sortOrder,
+      Value<DateTime> updatedAt,
+    });
+
+class $$NovelDictRulesTableFilterComposer
+    extends Composer<_$NovelDb, $NovelDictRulesTable> {
+  $$NovelDictRulesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get urlRule => $composableBuilder(
+    column: $table.urlRule,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get showRule => $composableBuilder(
+    column: $table.showRule,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get enabled => $composableBuilder(
+    column: $table.enabled,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get builtin => $composableBuilder(
+    column: $table.builtin,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$NovelDictRulesTableOrderingComposer
+    extends Composer<_$NovelDb, $NovelDictRulesTable> {
+  $$NovelDictRulesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get urlRule => $composableBuilder(
+    column: $table.urlRule,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get showRule => $composableBuilder(
+    column: $table.showRule,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get enabled => $composableBuilder(
+    column: $table.enabled,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get builtin => $composableBuilder(
+    column: $table.builtin,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$NovelDictRulesTableAnnotationComposer
+    extends Composer<_$NovelDb, $NovelDictRulesTable> {
+  $$NovelDictRulesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<String> get urlRule =>
+      $composableBuilder(column: $table.urlRule, builder: (column) => column);
+
+  GeneratedColumn<String> get showRule =>
+      $composableBuilder(column: $table.showRule, builder: (column) => column);
+
+  GeneratedColumn<bool> get enabled =>
+      $composableBuilder(column: $table.enabled, builder: (column) => column);
+
+  GeneratedColumn<bool> get builtin =>
+      $composableBuilder(column: $table.builtin, builder: (column) => column);
+
+  GeneratedColumn<int> get sortOrder =>
+      $composableBuilder(column: $table.sortOrder, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$NovelDictRulesTableTableManager
+    extends
+        RootTableManager<
+          _$NovelDb,
+          $NovelDictRulesTable,
+          NovelDictRuleRow,
+          $$NovelDictRulesTableFilterComposer,
+          $$NovelDictRulesTableOrderingComposer,
+          $$NovelDictRulesTableAnnotationComposer,
+          $$NovelDictRulesTableCreateCompanionBuilder,
+          $$NovelDictRulesTableUpdateCompanionBuilder,
+          (
+            NovelDictRuleRow,
+            BaseReferences<_$NovelDb, $NovelDictRulesTable, NovelDictRuleRow>,
+          ),
+          NovelDictRuleRow,
+          PrefetchHooks Function()
+        > {
+  $$NovelDictRulesTableTableManager(_$NovelDb db, $NovelDictRulesTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$NovelDictRulesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$NovelDictRulesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$NovelDictRulesTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<String> name = const Value.absent(),
+                Value<String> urlRule = const Value.absent(),
+                Value<String> showRule = const Value.absent(),
+                Value<bool> enabled = const Value.absent(),
+                Value<bool> builtin = const Value.absent(),
+                Value<int> sortOrder = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+              }) => NovelDictRulesCompanion(
+                id: id,
+                name: name,
+                urlRule: urlRule,
+                showRule: showRule,
+                enabled: enabled,
+                builtin: builtin,
+                sortOrder: sortOrder,
+                updatedAt: updatedAt,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                required String name,
+                required String urlRule,
+                Value<String> showRule = const Value.absent(),
+                Value<bool> enabled = const Value.absent(),
+                Value<bool> builtin = const Value.absent(),
+                Value<int> sortOrder = const Value.absent(),
+                required DateTime updatedAt,
+              }) => NovelDictRulesCompanion.insert(
+                id: id,
+                name: name,
+                urlRule: urlRule,
+                showRule: showRule,
+                enabled: enabled,
+                builtin: builtin,
+                sortOrder: sortOrder,
+                updatedAt: updatedAt,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$NovelDictRulesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$NovelDb,
+      $NovelDictRulesTable,
+      NovelDictRuleRow,
+      $$NovelDictRulesTableFilterComposer,
+      $$NovelDictRulesTableOrderingComposer,
+      $$NovelDictRulesTableAnnotationComposer,
+      $$NovelDictRulesTableCreateCompanionBuilder,
+      $$NovelDictRulesTableUpdateCompanionBuilder,
+      (
+        NovelDictRuleRow,
+        BaseReferences<_$NovelDb, $NovelDictRulesTable, NovelDictRuleRow>,
+      ),
+      NovelDictRuleRow,
+      PrefetchHooks Function()
+    >;
+typedef $$NovelTagGroupRulesTableCreateCompanionBuilder =
+    NovelTagGroupRulesCompanion Function({
+      Value<int> id,
+      required String name,
+      required String pattern,
+      Value<int?> colorArgb,
+      Value<bool> enabled,
+      Value<int> sortOrder,
+      required DateTime updatedAt,
+    });
+typedef $$NovelTagGroupRulesTableUpdateCompanionBuilder =
+    NovelTagGroupRulesCompanion Function({
+      Value<int> id,
+      Value<String> name,
+      Value<String> pattern,
+      Value<int?> colorArgb,
+      Value<bool> enabled,
+      Value<int> sortOrder,
+      Value<DateTime> updatedAt,
+    });
+
+class $$NovelTagGroupRulesTableFilterComposer
+    extends Composer<_$NovelDb, $NovelTagGroupRulesTable> {
+  $$NovelTagGroupRulesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get pattern => $composableBuilder(
+    column: $table.pattern,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get colorArgb => $composableBuilder(
+    column: $table.colorArgb,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get enabled => $composableBuilder(
+    column: $table.enabled,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$NovelTagGroupRulesTableOrderingComposer
+    extends Composer<_$NovelDb, $NovelTagGroupRulesTable> {
+  $$NovelTagGroupRulesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get pattern => $composableBuilder(
+    column: $table.pattern,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get colorArgb => $composableBuilder(
+    column: $table.colorArgb,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get enabled => $composableBuilder(
+    column: $table.enabled,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$NovelTagGroupRulesTableAnnotationComposer
+    extends Composer<_$NovelDb, $NovelTagGroupRulesTable> {
+  $$NovelTagGroupRulesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<String> get pattern =>
+      $composableBuilder(column: $table.pattern, builder: (column) => column);
+
+  GeneratedColumn<int> get colorArgb =>
+      $composableBuilder(column: $table.colorArgb, builder: (column) => column);
+
+  GeneratedColumn<bool> get enabled =>
+      $composableBuilder(column: $table.enabled, builder: (column) => column);
+
+  GeneratedColumn<int> get sortOrder =>
+      $composableBuilder(column: $table.sortOrder, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$NovelTagGroupRulesTableTableManager
+    extends
+        RootTableManager<
+          _$NovelDb,
+          $NovelTagGroupRulesTable,
+          NovelTagGroupRuleRow,
+          $$NovelTagGroupRulesTableFilterComposer,
+          $$NovelTagGroupRulesTableOrderingComposer,
+          $$NovelTagGroupRulesTableAnnotationComposer,
+          $$NovelTagGroupRulesTableCreateCompanionBuilder,
+          $$NovelTagGroupRulesTableUpdateCompanionBuilder,
+          (
+            NovelTagGroupRuleRow,
+            BaseReferences<
+              _$NovelDb,
+              $NovelTagGroupRulesTable,
+              NovelTagGroupRuleRow
+            >,
+          ),
+          NovelTagGroupRuleRow,
+          PrefetchHooks Function()
+        > {
+  $$NovelTagGroupRulesTableTableManager(
+    _$NovelDb db,
+    $NovelTagGroupRulesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$NovelTagGroupRulesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$NovelTagGroupRulesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$NovelTagGroupRulesTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<String> name = const Value.absent(),
+                Value<String> pattern = const Value.absent(),
+                Value<int?> colorArgb = const Value.absent(),
+                Value<bool> enabled = const Value.absent(),
+                Value<int> sortOrder = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+              }) => NovelTagGroupRulesCompanion(
+                id: id,
+                name: name,
+                pattern: pattern,
+                colorArgb: colorArgb,
+                enabled: enabled,
+                sortOrder: sortOrder,
+                updatedAt: updatedAt,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                required String name,
+                required String pattern,
+                Value<int?> colorArgb = const Value.absent(),
+                Value<bool> enabled = const Value.absent(),
+                Value<int> sortOrder = const Value.absent(),
+                required DateTime updatedAt,
+              }) => NovelTagGroupRulesCompanion.insert(
+                id: id,
+                name: name,
+                pattern: pattern,
+                colorArgb: colorArgb,
+                enabled: enabled,
+                sortOrder: sortOrder,
+                updatedAt: updatedAt,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$NovelTagGroupRulesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$NovelDb,
+      $NovelTagGroupRulesTable,
+      NovelTagGroupRuleRow,
+      $$NovelTagGroupRulesTableFilterComposer,
+      $$NovelTagGroupRulesTableOrderingComposer,
+      $$NovelTagGroupRulesTableAnnotationComposer,
+      $$NovelTagGroupRulesTableCreateCompanionBuilder,
+      $$NovelTagGroupRulesTableUpdateCompanionBuilder,
+      (
+        NovelTagGroupRuleRow,
+        BaseReferences<
+          _$NovelDb,
+          $NovelTagGroupRulesTable,
+          NovelTagGroupRuleRow
+        >,
+      ),
+      NovelTagGroupRuleRow,
+      PrefetchHooks Function()
+    >;
+typedef $$NovelThemePackagesTableCreateCompanionBuilder =
+    NovelThemePackagesCompanion Function({
+      Value<int> id,
+      required String name,
+      required String packageJson,
+      Value<int> packageVersion,
+      Value<String?> previewPngBase64,
+      required DateTime importedAt,
+      Value<DateTime?> appliedAt,
+    });
+typedef $$NovelThemePackagesTableUpdateCompanionBuilder =
+    NovelThemePackagesCompanion Function({
+      Value<int> id,
+      Value<String> name,
+      Value<String> packageJson,
+      Value<int> packageVersion,
+      Value<String?> previewPngBase64,
+      Value<DateTime> importedAt,
+      Value<DateTime?> appliedAt,
+    });
+
+class $$NovelThemePackagesTableFilterComposer
+    extends Composer<_$NovelDb, $NovelThemePackagesTable> {
+  $$NovelThemePackagesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get packageJson => $composableBuilder(
+    column: $table.packageJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get packageVersion => $composableBuilder(
+    column: $table.packageVersion,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get previewPngBase64 => $composableBuilder(
+    column: $table.previewPngBase64,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get importedAt => $composableBuilder(
+    column: $table.importedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get appliedAt => $composableBuilder(
+    column: $table.appliedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$NovelThemePackagesTableOrderingComposer
+    extends Composer<_$NovelDb, $NovelThemePackagesTable> {
+  $$NovelThemePackagesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get packageJson => $composableBuilder(
+    column: $table.packageJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get packageVersion => $composableBuilder(
+    column: $table.packageVersion,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get previewPngBase64 => $composableBuilder(
+    column: $table.previewPngBase64,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get importedAt => $composableBuilder(
+    column: $table.importedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get appliedAt => $composableBuilder(
+    column: $table.appliedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$NovelThemePackagesTableAnnotationComposer
+    extends Composer<_$NovelDb, $NovelThemePackagesTable> {
+  $$NovelThemePackagesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<String> get packageJson => $composableBuilder(
+    column: $table.packageJson,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get packageVersion => $composableBuilder(
+    column: $table.packageVersion,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get previewPngBase64 => $composableBuilder(
+    column: $table.previewPngBase64,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get importedAt => $composableBuilder(
+    column: $table.importedAt,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get appliedAt =>
+      $composableBuilder(column: $table.appliedAt, builder: (column) => column);
+}
+
+class $$NovelThemePackagesTableTableManager
+    extends
+        RootTableManager<
+          _$NovelDb,
+          $NovelThemePackagesTable,
+          NovelThemePackageRow,
+          $$NovelThemePackagesTableFilterComposer,
+          $$NovelThemePackagesTableOrderingComposer,
+          $$NovelThemePackagesTableAnnotationComposer,
+          $$NovelThemePackagesTableCreateCompanionBuilder,
+          $$NovelThemePackagesTableUpdateCompanionBuilder,
+          (
+            NovelThemePackageRow,
+            BaseReferences<
+              _$NovelDb,
+              $NovelThemePackagesTable,
+              NovelThemePackageRow
+            >,
+          ),
+          NovelThemePackageRow,
+          PrefetchHooks Function()
+        > {
+  $$NovelThemePackagesTableTableManager(
+    _$NovelDb db,
+    $NovelThemePackagesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$NovelThemePackagesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$NovelThemePackagesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$NovelThemePackagesTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<String> name = const Value.absent(),
+                Value<String> packageJson = const Value.absent(),
+                Value<int> packageVersion = const Value.absent(),
+                Value<String?> previewPngBase64 = const Value.absent(),
+                Value<DateTime> importedAt = const Value.absent(),
+                Value<DateTime?> appliedAt = const Value.absent(),
+              }) => NovelThemePackagesCompanion(
+                id: id,
+                name: name,
+                packageJson: packageJson,
+                packageVersion: packageVersion,
+                previewPngBase64: previewPngBase64,
+                importedAt: importedAt,
+                appliedAt: appliedAt,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                required String name,
+                required String packageJson,
+                Value<int> packageVersion = const Value.absent(),
+                Value<String?> previewPngBase64 = const Value.absent(),
+                required DateTime importedAt,
+                Value<DateTime?> appliedAt = const Value.absent(),
+              }) => NovelThemePackagesCompanion.insert(
+                id: id,
+                name: name,
+                packageJson: packageJson,
+                packageVersion: packageVersion,
+                previewPngBase64: previewPngBase64,
+                importedAt: importedAt,
+                appliedAt: appliedAt,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$NovelThemePackagesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$NovelDb,
+      $NovelThemePackagesTable,
+      NovelThemePackageRow,
+      $$NovelThemePackagesTableFilterComposer,
+      $$NovelThemePackagesTableOrderingComposer,
+      $$NovelThemePackagesTableAnnotationComposer,
+      $$NovelThemePackagesTableCreateCompanionBuilder,
+      $$NovelThemePackagesTableUpdateCompanionBuilder,
+      (
+        NovelThemePackageRow,
+        BaseReferences<
+          _$NovelDb,
+          $NovelThemePackagesTable,
+          NovelThemePackageRow
+        >,
+      ),
+      NovelThemePackageRow,
+      PrefetchHooks Function()
+    >;
 
 class $NovelDbManager {
   final _$NovelDb _db;
@@ -10450,4 +12646,10 @@ class $NovelDbManager {
       $$NovelLocalBooksTableTableManager(_db, _db.novelLocalBooks);
   $$NovelTxtTocRulesTableTableManager get novelTxtTocRules =>
       $$NovelTxtTocRulesTableTableManager(_db, _db.novelTxtTocRules);
+  $$NovelDictRulesTableTableManager get novelDictRules =>
+      $$NovelDictRulesTableTableManager(_db, _db.novelDictRules);
+  $$NovelTagGroupRulesTableTableManager get novelTagGroupRules =>
+      $$NovelTagGroupRulesTableTableManager(_db, _db.novelTagGroupRules);
+  $$NovelThemePackagesTableTableManager get novelThemePackages =>
+      $$NovelThemePackagesTableTableManager(_db, _db.novelThemePackages);
 }

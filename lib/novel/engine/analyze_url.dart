@@ -586,7 +586,52 @@ class AnalyzeUrl {
         return '';
       }
     }
-    return Uri.decodeComponent(data);
+    return _decodeDataBody(data);
+  }
+
+  /// `data:` 正文解码：`%XX` 按字节还原，原样写的非 ASCII（中文/emoji）按
+  /// UTF-8 重新编码。
+  ///
+  /// 不用 `Uri.decodeComponent`：它把裸非 ASCII 当非法百分号编码直接抛
+  /// `ArgumentError`，而 `data:` URL 里直接写中文很常见（词典示例、内置
+  /// 规则都用它做离线样例）。
+  static String _decodeDataBody(String data) {
+    final bytes = <int>[];
+    var index = 0;
+    while (index < data.length) {
+      final unit = data.codeUnitAt(index);
+      if (unit == 0x25 /* % */ && index + 2 < data.length) {
+        final hex = data.substring(index + 1, index + 3);
+        final value = int.tryParse(hex, radix: 16);
+        if (value != null) {
+          bytes.add(value);
+          index += 3;
+          continue;
+        }
+      }
+      if (unit < 0x80) {
+        bytes.add(unit);
+        index++;
+        continue;
+      }
+      // 非 ASCII：ASCII 之外按 UTF-8 重新编码；代理对合并成一个码点。
+      if (unit >= 0xD800 &&
+          unit <= 0xDBFF &&
+          index + 1 < data.length &&
+          data.codeUnitAt(index + 1) >= 0xDC00 &&
+          data.codeUnitAt(index + 1) <= 0xDFFF) {
+        bytes.addAll(
+          utf8.encode(
+            String.fromCharCodes(<int>[unit, data.codeUnitAt(index + 1)]),
+          ),
+        );
+        index += 2;
+        continue;
+      }
+      bytes.addAll(utf8.encode(String.fromCharCode(unit)));
+      index++;
+    }
+    return const Utf8Decoder(allowMalformed: true).convert(bytes);
   }
 
   static bool _looksJson(String body) {
