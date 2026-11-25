@@ -1591,6 +1591,7 @@ class _ShelfMenuButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return PopupMenuButton<String>(
+      key: const Key('novel-shelf-menu'),
       tooltip: '书架操作',
       icon: const Icon(Icons.more_vert),
       onSelected: onSelected,
