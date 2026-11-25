@@ -197,10 +197,15 @@ class _NovelShelfLayoutDialogState extends State<_NovelShelfLayoutDialog> {
                 key: const Key('novel-shelf-group-series'),
                 contentPadding: EdgeInsets.zero,
                 title: const Text('按系列归组'),
+                // 系列分节是「文件夹分组」布局的一种分节来源，其它布局下
+                // 开了也不会有变化——与其留个静默无效的开关，不如把生效
+                // 条件写在副标题里（当前布局不受影响时明说）。
                 subtitle: Text(
-                  widget.canGroupBySeries
-                      ? '把同系列的书收成一组，排在书架最前面'
-                      : '还没有系列：在书籍信息里给书设置系列后可用',
+                  !widget.canGroupBySeries
+                      ? '还没有系列：在书籍信息里给书设置系列后可用'
+                      : _config.mode != NovelShelfMode.folder
+                      ? '只在「文件夹分组」布局下生效，当前布局不受影响'
+                      : '把同系列的书收成一组，排在其他分组前面',
                 ),
                 value: _config.groupBySeries,
                 onChanged: widget.canGroupBySeries

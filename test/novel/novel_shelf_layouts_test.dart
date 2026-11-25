@@ -245,6 +245,76 @@ void main() {
     expect(titles.indexOf('第一本'), greaterThan(titles.indexOf('第三本')));
   });
 
+  testWidgets('系列归组：文件夹布局下同系列的书收成一节并排在前面', (tester) async {
+    await collect.collect(book('b1', '三体'));
+    await collect.collect(book('b2', '黑暗森林'));
+    await collect.collect(book('b3', '死神永生'));
+    await collect.collect(book('b4', '天龙八部'));
+    await collect.setGroup('b4', '武侠');
+    final seriesId = await collect.createSeries('地球往事');
+    await collect.setSeriesFor(<String>['b1', 'b2', 'b3'], seriesId);
+
+    final prefs = _FakePrefs(<String, String>{
+      novelPrefShelfView: const NovelShelfViewConfig(
+        mode: NovelShelfMode.folder,
+        groupBySeries: true,
+      ).encode(),
+    });
+    await pumpShelf(tester, prefs: prefs);
+
+    // 节头：系列节 + 分组节（四本都有归属，没有未分组节）。
+    expect(find.text('地球往事'), findsOneWidget);
+    expect(find.text('武侠'), findsOneWidget);
+    expect(find.text('未分组'), findsNothing);
+
+    // 系列节里三本都在。
+    final seriesHeaderY = tester.getTopLeft(find.text('地球往事')).dy;
+    for (final title in <String>['三体', '黑暗森林', '死神永生']) {
+      expect(find.text(title), findsWidgets, reason: '$title 没进系列节');
+    }
+    // 系列节排在分组节前面。
+    expect(seriesHeaderY, lessThan(tester.getTopLeft(find.text('武侠')).dy));
+
+    // 关掉「按系列归组」后系列节消失，三本回到未分组节。
+    await tester.tap(find.byTooltip('书架操作'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('布局设置'));
+    await tester.pumpAndSettle();
+    final toggle = find.byKey(const Key('novel-shelf-group-series'));
+    await tester.ensureVisible(toggle);
+    await tester.pumpAndSettle();
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('novel-shelf-layout-save')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('地球往事'), findsNothing);
+    // 关掉后三本散的进「未分组」节，另一本仍在武侠节。
+    expect(find.text('未分组'), findsOneWidget);
+    expect(find.text('武侠'), findsOneWidget);
+    final saved = NovelShelfViewConfig.decode(prefs.values[novelPrefShelfView]);
+    expect(saved.groupBySeries, isFalse);
+  });
+
+  testWidgets('系列归组开关在非文件夹布局下明说「当前布局不受影响」', (tester) async {
+    await collect.collect(book('b1', '三体'));
+    final seriesId = await collect.createSeries('地球往事');
+    await collect.setSeriesFor(<String>['b1'], seriesId);
+    final prefs = _FakePrefs(<String, String>{
+      novelPrefShelfView: const NovelShelfViewConfig().encode(),
+    });
+    await pumpShelf(tester, prefs: prefs);
+    await tester.tap(find.byTooltip('书架操作'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('布局设置'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const Key('novel-shelf-group-series')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.textContaining('只在「文件夹分组」布局下生效'), findsOneWidget);
+  });
+
   testWidgets('书籍信息：备注与系列落到收藏行', (tester) async {
     await collect.collect(book('b1', '三体'));
     final prefs = _FakePrefs(<String, String>{
