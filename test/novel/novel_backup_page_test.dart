@@ -1,5 +1,6 @@
 ﻿// 备份中心：空态、配置回填、恢复预览（计数 + 冲突选择）、撤销入口。
 // 服务走真实实现，远端用 fake client，文件与凭据用内存实现——不碰插件。
+// ignore_for_file: deprecated_member_use — 与其他 novel 页面测试同款说明。
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -8,9 +9,9 @@ import 'package:mimao/core/library.dart';
 import 'package:mimao/novel/backup/backup_document.dart';
 import 'package:mimao/novel/backup/backup_file_store.dart';
 import 'package:mimao/novel/backup/backup_service.dart';
+import 'package:mimao/novel/backup/credential_store.dart';
 import 'package:mimao/novel/backup/webdav_remote.dart';
 import 'package:mimao/novel/collect_service.dart';
-import 'package:mimao/novel/history_service.dart';
 import 'package:mimao/novel/models/novel_models.dart';
 import 'package:mimao/novel/novel_db.dart';
 import 'package:mimao/novel/pages/novel_backup_page.dart';
@@ -30,7 +31,6 @@ void main() {
   late NovelDb db;
   late LibraryRepository library;
   late NovelCollectService collect;
-  late NovelHistoryService history;
   late NovelStatsService prefs;
   late _FakeClient client;
   late NovelWebDavBackupService service;
@@ -46,7 +46,6 @@ void main() {
     db = NovelDb.forTesting(NativeDatabase.memory());
     library = LibraryRepository(appDb);
     collect = NovelCollectService(db, library);
-    history = NovelHistoryService(db, library);
     prefs = NovelStatsService(db);
     client = _FakeClient();
     service = NovelWebDavBackupService(

@@ -15,6 +15,7 @@
 /// 这里只做转出，外加几个旧名字的别名（首页与既有测试按旧名调用）。
 library;
 
+import 'package:mimao/novel/backup/credential_store.dart';
 import 'package:mimao/novel/backup/webdav_remote.dart';
 import 'package:mimao/novel/library_api.dart';
 
@@ -44,6 +45,7 @@ export 'backup/backup_plan.dart';
 export 'backup/backup_service.dart';
 export 'backup/backup_settings.dart';
 export 'backup/backup_snapshot.dart' show collectNovelBackupSnapshot;
+export 'backup/credential_store.dart';
 export 'backup/novel_tombstone_service.dart';
 export 'backup/progress_sync.dart';
 export 'backup/webdav_remote.dart';

@@ -13,6 +13,7 @@ import 'package:mimao/novel/backup/backup_crypto.dart';
 import 'package:mimao/novel/backup/backup_document.dart';
 import 'package:mimao/novel/backup/backup_file_store.dart';
 import 'package:mimao/novel/backup/backup_plan.dart';
+import 'package:mimao/novel/backup/credential_store.dart';
 import 'package:mimao/novel/backup/backup_settings.dart';
 import 'package:mimao/novel/backup/backup_snapshot.dart';
 import 'package:mimao/novel/backup/webdav_remote.dart';

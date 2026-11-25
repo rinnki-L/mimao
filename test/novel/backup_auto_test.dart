@@ -6,6 +6,7 @@ import 'package:mimao/core/library.dart';
 import 'package:mimao/novel/backup/auto_backup.dart';
 import 'package:mimao/novel/backup/backup_service.dart';
 import 'package:mimao/novel/backup/backup_settings.dart';
+import 'package:mimao/novel/backup/credential_store.dart';
 import 'package:mimao/novel/backup/webdav_remote.dart';
 import 'package:mimao/novel/collect_service.dart';
 import 'package:mimao/novel/models/novel_models.dart';

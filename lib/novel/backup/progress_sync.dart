@@ -15,6 +15,7 @@ import 'package:mimao/novel/backup/backup_plan.dart';
 import 'package:mimao/novel/backup/backup_service.dart'
     show NovelWebDavBackupService;
 import 'package:mimao/novel/backup/backup_settings.dart';
+import 'package:mimao/novel/backup/credential_store.dart';
 import 'package:mimao/novel/backup/webdav_remote.dart';
 import 'package:mimao/novel/library_api.dart';
 import 'package:mimao/novel/novel_db.dart';

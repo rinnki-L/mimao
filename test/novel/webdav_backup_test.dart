@@ -9,6 +9,7 @@ import 'package:mimao/novel/backup/backup_document.dart';
 import 'package:mimao/novel/backup/backup_file_store.dart';
 import 'package:mimao/novel/backup/backup_service.dart';
 import 'package:mimao/novel/backup/backup_settings.dart';
+import 'package:mimao/novel/backup/credential_store.dart';
 import 'package:mimao/novel/backup/webdav_remote.dart';
 import 'package:mimao/novel/collect_service.dart';
 import 'package:mimao/novel/history_service.dart';

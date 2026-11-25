@@ -13,9 +13,7 @@ library;
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
-import 'package:flutter/services.dart'
-    show MissingPluginException, PlatformException;
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:mimao/novel/backup/credential_store.dart';
 import 'package:mimao/novel/library_api.dart';
 
 /// WebDAV 配置键（存 NovelPrefsApi；密码优先落安全存储）。
@@ -104,62 +102,6 @@ String novelProgressUrlFor(String backupUrl) {
   return uri.replace(path: next).toString();
 }
 
-/// 凭据存储缝（测试注入内存实现，不碰插件）。
-abstract interface class NovelCredentialStore {
-  Future<String?> read(String key);
-
-  Future<void> write(String key, String value);
-
-  Future<void> delete(String key);
-}
-
-/// 系统安全存储实现。
-///
-/// 读失败一律当"没有密码"（不让一个读异常掀掉整个备份页）；写失败向上抛，
-/// 由调用方决定降级并告知用户——**不能静默丢密码**。
-class NovelSecureCredentialStore implements NovelCredentialStore {
-  NovelSecureCredentialStore({FlutterSecureStorage? storage})
-    : _storage = storage ?? const FlutterSecureStorage();
-
-  final FlutterSecureStorage _storage;
-
-  @override
-  Future<String?> read(String key) async {
-    try {
-      return await _storage.read(key: key);
-    } on PlatformException {
-      return null;
-    } on MissingPluginException {
-      return null;
-    }
-  }
-
-  @override
-  Future<void> write(String key, String value) =>
-      _storage.write(key: key, value: value);
-
-  @override
-  Future<void> delete(String key) => _storage.delete(key: key);
-}
-
-/// 内存实现：单测与不接插件的环境用。
-class NovelMemoryCredentialStore implements NovelCredentialStore {
-  final Map<String, String> _values = <String, String>{};
-
-  @override
-  Future<String?> read(String key) async => _values[key];
-
-  @override
-  Future<void> write(String key, String value) async {
-    _values[key] = value;
-  }
-
-  @override
-  Future<void> delete(String key) async {
-    _values.remove(key);
-  }
-}
-
 /// 读配置；三项都空时返回 null（未配置）。
 ///
 /// 顺手做一次迁移：旧版的明文 `webdav_password` 搬进安全存储并清掉 kv。
@@ -171,7 +113,7 @@ Future<NovelWebDavConfig?> readNovelWebDavConfig(
 }) async {
   final url = await prefs.read(novelWebDavUrlKey);
   if (url == null || url.trim().isEmpty) return null;
-  final store = credentials ?? NovelSecureCredentialStore();
+  final store = credentials ?? defaultNovelCredentialStore();
   final user = (await prefs.read(novelWebDavUserKey)) ?? '';
 
   var password = (await store.read(novelCredentialWebDavPassword)) ?? '';
@@ -214,7 +156,7 @@ Future<NovelWebDavConfig> writeNovelWebDavConfig(
 }) async {
   await prefs.write(novelWebDavUrlKey, config.url.trim());
   await prefs.write(novelWebDavUserKey, config.user);
-  final store = credentials ?? NovelSecureCredentialStore();
+  final store = credentials ?? defaultNovelCredentialStore();
 
   if (config.password.isEmpty) {
     await store.delete(novelCredentialWebDavPassword);
@@ -238,7 +180,7 @@ Future<void> clearNovelWebDavPassword(
   NovelPrefsApi prefs, {
   NovelCredentialStore? credentials,
 }) async {
-  final store = credentials ?? NovelSecureCredentialStore();
+  final store = credentials ?? defaultNovelCredentialStore();
   try {
     await store.delete(novelCredentialWebDavPassword);
   } on Object {

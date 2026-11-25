@@ -6,7 +6,7 @@ library;
 
 import 'dart:io';
 
-import 'package:mimao/novel/backup/webdav_remote.dart';
+import 'package:mimao/novel/backup/credential_store.dart';
 import 'package:mimao/novel/library_api.dart';
 
 /// 备份文件是否加密。密码本身不进 kv（见 [novelBackupPasswordCredentialKey]）。
@@ -171,7 +171,7 @@ const String novelBackupPasswordCredentialKey = 'mimao.novel.backup.password';
 Future<String> readNovelBackupPassword({
   NovelCredentialStore? credentials,
 }) async {
-  final store = credentials ?? NovelSecureCredentialStore();
+  final store = credentials ?? defaultNovelCredentialStore();
   return (await store.read(novelBackupPasswordCredentialKey)) ?? '';
 }
 
@@ -179,7 +179,7 @@ Future<void> writeNovelBackupPassword(
   String password, {
   NovelCredentialStore? credentials,
 }) async {
-  final store = credentials ?? NovelSecureCredentialStore();
+  final store = credentials ?? defaultNovelCredentialStore();
   if (password.isEmpty) {
     await store.delete(novelBackupPasswordCredentialKey);
     return;
