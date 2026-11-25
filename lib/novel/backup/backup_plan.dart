@@ -535,8 +535,11 @@ NovelBackupPlan planNovelRestore({
       );
       continue;
     }
-    // 本地没有历史行但远端有章级进度（例如只同步过位置的设备）。
-    if (localHistoryRow == null && remoteChapter > 0) {
+    // 本地完全没有这本书的进度（连章号都没有）→ 新建一条。
+    // 注意判据必须是「本地章号为 0」而不是「本地没有历史行」：进度专用包里
+    // histories 段是空的，只看历史行会把本地 30 章误判成"没读过"，反而被远端
+    // 的旧章号覆盖——那是"同步不覆盖本地更新的记录"最不能破的一条。
+    if (localChapter <= 0 && remoteChapter > 0) {
       insert(
         NovelBackupTarget.progress,
         bookId,
@@ -984,6 +987,7 @@ Map<String, NovelBackupProgress> _collectRemoteProgress(
         sourceKey: item.book.sourceKey,
         chapterIndex: item.chapterIndex,
         chapterCount: item.chapterCount,
+        readCount: item.readCount,
         updatedAt: item.openedAt,
       ),
     );
@@ -1014,7 +1018,7 @@ Map<String, Object?> _progressPayload(
     'bookId': incoming.bookId,
     'chapterIndex': incoming.chapterIndex,
     'chapterCount': chapterCount ?? incoming.chapterCount,
-    'readCount': readCount,
+    'readCount': math.max(readCount, incoming.readCount),
   };
   if (book != null) payload['book'] = book.toJson();
   final locator = keepLocator ?? incoming.locator;
@@ -1113,6 +1117,167 @@ class NovelBackupSourceEntry {
   String get key => source.key;
 
   String get signature => jsonEncode(source.toJson());
+}
+
+/// 上传前的合并：把远端文档并进本地快照，得到"推上去的超集"。
+///
+/// 与恢复同一套字段规则（并集 + 进度取章号大者/同章取时间新者 + 阅读时长取 max
+/// + 墓碑压过较旧的行），**冲突一律本地赢**——上传方是正在操作的这一端。
+/// 这里刻意按"并集"实现而不是复用恢复计划：恢复会跳过"本地没有这本书"的进度
+/// （不造幽灵条目），但上传不能跳过，否则另一台设备的独有历史会被这次 PUT 抹掉。
+NovelBackupDocument mergeNovelBackupDocuments({
+  required NovelBackupDocument local,
+  required NovelBackupDocument remote,
+  DateTime? now,
+}) {
+  final at = now ?? DateTime.now();
+
+  // 收藏：远端打底、本地覆盖；本地独有的保留。
+  final collects = <String, NovelBackupCollect>{
+    for (final item in remote.collects) item.key: item,
+    for (final item in local.collects) item.key: item,
+  };
+
+  // 历史：按 bookId 并，章号/次数取 max，时间取新。
+  final histories = <String, NovelBackupHistory>{
+    for (final item in remote.histories) item.book.id: item,
+  };
+  for (final item in local.histories) {
+    final other = histories[item.book.id];
+    histories[item.book.id] = other == null
+        ? item
+        : NovelBackupHistory(
+            book: item.book.title.isNotEmpty ? item.book : other.book,
+            chapterIndex: math.max(item.chapterIndex, other.chapterIndex),
+            chapterCount: math.max(item.chapterCount, other.chapterCount),
+            readCount: math.max(item.readCount, other.readCount),
+            openedAt: _isAfter(item.openedAt, other.openedAt)
+                ? item.openedAt
+                : other.openedAt,
+          );
+  }
+
+  // 进度：章号大者胜、同章取时间新者。
+  final progress = <String, NovelBackupProgress>{};
+  for (final item in <NovelBackupProgress>[
+    ...remote.progress,
+    ...local.progress,
+  ]) {
+    final existing = progress[item.bookId];
+    if (existing == null) {
+      progress[item.bookId] = item;
+      continue;
+    }
+    final takeIncoming =
+        item.chapterIndex > existing.chapterIndex ||
+        (item.chapterIndex == existing.chapterIndex &&
+            _isAfter(item.updatedAt, existing.updatedAt));
+    progress[item.bookId] = takeIncoming
+        ? item.copyWith(
+            chapterCount: math.max(item.chapterCount, existing.chapterCount),
+            readCount: math.max(item.readCount, existing.readCount),
+          )
+        : existing.copyWith(
+            chapterCount: math.max(item.chapterCount, existing.chapterCount),
+            readCount: math.max(item.readCount, existing.readCount),
+            locator: existing.locator ?? item.locator,
+          );
+  }
+
+  final series = <String, NovelBackupSeries>{
+    for (final item in remote.series) item.name: item,
+    for (final item in local.series) item.name: item,
+  };
+
+  final bookmarks = <String, NovelBackupBookmark>{
+    for (final item in remote.bookmarks) item.key: item,
+    for (final item in local.bookmarks) item.key: item,
+  };
+  final markings = <String, NovelBackupMarking>{
+    for (final item in remote.markings) item.key: item,
+    for (final item in local.markings) item.key: item,
+  };
+
+  // 墓碑：同键取最新一次删除。
+  final tombstones = <String, NovelBackupTombstone>{
+    for (final item in remote.tombstones) item.id: item,
+  };
+  for (final item in local.tombstones) {
+    final other = tombstones[item.id];
+    if (other == null || item.deletedAt.isAfter(other.deletedAt)) {
+      tombstones[item.id] = item;
+    }
+  }
+  // 被删过的行不进超集，否则下一次恢复又把它复活。
+  for (final tombstone in tombstones.values) {
+    if (tombstone.kind == novelTombstoneBookmark) {
+      final row = bookmarks[tombstone.key];
+      if (row != null && !row.createdAt.isAfter(tombstone.deletedAt)) {
+        bookmarks.remove(tombstone.key);
+      }
+    } else {
+      final row = markings[tombstone.key];
+      if (row != null && !row.updatedAt.isAfter(tombstone.deletedAt)) {
+        markings.remove(tombstone.key);
+      }
+    }
+  }
+
+  final records = <String, NovelBackupReadRecord>{
+    for (final item in remote.readRecords) item.key: item,
+  };
+  for (final item in local.readRecords) {
+    final other = records[item.key];
+    records[item.key] = other == null
+        ? item
+        : item.copyWith(
+            seconds: math.max(item.seconds, other.seconds),
+            bookTitle: item.bookTitle.isEmpty
+                ? other.bookTitle
+                : item.bookTitle,
+            chapterName: item.chapterName.isEmpty
+                ? other.chapterName
+                : item.chapterName,
+            firstReadAt: item.firstReadAt.isBefore(other.firstReadAt)
+                ? item.firstReadAt
+                : other.firstReadAt,
+            lastReadAt: item.lastReadAt.isAfter(other.lastReadAt)
+                ? item.lastReadAt
+                : other.lastReadAt,
+          );
+  }
+
+  final sources = <String, NovelBookSource>{
+    for (final item in remote.sources) item.key: item,
+    for (final item in local.sources) item.key: item,
+  };
+  final keywords = <String>{...remote.searchKeywords, ...local.searchKeywords};
+
+  final prefs = <String, String>{
+    for (final entry in remote.prefs.entries)
+      if (!novelBackupNeverExportedPrefKeys.contains(entry.key))
+        entry.key: entry.value,
+    for (final entry in local.prefs.entries)
+      if (!novelBackupNeverExportedPrefKeys.contains(entry.key))
+        entry.key: entry.value,
+  };
+
+  return NovelBackupDocument(
+    collects: collects.values.toList(growable: false),
+    histories: histories.values.toList(growable: false),
+    searchKeywords: keywords.toList(growable: false),
+    sources: sources.values.toList(growable: false),
+    prefs: prefs,
+    exportedAt: local.exportedAt,
+    deviceId: local.deviceId,
+    deviceName: local.deviceName,
+    progress: progress.values.toList(growable: false),
+    series: series.values.toList(growable: false),
+    bookmarks: bookmarks.values.toList(growable: false),
+    markings: markings.values.toList(growable: false),
+    readRecords: records.values.toList(growable: false),
+    tombstones: pruneNovelTombstones(tombstones.values, now: at),
+  );
 }
 
 String _ellipsis(String value, {int max = 24}) {

@@ -56,6 +56,7 @@ class NovelBackupProgress {
     this.sourceKey = '',
     this.chapterIndex = 0,
     this.chapterCount = 0,
+    this.readCount = 1,
     this.locator,
     this.updatedAt,
   });
@@ -71,6 +72,9 @@ class NovelBackupProgress {
   /// 目录总章数；<=0 = 未知。
   final int chapterCount;
 
+  /// 累计打开次数（合并取 max，不求和——重复导入不是"读了两次"）。
+  final int readCount;
+
   /// 章内位置（0 起章下标）；null = 只有章级进度。
   final NovelLocator? locator;
 
@@ -83,6 +87,7 @@ class NovelBackupProgress {
   NovelBackupProgress copyWith({
     int? chapterIndex,
     int? chapterCount,
+    int? readCount,
     NovelLocator? locator,
     DateTime? updatedAt,
   }) => NovelBackupProgress(
@@ -90,6 +95,7 @@ class NovelBackupProgress {
     sourceKey: sourceKey,
     chapterIndex: chapterIndex ?? this.chapterIndex,
     chapterCount: chapterCount ?? this.chapterCount,
+    readCount: readCount ?? this.readCount,
     locator: locator ?? this.locator,
     updatedAt: updatedAt ?? this.updatedAt,
   );
@@ -99,6 +105,7 @@ class NovelBackupProgress {
     if (sourceKey.isNotEmpty) 'sourceKey': sourceKey,
     'chapterIndex': chapterIndex,
     'chapterCount': chapterCount,
+    if (readCount > 1) 'readCount': readCount,
     if (locator != null) 'locator': locator!.toJson(),
     if (updatedAt != null) 'updatedAt': updatedAt!.toIso8601String(),
   };
@@ -109,6 +116,9 @@ class NovelBackupProgress {
         sourceKey: '${json['sourceKey'] ?? ''}',
         chapterIndex: _intOf(json['chapterIndex']),
         chapterCount: _intOf(json['chapterCount']),
+        readCount: json['readCount'] is num
+            ? (json['readCount']! as num).toInt()
+            : 1,
         locator: NovelLocator.fromJson(json['locator']),
         updatedAt: _dateOf(json['updatedAt']),
       );
