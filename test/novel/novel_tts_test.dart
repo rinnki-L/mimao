@@ -4,6 +4,9 @@
 // 全部注入 fake 引擎，不起真实语音：Windows 的 SAPI 宿主进程只在手测时跑。
 
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -216,6 +219,54 @@ Future<void> _waitUntil(
     await Future<void>.delayed(const Duration(milliseconds: 5));
   }
 }
+
+/// 支持合成到文件的假引擎：用来测控制器的按章/按书导出流。
+class _FileTts extends _FakeTts {
+  final List<String> synthesized = <String>[];
+
+  @override
+  bool get supportsFileOutput => true;
+
+  @override
+  Future<void> synthesizeToFile(
+    String text,
+    String path, {
+    required double rate,
+    String voice = '',
+  }) async {
+    synthesized.add(text);
+    await File(path).writeAsBytes(_wavBytes(8));
+  }
+}
+
+Uint8List _wavBytes(int dataLength) {
+  final out = BytesBuilder(copy: false);
+  out.add(ascii.encode('RIFF'));
+  out.add(_u32(36 + dataLength));
+  out.add(ascii.encode('WAVE'));
+  out.add(ascii.encode('fmt '));
+  out.add(_u32(16));
+  out.add(_u16(1));
+  out.add(_u16(1));
+  out.add(_u32(22050));
+  out.add(_u32(44100));
+  out.add(_u16(2));
+  out.add(_u16(16));
+  out.add(ascii.encode('data'));
+  out.add(_u32(dataLength));
+  out.add(Uint8List(dataLength));
+  return out.takeBytes();
+}
+
+Uint8List _u16(int value) => Uint8List(2)
+  ..[0] = value & 0xFF
+  ..[1] = (value >> 8) & 0xFF;
+
+Uint8List _u32(int value) => Uint8List(4)
+  ..[0] = value & 0xFF
+  ..[1] = (value >> 8) & 0xFF
+  ..[2] = (value >> 16) & 0xFF
+  ..[3] = (value >> 24) & 0xFF;
 
 NovelTtsPlayer _player(
   _FakeTts engine, {
@@ -461,6 +512,49 @@ void main() {
 
       final voices = await controller.availableTtsVoices();
       expect(voices.map((voice) => voice.id), <String>['Huihui', 'Zira']);
+    });
+
+    test('导出当前章/全书：标题+正文按章流式合成并拼成 wav', () async {
+      final tts = _FileTts();
+      final controller = await buildController(
+        tts,
+        settings: const NovelReaderSettings(ttsParagraphPauseMs: 0),
+      );
+      addTearDown(controller.dispose);
+      final dir = await Directory.systemTemp.createTemp('mimao_tts_export_');
+      addTearDown(() async {
+        try {
+          await dir.delete(recursive: true);
+        } on Object {
+          // Windows 占用时留给系统临时目录清理。
+        }
+      });
+
+      final chapterOut = '${dir.path}${Platform.pathSeparator}chapter.wav';
+      final chapterResult = await controller.exportTtsAudio(
+        outputPath: chapterOut,
+        wholeBook: false,
+      );
+      expect(chapterResult.paragraphs, 2); // 章标题 + 一段正文
+      expect(tts.synthesized.first, contains('第一章'));
+      final chapterBytes = await File(chapterOut).readAsBytes();
+      expect(String.fromCharCodes(chapterBytes.sublist(0, 4)), 'RIFF');
+      expect(chapterBytes.length, 44 + 16);
+
+      tts.synthesized.clear();
+      final bookOut = '${dir.path}${Platform.pathSeparator}book.wav';
+      final progress = <int>[];
+      final bookResult = await controller.exportTtsAudio(
+        outputPath: bookOut,
+        wholeBook: true,
+        onProgress: (done, total) => progress.add(done),
+      );
+      // 两章 ×（标题 + 正文）。
+      expect(bookResult.paragraphs, 4);
+      expect(progress, <int>[1, 2]);
+      expect(tts.synthesized.length, 4);
+      final bookBytes = await File(bookOut).readAsBytes();
+      expect(String.fromCharCodes(bookBytes.sublist(0, 4)), 'RIFF');
     });
   });
 

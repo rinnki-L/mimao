@@ -236,6 +236,15 @@ class _NovelReaderPageState extends State<NovelReaderPage>
       ttsCache: widget.ttsCache,
     );
     _controller.onTtsError = (error) {
+      // 朗读中断不只弹 SnackBar：错误也进日志，便于排查后端（SAPI/音色/
+      // 音频设备）问题。
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: error,
+          library: 'mimao/novel/tts',
+          context: ErrorDescription('朗读中断'),
+        ),
+      );
       if (!mounted) return;
       _showSnack('朗读中断：$error');
     };
@@ -561,7 +570,20 @@ class _NovelReaderPageState extends State<NovelReaderPage>
       _controller.pauseTts();
     }
     _turnPageCore(direction);
-    if (follow) _controller.seekTtsToParagraph(_firstParagraphOnPage());
+    if (follow) {
+      if (settings.pageMode == NovelPageMode.page) {
+        _controller.seekTtsToParagraph(_firstParagraphOnPage());
+      } else {
+        // 滚动模式的翻页是 240ms 动画；等视口落定再取「可见段」，
+        // 否则会按旧视口把朗读拽回上一屏。
+        unawaited(
+          Future<void>.delayed(const Duration(milliseconds: 260), () {
+            if (!mounted) return;
+            _controller.seekTtsToParagraph(_visibleParagraph());
+          }),
+        );
+      }
+    }
   }
 
   void _turnPageCore(int direction) {
@@ -789,13 +811,15 @@ class _NovelReaderPageState extends State<NovelReaderPage>
     if (!_controller.ttsActive || _controller.ttsParagraph != paragraph) {
       return child;
     }
-    final scheme = Theme.of(context).colorScheme;
+    // 阅读画布可能是深底也可能是浅底，而 ColorScheme 跟的是 app 主题，
+    // 不跟阅读背景：深底用固定浅紫提亮、浅底用固定深紫压暗，两层都
+    // 保证看得见（与播放页遮罩同属「覆盖在阅读画布上」的例外场景）。
+    final color = _controller.settings.darkBackground
+        ? const Color(0xFFB39DDB).withValues(alpha: 0.30)
+        : const Color(0xFF6750A4).withValues(alpha: 0.16);
     return Container(
       key: Key('novel-tts-current-$paragraph$keySuffix'),
-      decoration: BoxDecoration(
-        color: scheme.secondary.withValues(alpha: 0.20),
-        borderRadius: MimaoShapes.sm,
-      ),
+      decoration: BoxDecoration(color: color, borderRadius: MimaoShapes.sm),
       child: child,
     );
   }

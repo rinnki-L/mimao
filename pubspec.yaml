@@ -77,9 +77,17 @@ dependencies:
   charset: ^2.0.1
   json_path: ^0.9.0
 
-  # 小说阅读器朗读：系统 TTS（Windows 走 SAPI，Android 走系统语音引擎）。
-  # Windows 支持 speak/stop/语速/音量；不支持逐词进度回调与合成到文件。
-  # 阅读页在 Windows 改走独立进程调系统 SAPI，Android 用完成回调推进。
+  # 小说本地书（TXT / EPUB / Markdown 第二条通路）：`archive` 解 EPUB 的 zip
+  # 容器（读 container.xml → opf → spine）；`chinese_codec` 补 GB18030 / Big5
+  # 解码——`charset` 只有 GBK 一族，繁体 Big5 缺失。两者都是纯 Dart、无原生
+  # 依赖，CI 与内存文件测试都不碰插件。
+  archive: ^4.7.1
+  chinese_codec: ^0.1.3
+
+# 小说阅读器朗读：Android 走 flutter_tts（系统语音引擎）；Windows 不用
+  # 它的原生端，改走常驻 PowerShell + System.Speech（见
+  # lib/novel/reader/novel_tts.dart）：逐段朗读、语速/音色、合成到 wav
+  # （导出与缓存）、停止 = 结束宿主进程。flutter_tts 仍保留给 Android。
   flutter_tts: ^4.2.5
 
   # D 线 · 主题跟随系统强调色：system_theme 读 Windows/Android 系统 accent
