@@ -323,14 +323,24 @@ class _HighlightRuleDialogState extends State<_HighlightRuleDialog> {
   int? _backgroundDark;
   String? _error;
 
+  bool _colorsReady = false;
+
   @override
   void initState() {
     super.initState();
+    _backgroundLight = widget.initial?.backgroundLightArgb;
+    _backgroundDark = widget.initial?.backgroundDarkArgb;
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_colorsReady) return;
+    // Theme 依赖只能在 initState 之后读：这里补默认色，已有规则的颜色不被覆盖。
     final cs = Theme.of(context).colorScheme;
     _foregroundLight = widget.initial?.foregroundLightArgb ?? _toArgb(cs.error);
     _foregroundDark = widget.initial?.foregroundDarkArgb ?? _toArgb(cs.error);
-    _backgroundLight = widget.initial?.backgroundLightArgb;
-    _backgroundDark = widget.initial?.backgroundDarkArgb;
+    _colorsReady = true;
   }
 
   @override
@@ -397,7 +407,11 @@ class _HighlightRuleDialogState extends State<_HighlightRuleDialog> {
               TextField(
                 key: const Key('novel-highlight-name'),
                 controller: _name,
-                decoration: const InputDecoration(labelText: '名称（留空用正则本身）'),
+                decoration: InputDecoration(
+                  labelText: '名称（留空用正则本身）',
+                  filled: true,
+                  fillColor: cs.surfaceContainerLowest,
+                ),
               ),
               const SizedBox(height: 10),
               TextField(
@@ -410,6 +424,8 @@ class _HighlightRuleDialogState extends State<_HighlightRuleDialog> {
                   hintText: r'例如 (\d+)章',
                   helperText: _error,
                   helperStyle: TextStyle(color: cs.error),
+                  filled: true,
+                  fillColor: cs.surfaceContainerLowest,
                 ),
                 onChanged: (_) => setState(() => _error = null),
               ),

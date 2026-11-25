@@ -123,6 +123,10 @@ class NovelReaderController extends ChangeNotifier {
   NovelChapter? chapter;
   NovelContent? content;
 
+  /// 净化前的原始正文（正文编辑/替换预览用）：编辑器拿它当样例，
+  /// 免得把已替换过的文本再套一次规则（预览出现 `【【艾琳娜】】`）。
+  NovelContent? rawContent;
+
   /// 正在切换、但还没拿到正文的下一章；非空时正文区仍显示上一章。
   NovelChapter? pendingChapter;
 
@@ -522,6 +526,7 @@ class NovelReaderController extends ChangeNotifier {
         }
       }
       if (_disposed || seq != _loadSeq) return;
+      rawContent = local ?? raw;
       final cleaned = local ?? applyContentReplaceRules(raw);
       chapterIsLocalOverride = local != null;
       _applyContent(

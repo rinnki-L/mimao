@@ -989,7 +989,10 @@ class _NovelReaderPageState extends State<NovelReaderPage>
           bookTitle: _controller.bookTitleNow,
           sourceKey: _controller.sourceKey ?? '',
           bookUrl: _controller.bookUrlNow,
-          sampleText: _controller.content?.paragraphs.join('\n') ?? '',
+          sampleText:
+              _controller.rawContent?.paragraphs.join('\n') ??
+              _controller.content?.paragraphs.join('\n') ??
+              '',
           onHighlightRules: widget.highlightRules == null
               ? null
               : () => _openHighlightRules(),

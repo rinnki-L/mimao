@@ -673,6 +673,12 @@ class _NovelReplaceEditorPageState extends State<NovelReplaceEditorPage> {
     String? validation,
     String after,
   ) {
+    if (_pattern.text.isEmpty) {
+      return Text(
+        '填入「查找」后，这里会显示替换前 / 替换后的对照。',
+        style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+      );
+    }
     if (validation != null) {
       return Text(
         validation,
@@ -815,10 +821,26 @@ class _EffectiveRow extends StatelessWidget {
 
   final NovelReplaceOutcome outcome;
 
-  String _truncate(String text) {
-    final flat = text.replaceAll(RegExp(r'\s+'), ' ').trim();
-    if (flat.length <= 90) return flat;
-    return '${flat.substring(0, 90)}…';
+  /// 截取第一处差异附近的片段：只截开头 90 字时，命中往往在正文深处，
+  /// 「前 / 后」看起来一模一样，对照就失效了。
+  (String, String) _diffExcerpt(String before, String after) {
+    final a = before.replaceAll(RegExp(r'\s+'), ' ').trim();
+    final b = after.replaceAll(RegExp(r'\s+'), ' ').trim();
+    var index = 0;
+    final limit = a.length < b.length ? a.length : b.length;
+    while (index < limit && a.codeUnitAt(index) == b.codeUnitAt(index)) {
+      index++;
+    }
+    const radius = 36;
+    final start = (index - radius).clamp(0, limit);
+    String cut(String text) {
+      final end = (index + radius).clamp(0, text.length);
+      final head = start > 0 ? '…' : '';
+      final tail = end < text.length ? '…' : '';
+      return '$head${text.substring(start, end)}$tail';
+    }
+
+    return (cut(a), cut(b));
   }
 
   @override
@@ -854,14 +876,14 @@ class _EffectiveRow extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            '前：${_truncate(outcome.before)}',
+            '前：${_diffExcerpt(outcome.before, outcome.after).$1}',
             style: theme.textTheme.bodySmall?.copyWith(
               color: cs.onSurfaceVariant,
             ),
           ),
           const SizedBox(height: 2),
           Text(
-            '后：${_truncate(outcome.after)}',
+            '后：${_diffExcerpt(outcome.before, outcome.after).$2}',
             style: theme.textTheme.bodySmall,
           ),
         ],

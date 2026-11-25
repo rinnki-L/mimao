@@ -251,153 +251,160 @@ class _NovelSettingsPageState extends State<NovelSettingsPage> {
           );
         }
         final data = snapshot.data ?? _SettingsData.empty;
+        final items = <Widget>[
+          if (data.error != null) ...<Widget>[
+            Text(
+              data.error!,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.error,
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+          const _SettingsSectionLabel('阅读'),
+          NovelCard(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+            child: Column(
+              children: <Widget>[
+                _SettingsRow(
+                  icon: Icons.flag_outlined,
+                  title: '今日阅读目标',
+                  subtitle: data.stats.goalMinutes == 0
+                      ? '未设置（点右侧修改）'
+                      : '每天 ${data.stats.goalMinutes} 分钟 · 今日已读 '
+                            '${data.stats.todayMinutes} 分钟',
+                  trailing: TextButton(
+                    onPressed: () => _editGoal(data.stats.goalMinutes),
+                    child: const Text('修改'),
+                  ),
+                ),
+                _SettingsRow(
+                  icon: Icons.format_size,
+                  title: '字号与行距',
+                  subtitle: '在阅读页右上角调整',
+                  onTap: () => _toast('打开一本书，在阅读页右上角调整字号。'),
+                ),
+                _SettingsRow(
+                  icon: Icons.swap_horiz,
+                  title: '翻页方式',
+                  subtitle: '在阅读页右上角调整',
+                  onTap: () => _toast('打开一本书，在阅读页右上角调整翻页方式。'),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 22),
+          const _SettingsSectionLabel('数据'),
+          NovelCard(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+            child: Column(
+              children: <Widget>[
+                _SettingsRow(
+                  icon: Icons.search_off,
+                  title: '清除搜索历史',
+                  subtitle: data.searchCount == 0
+                      ? '还没有搜索历史'
+                      : '${data.searchCount} 个关键词',
+                  trailing: TextButton(
+                    onPressed: data.searchCount == 0
+                        ? null
+                        : _clearSearchHistory,
+                    child: const Text('清除'),
+                  ),
+                ),
+                _SettingsRow(
+                  icon: Icons.history_toggle_off,
+                  title: '清空阅读记录',
+                  subtitle: data.stats.booksRead == 0
+                      ? '还没有阅读记录'
+                      : '${data.stats.booksRead} 本书有记录',
+                  trailing: TextButton(
+                    onPressed: data.stats.booksRead == 0
+                        ? null
+                        : _clearReadingHistory,
+                    child: const Text('清空'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 22),
+          const _SettingsSectionLabel('规则'),
+          NovelCard(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+            child: Column(
+              children: <Widget>[
+                _SettingsRow(
+                  icon: Icons.find_replace,
+                  title: '替换规则',
+                  subtitle: data.replaceCount == 0
+                      ? '还没有替换规则（点右侧新建）'
+                      : '${data.replaceCount} 条 · 可视化编辑 + 样例预览',
+                  trailing: TextButton(
+                    onPressed: _openReplaceRules,
+                    child: const Text('编辑'),
+                  ),
+                ),
+                _SettingsRow(
+                  icon: Icons.border_color_outlined,
+                  title: '高亮规则',
+                  subtitle: data.highlightCount == 0
+                      ? '还没有高亮规则（点右侧新建）'
+                      : '${data.highlightCount} 条 · 正则匹配，日夜两套色',
+                  trailing: TextButton(
+                    onPressed: _openHighlightRules,
+                    child: const Text('管理'),
+                  ),
+                ),
+                _SettingsRow(
+                  icon: Icons.source_outlined,
+                  title: '规则管理',
+                  subtitle: data.sourceCount == 0
+                      ? '还没有规则（书源 / 订阅源 / 替换规则）'
+                      : '${data.sourceCount} 个书源 · 订阅源 · 替换规则',
+                  onTap: _openSources,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 22),
+          const _SettingsSectionLabel('关于'),
+          NovelCard(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+            child: Column(
+              children: <Widget>[
+                const _SettingsRow(
+                  icon: Icons.info_outline,
+                  title: '版本',
+                  // 与 pubspec.yaml 的 version 同步；发版时一起改。
+                  subtitle: '0.1.0 · 本地优先，无自建服务器',
+                ),
+                _SettingsRow(
+                  icon: Icons.description_outlined,
+                  title: '开源许可',
+                  subtitle: 'Flutter · drift · dio 等第三方许可',
+                  onTap: () => showLicensePage(
+                    context: context,
+                    applicationName: 'mimao',
+                    applicationLegalese: '本地优先的媒体聚合应用',
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ];
+        // 嵌入式（模块侧栏底部弹面板）外层已经是 SingleChildScrollView，
+        // 这里再放 ListView 会拿到无限高并直接报错——用 Column 让外层滚动。
+        final child = widget.embedded
+            ? Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: items,
+              )
+            : ListView(children: items);
         return NovelPageContent(
           maxWidth: 860,
           padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
-          child: ListView(
-            children: <Widget>[
-              if (data.error != null) ...<Widget>[
-                Text(
-                  data.error!,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.error,
-                  ),
-                ),
-                const SizedBox(height: 12),
-              ],
-              const _SettingsSectionLabel('阅读'),
-              NovelCard(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                child: Column(
-                  children: <Widget>[
-                    _SettingsRow(
-                      icon: Icons.flag_outlined,
-                      title: '今日阅读目标',
-                      subtitle: data.stats.goalMinutes == 0
-                          ? '未设置（点右侧修改）'
-                          : '每天 ${data.stats.goalMinutes} 分钟 · 今日已读 '
-                                '${data.stats.todayMinutes} 分钟',
-                      trailing: TextButton(
-                        onPressed: () => _editGoal(data.stats.goalMinutes),
-                        child: const Text('修改'),
-                      ),
-                    ),
-                    _SettingsRow(
-                      icon: Icons.format_size,
-                      title: '字号与行距',
-                      subtitle: '在阅读页右上角调整',
-                      onTap: () => _toast('打开一本书，在阅读页右上角调整字号。'),
-                    ),
-                    _SettingsRow(
-                      icon: Icons.swap_horiz,
-                      title: '翻页方式',
-                      subtitle: '在阅读页右上角调整',
-                      onTap: () => _toast('打开一本书，在阅读页右上角调整翻页方式。'),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 22),
-              const _SettingsSectionLabel('数据'),
-              NovelCard(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                child: Column(
-                  children: <Widget>[
-                    _SettingsRow(
-                      icon: Icons.search_off,
-                      title: '清除搜索历史',
-                      subtitle: data.searchCount == 0
-                          ? '还没有搜索历史'
-                          : '${data.searchCount} 个关键词',
-                      trailing: TextButton(
-                        onPressed: data.searchCount == 0
-                            ? null
-                            : _clearSearchHistory,
-                        child: const Text('清除'),
-                      ),
-                    ),
-                    _SettingsRow(
-                      icon: Icons.history_toggle_off,
-                      title: '清空阅读记录',
-                      subtitle: data.stats.booksRead == 0
-                          ? '还没有阅读记录'
-                          : '${data.stats.booksRead} 本书有记录',
-                      trailing: TextButton(
-                        onPressed: data.stats.booksRead == 0
-                            ? null
-                            : _clearReadingHistory,
-                        child: const Text('清空'),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 22),
-              const _SettingsSectionLabel('规则'),
-              NovelCard(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                child: Column(
-                  children: <Widget>[
-                    _SettingsRow(
-                      icon: Icons.find_replace,
-                      title: '替换规则',
-                      subtitle: data.replaceCount == 0
-                          ? '还没有替换规则（点右侧新建）'
-                          : '${data.replaceCount} 条 · 可视化编辑 + 样例预览',
-                      trailing: TextButton(
-                        onPressed: _openReplaceRules,
-                        child: const Text('编辑'),
-                      ),
-                    ),
-                    _SettingsRow(
-                      icon: Icons.border_color_outlined,
-                      title: '高亮规则',
-                      subtitle: data.highlightCount == 0
-                          ? '还没有高亮规则（点右侧新建）'
-                          : '${data.highlightCount} 条 · 正则匹配，日夜两套色',
-                      trailing: TextButton(
-                        onPressed: _openHighlightRules,
-                        child: const Text('管理'),
-                      ),
-                    ),
-                    _SettingsRow(
-                      icon: Icons.source_outlined,
-                      title: '规则管理',
-                      subtitle: data.sourceCount == 0
-                          ? '还没有规则（书源 / 订阅源 / 替换规则）'
-                          : '${data.sourceCount} 个书源 · 订阅源 · 替换规则',
-                      onTap: _openSources,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 22),
-              const _SettingsSectionLabel('关于'),
-              NovelCard(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                child: Column(
-                  children: <Widget>[
-                    const _SettingsRow(
-                      icon: Icons.info_outline,
-                      title: '版本',
-                      // 与 pubspec.yaml 的 version 同步；发版时一起改。
-                      subtitle: '0.1.0 · 本地优先，无自建服务器',
-                    ),
-                    _SettingsRow(
-                      icon: Icons.description_outlined,
-                      title: '开源许可',
-                      subtitle: 'Flutter · drift · dio 等第三方许可',
-                      onTap: () => showLicensePage(
-                        context: context,
-                        applicationName: 'mimao',
-                        applicationLegalese: '本地优先的媒体聚合应用',
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
+          child: child,
         );
       },
     );
