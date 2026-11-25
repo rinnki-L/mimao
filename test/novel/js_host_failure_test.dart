@@ -101,6 +101,25 @@ void main() {
     expect(transport.requests.single.body, 'kw=abc');
   });
 
+  test('整段重放不重复执行网络调用前的 java.log/java.put/变量写入', () async {
+    final value = await host.evaluate(
+      'java.log("before"); java.put("k", "v"); '
+      'var b = java.ajax("http://x/page"); '
+      'java.log("after"); java.put("k2", "v2"); '
+      '"done"',
+      context,
+    );
+    expect(value, 'done');
+    // 两次请求只应发生一次预取尝试（body 被缓存）。
+    expect(transport.requests, hasLength(1));
+    // before/after 各出现一次；重复重放不会把 before 再记一遍。
+    expect(host.logs.where((line) => line == 'before'), hasLength(1));
+    expect(host.logs.where((line) => line == 'after'), hasLength(1));
+    // put 的写入也只落地一次（变量值本身幂等，但副作用计数不该重复）。
+    expect(context.callbacks.getRuleVariable('k'), 'v');
+    expect(context.callbacks.getRuleVariable('k2'), 'v2');
+  });
+
   test('首次失败不缓存，第二次重放拿到成功正文', () async {
     transport = _RecordingTransport(failFirst: 1);
     host.dispose();

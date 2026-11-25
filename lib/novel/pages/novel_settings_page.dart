@@ -9,8 +9,12 @@ library;
 import 'package:flutter/material.dart';
 import 'package:mimao/core/theme.dart';
 import 'package:mimao/novel/library_api.dart';
+import 'package:mimao/novel/pages/novel_highlight_rules_page.dart';
+import 'package:mimao/novel/pages/novel_replace_editor_page.dart';
 import 'package:mimao/novel/pages/novel_routes.dart';
 import 'package:mimao/novel/pages/novel_widgets.dart';
+import 'package:mimao/novel/reader/novel_highlight_rule_service.dart';
+import 'package:mimao/novel/source/novel_rule_store.dart';
 import 'package:mimao/novel/source/novel_source_importer.dart';
 import 'package:mimao/novel/source/novel_source_model.dart';
 
@@ -21,6 +25,8 @@ class NovelSettingsPage extends StatefulWidget {
     this.searchHistory,
     this.history,
     this.sourceImporter,
+    this.replaceStore,
+    this.highlightStore,
     this.openRoute,
     this.embedded = false,
   });
@@ -29,6 +35,8 @@ class NovelSettingsPage extends StatefulWidget {
   final NovelSearchHistoryApi? searchHistory;
   final NovelHistoryApi? history;
   final NovelSourceImporter? sourceImporter;
+  final NovelReplaceRuleStorage? replaceStore;
+  final NovelHighlightRuleStorage? highlightStore;
   final NovelRouteOpener? openRoute;
 
   /// true 时不画自己的 Scaffold/AppBar，只返回设置内容——供模块侧栏底部
@@ -64,6 +72,8 @@ class _NovelSettingsPageState extends State<NovelSettingsPage> {
     );
     var searchCount = 0;
     var sources = const <NovelBookSource>[];
+    var replaceCount = 0;
+    var highlightCount = 0;
     final errors = <String>[];
     final statsApi = widget.stats;
     if (statsApi != null) {
@@ -89,10 +99,28 @@ class _NovelSettingsPageState extends State<NovelSettingsPage> {
         errors.add('书源读取失败：$error');
       }
     }
+    final replaceStore = widget.replaceStore;
+    if (replaceStore != null) {
+      try {
+        replaceCount = (await replaceStore.loadAll()).length;
+      } on Object catch (error) {
+        errors.add('替换规则读取失败：$error');
+      }
+    }
+    final highlightStore = widget.highlightStore;
+    if (highlightStore != null) {
+      try {
+        highlightCount = (await highlightStore.loadAll()).length;
+      } on Object catch (error) {
+        errors.add('高亮规则读取失败：$error');
+      }
+    }
     return _SettingsData(
       stats: stats,
       searchCount: searchCount,
       sourceCount: sources.length,
+      replaceCount: replaceCount,
+      highlightCount: highlightCount,
       error: errors.isEmpty ? null : errors.join('\n'),
     );
   }
@@ -174,6 +202,37 @@ class _NovelSettingsPageState extends State<NovelSettingsPage> {
 
   Future<void> _openSources() async {
     await openNovelRoute(context, widget.openRoute, NovelRoute.sourceManage);
+    if (mounted) _reload();
+  }
+
+  Future<void> _openReplaceRules() async {
+    final store = widget.replaceStore;
+    if (store == null) {
+      _toast('替换规则仓库未启用，重启应用后再试。');
+      return;
+    }
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'novel/replace-editor'),
+        builder: (_) => NovelReplaceEditorPage(store: store),
+      ),
+    );
+    if (mounted) _reload();
+  }
+
+  Future<void> _openHighlightRules() async {
+    final store = widget.highlightStore;
+    if (store == null) {
+      _toast('高亮规则服务未启用，重启应用后再试。');
+      return;
+    }
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'novel/highlight-rules'),
+        builder: (_) =>
+            NovelHighlightRulesPage(store: store, bookId: '', bookTitle: ''),
+      ),
+    );
     if (mounted) _reload();
   }
 
@@ -280,6 +339,28 @@ class _NovelSettingsPageState extends State<NovelSettingsPage> {
                 child: Column(
                   children: <Widget>[
                     _SettingsRow(
+                      icon: Icons.find_replace,
+                      title: '替换规则',
+                      subtitle: data.replaceCount == 0
+                          ? '还没有替换规则（点右侧新建）'
+                          : '${data.replaceCount} 条 · 可视化编辑 + 样例预览',
+                      trailing: TextButton(
+                        onPressed: _openReplaceRules,
+                        child: const Text('编辑'),
+                      ),
+                    ),
+                    _SettingsRow(
+                      icon: Icons.border_color_outlined,
+                      title: '高亮规则',
+                      subtitle: data.highlightCount == 0
+                          ? '还没有高亮规则（点右侧新建）'
+                          : '${data.highlightCount} 条 · 正则匹配，日夜两套色',
+                      trailing: TextButton(
+                        onPressed: _openHighlightRules,
+                        child: const Text('管理'),
+                      ),
+                    ),
+                    _SettingsRow(
                       icon: Icons.source_outlined,
                       title: '规则管理',
                       subtitle: data.sourceCount == 0
@@ -333,6 +414,8 @@ class _SettingsData {
     required this.stats,
     required this.searchCount,
     required this.sourceCount,
+    this.replaceCount = 0,
+    this.highlightCount = 0,
     this.error,
   });
 
@@ -351,6 +434,8 @@ class _SettingsData {
   final NovelStats stats;
   final int searchCount;
   final int sourceCount;
+  final int replaceCount;
+  final int highlightCount;
   final String? error;
 }
 

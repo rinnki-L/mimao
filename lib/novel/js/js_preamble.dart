@@ -12,6 +12,18 @@ const String legadoInitGlobalSetter = '(key, value) => { this[key] = value; }';
 
 /// 注入一次的全局兼容层。
 const String legadoInitJs = r'''
+// 整段重放时保持 Date.now()/Math.random() 稳定：同一段脚本的多次重放复用
+// 第一次的取值，否则依赖时间戳/随机数的签名在预取前后不一致，服务端拒签。
+// 每次新的顶层 evaluate() 由宿主调 __resetPins 清一次。
+var __pinnedNow = null;
+var __pinnedRandomByIndex = {};
+
+function __resetPins() {
+  __pinnedNow = null;
+  __pinnedRandomByIndex = {};
+  __randomCallIndex = 0;
+}
+
 function __call(name, args) {
   const r = __native(name, args || []);
   if (r && typeof r === 'object') {
@@ -126,13 +138,41 @@ const java = {
     };
   },
   createAsymmetricCrypto(transformation) {
+    var publicKey = '';
+    var privateKey = '';
     return {
-      decrypt() { return []; },
-      decryptStr() { return ''; },
-      encryptBase64(data) { return ''; }
+      setPublicKey(key) { publicKey = String(key); },
+      setPrivateKey(key) { privateKey = String(key); },
+      decrypt(data) {
+        const b64 = __call('crypto.rsaDecryptBytes', [String(data), privateKey]) || [];
+        return b64;
+      },
+      decryptStr(data) {
+        return __call('crypto.rsaDecryptBase64', [String(data), privateKey]) || '';
+      },
+      encryptBase64(data) {
+        return __call('crypto.rsaEncryptBase64', [String(data), publicKey]) || '';
+      },
+      encrypt(data) {
+        const b64 = __call('crypto.rsaEncryptBase64', [String(data), publicKey]) || '';
+        return __call('base64DecodeToByteArray', [b64]) || [];
+      }
     };
   },
-  createSign(algorithm) { return { sign: () => '' }; },
+  createSign(algorithm) {
+    var privateKey = '';
+    var publicKey = '';
+    return {
+      setPrivateKey(key) { privateKey = String(key); },
+      setPublicKey(key) { publicKey = String(key); },
+      sign(data) {
+        return __call('crypto.rsaSignBase64', [String(data), algorithm, privateKey]) || '';
+      },
+      verify(data, signature) {
+        return __call('crypto.rsaVerifyBase64', [String(data), algorithm, publicKey, String(signature)]) || false;
+      }
+    };
+  },
   aesDecodeToString(data, key, transformation, iv) {
     return __call('crypto.decrypt', [transformation, key, iv, data]) || '';
   },
@@ -246,6 +286,22 @@ const Packages = {
       }
     }
   }
+};
+
+// 钉住时间/随机源：按"第几次调用"缓存，重放时第 N 次 Math.random()
+// 拿到与第一次相同的值，签名前后一致；新脚本由 __resetPins 重新开一轮。
+var __randomCallIndex = 0;
+Date.now = function() {
+  if (__pinnedNow === null) __pinnedNow = new Date().getTime();
+  return __pinnedNow;
+};
+var __originalRandom = Math.random;
+Math.random = function() {
+  const i = __randomCallIndex++;
+  if (__pinnedRandomByIndex[i] === undefined) {
+    __pinnedRandomByIndex[i] = __originalRandom();
+  }
+  return __pinnedRandomByIndex[i];
 };
 
 if (typeof globalThis !== 'undefined') {

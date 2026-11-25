@@ -914,12 +914,16 @@ class NovelCatalogSheet extends StatefulWidget {
     required this.currentIndex,
     required this.onPick,
     required this.settings,
+    this.bookmarkedChapterIndexes = const <int>{},
   });
 
   final List<({String title, bool isVolume, bool isVip})> chapters;
   final int currentIndex;
   final ValueChanged<int> onPick;
   final NovelReaderSettings settings;
+
+  /// 有书签的章下标；目录行据此显示角标。
+  final Set<int> bookmarkedChapterIndexes;
 
   @override
   State<NovelCatalogSheet> createState() => _NovelCatalogSheetState();
@@ -999,6 +1003,9 @@ class _NovelCatalogSheetState extends State<NovelCatalogSheet> {
                     );
                   }
                   final selected = index == widget.currentIndex;
+                  final bookmarked = widget.bookmarkedChapterIndexes.contains(
+                    index,
+                  );
                   return ListTile(
                     key: selected ? _selectedKey : null,
                     dense: true,
@@ -1013,8 +1020,27 @@ class _NovelCatalogSheetState extends State<NovelCatalogSheet> {
                           ? TextStyle(color: theme.colorScheme.primary)
                           : null,
                     ),
-                    trailing: chapter.isVip
-                        ? Icon(Icons.lock_outline, size: 14, color: secondary)
+                    trailing: chapter.isVip || bookmarked
+                        ? Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: <Widget>[
+                              if (bookmarked)
+                                Padding(
+                                  padding: const EdgeInsets.only(right: 6),
+                                  child: Icon(
+                                    Icons.bookmark,
+                                    size: 15,
+                                    color: theme.colorScheme.primary,
+                                  ),
+                                ),
+                              if (chapter.isVip)
+                                Icon(
+                                  Icons.lock_outline,
+                                  size: 14,
+                                  color: secondary,
+                                ),
+                            ],
+                          )
                         : null,
                     onTap: () => widget.onPick(index),
                   );

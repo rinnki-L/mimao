@@ -32,6 +32,7 @@ class AnalyzeUrl {
     required this.key,
     required this.page,
     required this.baseUrl,
+    required this.timeout,
   });
 
   /// 原始规则串（日志/错误展示用）。
@@ -49,6 +50,7 @@ class AnalyzeUrl {
   final String? key;
   final int? page;
   final String baseUrl;
+  final Duration timeout;
 
   String? charset;
   String? body;
@@ -69,6 +71,7 @@ class AnalyzeUrl {
     String? key,
     int? page,
     Map<String, String>? headerOverride,
+    Duration timeout = const Duration(seconds: 30),
   }) async {
     final result = AnalyzeUrl._(
       ruleUrl: ruleUrl,
@@ -89,6 +92,7 @@ class AnalyzeUrl {
       key: key,
       page: page,
       baseUrl: baseUrl,
+      timeout: timeout,
     );
     await result._init(ruleUrl);
     return result;
@@ -178,6 +182,7 @@ class AnalyzeUrl {
       retry: retry,
       useCookieJar: source?.enabledCookieJar ?? true,
       sourceKey: source?.key,
+      timeout: timeout,
     );
     final response = await transport.send(request);
     var finalBody = response.body;
@@ -405,6 +410,10 @@ class AnalyzeUrl {
     if (index < 0) return url;
     final query = url.substring(index + 1);
     if (query.isEmpty) return url;
+    if (charset == 'escape') {
+      // 显式 escape 不做"已编码"检查，按 JS escape() 逐 key/value 编码。
+      return '${url.substring(0, index)}?${_escapeParams(query)}';
+    }
     if (_isEncodedQuery(query)) return url;
     final encoding = _encodingFor(charset);
     final buffer = StringBuffer();
@@ -452,11 +461,16 @@ class AnalyzeUrl {
         (code >= 0x30 && code <= 0x39)) {
       return true;
     }
-    return '_.-~!\$&()*+,/:;=?@[]^`{|}\\'.codeUnits.contains(code);
+    // '%' 必须进安全集：query 里已编码的 `%E4%B8%AD` 与未编码字符混合时，
+    // 若把 '%' 再编码成 %25，整段 query 会被二次编码而失效。
+    return '_.-~!\$&()*+,/:;=?@[]^`{|}\\%'.codeUnits.contains(code);
   }
 
   static String _encodeForm(String body, String? charset) {
     final encoding = _encodingFor(charset);
+    final useEscape = charset == 'escape';
+    // 显式 charset 时 Kotlin 不做"已编码"检查（checkEncoded=false）；
+    // escape 也属显式 charset，始终重新编码。
     final checkEncoded = charset == null || charset.isEmpty;
     final buffer = StringBuffer();
     for (final pair in body.split('&')) {
@@ -464,11 +478,11 @@ class AnalyzeUrl {
       final eq = pair.indexOf('=');
       final key = eq < 0 ? pair : pair.substring(0, eq);
       final value = eq < 0 ? null : pair.substring(eq + 1);
-      buffer.write(_encodeFormValue(key, encoding, checkEncoded));
+      buffer.write(_encodeFormValue(key, encoding, checkEncoded, useEscape));
       if (value != null) {
         buffer
           ..write('=')
-          ..write(_encodeFormValue(value, encoding, checkEncoded));
+          ..write(_encodeFormValue(value, encoding, checkEncoded, useEscape));
       }
     }
     return buffer.toString();
@@ -477,9 +491,13 @@ class AnalyzeUrl {
   static String _encodeFormValue(
     String value,
     Encoding encoding,
-    bool checkEncoded,
-  ) {
+    bool checkEncoded, [
+    bool useEscape = false,
+  ]) {
     if (checkEncoded && _isEncodedQuery(value)) return value;
+    // charset:'escape' 走 JS escape() 语义：非 ASCII 编成 %uXXXX，而不是
+    // 按 UTF-8 逐字节编成 %XX（对齐 Kotlin EncoderUtils.escape）。
+    if (useEscape) return _jsEscape(value);
     final buffer = StringBuffer();
     for (final char in value.split('')) {
       final code = char.codeUnitAt(0);
@@ -510,6 +528,48 @@ class AnalyzeUrl {
     }
     if (charset == 'escape') return utf8;
     return Charset.getByName(charset) ?? utf8;
+  }
+
+  /// JS `escape()`：字母数字与 `@*_+-./` 原样，其余按 UTF-16 码元编成
+  /// `%XX`（<256）或 `%uXXXX`（>=256）。对齐 Kotlin EncoderUtils.escape。
+  static String _jsEscape(String text) {
+    const safe = r'@*_+-./';
+    final buffer = StringBuffer();
+    for (final unit in text.codeUnits) {
+      if ((unit >= 0x41 && unit <= 0x5A) ||
+          (unit >= 0x61 && unit <= 0x7A) ||
+          (unit >= 0x30 && unit <= 0x39) ||
+          (unit < 128 && safe.contains(String.fromCharCode(unit)))) {
+        buffer.writeCharCode(unit);
+      } else if (unit < 256) {
+        buffer
+          ..write('%')
+          ..write(unit.toRadixString(16).toUpperCase().padLeft(2, '0'));
+      } else {
+        buffer
+          ..write('%u')
+          ..write(unit.toRadixString(16).toUpperCase().padLeft(4, '0'));
+      }
+    }
+    return buffer.toString();
+  }
+
+  /// 把 query 按 key/value 逐段 escape（保留 `&` / `=` 结构符）。
+  static String _escapeParams(String query) {
+    final buffer = StringBuffer();
+    for (final pair in query.split('&')) {
+      if (buffer.isNotEmpty) buffer.write('&');
+      final eq = pair.indexOf('=');
+      if (eq < 0) {
+        buffer.write(_jsEscape(pair));
+      } else {
+        buffer
+          ..write(_jsEscape(pair.substring(0, eq)))
+          ..write('=')
+          ..write(_jsEscape(pair.substring(eq + 1)));
+      }
+    }
+    return buffer.toString();
   }
 
   static String _decodeDataUri(String uri) {

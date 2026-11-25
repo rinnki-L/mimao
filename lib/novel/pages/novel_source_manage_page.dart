@@ -21,6 +21,7 @@ import '../source/novel_subscription.dart'
         NovelSourceSubscription,
         NovelSubscriptionStore,
         defaultNovelSubscription;
+import 'novel_source_detail_page.dart';
 import 'novel_source_site_page.dart';
 import 'novel_rule_import_dialog.dart';
 import 'novel_widgets.dart';
@@ -284,18 +285,39 @@ class _NovelSourceManagePageState extends State<NovelSourceManagePage>
         final source = _sources[index];
         return NovelSourceCard(
           source: source,
+          onTap: () => Navigator.of(context).push<void>(
+            MaterialPageRoute<void>(
+              settings: const RouteSettings(name: 'novel/source-detail'),
+              builder: (_) => NovelSourceDetailPage(source: source),
+            ),
+          ),
           onToggle: (value) async {
             await widget.store.setEnabled(source.key, value);
             await _reloadAll();
           },
-          trailing: IconButton(
-            tooltip: '删除书源',
-            icon: const Icon(Icons.delete_outline),
-            onPressed: () => _confirmDelete(
-              title: '删除书源「${source.name}」？',
-              message: '只会删除本机保存的书源文件，不影响网站上的书源。',
-              onDelete: () => widget.store.delete(source.key),
-            ),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              IconButton(
+                tooltip: '书源能力说明',
+                icon: const Icon(Icons.info_outline),
+                onPressed: () => Navigator.of(context).push<void>(
+                  MaterialPageRoute<void>(
+                    settings: const RouteSettings(name: 'novel/source-detail'),
+                    builder: (_) => NovelSourceDetailPage(source: source),
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: '删除书源',
+                icon: const Icon(Icons.delete_outline),
+                onPressed: () => _confirmDelete(
+                  title: '删除书源「${source.name}」？',
+                  message: '只会删除本机保存的书源文件，不影响网站上的书源。',
+                  onDelete: () => widget.store.delete(source.key),
+                ),
+              ),
+            ],
           ),
         );
       },

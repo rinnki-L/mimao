@@ -8,6 +8,26 @@ import 'package:mimao/novel/engine/novel_http_client.dart';
 import 'package:mimao/novel/models/novel_models.dart';
 import 'package:mimao/novel/source/novel_source_model.dart';
 
+import 'js_native_guard.dart';
+
+/// 记录每次请求使用的 timeout。
+class _TimeoutRecordingTransport implements NovelHttpTransport {
+  final List<Duration> timeouts = <Duration>[];
+
+  @override
+  Future<NovelHttpResponse> send(NovelHttpRequest request) async {
+    timeouts.add(request.timeout);
+    return NovelHttpResponse(
+      url: request.url,
+      statusCode: 200,
+      body: '<html><body><ul class="result"></ul></body></html>',
+    );
+  }
+
+  @override
+  void close() {}
+}
+
 class _FixtureTransport implements NovelHttpTransport {
   final List<String> requested = <String>[];
 
@@ -234,6 +254,44 @@ void main() {
     expect(books.single.title, '书名一');
   });
 
+  test('发现页列表选择器失效时返回空列表，不把页面当幽灵书', () async {
+    // 列表选择器指向不存在的 class，但详情名规则能匹配页面标题——旧实现会
+    // 走单书详情回退，把整页伪装成一本书（幽灵书）。
+    final broken = NovelBookSource(
+      key: 'src1',
+      name: '坏列表源',
+      url: source.url,
+      type: 0,
+      enabled: true,
+      raw: <String, dynamic>{
+        ...source.raw,
+        'ruleExplore': <String, dynamic>{
+          'bookList': 'class.no-such-list@li',
+          'name': 'a@text',
+        },
+        'ruleBookInfo': <String, dynamic>{'name': 'a@text'},
+      },
+    );
+    final kinds = await engine.exploreKinds(broken);
+    final books = await engine.exploreSource(broken, kinds.first, page: 1);
+    expect(books, isEmpty);
+  });
+
+  test('requestTimeout 贯通到每次请求的 NovelHttpRequest.timeout', () async {
+    final recording = _TimeoutRecordingTransport();
+    final timed = LegadoNovelEngine(
+      transport: recording,
+      requestTimeout: const Duration(seconds: 7),
+    );
+    addTearDown(timed.close);
+    await timed.searchSource(source, '关键词');
+    expect(recording.timeouts, isNotEmpty);
+    expect(
+      recording.timeouts.every((t) => t == const Duration(seconds: 7)),
+      isTrue,
+    );
+  });
+
   test('详情 + 目录：分页、去重、阅读顺序、索引重排', () async {
     final detail = await engine.bookDetail(
       source,
@@ -255,6 +313,41 @@ void main() {
     ]);
     expect(detail.chapters.map((chapter) => chapter.index), <int>[0, 1, 2, 3]);
     expect(detail.chapters.first.url, 'https://site.test/book/1/1');
+  });
+
+  test('tocFormatJs 逐条格式化目录标题（gInt/index/title 绑定）', () async {
+    if (!hasNativeQuickJs()) {
+      if (requireNativeQuickJs) fail(missingNativeMessage);
+      return; // 本地无 native 时该用例无意义，其余测试不受影响。
+    }
+    final formatted = NovelBookSource(
+      key: 'src1',
+      name: '格式化源',
+      url: source.url,
+      type: 0,
+      enabled: true,
+      raw: <String, dynamic>{
+        ...source.raw,
+        'ruleToc': <String, dynamic>{
+          ...(source.raw['ruleToc'] as Map<String, dynamic>),
+          'formatJs': 'index + ":" + title',
+        },
+      },
+    );
+    final detail = await engine.bookDetail(
+      formatted,
+      NovelRef(
+        id: 'src1::https://site.test/book/1',
+        sourceKey: 'src1',
+        bookUrl: 'https://site.test/book/1',
+      ),
+    );
+    expect(detail.chapters.map((chapter) => chapter.title), <String>[
+      '1:第一章',
+      '2:第二章',
+      '3:第三章',
+      '4:第四章',
+    ]);
   });
 
   test('正文：分页拼接、标题覆盖、HTML 转段落、缓存命中', () async {

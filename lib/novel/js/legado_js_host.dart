@@ -60,10 +60,22 @@ class LegadoJsHost {
   final Map<String, Map<String, String>> _cookies =
       <String, Map<String, String>>{};
   final Map<String, Object?> _memory = <String, Object?>{};
+  final List<Future<void>> _pendingCookieWrites = <Future<void>>[];
   Map<String, String> _bookVariables = <String, String>{};
   String _sourceVariable = '';
   RuleJsContext? _currentContext;
   final List<String> logs = <String>[];
+
+  // 整段重放副作用隔离：一段顶层脚本的多次重放视为同一"代"（epoch）。
+  // 每个副作用调用（java.put/log/变量写入等）按调用序号去重：第 i 个副作用
+  // 在第一次执行时真正落地并记入 _appliedSideEffects；重放时同序号的副作用
+  // 被跳过，网络调用之后新出现的副作用才继续落地。这样既保留脚本语义，
+  // 又不会把 java.put/log/变量写入重复执行。
+  /// 已真正落地到外部世界的副作用高水位（跨同一次脚本的重放保留）。
+  int _committedSideEffects = 0;
+
+  /// 当前这一次重放内部的副作用调用序号（每次重放从 0 重新计数）。
+  int _sideEffectCursor = 0;
 
   Future<void> _ensureInitialized() async {
     if (_dispatcher != null) return;
@@ -86,6 +98,10 @@ class LegadoJsHost {
     final previous = _currentContext;
     _currentContext = context;
     _bookVariables = <String, String>{...context.variables};
+    // 新的一段顶层脚本：重开时间/随机数的钉住窗口，让同一段脚本的多次
+    // 网络预取重放拿到稳定的签名素材，但不同脚本之间互不影响。
+    JSRef.freeRecursive(_engine.evaluate('__resetPins()'));
+    _committedSideEffects = 0;
     try {
       final script = jsonEncode(code);
       final wrapper =
@@ -96,6 +112,8 @@ class LegadoJsHost {
           '  catch (e) { return String(__v); } '
           '} return __v; })()';
       for (var attempt = 0; attempt < 30; attempt++) {
+        // 每次重放内部副作用序号从 0 重数；已提交的高水位跨重放保留。
+        _sideEffectCursor = 0;
         _applyBindings(context);
         try {
           final value = _engine.evaluate(wrapper, name: '<legado-js>');
@@ -120,7 +138,8 @@ class LegadoJsHost {
     }
   }
 
-  /// 加载书源 `jsLib`（全局函数库）。只执行一次，失败记录不抛出。
+  /// 加载书源 `jsLib`（全局函数库）。失败时记录日志并向上抛出，
+  /// 由调用方（引擎）决定是否回滚已加载标记、下一轮重试（不阻断主流程）。
   Future<void> loadLibrary(String code) async {
     if (code.trim().isEmpty || _closed) return;
     await _ensureInitialized();
@@ -128,6 +147,7 @@ class LegadoJsHost {
       JSRef.freeRecursive(_engine.evaluate(code, name: '<legado-js-lib>'));
     } on Object catch (error) {
       logs.add('jsLib 加载失败：$error');
+      rethrow;
     }
   }
 
@@ -147,6 +167,9 @@ class LegadoJsHost {
     _setGlobal?.free();
     _setGlobal = null;
     _engine.close();
+    // FlutterQjs.close() 不关 port，而 dispatch() 是 `await for (port)` 的
+    // 无限循环；不关 port 每 dispose 一个宿主就泄漏一个常驻异步循环。
+    _engine.port.close();
   }
 
   // ---------------------------------------------------------------------------
@@ -156,6 +179,15 @@ class LegadoJsHost {
     final sourceInfo = _json(context.sourceInfo);
     final bookInfo = _json(context.bookInfo);
     final chapterInfo = _json(context.chapterInfo);
+    // 额外变量（如 tocFormatJs 的 1 基 index / gInt）注入为全局，
+    // 让 legado 的 formatJs 能读到 `index` / `gInt`。
+    final extra = StringBuffer();
+    for (final entry in context.variables.entries) {
+      if (entry.key == 'gInt' || entry.key == 'index') {
+        final value = int.tryParse(entry.value) ?? 0;
+        extra.write('globalThis.${entry.key} = $value;');
+      }
+    }
     final chapter = <String, Object?>{
       'title': context.chapterInfo['title'] ?? context.chapterTitle ?? '',
       'index': int.tryParse(context.chapterInfo['index'] ?? '') ?? 0,
@@ -176,7 +208,8 @@ class LegadoJsHost {
         'globalThis.page = ${context.page ?? 0};'
         'globalThis.src = $content;'
         'globalThis.nextChapterUrl = "";'
-        'globalThis.fromBookInfo = false;',
+        'globalThis.fromBookInfo = false;'
+        '$extra',
         name: '<legado-bindings>',
       ),
     );
@@ -274,6 +307,9 @@ class LegadoJsHost {
       response.statusCode >= 500 || response.body.startsWith('ERROR:');
 
   Future<void> _prefetch(List<Map<String, Object?>> specs) async {
+    // cookie.setCookie 是同步桥；先把排队的写入 flush 到 HTTP CookieJar，
+    // 再发请求，否则脚本刚写的登录态丢失。
+    await _flushCookieWrites();
     for (final spec in specs) {
       final kind = '${spec['kind'] ?? 'body'}';
       final url = '${spec['url'] ?? ''}';
@@ -383,6 +419,21 @@ class LegadoJsHost {
   // ---------------------------------------------------------------------------
   // 同步分派（JS → Dart）
 
+  /// 副作用只在"第一次到达该调用序号"时真正执行；同一脚本的重放里，
+  /// 已提交过的序号直接跳过，避免 java.put/log/变量写入被重复执行。
+  /// 返回 true 表示本次应真正落地，false 表示是重放的重复调用。
+  bool _commitOnce() {
+    final index = _sideEffectCursor++;
+    if (index < _committedSideEffects) return false;
+    if (index == _committedSideEffects) {
+      _committedSideEffects = index + 1;
+      return true;
+    }
+    // index > 水位：本轮新出现的副作用，推进水位并落地。
+    _committedSideEffects = index + 1;
+    return true;
+  }
+
   Object? _dispatch(String name, dynamic rawArgs) {
     final args = rawArgs is List ? rawArgs : const <dynamic>[];
     final context = _currentContext;
@@ -450,10 +501,12 @@ class LegadoJsHost {
         context?.callbacks.setContent(_coerceContent(_arg(args, 0)));
         return null;
       case 'put':
-        context?.callbacks.putRuleVariable(
-          '${_arg(args, 0)}',
-          '${_arg(args, 1)}',
-        );
+        if (_commitOnce()) {
+          context?.callbacks.putRuleVariable(
+            '${_arg(args, 0)}',
+            '${_arg(args, 1)}',
+          );
+        }
         return _arg(args, 1);
       case 'get':
         return context?.callbacks.getRuleVariable('${_arg(args, 0)}') ?? '';
@@ -461,18 +514,20 @@ class LegadoJsHost {
       case 'source.getVariable':
         return _sourceVariable;
       case 'source.setVariable':
-        _sourceVariable = '${_arg(args, 0)}';
+        if (_commitOnce()) _sourceVariable = '${_arg(args, 0)}';
         return _sourceVariable;
       case 'book.getVariable':
         final key = _arg(args, 0)?.toString();
         if (key == null || key.isEmpty) return jsonEncode(_bookVariables);
         return _bookVariables[key] ?? '';
       case 'book.putVariable':
-        _bookVariables['${_arg(args, 0)}'] = '${_arg(args, 1)}';
-        context?.callbacks.putRuleVariable(
-          '${_arg(args, 0)}',
-          '${_arg(args, 1)}',
-        );
+        if (_commitOnce()) {
+          _bookVariables['${_arg(args, 0)}'] = '${_arg(args, 1)}';
+          context?.callbacks.putRuleVariable(
+            '${_arg(args, 0)}',
+            '${_arg(args, 1)}',
+          );
+        }
         return _arg(args, 1);
       case 'book.setReverseToc':
         return null;
@@ -480,19 +535,23 @@ class LegadoJsHost {
       case 'cookie.get':
         return _cookieGet(_arg(args, 0)?.toString(), _arg(args, 1)?.toString());
       case 'cookie.set':
-        _cookieSet(_arg(args, 0)?.toString(), '${_arg(args, 1)}');
+        if (_commitOnce()) {
+          _cookieSet(_arg(args, 0)?.toString(), '${_arg(args, 1)}');
+        }
         return null;
       case 'cookie.remove':
-        _cookies.remove(_arg(args, 0)?.toString());
+        if (_commitOnce()) _cookies.remove(_arg(args, 0)?.toString());
         return null;
 
       case 'cache.get':
         return _memory[_arg(args, 0)?.toString() ?? ''];
       case 'cache.put':
-        _memory[_arg(args, 0)?.toString() ?? ''] = _arg(args, 1);
+        if (_commitOnce()) {
+          _memory[_arg(args, 0)?.toString() ?? ''] = _arg(args, 1);
+        }
         return null;
       case 'cache.remove':
-        _memory.remove(_arg(args, 0)?.toString() ?? '');
+        if (_commitOnce()) _memory.remove(_arg(args, 0)?.toString() ?? '');
         return null;
 
       case 'md5Encode':
@@ -581,6 +640,25 @@ class LegadoJsHost {
           _arg(args, 2),
           _arg(args, 3),
         );
+      case 'crypto.rsaEncryptBase64':
+        return helpers.rsaEncryptBase64('${_arg(args, 0)}', '${_arg(args, 1)}');
+      case 'crypto.rsaSignBase64':
+        return helpers.rsaSignBase64(
+          '${_arg(args, 0)}',
+          '${_arg(args, 1)}',
+          '${_arg(args, 2)}',
+        );
+      case 'crypto.rsaVerifyBase64':
+        return helpers.rsaVerifyBase64(
+          '${_arg(args, 0)}',
+          '${_arg(args, 1)}',
+          '${_arg(args, 2)}',
+          '${_arg(args, 3)}',
+        );
+      case 'crypto.rsaDecryptBase64':
+        return helpers.rsaDecryptText('${_arg(args, 0)}', '${_arg(args, 1)}');
+      case 'crypto.rsaDecryptBytes':
+        return helpers.rsaDecryptBytes('${_arg(args, 0)}', '${_arg(args, 1)}');
 
       case 'timeFormat':
         final time = _intArg(args, 0);
@@ -593,9 +671,9 @@ class LegadoJsHost {
           _intArg(args, 2),
         );
       case 't2s':
-        return '${_arg(args, 0)}';
+        return helpers.toSimplified('${_arg(args, 0)}');
       case 's2t':
-        return '${_arg(args, 0)}';
+        return helpers.toTraditional('${_arg(args, 0)}');
       case 'toNumChapter':
         return helpers.toNumChapter('${_arg(args, 0)}');
       case 'randomUUID':
@@ -603,7 +681,7 @@ class LegadoJsHost {
       case 'getWebViewUA':
         return _userAgent;
       case 'log':
-        logs.add('${_arg(args, 0)}');
+        if (_commitOnce()) logs.add('${_arg(args, 0)}');
         return null;
 
       case 'dom.text':
@@ -748,6 +826,25 @@ class LegadoJsHost {
           .substring(index + 1)
           .trim();
     }
+    // 同步桥无法 await：把写入排到异步侧，并在网络预取前 flush，
+    // 让同源 ajax 真的带上脚本刚写的 Cookie。
+    final sink = _transport;
+    if (sink is! NovelCookieSink) return;
+    final cookieSink = sink as NovelCookieSink;
+    final url = tag ?? _source?.url ?? '';
+    final write = cookieSink.setCookie(_source?.key, url, value).catchError((
+      Object _,
+    ) {
+      logs.add('Cookie 写入失败：$url');
+    });
+    _pendingCookieWrites.add(write);
+  }
+
+  Future<void> _flushCookieWrites() async {
+    if (_pendingCookieWrites.isEmpty) return;
+    final pending = List<Future<void>>.from(_pendingCookieWrites);
+    _pendingCookieWrites.clear();
+    await Future.wait(pending, eagerError: false);
   }
 
   Object? _arg(List<dynamic> args, int index) =>

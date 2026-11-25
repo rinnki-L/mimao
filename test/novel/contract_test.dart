@@ -103,13 +103,29 @@ void main() {
       title: '书名',
       coverUrl: 'https://example.com/c.jpg',
       author: '作者',
+      sourceName: 'legado',
+      sourceKey: 'src-9',
+      bookUrl: 'https://example.com/book/1',
+      intro: '简介',
+      kind: '玄幻,都市',
+      latestChapter: '第100章',
+      wordCount: '30万字',
+      type: 0,
     );
     final restoredSummary = NovelSummary.fromJson(summary.toJson());
+    // 这些字段决定"从书架恢复在线抓取"能否成功，缺一个都会让续读断链。
     expect(restoredSummary.id, summary.id);
     expect(restoredSummary.title, summary.title);
     expect(restoredSummary.coverUrl, summary.coverUrl);
     expect(restoredSummary.author, summary.author);
     expect(restoredSummary.sourceName, summary.sourceName);
+    expect(restoredSummary.sourceKey, 'src-9');
+    expect(restoredSummary.bookUrl, 'https://example.com/book/1');
+    expect(restoredSummary.intro, '简介');
+    expect(restoredSummary.kind, '玄幻,都市');
+    expect(restoredSummary.latestChapter, '第100章');
+    expect(restoredSummary.wordCount, '30万字');
+    expect(restoredSummary.type, 0);
 
     const chapters = <NovelChapter>[
       NovelChapter(id: 'c1', title: '第一章', index: 1, url: 'https://x/1'),

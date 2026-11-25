@@ -17,6 +17,7 @@ enum NovelRoute {
   search('novel/search', '搜索', Icons.search),
   sourceManage('novel/source-manage', '规则管理', Icons.source),
   history('novel/history', '阅读记录', Icons.history),
+  bookmarks('novel/bookmarks', '书签', Icons.bookmark_border),
   settings('novel/settings', '设置', Icons.settings);
 
   const NovelRoute(this.routeName, this.label, this.icon);

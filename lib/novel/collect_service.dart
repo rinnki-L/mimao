@@ -50,7 +50,12 @@ class NovelCollectService extends ChangeNotifier implements NovelCollectApi {
             id: ref.id,
             title: title,
             coverUrl: Value(coverUrl),
-            payload: Value(book == null ? '{}' : jsonEncode(book.toJson())),
+            // 没带新书籍快照时保留旧的 payload（对齐 history 的 Value.absent），
+            // 否则重复收藏/纯元数据刷新会把 sourceKey/bookUrl/intro 等在线
+            // 续读信息擦成 '{}'，造成潜伏的续读失败。
+            payload: book == null
+                ? const Value.absent()
+                : Value(jsonEncode(book.toJson())),
             // 未显式给分组时保留原分组：重复收藏/更新元数据不该把用户分组清掉。
             groupName: Value(groupName ?? existing?.groupName),
             collectedAt: at,

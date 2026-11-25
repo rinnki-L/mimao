@@ -224,6 +224,7 @@ class NovelReaderSettings {
     List<NovelClickAction>? clickZones,
     this.longPressAction = NovelLongPressAction.selectText,
     this.doubleTapAction = NovelDoubleTapAction.none,
+    this.swipeDownBookmark = false,
     this.autoPageSeconds = 15,
     this.showFooter = true,
     this.footerLeft = NovelFooterLeft.chapter,
@@ -370,6 +371,9 @@ class NovelReaderSettings {
 
   /// 双击动作（默认无）。
   final NovelDoubleTapAction doubleTapAction;
+
+  /// 在正文顶部继续下滑时加/删书签（默认关：避免与回弹/刷新抢手势）。
+  final bool swipeDownBookmark;
 
   /// 自动翻页间隔（秒）。
   final int autoPageSeconds;
@@ -617,6 +621,7 @@ class NovelReaderSettings {
     List<NovelClickAction>? clickZones,
     NovelLongPressAction? longPressAction,
     NovelDoubleTapAction? doubleTapAction,
+    bool? swipeDownBookmark,
     int? autoPageSeconds,
     bool? showFooter,
     NovelFooterLeft? footerLeft,
@@ -717,6 +722,7 @@ class NovelReaderSettings {
           : normalizeClickZones(clickZones),
       longPressAction: longPressAction ?? this.longPressAction,
       doubleTapAction: doubleTapAction ?? this.doubleTapAction,
+      swipeDownBookmark: swipeDownBookmark ?? this.swipeDownBookmark,
       autoPageSeconds: (autoPageSeconds ?? this.autoPageSeconds).clamp(
         minAutoPageSeconds,
         maxAutoPageSeconds,
@@ -869,6 +875,7 @@ class NovelReaderSettings {
     'clickZones': <String>[for (final action in clickZones) action.name],
     'longPressAction': longPressAction.name,
     'doubleTapAction': doubleTapAction.name,
+    'swipeDownBookmark': swipeDownBookmark,
     'autoPageSeconds': autoPageSeconds,
     'showFooter': showFooter,
     // 旧键继续写：老版本读到新 JSON 也不至于丢页脚。
@@ -998,6 +1005,9 @@ class NovelReaderSettings {
         json['doubleTapAction'],
         NovelDoubleTapAction.none,
       ),
+      swipeDownBookmark: json['swipeDownBookmark'] is bool
+          ? json['swipeDownBookmark']! as bool
+          : false,
       autoPageSeconds:
           ((json['autoPageSeconds'] is num)
                   ? (json['autoPageSeconds']! as num).round()

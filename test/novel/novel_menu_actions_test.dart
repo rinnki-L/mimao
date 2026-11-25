@@ -211,6 +211,8 @@ void main() {
       novelMenuActionSwitchSource,
       novelMenuActionMore,
       novelMenuActionMorePanel,
+      // 书签列表是页面级入口，不是点击区动作。
+      novelMenuActionBookmarkList,
     };
     for (final def in novelMenuActionDefs) {
       if (topBarOnly.contains(def.id)) {

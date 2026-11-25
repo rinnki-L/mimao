@@ -15,6 +15,7 @@ import 'package:mimao/novel/engine/online_engine.dart';
 import 'package:mimao/novel/library_api.dart';
 import 'package:mimao/novel/models/novel_models.dart';
 import 'package:mimao/novel/pages/novel_book_detail_page.dart';
+import 'package:mimao/novel/pages/novel_bookmarks_page.dart';
 import 'package:mimao/novel/pages/novel_history_page.dart';
 import 'package:mimao/novel/pages/novel_module_page.dart' show NovelModulePage;
 import 'package:mimao/novel/pages/novel_reader_page.dart';
@@ -24,6 +25,10 @@ import 'package:mimao/novel/pages/novel_search_page.dart';
 import 'package:mimao/novel/pages/novel_settings_page.dart';
 import 'package:mimao/novel/pages/novel_source_manage_page.dart'
     show NovelSourceManagePage;
+import 'package:mimao/novel/reader/novel_bookmark_service.dart';
+import 'package:mimao/novel/reader/novel_content_override_service.dart';
+import 'package:mimao/novel/reader/novel_highlight_rule_service.dart';
+import 'package:mimao/novel/reader/novel_locator.dart';
 import 'package:mimao/novel/source/novel_rule_model.dart' show NovelRuleKind;
 import 'package:mimao/novel/source/novel_rule_store.dart'
     show NovelReplaceRuleStorage;
@@ -43,9 +48,12 @@ class NovelModule implements AppModule {
     this.searchHistory,
     this.stats,
     this.prefs,
+    this.bookmarks,
     this.sourceStore,
     this.sourceImporter,
     this.replaceStore,
+    this.highlightStore,
+    this.contentOverrides,
     this.booklistGate,
     this.subscriptionStore,
     this.backupClient,
@@ -59,11 +67,20 @@ class NovelModule implements AppModule {
   final NovelSearchHistoryApi? searchHistory;
   final NovelStatsApi? stats;
   final NovelPrefsApi? prefs;
+
+  /// 书签/划线门面（与阅读器、书签页共用同一服务）。
+  final NovelBookmarkApi? bookmarks;
   final Object? sourceStore; // 书源仓库缝（保留旧注入点）
   final NovelSourceImporter? sourceImporter;
 
   /// 替换规则仓库：阅读器展示正文/标题前按规则净化。
   final NovelReplaceRuleStorage? replaceStore;
+
+  /// 高亮规则仓库（阅读器按规则叠加样式）。
+  final NovelHighlightRuleStorage? highlightStore;
+
+  /// 单章本地覆盖仓库（阅读器正文编辑）。
+  final NovelContentOverrideStorage? contentOverrides;
   final NovelBooklistFileGate? booklistGate;
   final NovelSubscriptionStore? subscriptionStore;
   final NovelWebDavClient? backupClient;
@@ -146,6 +163,12 @@ class NovelModule implements AppModule {
         stats: statsApi,
         prefs: prefsApi,
         replaceRules: replaceStore,
+        highlightRules: highlightStore,
+        contentOverrides: contentOverrides,
+        bookmarks: bookmarks,
+        initialLocator: args['initialLocator'] is NovelLocator
+            ? args['initialLocator'] as NovelLocator
+            : null,
       ),
     );
     registerNovelRoutePage(
@@ -165,12 +188,22 @@ class NovelModule implements AppModule {
       (_) => NovelHistoryPage(history: historyApi),
     );
     registerNovelRoutePage(
+      NovelRoute.bookmarks,
+      (args) => NovelBookmarksPage(
+        bookmarks: bookmarks,
+        bookId: args['bookId']?.toString(),
+        bookTitle: args['title']?.toString(),
+      ),
+    );
+    registerNovelRoutePage(
       NovelRoute.settings,
       (_) => NovelSettingsPage(
         stats: statsApi,
         searchHistory: searchApi,
         history: historyApi,
         sourceImporter: importer,
+        replaceStore: replaceStore,
+        highlightStore: highlightStore,
       ),
     );
 
@@ -183,6 +216,7 @@ class NovelModule implements AppModule {
       sourceImporter: importer,
       stats: statsApi,
       prefs: prefsApi,
+      bookmarks: bookmarks,
       booklistGate: booklistGate,
       subscriptionStore: subscriptionStore,
       backupClient: backupClient,
@@ -192,6 +226,8 @@ class NovelModule implements AppModule {
         searchHistory: searchApi,
         history: historyApi,
         sourceImporter: importer,
+        replaceStore: replaceStore,
+        highlightStore: highlightStore,
         embedded: true,
       ),
       onOpenRoute: (route, {args = const <String, Object?>{}}) =>
@@ -205,6 +241,8 @@ class NovelModule implements AppModule {
     searchHistory: searchHistory,
     history: history,
     sourceImporter: sourceImporter,
+    replaceStore: replaceStore,
+    highlightStore: highlightStore,
   );
 }
 

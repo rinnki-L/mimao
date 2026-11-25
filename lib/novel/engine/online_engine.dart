@@ -52,3 +52,10 @@ abstract interface class NovelContentRefresh {
     NovelChapter chapter,
   );
 }
+
+/// 可选能力：某书源最近一次非致命警告（如 WebView 降级、字段暂不支持）。
+///
+/// 引擎实现该接口后，阅读页可在「书籍信息」里展示；不实现也不影响阅读。
+abstract interface class NovelEngineWarnings {
+  String? warningFor(String sourceKey);
+}

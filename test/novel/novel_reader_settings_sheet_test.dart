@@ -192,11 +192,23 @@ void main() {
     );
     await tester.pumpAndSettle();
     // 未实现动作显灰：菜单项存在但禁用，文案带「需先完成」。
+    final syncProgress = tester.widget<PopupMenuItem<NovelClickAction>>(
+      find.byKey(const Key('novel-click-action-syncProgress')),
+    );
+    expect(syncProgress.enabled, isFalse);
+    expect((syncProgress.child! as Text).data, contains('需先完成'));
+
+    // 正文编辑/替换已落地，不再显灰。
+    final editContent = tester.widget<PopupMenuItem<NovelClickAction>>(
+      find.byKey(const Key('novel-click-action-editContent')),
+    );
+    expect(editContent.enabled, isTrue);
+
+    // 书签库落地后「加书签」可选。
     final bookmark = tester.widget<PopupMenuItem<NovelClickAction>>(
       find.byKey(const Key('novel-click-action-addBookmark')),
     );
-    expect(bookmark.enabled, isFalse);
-    expect((bookmark.child! as Text).data, contains('需先完成'));
+    expect(bookmark.enabled, isTrue);
 
     await tester.tap(find.byKey(const Key('novel-click-action-catalog')));
     await tester.pumpAndSettle();

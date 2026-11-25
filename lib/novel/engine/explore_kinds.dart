@@ -42,9 +42,22 @@ Future<List<NovelExploreKind>> parseExploreKinds(
       variables: variables,
       sourceInfo: sourceInfo,
     );
-    final value = await analyzer.evalJs(
-      text.replaceFirst(RegExp(r'^@js:', caseSensitive: false), ''),
-    );
+    // 必须先剥 <js>…</js> 包裹再剥 @js: 前缀：原实现只认前缀，<js>…</js>
+    // 整段被 eval（<js> 不是合法 JS 标识符语句），发现分类恒失败。
+    var script = text;
+    final wrapped = RegExp(
+      r'^<js>([\w\W]*)</js>\s*$',
+      caseSensitive: false,
+    ).firstMatch(script);
+    if (wrapped != null) {
+      script = wrapped.group(1)!;
+    } else {
+      script = script.replaceFirst(RegExp(r'^@js:', caseSensitive: false), '');
+    }
+    // @js: 贪婪吃到串尾时，尾注 `##说明` 不能进 eval（LESSON §八）。
+    script = script.split('##').first.trim();
+    if (script.isEmpty) return const <NovelExploreKind>[];
+    final value = await analyzer.evalJs(script);
     return _fromValue(value);
   }
 

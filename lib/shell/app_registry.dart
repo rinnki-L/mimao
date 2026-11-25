@@ -63,6 +63,9 @@ import 'package:mimao/novel/models/novel_models.dart';
 import 'package:mimao/novel/pages/novel_routes.dart';
 import 'package:mimao/novel/novel_db.dart';
 import 'package:mimao/novel/novel_entry.dart';
+import 'package:mimao/novel/reader/novel_bookmark_service.dart';
+import 'package:mimao/novel/reader/novel_content_override_service.dart';
+import 'package:mimao/novel/reader/novel_highlight_rule_service.dart';
 import 'package:mimao/novel/search_history_service.dart';
 import 'package:mimao/novel/source/novel_rule_store.dart';
 import 'package:mimao/novel/source/novel_source_importer.dart';
@@ -524,6 +527,11 @@ Future<void> initAppModules({
           novelSearchHistory ?? NovelSearchHistoryService(db);
       // 阅读统计与模块偏好：同一个 NovelStatsService（时长按天表 + 模块 kv）。
       final statsApi = novelStats ?? NovelStatsService(db);
+      // 书签/划线：阅读器、书签页共用同一实例与同一个 drift 库。
+      final bookmarkApi = NovelBookmarkService(db);
+      // 高亮规则与单章正文覆盖：同库不同表，阅读器与编辑页共用。
+      final highlightRuleApi = NovelHighlightRuleService(db);
+      final contentOverrideApi = NovelContentOverrideService(db);
       NovelPrefsApi? prefsApi = novelPrefs;
       if (prefsApi == null) {
         final candidate = statsApi;
@@ -557,8 +565,11 @@ Future<void> initAppModules({
         searchHistory: searchHistoryApi,
         stats: statsApi,
         prefs: prefsApi,
+        bookmarks: bookmarkApi,
         sourceImporter: sourceImporter,
         replaceStore: sourceImporter.replaceStore,
+        highlightStore: highlightRuleApi,
+        contentOverrides: contentOverrideApi,
         subscriptionStore: NovelSubscriptionFileStore.lazy(),
       );
     }

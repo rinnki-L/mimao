@@ -14,6 +14,7 @@ import 'package:mimao/core/theme.dart';
 import 'package:mimao/novel/library_api.dart';
 import 'package:mimao/novel/pages/novel_routes.dart';
 import 'package:mimao/novel/pages/novel_widgets.dart';
+import 'package:mimao/novel/reader/novel_bookmark_service.dart';
 import 'package:mimao/novel/source/novel_source_importer.dart';
 import 'package:mimao/novel/source/novel_source_model.dart';
 import 'package:path/path.dart' as p;
@@ -27,6 +28,7 @@ class NovelProfilePage extends StatefulWidget {
     this.history,
     this.searchHistory,
     this.stats,
+    this.bookmarks,
     this.sourceImporter,
     this.openRoute,
     this.onSelectTab,
@@ -37,6 +39,7 @@ class NovelProfilePage extends StatefulWidget {
   final NovelHistoryApi? history;
   final NovelSearchHistoryApi? searchHistory;
   final NovelStatsApi? stats;
+  final NovelBookmarkApi? bookmarks;
   final NovelSourceImporter? sourceImporter;
   final NovelRouteOpener? openRoute;
   final ValueChanged<int>? onSelectTab;
@@ -61,7 +64,8 @@ class _NovelProfilePageState extends State<NovelProfilePage> {
     final servicesChanged =
         oldWidget.stats != widget.stats ||
         oldWidget.sourceImporter != widget.sourceImporter ||
-        oldWidget.searchHistory != widget.searchHistory;
+        oldWidget.searchHistory != widget.searchHistory ||
+        oldWidget.bookmarks != widget.bookmarks;
     if (becameActive || servicesChanged) _reload();
   }
 
@@ -110,10 +114,21 @@ class _NovelProfilePageState extends State<NovelProfilePage> {
       }
     }
 
+    var bookmarkCount = 0;
+    final bookmarkApi = widget.bookmarks;
+    if (bookmarkApi != null) {
+      try {
+        bookmarkCount = (await bookmarkApi.allBookmarks(limit: 1000)).length;
+      } on Object catch (error) {
+        errors.add('书签读取失败：$error');
+      }
+    }
+
     return _ProfileData(
       stats: stats,
       sources: sources,
       searchCount: searchCount,
+      bookmarkCount: bookmarkCount,
       error: errors.isEmpty ? null : errors.join('\n'),
     );
   }
@@ -437,8 +452,10 @@ class _NovelProfilePageState extends State<NovelProfilePage> {
                   _ProfileRow(
                     icon: Icons.bookmark_border,
                     title: '书签',
-                    subtitle: '暂未提供',
-                    onTap: () => _showUnavailable('书签'),
+                    subtitle: data.bookmarkCount == 0
+                        ? '还没有书签'
+                        : '${data.bookmarkCount} 条书签，点按跳回',
+                    onTap: () => _openRoute(NovelRoute.bookmarks),
                   ),
                   _ProfileRow(
                     icon: Icons.info_outline,
@@ -462,6 +479,7 @@ class _ProfileData {
     required this.stats,
     required this.sources,
     required this.searchCount,
+    this.bookmarkCount = 0,
     this.error,
   });
 
@@ -475,11 +493,13 @@ class _ProfileData {
     ),
     sources: <NovelBookSource>[],
     searchCount: 0,
+    bookmarkCount: 0,
   );
 
   final NovelStats stats;
   final List<NovelBookSource> sources;
   final int searchCount;
+  final int bookmarkCount;
   final String? error;
 }
 

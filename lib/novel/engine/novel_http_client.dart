@@ -77,8 +77,14 @@ abstract interface class NovelHttpTransport {
   void close();
 }
 
+/// 可选能力：支持把书源脚本写的 Cookie 注入 HTTP CookieJar。
+/// 单独成接口，避免给 [NovelHttpTransport] 加方法而破坏所有测试 fake。
+abstract interface class NovelCookieSink {
+  Future<void> setCookie(String? sourceKey, String url, String header);
+}
+
 /// dio 生产实现。
-class DioNovelHttpTransport implements NovelHttpTransport {
+class DioNovelHttpTransport implements NovelHttpTransport, NovelCookieSink {
   DioNovelHttpTransport({Dio? dio, CookieJar? cookieJar})
     : _cookies = cookieJar ?? CookieJar(),
       _dio =
@@ -188,6 +194,7 @@ class DioNovelHttpTransport implements NovelHttpTransport {
               'sourceKey': request.sourceKey,
             },
             responseType: ResponseType.bytes,
+            connectTimeout: request.timeout,
             sendTimeout: request.timeout,
             receiveTimeout: request.timeout,
             followRedirects: true,
@@ -224,6 +231,31 @@ class DioNovelHttpTransport implements NovelHttpTransport {
 
   @override
   void close() => _dio.close(force: true);
+
+  @override
+  Future<void> setCookie(String? sourceKey, String url, String header) async {
+    Uri uri;
+    // cookie.setCookie 的 tag 常是域名或完整 URL。
+    final candidate = url.contains('://') ? url : 'https://$url';
+    uri = Uri.tryParse(candidate) ?? Uri.parse('https://localhost');
+    final cookies = <Cookie>[];
+    for (final pair in header.split(';')) {
+      final index = pair.indexOf('=');
+      if (index <= 0) continue;
+      try {
+        cookies.add(
+          Cookie(
+            pair.substring(0, index).trim(),
+            pair.substring(index + 1).trim(),
+          ),
+        );
+      } on Object {
+        // 单个坏 Cookie 忽略。
+      }
+    }
+    if (cookies.isEmpty) return;
+    await _jarFor(sourceKey).saveFromResponse(uri, cookies);
+  }
 
   static String _header(Map<String, dynamic> headers, String name) {
     for (final entry in headers.entries) {

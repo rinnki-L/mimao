@@ -40,11 +40,11 @@ enum NovelClickAction {
   nextChapter('下一章'),
   ttsToggle('朗读暂停/继续'),
   autoPage('自动翻页'),
-  addBookmark('加书签', requires: '书签库'),
+  addBookmark('加书签'),
   catalog('目录'),
   search('书内搜索'),
-  editContent('正文编辑', requires: '正文编辑'),
-  replaceToggle('替换开关', requires: '替换规则面板'),
+  editContent('正文编辑'),
+  replaceToggle('替换开关'),
   syncProgress('同步进度', requires: 'WebDAV 同步');
 
   const NovelClickAction(this.label, {this.requires});
@@ -81,18 +81,12 @@ enum NovelDoubleTapAction {
   menu('菜单'),
   nextPage('下一页'),
   previousPage('上一页'),
-  addBookmark('加书签', requires: '书签库'),
+  addBookmark('加书签'),
   ttsToggle('朗读暂停/继续');
 
-  const NovelDoubleTapAction(this.label, {this.requires});
+  const NovelDoubleTapAction(this.label);
 
   final String label;
-
-  final String? requires;
-
-  bool get available => requires == null;
-
-  String? get unavailableHint => requires == null ? null : '需先完成$requires';
 }
 
 /// 九宫格默认动作：只开中间一行，沿用改造前的手感
@@ -225,7 +219,6 @@ bool dispatchDoubleTapAction(
   NovelDoubleTapAction action,
   NovelClickActionHandler handler,
 ) {
-  if (!action.available) return false;
   switch (action) {
     case NovelDoubleTapAction.none:
       return false;

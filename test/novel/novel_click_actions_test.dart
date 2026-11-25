@@ -164,19 +164,35 @@ void main() {
       expect(recorder.calls, isEmpty);
     });
 
-    test('未实现的动作降级为无动作，不静默做别的事', () {
+    test('书签 / 正文编辑 / 替换已实现，未实现的同步进度降级为无动作', () {
       final recorder = _Recorder();
+      expect(NovelClickAction.addBookmark.available, isTrue);
+      expect(
+        dispatchClickAction(NovelClickAction.addBookmark, recorder),
+        isTrue,
+      );
+      expect(recorder.calls, <String>['addBookmark']);
+
+      // 区 6 落地后这两个动作可分发；页面按注入的仓库决定是否真正可用。
       for (final action in <NovelClickAction>[
-        NovelClickAction.addBookmark,
         NovelClickAction.editContent,
         NovelClickAction.replaceToggle,
-        NovelClickAction.syncProgress,
       ]) {
-        expect(action.available, isFalse);
-        expect(action.unavailableHint, startsWith('需先完成'));
-        expect(dispatchClickAction(action, recorder), isFalse);
+        expect(action.available, isTrue);
+        expect(dispatchClickAction(action, recorder), isTrue);
       }
-      expect(recorder.calls, isEmpty);
+      expect(recorder.calls, <String>[
+        'addBookmark',
+        'editContent',
+        'replaceToggle',
+      ]);
+
+      expect(NovelClickAction.syncProgress.available, isFalse);
+      expect(NovelClickAction.syncProgress.unavailableHint, startsWith('需先完成'));
+      expect(
+        dispatchClickAction(NovelClickAction.syncProgress, recorder),
+        isFalse,
+      );
     });
 
     test('未知动作（反序列化失败降级）也是无动作', () {
@@ -206,7 +222,7 @@ void main() {
       expect(recorder.calls, <String>['menu']);
     });
 
-    test('双击默认无动作；未实现的加书签不执行', () {
+    test('双击默认无动作；加书签已实现，其它动作照常分发', () {
       final recorder = _Recorder();
       expect(
         dispatchDoubleTapAction(NovelDoubleTapAction.none, recorder),
@@ -214,15 +230,15 @@ void main() {
       );
       expect(
         dispatchDoubleTapAction(NovelDoubleTapAction.addBookmark, recorder),
-        isFalse,
+        isTrue,
       );
-      expect(recorder.calls, isEmpty);
+      expect(recorder.calls, <String>['addBookmark']);
 
       expect(
         dispatchDoubleTapAction(NovelDoubleTapAction.nextPage, recorder),
         isTrue,
       );
-      expect(recorder.calls, <String>['nextPage']);
+      expect(recorder.calls, <String>['addBookmark', 'nextPage']);
     });
   });
 }

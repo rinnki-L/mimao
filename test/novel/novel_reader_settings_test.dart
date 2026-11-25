@@ -407,6 +407,21 @@ void main() {
         NovelClickAction.none,
       );
     });
+
+    test('下滑加书签默认关，JSON 往返保持', () {
+      expect(const NovelReaderSettings().swipeDownBookmark, isFalse);
+      final json = const NovelReaderSettings()
+          .copyWith(swipeDownBookmark: true)
+          .toJson();
+      expect(NovelReaderSettings.fromJson(json).swipeDownBookmark, isTrue);
+      // 老 JSON 没这个键 → 默认关，不因为缺字段打开手势。
+      expect(
+        NovelReaderSettings.fromJson(
+          const <String, Object?>{},
+        ).swipeDownBookmark,
+        isFalse,
+      );
+    });
   });
 }
 

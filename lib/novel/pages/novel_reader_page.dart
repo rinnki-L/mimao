@@ -21,14 +21,24 @@ import 'dart:io' show File, Platform;
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:flutter/gestures.dart' show PointerScrollEvent;
+import 'package:flutter/gestures.dart'
+    show PointerScrollEvent, TapGestureRecognizer;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mimao/core/theme.dart';
+import 'package:mimao/novel/bookmark/novel_bookmark_models.dart';
 import 'package:mimao/novel/engine/online_engine.dart';
 import 'package:mimao/novel/library_api.dart';
 import 'package:mimao/novel/models/novel_models.dart';
+import 'package:mimao/novel/pages/novel_bookmarks_page.dart';
+import 'package:mimao/novel/pages/novel_content_edit_page.dart';
+import 'package:mimao/novel/pages/novel_highlight_rules_page.dart';
+import 'package:mimao/novel/pages/novel_replace_editor_page.dart';
+import 'package:mimao/novel/reader/novel_bookmark_service.dart';
 import 'package:mimao/novel/reader/novel_click_actions.dart';
+import 'package:mimao/novel/reader/novel_content_override_service.dart';
+import 'package:mimao/novel/reader/novel_highlight_rule_service.dart';
+import 'package:mimao/novel/reader/novel_highlight_rules.dart';
 import 'package:mimao/novel/reader/novel_immersive.dart';
 import 'package:mimao/novel/reader/novel_locator.dart';
 import 'package:mimao/novel/reader/novel_menu_actions.dart';
@@ -38,6 +48,7 @@ import 'package:mimao/novel/reader/novel_reader_fonts.dart';
 import 'package:mimao/novel/reader/novel_reader_settings.dart';
 import 'package:mimao/novel/reader/novel_reader_settings_sheet.dart';
 import 'package:mimao/novel/reader/novel_search_sheet.dart';
+import 'package:mimao/novel/reader/novel_selection_menu.dart';
 import 'package:mimao/novel/reader/novel_source_switch_sheet.dart';
 import 'package:mimao/novel/reader/novel_text_pagination.dart';
 import 'package:mimao/novel/reader/novel_tts.dart';
@@ -65,7 +76,11 @@ class NovelReaderPage extends StatefulWidget {
     this.stats,
     this.prefs,
     this.replaceRules,
+    this.highlightRules,
+    this.contentOverrides,
     this.settingsStore,
+    this.bookmarks,
+    this.initialLocator,
   });
 
   final String bookId;
@@ -90,8 +105,20 @@ class NovelReaderPage extends StatefulWidget {
   /// 替换规则仓库；注入后正文与标题在展示前统一净化。
   final NovelReplaceRuleStorage? replaceRules;
 
+  /// 高亮规则仓库；注入后正文按规则叠加颜色/装饰（不改排版）。
+  final NovelHighlightRuleStorage? highlightRules;
+
+  /// 单章本地覆盖仓库；注入后阅读器提供「正文编辑」。
+  final NovelContentOverrideStorage? contentOverrides;
+
   /// 阅读设置存储（测试注入内存实现；生产由 prefs 构造）。
   final NovelReaderSettingsStore? settingsStore;
+
+  /// 书签/划线门面；null 时阅读器不给书签入口。
+  final NovelBookmarkApi? bookmarks;
+
+  /// 从书签列表直接打开时带进来的落点；首章据此选章并跳过续读位置。
+  final NovelLocator? initialLocator;
 
   @override
   State<NovelReaderPage> createState() => _NovelReaderPageState();
@@ -149,6 +176,24 @@ class _NovelReaderPageState extends State<NovelReaderPage>
   int? _highlightParagraph;
   Timer? _highlightTimer;
 
+  /// 划线点击识别器：按 marking id 复用，切章/退出时统一 dispose。
+  final Map<int, TapGestureRecognizer> _markingTaps =
+      <int, TapGestureRecognizer>{};
+
+  /// 每段的选区探针：SelectionArea 只暴露工具栏锚点（选中矩形可能塌缩成
+  /// 一个点），拿不到真实字符区间；在每段 Text 外包一层 SelectionListener，
+  /// 就能直接读到「这一段选中了 [start, end)」。
+  ///
+  /// 每个探针**自己**持有 notifier（不能按段号复用：ListView 回收/重建时
+  /// 新旧两个 SelectionListener 可能短暂同时挂同一 notifier，Flutter 会断言）。
+  final Map<Object, ({int paragraph, SelectionListenerNotifier notifier})>
+  _selectionProbes =
+      <Object, ({int paragraph, SelectionListenerNotifier notifier})>{};
+  List<NovelMarking> _markingSnapshot = const <NovelMarking>[];
+
+  /// 一次下拉只触发一次加/删书签，避免回弹期间连发。
+  bool _swipeBookmarkFired = false;
+
   @override
   void initState() {
     super.initState();
@@ -169,7 +214,11 @@ class _NovelReaderPageState extends State<NovelReaderPage>
       history: widget.history,
       prefs: widget.prefs,
       replaceRules: widget.replaceRules,
+      highlightRules: widget.highlightRules,
+      contentOverrides: widget.contentOverrides,
       settingsStore: widget.settingsStore,
+      bookmarks: widget.bookmarks,
+      initialLocator: widget.initialLocator,
     );
     _controller.addListener(_onControllerChanged);
     _scroll.addListener(_onScroll);
@@ -190,6 +239,8 @@ class _NovelReaderPageState extends State<NovelReaderPage>
     unawaited(_controller.savePositionNow());
     _controller.removeListener(_onControllerChanged);
     _controller.dispose();
+    _disposeMarkingTaps();
+    _selectionProbes.clear();
     _scroll.removeListener(_onScroll);
     _scroll.dispose();
     _scrollRatio.dispose();
@@ -232,12 +283,14 @@ class _NovelReaderPageState extends State<NovelReaderPage>
       if (_lastEpoch >= 0) _flushReadingTime();
       _lastEpoch = epoch;
       _paragraphKeys.clear();
+      _disposeMarkingTaps();
       _session
         ..reset()
         ..start();
       _highlightParagraph = null;
       unawaited(_stopTts());
     }
+    _markingSnapshot = List<NovelMarking>.of(_controller.chapterMarkings);
     setState(() {});
     if (!_restoreScheduled) {
       _restoreScheduled = true;
@@ -281,7 +334,9 @@ class _NovelReaderPageState extends State<NovelReaderPage>
   void _jumpToParagraph(int paragraph, [int charOffset = 0]) {
     final key = _paragraphKey(paragraph);
     final target = key.currentContext;
-    if (target != null) {
+    // 刷新本章时旧段落的 Element 可能已 deactivate；ensureVisible 会对它做
+    // ancestor 查找并抛「deactivated widget」，所以先确认还挂在树上。
+    if (target != null && target.mounted) {
       unawaited(
         Scrollable.ensureVisible(
           target,
@@ -302,7 +357,7 @@ class _NovelReaderPageState extends State<NovelReaderPage>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final built = key.currentContext;
-      if (built == null) return;
+      if (built == null || !built.mounted) return;
       unawaited(
         Scrollable.ensureVisible(
           built,
@@ -516,6 +571,7 @@ class _NovelReaderPageState extends State<NovelReaderPage>
     required Widget child,
     required bool selectable,
     GestureDragEndCallback? onHorizontalDragEnd,
+    bool selectionMenu = false,
   }) {
     final settings = _controller.settings;
     final takesLongPress =
@@ -537,9 +593,218 @@ class _NovelReaderPageState extends State<NovelReaderPage>
         );
         // SelectionArea 在更外层：手势层比它深，点按/长按才归我们；
         // 默认选文时长按不注册，手势仍落回 SelectionArea。
-        return selectable ? SelectionArea(child: layer) : layer;
+        // 滚动模式挂自定义选区菜单；翻页模式保留系统菜单（翻页没有稳定的
+        // 段落命中上下文，强上自定义菜单会破坏点按/翻页手势）。
+        if (!selectable) return layer;
+        return SelectionArea(
+          contextMenuBuilder: selectionMenu ? _buildSelectionMenu : null,
+          child: layer,
+        );
       },
     );
+  }
+
+  /// 选区菜单：复制 / 划线 / 笔记 / 搜索。
+  Widget _buildSelectionMenu(
+    BuildContext context,
+    SelectableRegionState state,
+  ) {
+    final range = _selectionRangeFromListeners();
+    void dismiss() {
+      state.hideToolbar();
+      state.clearSelection();
+    }
+
+    String selectedText() =>
+        range?.textFrom(
+          _controller.paragraphText,
+          indentLength: _controller.settings.indent.length,
+        ) ??
+        '';
+
+    return buildNovelSelectionMenu(
+      context: context,
+      anchors: state.contextMenuAnchors,
+      actions: NovelSelectionActions(
+        canMark: range?.isSingleParagraph == true,
+        onCopy: () {
+          final text = selectedText();
+          dismiss();
+          unawaited(_copySelection(text));
+        },
+        onMark: () {
+          final picked = range;
+          dismiss();
+          if (picked != null) {
+            unawaited(_markSelection(picked, withNote: false));
+          }
+        },
+        onNote: () {
+          final picked = range;
+          dismiss();
+          if (picked != null) unawaited(_markSelection(picked, withNote: true));
+        },
+        onSearch: () {
+          final text = selectedText().trim();
+          dismiss();
+          if (text.isNotEmpty) unawaited(_openSearch(initialQuery: text));
+        },
+      ),
+    );
+  }
+
+  /// 从每段的 [SelectionListener] 汇总选区。
+  ///
+  /// 只取「有实际选中内容」的段：同一段内 start<end；跨段时取最早一段的
+  /// start 与最晚一段的 end。偏移减去段首缩进，与划线/书签锚点同口径。
+  NovelTextSelectionRange? _selectionRangeFromListeners() {
+    ({int paragraph, int offset})? start;
+    ({int paragraph, int offset})? end;
+    final indent = _controller.settings.indent.length;
+    for (final entry in _selectionProbes.values) {
+      final notifier = entry.notifier;
+      if (!notifier.registered) continue;
+      final range = notifier.selection.range;
+      if (range == null) continue;
+      final length = _controller.paragraphLength(entry.paragraph);
+      final begin = (range.startOffset - indent).clamp(0, length);
+      final finish = (range.endOffset - indent).clamp(0, length);
+      if (finish <= begin) continue;
+      if (start == null ||
+          entry.paragraph < start.paragraph ||
+          (entry.paragraph == start.paragraph && begin < start.offset)) {
+        start = (paragraph: entry.paragraph, offset: begin);
+      }
+      if (end == null ||
+          entry.paragraph > end.paragraph ||
+          (entry.paragraph == end.paragraph && finish > end.offset)) {
+        end = (paragraph: entry.paragraph, offset: finish);
+      }
+    }
+    if (start == null || end == null) return null;
+    final range = NovelTextSelectionRange(
+      startParagraph: start.paragraph,
+      startOffset: start.offset,
+      endParagraph: end.paragraph,
+      endOffset: end.offset,
+    );
+    return range.isValid ? range : null;
+  }
+
+  /// 给一段正文套上选区探针；探针进出时登记/注销自己的 notifier。
+  Widget _withSelectionListener(int paragraph, Widget child) {
+    return _NovelSelectionProbe(
+      paragraph: paragraph,
+      onRegister: (token, notifier) =>
+          _selectionProbes[token] = (paragraph: paragraph, notifier: notifier),
+      onUnregister: (token) => _selectionProbes.remove(token),
+      child: child,
+    );
+  }
+
+  Future<void> _copySelection(String text) async {
+    if (text.isEmpty) {
+      _showSnack('没有可复制的文字');
+      return;
+    }
+    await copyNovelSelection(text);
+    _showSnack('已复制');
+    _refocusReader();
+  }
+
+  /// 选区 → 划线/笔记。跨段（多段）选择在菜单里已置灰，这里再兜一次底。
+  Future<void> _markSelection(
+    NovelTextSelectionRange range, {
+    required bool withNote,
+  }) async {
+    if (!range.isSingleParagraph) {
+      _showSnack('跨段选择暂不支持划线，可以分段划或先复制');
+      return;
+    }
+    final excerpt = range.textFrom(
+      _controller.paragraphText,
+      indentLength: _controller.settings.indent.length,
+    );
+    var style = _controller.lastMarkingStyle;
+    var note = '';
+    if (withNote) {
+      final result = await showNovelMarkingEditor(
+        context,
+        excerpt: excerpt,
+        initialStyle: style,
+        theme: _sheetThemeData(),
+      );
+      if (result == null || !mounted) return;
+      style = result.style;
+      note = result.note;
+    }
+    final marking = await _controller.addMarking(
+      paragraph: range.startParagraph,
+      startOffset: range.startOffset,
+      endOffset: range.endOffset,
+      style: style,
+      note: note,
+    );
+    if (!mounted) return;
+    if (marking == null) {
+      _showSnack('划线没保存成功；这段文字可能已被替换规则改动，刷新本章后再试');
+      return;
+    }
+    _showSnack(withNote || note.isNotEmpty ? '笔记已保存' : '已划线，点划线可加备注');
+    _refocusReader();
+  }
+
+  /// 点击已有划线：编辑样式/备注，或删除。
+  Future<void> _openMarkingEditor(NovelMarking marking) async {
+    final raw = _controller.paragraphText(marking.paragraph);
+    final indent = _controller.settings.indent.length;
+    final start = (marking.startOffset + indent).clamp(0, raw.length);
+    final end = (marking.endOffset + indent).clamp(start, raw.length);
+    final result = await showNovelMarkingEditor(
+      context,
+      excerpt: raw.substring(start, end),
+      initialStyle: marking.style,
+      initialNote: marking.note,
+      editing: true,
+      theme: _sheetThemeData(),
+    );
+    if (result == null || !mounted) return;
+    if (result.delete) {
+      final removed = await _controller.removeMarkingItem(marking);
+      if (mounted) _showSnack(removed ? '已删除划线' : '删除失败，刷新本章后再试');
+      return;
+    }
+    final updated = await _controller.updateMarking(
+      marking,
+      style: result.style,
+      note: result.note,
+    );
+    if (mounted) {
+      _showSnack(updated == null ? '划线保存失败' : '划线已更新');
+    }
+  }
+
+  TapGestureRecognizer _markingTapFor(NovelMarking marking) {
+    return _markingTaps.putIfAbsent(
+      marking.id,
+      () => TapGestureRecognizer()..onTap = () => _onMarkingTap(marking.id),
+    );
+  }
+
+  void _onMarkingTap(int id) {
+    for (final marking in _markingSnapshot) {
+      if (marking.id == id) {
+        unawaited(_openMarkingEditor(marking));
+        return;
+      }
+    }
+  }
+
+  void _disposeMarkingTaps() {
+    for (final recognizer in _markingTaps.values) {
+      recognizer.dispose();
+    }
+    _markingTaps.clear();
   }
 
   /// 点按分区挂在正文手势上，而不是盖一层全屏热区。
@@ -602,13 +867,161 @@ class _NovelReaderPageState extends State<NovelReaderPage>
   // 下面四个动作在枚举里标了 requires，分发器不会调到；留实现只为接口完整，
   // 万一以后放开开关也有明确落点（不是静默无效）。
   @override
-  void addBookmark() => _showSnack('书签功能还没做完，暂时不能从点击区添加');
+  void addBookmark() => unawaited(_toggleBookmark());
+
+  /// 加/删书签：同一段落位置再点即删。滚动模式用当前可见段，翻页模式用
+  /// 当前页第一段——两者都是「用户正在看的那句话」的段索引。
+  Future<void> _toggleBookmark({int? paragraph}) async {
+    if (!_controller.bookmarksReady) {
+      _showSnack('书签库还没接上，暂时不能加书签');
+      return;
+    }
+    if (_controller.content == null) {
+      _showSnack('正文还没加载完，稍后再试');
+      return;
+    }
+    final target =
+        paragraph ??
+        (_controller.settings.pageMode == NovelPageMode.page
+            ? _firstParagraphOnPage()
+            : _visibleParagraph());
+    final result = await _controller.toggleBookmarkAt(paragraph: target);
+    if (!mounted) return;
+    if (result == null) {
+      _showSnack('书签操作失败，请重试');
+      return;
+    }
+    _showSnack(result.removed ? '已删除这一处的书签' : '已加书签');
+  }
+
+  /// 全书书签列表：pickMode 下点一条回本页，在同一个控制器里跳转。
+  Future<void> _openBookmarks() async {
+    if (!_controller.bookmarksReady) {
+      _showSnack('书签库还没接上');
+      return;
+    }
+    _pauseAutoForSheet();
+    _chromeVisible.value = false;
+    final picked = await Navigator.of(context).push<NovelBookmark>(
+      MaterialPageRoute<NovelBookmark>(
+        settings: const RouteSettings(name: 'novel/bookmarks'),
+        builder: (_) => NovelBookmarksPage(
+          bookmarks: widget.bookmarks,
+          bookId: _controller.bookId,
+          bookTitle: _controller.bookTitleNow,
+          pickMode: true,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    _chromeVisible.value = true;
+    _resumeAutoFromSheet();
+    _refocusReader();
+    if (picked != null) await _jumpToBookmark(picked);
+  }
+
+  Future<void> _jumpToBookmark(NovelBookmark bookmark) async {
+    final ok = await _controller.jumpToBookmark(bookmark);
+    if (!mounted) return;
+    if (!ok) {
+      _showSnack('这条书签在当前目录里找不到对应章节，可到书签列表删除后重新加');
+      return;
+    }
+    if (bookmark.unresolved) {
+      _showSnack('已按章标题重新定位；如果位置不对，可删除后重新加');
+    }
+    // 从书签回来先把菜单收掉：顶栏浮在正文上，跳转后第一段会被压住，
+    // 用户看到的起点就不像「回到那句话」了。
+    _chromeVisible.value = false;
+    _highlightTimer?.cancel();
+    setState(() => _highlightParagraph = bookmark.paragraph);
+    _highlightTimer = Timer(const Duration(seconds: 2), () {
+      if (mounted) setState(() => _highlightParagraph = null);
+    });
+  }
 
   @override
-  void openContentEdit() => _showSnack('正文编辑还没做完，暂时不能从点击区进入');
+  void openContentEdit() => unawaited(_openContentEdit());
 
   @override
-  void toggleReplace() => _showSnack('替换规则面板还没做完，暂时不能从点击区打开');
+  void toggleReplace() => unawaited(_openReplaceRules());
+
+  /// 正文编辑：把当前章正文交给编辑页，保存后控制器直接换成本地覆盖。
+  Future<void> _openContentEdit() async {
+    if (!_controller.contentOverrideReady) {
+      _showSnack('正文编辑服务未启用，重启应用后再试');
+      return;
+    }
+    if (_controller.content == null) {
+      _showSnack('正文还没加载完，稍后再试');
+      return;
+    }
+    _pauseAutoForSheet();
+    _chromeVisible.value = false;
+    final changed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        settings: const RouteSettings(name: 'novel/content-edit'),
+        builder: (_) => NovelContentEditPage(controller: _controller),
+      ),
+    );
+    if (!mounted) return;
+    _chromeVisible.value = true;
+    _resumeAutoFromSheet();
+    _refocusReader();
+    if (changed == true) _showSnack('已保存本地覆盖；下次打开这一章优先用它');
+  }
+
+  /// 替换规则面板：带当前书上下文与一段样例正文，保存后当前章按新规则重算。
+  Future<void> _openReplaceRules() async {
+    final store = widget.replaceRules;
+    if (store == null) {
+      _showSnack('替换规则仓库未启用，重启应用后再试');
+      return;
+    }
+    _pauseAutoForSheet();
+    _chromeVisible.value = false;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'novel/replace-editor'),
+        builder: (_) => NovelReplaceEditorPage(
+          store: store,
+          bookId: _controller.bookId,
+          bookTitle: _controller.bookTitleNow,
+          sourceKey: _controller.sourceKey ?? '',
+          bookUrl: _controller.bookUrlNow,
+          sampleText: _controller.content?.paragraphs.join('\n') ?? '',
+          onHighlightRules: widget.highlightRules == null
+              ? null
+              : () => _openHighlightRules(),
+        ),
+      ),
+    );
+    if (!mounted) return;
+    _chromeVisible.value = true;
+    _resumeAutoFromSheet();
+    _refocusReader();
+    await _controller.reloadReplaceRules();
+  }
+
+  Future<void> _openHighlightRules() async {
+    final store = widget.highlightRules;
+    if (store == null) {
+      _showSnack('高亮规则服务未启用，重启应用后再试');
+      return;
+    }
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'novel/highlight-rules'),
+        builder: (_) => NovelHighlightRulesPage(
+          store: store,
+          bookId: _controller.bookId,
+          bookTitle: _controller.bookTitleNow,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    await _controller.reloadHighlightRules();
+  }
 
   @override
   void syncProgress() => _showSnack('WebDAV 同步还没接到阅读页，暂时不能手动同步');
@@ -868,6 +1281,7 @@ class _NovelReaderPageState extends State<NovelReaderPage>
           chapters: chapters,
           currentIndex: _controller.chapter?.index ?? 0,
           settings: _controller.settings,
+          bookmarkedChapterIndexes: _controller.bookmarkedChapters,
           onPick: (index) => Navigator.of(sheetContext).pop(index),
         ),
       ),
@@ -883,7 +1297,7 @@ class _NovelReaderPageState extends State<NovelReaderPage>
     }
   }
 
-  Future<void> _openSearch() async {
+  Future<void> _openSearch({String initialQuery = ''}) async {
     _pauseAutoForSheet();
     final engine = widget.onlineEngine;
     final source = _controller.source;
@@ -902,6 +1316,7 @@ class _NovelReaderPageState extends State<NovelReaderPage>
         NovelSearchSheet(
           chapterTitles: titles,
           currentChapterIndex: _controller.chapter?.index ?? 0,
+          initialQuery: initialQuery,
           loadChapter: (index) async {
             if (index < 0 || index >= detail.chapters.length) {
               return const <String>[];
@@ -1152,6 +1567,44 @@ class _NovelReaderPageState extends State<NovelReaderPage>
                 onTap: () => Navigator.of(sheetContext).pop('cache'),
               ),
               ListTile(
+                key: const Key('novel-more-bookmarks'),
+                leading: const Icon(Icons.bookmark_border),
+                title: const Text('全书书签'),
+                subtitle: const Text('按章节查看、点按跳回'),
+                onTap: () => Navigator.of(sheetContext).pop('bookmarks'),
+              ),
+              ListTile(
+                key: const Key('novel-more-edit-content'),
+                leading: const Icon(Icons.edit_outlined),
+                title: const Text('正文编辑'),
+                subtitle: Text(
+                  _controller.chapterIsLocalOverride
+                      ? '当前章是本地覆盖，可继续修改或恢复原样'
+                      : '修改这一章正文，保存后下次打开优先用本地版',
+                ),
+                onTap: _controller.contentOverrideReady
+                    ? () => Navigator.of(sheetContext).pop('contentEdit')
+                    : null,
+              ),
+              ListTile(
+                key: const Key('novel-more-replace'),
+                leading: const Icon(Icons.find_replace),
+                title: const Text('替换规则'),
+                subtitle: const Text('新建/编辑规则，用样例正文实时预览'),
+                onTap: widget.replaceRules == null
+                    ? null
+                    : () => Navigator.of(sheetContext).pop('replace'),
+              ),
+              ListTile(
+                key: const Key('novel-more-highlight'),
+                leading: const Icon(Icons.border_color_outlined),
+                title: const Text('高亮规则'),
+                subtitle: const Text('按正则给正文上色，可只对本书生效'),
+                onTap: widget.highlightRules == null
+                    ? null
+                    : () => Navigator.of(sheetContext).pop('highlight'),
+              ),
+              ListTile(
                 key: const Key('novel-more-info'),
                 leading: const Icon(Icons.info_outline),
                 title: const Text('书籍信息'),
@@ -1176,6 +1629,14 @@ class _NovelReaderPageState extends State<NovelReaderPage>
     switch (picked) {
       case 'cache':
         await _cacheWholeBook();
+      case 'bookmarks':
+        await _openBookmarks();
+      case 'contentEdit':
+        await _openContentEdit();
+      case 'replace':
+        await _openReplaceRules();
+      case 'highlight':
+        await _openHighlightRules();
       case 'info':
         await _showBookInfo();
       case 'settings':
@@ -1268,6 +1729,9 @@ class _NovelReaderPageState extends State<NovelReaderPage>
         '${(_controller.chapter?.index ?? 0) + 1} / ${detail.chapters.length}',
       ),
       if (pageMode) ('本章页码', '$page / $pageCount'),
+      if (_controller.chapterIsLocalOverride) ('正文', '本地覆盖（更多 → 正文编辑可修改或恢复原样）'),
+      if (_controller.sourceWarning != null)
+        ('书源提示', _controller.sourceWarning!),
       (
         '全书进度',
         '${_controller.bookPercent(page: pageMode ? page : null, pageCount: pageMode ? pageCount : null).toStringAsFixed(1)}%',
@@ -1609,9 +2073,23 @@ class _NovelReaderPageState extends State<NovelReaderPage>
     final showTitle = chapterTitle.isNotEmpty;
     return _buildGestureLayer(
       selectable: true,
-      child: NotificationListener<ScrollEndNotification>(
-        onNotification: (_) {
-          unawaited(_controller.savePositionNow());
+      selectionMenu: true,
+      child: NotificationListener<ScrollNotification>(
+        onNotification: (notification) {
+          if (notification is ScrollStartNotification) {
+            _swipeBookmarkFired = false;
+          }
+          if (notification is ScrollEndNotification) {
+            unawaited(_controller.savePositionNow());
+          }
+          // 顶部继续下滑加/删书签（默认关）：一次下拉只触发一次。
+          if (_controller.settings.swipeDownBookmark &&
+              notification is OverscrollNotification &&
+              notification.overscroll < 0 &&
+              !_swipeBookmarkFired) {
+            _swipeBookmarkFired = true;
+            unawaited(_toggleBookmark(paragraph: _visibleParagraph()));
+          }
           return false;
         },
         child: ListView.builder(
@@ -1648,23 +2126,28 @@ class _NovelReaderPageState extends State<NovelReaderPage>
                         ? 0
                         : _controller.settings.paragraphSpacing,
                   ),
-                  child: _highlightParagraph == paragraph
-                      ? DecoratedBox(
-                          decoration: BoxDecoration(
-                            color: Theme.of(
-                              context,
-                            ).colorScheme.primary.withValues(alpha: 0.18),
-                            borderRadius: MimaoShapes.sm,
-                          ),
-                          child: _buildBodyText(
+                  child: _withSelectionListener(
+                    paragraph,
+                    _highlightParagraph == paragraph
+                        ? DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.primary.withValues(alpha: 0.18),
+                              borderRadius: MimaoShapes.sm,
+                            ),
+                            child: _buildBodyText(
+                              _controller.paragraphText(paragraph),
+                              style: body,
+                              paragraph: paragraph,
+                            ),
+                          )
+                        : _buildBodyText(
                             _controller.paragraphText(paragraph),
                             style: body,
+                            paragraph: paragraph,
                           ),
-                        )
-                      : _buildBodyText(
-                          _controller.paragraphText(paragraph),
-                          style: body,
-                        ),
+                  ),
                 ),
               );
             }
@@ -1675,17 +2158,43 @@ class _NovelReaderPageState extends State<NovelReaderPage>
     );
   }
 
-  /// 正文文字：开了下划线就走 [NovelUnderlinedText]（按行画、可延伸），
-  /// 否则仍是普通 [Text]，两者行高一致（bodyStyle 不含 decoration）。
+  /// 正文文字：有划线/高亮就按区间切成 TextSpan（只加颜色/装饰/字重，
+  /// 不改字号行高）；否则维持原来的普通 [Text] / 下划线渲染。
+  ///
+  /// [paragraph] 是这一段在章节里的下标，[sliceStart] 是这段文字在整段
+  /// （含缩进）里的起点——翻页模式传切片起点，滚动模式恒为 0。
   Widget _buildBodyText(
     String text, {
     required TextStyle style,
+    int? paragraph,
+    int sliceStart = 0,
     bool highlight = false,
   }) {
     final settings = _controller.settings;
     final background = highlight
         ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.22)
         : null;
+    final markings = paragraph == null
+        ? const <NovelMarking>[]
+        : _controller.markingsOfParagraph(paragraph);
+    final highlightSpans = paragraph == null
+        ? const <NovelHighlightSpan>[]
+        : matchNovelHighlights(
+            _controller.paragraphText(paragraph),
+            _controller.highlightRulesForBook,
+            bookId: _controller.bookId,
+            dark: settings.darkBackground,
+          );
+    if (markings.isNotEmpty || highlightSpans.isNotEmpty) {
+      return _buildRichBodyText(
+        text,
+        style: style,
+        markings: markings,
+        highlights: highlightSpans,
+        sliceStart: sliceStart,
+        background: background,
+      );
+    }
     if (settings.underlineStyle == NovelUnderlineStyle.none) {
       return Text(
         text,
@@ -1705,6 +2214,115 @@ class _NovelReaderPageState extends State<NovelReaderPage>
       extend: settings.underlineExtend,
       backgroundColor: background,
     );
+  }
+
+  /// 高亮 + 划线合并渲染：按所有区间端点切段，每段分别套高亮样式与划线样式。
+  ///
+  /// 划线（用户手选）优先于高亮（规则）：同一段文字既被高亮命中又被划线时，
+  /// 以划线的背景/装饰为准，避免规则把用户的标记盖掉。
+  Widget _buildRichBodyText(
+    String text, {
+    required TextStyle style,
+    required List<NovelMarking> markings,
+    required List<NovelHighlightSpan> highlights,
+    required int sliceStart,
+    Color? background,
+  }) {
+    final indent = _controller.settings.indent.length;
+    final boundaries = <int>{0, text.length};
+    void addRange(int start, int end) {
+      final localStart = (start - sliceStart).clamp(0, text.length);
+      final localEnd = (end - sliceStart).clamp(0, text.length);
+      if (localEnd <= localStart) return;
+      boundaries
+        ..add(localStart)
+        ..add(localEnd);
+    }
+
+    for (final span in highlights) {
+      addRange(span.start, span.end);
+    }
+    for (final marking in markings) {
+      addRange(marking.startOffset + indent, marking.endOffset + indent);
+    }
+    final offsets = boundaries.toList()..sort();
+    final spans = <InlineSpan>[];
+    for (var i = 0; i < offsets.length - 1; i++) {
+      final start = offsets[i];
+      final end = offsets[i + 1];
+      if (end <= start) continue;
+      final global = sliceStart + start;
+      var segmentStyle = style;
+      final hit = highlightSpanAt(highlights, global);
+      if (hit != null) {
+        segmentStyle = segmentStyle.copyWith(
+          color: hit.style.foreground,
+          backgroundColor: hit.style.background,
+          fontWeight: hit.style.bold ? MimaoFonts.bold : null,
+          decoration: hit.style.underline ? TextDecoration.underline : null,
+          decorationColor: hit.style.underline ? hit.style.foreground : null,
+        );
+      }
+      NovelMarking? cover;
+      for (final marking in markings.reversed) {
+        final markStart = marking.startOffset + indent;
+        final markEnd = marking.endOffset + indent;
+        if (global >= markStart && global < markEnd) {
+          cover = marking;
+          break;
+        }
+      }
+      TapGestureRecognizer? recognizer;
+      if (cover != null) {
+        segmentStyle = _markingTextStyle(segmentStyle, cover.style);
+        recognizer = _markingTapFor(cover);
+      }
+      spans.add(
+        TextSpan(
+          text: text.substring(start, end),
+          style: segmentStyle,
+          recognizer: recognizer,
+        ),
+      );
+    }
+    // 自定义下划线（NovelUnderlinedText）画不了区间样式；这里退回系统下划线，
+    // 保证高亮命中时至少还有下划线，行高/字号不变。
+    final baseStyle =
+        _controller.settings.underlineStyle == NovelUnderlineStyle.none
+        ? style
+        : style.copyWith(decoration: TextDecoration.underline);
+    return Text.rich(
+      TextSpan(
+        style: background == null
+            ? baseStyle
+            : baseStyle.copyWith(backgroundColor: background),
+        children: spans,
+      ),
+      textAlign: _controller.bodyTextAlign,
+      textHeightBehavior: _controller.textHeightBehavior,
+    );
+  }
+
+  /// 划线只改装饰，不碰 fontSize/fontFamily/height：行高与未划线时完全一致。
+  TextStyle _markingTextStyle(TextStyle base, NovelMarkingStyle marking) {
+    final color = Color(marking.colorArgb);
+    switch (marking.decoration) {
+      case NovelMarkingDecoration.background:
+        return base.copyWith(backgroundColor: color);
+      case NovelMarkingDecoration.underline:
+        return base.copyWith(
+          decoration: TextDecoration.underline,
+          decorationColor: Color(marking.colorArgb | 0xFF000000),
+          decorationThickness: 1.5,
+        );
+      case NovelMarkingDecoration.wavy:
+        return base.copyWith(
+          decoration: TextDecoration.underline,
+          decorationStyle: TextDecorationStyle.wavy,
+          decorationColor: Color(marking.colorArgb | 0xFF000000),
+          decorationThickness: 1.2,
+        );
+    }
   }
 
   /// 章节标题：分段开启时「主标题 + 分隔符 + 副标题（缩小）」。
@@ -1968,6 +2586,8 @@ class _NovelReaderPageState extends State<NovelReaderPage>
           _buildBodyText(
             substring,
             style: body,
+            paragraph: slice.paragraph,
+            sliceStart: start,
             highlight: _highlightParagraph == slice.paragraph,
           ),
         );
@@ -2097,10 +2717,10 @@ class _NovelReaderPageState extends State<NovelReaderPage>
   NovelMenuActionContext get _menuActionContext => NovelMenuActionContext(
     hasOnlineSource:
         _controller.source != null || (widget.sourceKey ?? '').isNotEmpty,
-    // 书签库（区 4）尚未落地；这里保持 false，按钮显灰而不是静默无效。
-    bookmarkReady: false,
-    contentEditReady: false,
-    replaceReady: false,
+    // 书签库接上后加书签/书签列表按钮自动可用，用户不用重配菜单。
+    bookmarkReady: _controller.bookmarksReady,
+    contentEditReady: _controller.contentOverrideReady,
+    replaceReady: widget.replaceRules != null,
     syncReady: false,
   );
 
@@ -2125,6 +2745,8 @@ class _NovelReaderPageState extends State<NovelReaderPage>
         return () => unawaited(_openMore());
       case novelMenuActionMorePanel:
         return () => unawaited(_openMoreActions());
+      case novelMenuActionBookmarkList:
+        return () => unawaited(_openBookmarks());
     }
     final click = def.clickAction;
     if (click == null) return null;
@@ -2246,5 +2868,48 @@ class _NovelReaderPageState extends State<NovelReaderPage>
         ],
       ),
     );
+  }
+}
+
+/// 一段正文的选区探针：自己持有 [SelectionListenerNotifier]，
+/// 挂载时登记进阅读页、卸载时注销，避免 ListView 回收重建期间
+/// 同一个 notifier 被两个 SelectionListener 同时注册。
+class _NovelSelectionProbe extends StatefulWidget {
+  const _NovelSelectionProbe({
+    required this.paragraph,
+    required this.onRegister,
+    required this.onUnregister,
+    required this.child,
+  });
+
+  final int paragraph;
+  final void Function(Object token, SelectionListenerNotifier notifier)
+  onRegister;
+  final void Function(Object token) onUnregister;
+  final Widget child;
+
+  @override
+  State<_NovelSelectionProbe> createState() => _NovelSelectionProbeState();
+}
+
+class _NovelSelectionProbeState extends State<_NovelSelectionProbe> {
+  final SelectionListenerNotifier _notifier = SelectionListenerNotifier();
+
+  @override
+  void initState() {
+    super.initState();
+    widget.onRegister(_notifier, _notifier);
+  }
+
+  @override
+  void dispose() {
+    widget.onUnregister(_notifier);
+    _notifier.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SelectionListener(selectionNotifier: _notifier, child: widget.child);
   }
 }

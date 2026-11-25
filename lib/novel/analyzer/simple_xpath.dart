@@ -67,7 +67,11 @@ List<XPathValue> _evalPath(Element root, String path) {
     } else if (step.nodeTest == 'node()') {
       selected = next;
     } else if (step.nodeTest == '.') {
-      selected = next.whereType<Element>().toList();
+      // 自轴：结果是当前节点本身，不是子节点。原实现取 `next`（子节点），
+      // 导致 `//div/.` 返回 div 的子元素、`//div/./span` 结果错位。
+      selected = current
+          .where((node) => node is Element || node is Text)
+          .toList();
     } else if (step.nodeTest == '..') {
       for (final node in current) {
         final parent = node.parent;

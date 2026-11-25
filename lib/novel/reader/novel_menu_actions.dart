@@ -96,6 +96,7 @@ const String novelMenuActionNextPage = 'nextPage';
 const String novelMenuActionPreviousChapter = 'previousChapter';
 const String novelMenuActionNextChapter = 'nextChapter';
 const String novelMenuActionAddBookmark = 'addBookmark';
+const String novelMenuActionBookmarkList = 'bookmarks';
 const String novelMenuActionEditContent = 'editContent';
 const String novelMenuActionReplace = 'replaceToggle';
 const String novelMenuActionSyncProgress = 'syncProgress';
@@ -170,6 +171,13 @@ const List<NovelMenuActionDef> novelMenuActionDefs = <NovelMenuActionDef>[
     label: '加书签',
     icon: Icons.bookmark_add_outlined,
     clickAction: NovelClickAction.addBookmark,
+    available: _bookmarkReady,
+    unavailableHint: '需先完成书签库',
+  ),
+  NovelMenuActionDef(
+    id: novelMenuActionBookmarkList,
+    label: '书签列表',
+    icon: Icons.bookmark_border,
     available: _bookmarkReady,
     unavailableHint: '需先完成书签库',
   ),

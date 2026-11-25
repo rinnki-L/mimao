@@ -8,14 +8,20 @@
 //   （会话内，换章不白屏）。
 
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 import 'package:mimao/core/theme.dart' show MimaoFonts;
+import 'package:mimao/novel/bookmark/novel_bookmark_models.dart';
 import 'package:mimao/novel/engine/online_engine.dart';
 import 'package:mimao/novel/library_api.dart';
 import 'package:mimao/novel/models/novel_models.dart';
+import 'package:mimao/novel/reader/novel_bookmark_service.dart';
 import 'package:mimao/novel/reader/novel_chapter_cache.dart';
+import 'package:mimao/novel/reader/novel_content_override_service.dart';
+import 'package:mimao/novel/reader/novel_highlight_rule_service.dart';
+import 'package:mimao/novel/reader/novel_highlight_rules.dart';
 import 'package:mimao/novel/reader/novel_layout_service.dart';
 import 'package:mimao/novel/reader/novel_locator.dart';
 import 'package:mimao/novel/reader/novel_reader_position.dart';
@@ -53,6 +59,10 @@ class NovelReaderController extends ChangeNotifier {
     this.history,
     this.prefs,
     this.replaceRules,
+    this.highlightRules,
+    this.contentOverrides,
+    this.bookmarks,
+    this.initialLocator,
     NovelReaderSettingsStore? settingsStore,
     NovelLayoutService? layoutService,
     NovelChapterCache? chapterCache,
@@ -77,6 +87,18 @@ class NovelReaderController extends ChangeNotifier {
   final NovelHistoryApi? history;
   final NovelPrefsApi? prefs;
   final NovelReplaceRuleStorage? replaceRules;
+
+  /// 高亮规则仓库；null 时正文不做高亮（测试/无数据层场景）。
+  final NovelHighlightRuleStorage? highlightRules;
+
+  /// 单章本地覆盖仓库；null 时「正文编辑」不可用。
+  final NovelContentOverrideStorage? contentOverrides;
+
+  /// 书签/划线门面；null 时阅读器不给入口（测试或无数据层场景）。
+  final NovelBookmarkApi? bookmarks;
+
+  /// 从书签列表打开时指定的落点（优先于续读位置）。
+  final NovelLocator? initialLocator;
 
   final NovelReaderSettingsStore settingsStore;
   final NovelBookSettingsStore bookStore;
@@ -124,6 +146,36 @@ class NovelReaderController extends ChangeNotifier {
 
   NovelSummary? historyOverride;
   List<NovelReplaceRule> replaceRules_ = const <NovelReplaceRule>[];
+  List<NovelHighlightRule> highlightRules_ = const <NovelHighlightRule>[];
+
+  /// 当前章用的是本地覆盖（正文编辑过）；页面据此显示「本地覆盖」提示。
+  bool chapterIsLocalOverride = false;
+
+  /// 高亮/内容覆盖仓库是否已就绪（菜单动作可用性用）。
+  bool get highlightRulesReady => highlightRules != null;
+  bool get contentOverrideReady => contentOverrides != null;
+
+  /// 当前书源最近一次非致命警告（引擎实现 [NovelEngineWarnings] 时才有）。
+  String? get sourceWarning {
+    final engine = onlineEngine;
+    if (engine is NovelEngineWarnings) {
+      return (engine as NovelEngineWarnings).warningFor(_sourceKeyNow);
+    }
+    return null;
+  }
+
+  /// 当前章的书签与划线（渲染层直接读，切章后重载）。
+  List<NovelBookmark> chapterBookmarks = const <NovelBookmark>[];
+  List<NovelMarking> chapterMarkings = const <NovelMarking>[];
+
+  /// 全书有书签的章下标（目录角标）。
+  Set<int> bookmarkedChapters = const <int>{};
+
+  /// 最近一次选用的划线样式（同一次阅读里连划复用，不每次重选）。
+  NovelMarkingStyle lastMarkingStyle = NovelMarkingStyle.yellow;
+
+  /// 最近一次换源重定位结果；阅读页可据此提示「N 条无法定位」。
+  NovelRelocateResult? lastRelocateResult;
 
   NovelReaderPosition? _pendingRestore;
   bool _pendingStartAtEnd = false;
@@ -136,6 +188,7 @@ class NovelReaderController extends ChangeNotifier {
   String _requestedKey = '';
 
   Future<void> _replaceRulesReady = Future<void>.value();
+  Future<void> _highlightRulesReady = Future<void>.value();
   Timer? _settingsTimer;
   Timer? _saveTimer;
   bool _disposed = false;
@@ -145,6 +198,12 @@ class NovelReaderController extends ChangeNotifier {
 
   String get _sourceKeyNow =>
       detail?.ref.sourceKey ?? source?.key ?? sourceKey ?? '';
+
+  String get bookTitleNow => detail?.title ?? title ?? '';
+
+  String get bookAuthorNow => detail?.author ?? author ?? '';
+
+  String get bookUrlNow => detail?.ref.bookUrl ?? bookUrl ?? '';
 
   bool get hasPrevious => neighborChapter(-1) != null;
   bool get hasNext => neighborChapter(1) != null;
@@ -163,6 +222,8 @@ class NovelReaderController extends ChangeNotifier {
   }
 
   Future<void> init() async {
+    // 书签列表带进来的落点先排上：bootstrap 选章/应用正文时都会用到。
+    if (initialLocator != null) _pendingJumpLocator = initialLocator;
     final loaded = await settingsStore.load();
     final override = await bookStore.load(bookId);
     final position = await positionStore.load(
@@ -176,8 +237,34 @@ class NovelReaderController extends ChangeNotifier {
     savedPosition = position;
     settingsReady = true;
     _replaceRulesReady = _loadReplaceRules();
+    _highlightRulesReady = _loadHighlightRules();
     notifyListeners();
     await bootstrap();
+  }
+
+  Future<void> _loadHighlightRules() async {
+    final store = highlightRules;
+    if (store == null) return;
+    try {
+      final rules = await store.loadAll();
+      if (_disposed) return;
+      highlightRules_ = rules;
+      notifyListeners();
+    } on Object {
+      // 高亮规则读坏了不该让正文打不开；正文照常显示，只是没高亮。
+    }
+  }
+
+  /// 当前书生效的高亮规则（全局 + 本书）。
+  List<NovelHighlightRule> get highlightRulesForBook => <NovelHighlightRule>[
+    for (final rule in highlightRules_)
+      if (rule.enabled && rule.appliesToBook(bookId)) rule,
+  ];
+
+  /// 重新读一遍高亮规则（高亮管理页保存后调用）。
+  Future<void> reloadHighlightRules() async {
+    _highlightRulesReady = _loadHighlightRules();
+    await _highlightRulesReady;
   }
 
   Future<void> _loadReplaceRules() async {
@@ -191,6 +278,14 @@ class NovelReaderController extends ChangeNotifier {
     } on Object {
       // 规则读坏了不该让正文打不开。
     }
+  }
+
+  /// 重新读一遍替换规则（编辑页保存后调用），并让当前章按新规则重算。
+  Future<void> reloadReplaceRules() async {
+    _replaceRulesReady = _loadReplaceRules();
+    await _replaceRulesReady;
+    final target = chapter;
+    if (target != null) await openChapter(target);
   }
 
   NovelContent applyContentReplaceRules(NovelContent content) {
@@ -276,6 +371,7 @@ class NovelReaderController extends ChangeNotifier {
         notifyListeners();
         return;
       }
+      unawaited(_relocateBookmarks());
       await openChapter(target);
       return;
     }
@@ -318,6 +414,7 @@ class NovelReaderController extends ChangeNotifier {
         notifyListeners();
         return;
       }
+      unawaited(_relocateBookmarks());
       await openChapter(target);
     } on Object catch (error) {
       if (_disposed || seq != _loadSeq) return;
@@ -338,6 +435,14 @@ class NovelReaderController extends ChangeNotifier {
     final index = chapterIndex;
     if (index != null && index >= 0 && index < chapters.length) {
       return chapters[index];
+    }
+    // 从书签列表进来：优先打开书签所在的章，而不是第一章/上次进度。
+    final locatorIndex = _pendingJumpLocator?.chapterIndex;
+    if (locatorIndex != null &&
+        locatorIndex >= 0 &&
+        locatorIndex < chapters.length &&
+        !chapters[locatorIndex].isVolume) {
+      return chapters[locatorIndex];
     }
     return chapters.first;
   }
@@ -398,8 +503,27 @@ class NovelReaderController extends ChangeNotifier {
       }
       // 规则可能还在读盘；等它落地再展示，避免首屏先出现未净化的正文。
       await _replaceRulesReady;
+      await _highlightRulesReady;
       if (_disposed || seq != _loadSeq) return;
-      final cleaned = applyContentReplaceRules(raw);
+      // 本地覆盖优先于网络/缓存正文：正文编辑保存后再次打开就用这一版。
+      // 覆盖是「用户亲手改过的最终文本」，不再叠加替换规则（否则
+      // 像 `(\d+)章 → 第$1章` 这种规则会对改过的正文再套一层）。
+      NovelContent? local;
+      final overrides = contentOverrides;
+      if (overrides != null) {
+        try {
+          local = await overrides.load(
+            bookId: bookId,
+            sourceKey: _sourceKeyNow,
+            chapterKey: novelChapterOverrideKey(target),
+          );
+        } on Object {
+          // 覆盖读坏了退回原正文，不让整章打不开。
+        }
+      }
+      if (_disposed || seq != _loadSeq) return;
+      final cleaned = local ?? applyContentReplaceRules(raw);
+      chapterIsLocalOverride = local != null;
       _applyContent(
         target,
         cleaned,
@@ -454,8 +578,21 @@ class NovelReaderController extends ChangeNotifier {
     contentEpoch++;
 
     NovelReaderPosition? saved = resumeFrom ?? savedPosition;
-    final jump = _pendingJumpLocator;
+    var jump = _pendingJumpLocator;
     if (jump != null) {
+      // 书签/搜索命中的段落可能因为版本差异越界：落到末尾段，偏移清零，
+      // 不因为一个旧锚点把整次跳转丢掉。
+      final lastParagraph = next.paragraphs.isEmpty
+          ? 0
+          : next.paragraphs.length - 1;
+      if (jump.paragraph > lastParagraph) {
+        jump = jump.copyWith(paragraph: lastParagraph, charOffset: 0);
+      } else if (jump.paragraph >= 0) {
+        final length = next.paragraphs[jump.paragraph].length;
+        if (jump.charOffset > length) {
+          jump = jump.copyWith(charOffset: length);
+        }
+      }
       if (jump.chapterIndex == target.index &&
           (jump.sourceKey.isEmpty ||
               jump.sourceKey == (detail?.ref.sourceKey ?? ''))) {
@@ -492,6 +629,7 @@ class NovelReaderController extends ChangeNotifier {
     _settlePageRestore();
     _reportProgress(target);
     _prefetchNeighbors(target);
+    unawaited(_reloadBookmarkState());
   }
 
   void _reportProgress(NovelChapter target) {
@@ -575,6 +713,73 @@ class NovelReaderController extends ChangeNotifier {
   Future<void> refreshCurrentChapter() async {
     final target = chapter;
     if (target != null) await openChapter(target, refresh: true);
+  }
+
+  /// 保存当前章的本地覆盖并立即重新展示；返回是否保存成功。
+  ///
+  /// [paragraphs] 是编辑后的最终段落（不含段首缩进）；空正文拒绝保存，
+  /// 避免一次误删把整章变成空白。
+  Future<bool> saveChapterOverride(
+    List<String> paragraphs, {
+    String? title,
+  }) async {
+    final storage = contentOverrides;
+    final target = chapter;
+    if (storage == null || target == null) return false;
+    final cleaned = <String>[
+      for (final paragraph in paragraphs)
+        if (paragraph.trim().isNotEmpty) paragraph,
+    ];
+    if (cleaned.isEmpty) return false;
+    try {
+      await storage.save(
+        bookId: bookId,
+        sourceKey: _sourceKeyNow,
+        chapterKey: novelChapterOverrideKey(target),
+        chapterTitle: target.title,
+        title: title ?? content?.title ?? '',
+        paragraphs: cleaned,
+      );
+    } on Object {
+      return false;
+    }
+    await openChapter(target);
+    return true;
+  }
+
+  /// 删除当前章的本地覆盖并恢复网络/缓存正文。
+  Future<bool> restoreChapterOverride() async {
+    final storage = contentOverrides;
+    final target = chapter;
+    if (storage == null || target == null) return false;
+    try {
+      await storage.remove(
+        bookId: bookId,
+        sourceKey: _sourceKeyNow,
+        chapterKey: novelChapterOverrideKey(target),
+      );
+    } on Object {
+      return false;
+    }
+    chapterIsLocalOverride = false;
+    await openChapter(target);
+    return true;
+  }
+
+  /// 当前章是否存在本地覆盖（编辑页显示「恢复原样」用）。
+  Future<bool> hasChapterOverride() async {
+    final storage = contentOverrides;
+    final target = chapter;
+    if (storage == null || target == null) return false;
+    try {
+      return await storage.has(
+        bookId: bookId,
+        sourceKey: _sourceKeyNow,
+        chapterKey: novelChapterOverrideKey(target),
+      );
+    } on Object {
+      return false;
+    }
   }
 
   /// 正文样式：字体、字距、加粗/斜体、阴影。
@@ -1072,6 +1277,253 @@ class NovelReaderController extends ChangeNotifier {
     }
   }
 
+  // ── 书签 / 划线 ────────────────────────────────────────────────────────
+  bool get bookmarksReady => bookmarks != null;
+
+  /// 当前章正文（不含段首缩进）的字符长度；划线区间校验用。
+  int paragraphLength(int paragraph) =>
+      math.max(0, paragraphText(paragraph).length - settings.indent.length);
+
+  List<NovelMarking> markingsOfParagraph(int paragraph) => <NovelMarking>[
+    for (final marking in chapterMarkings)
+      if (marking.paragraph == paragraph) marking,
+  ];
+
+  /// 本书全部书签（阅读器里的「全书书签」列表用）。
+  Future<List<NovelBookmark>> loadBookBookmarks() async {
+    final api = bookmarks;
+    if (api == null) return const <NovelBookmark>[];
+    try {
+      return await api.bookmarksForBook(bookId);
+    } on Object {
+      return const <NovelBookmark>[];
+    }
+  }
+
+  /// 换源后按章标题 + 段落下标尽力重定位；失败标 unresolved（不删行）。
+  Future<void> _relocateBookmarks() async {
+    final api = bookmarks;
+    final currentDetail = detail;
+    if (api == null || currentDetail == null) return;
+    try {
+      final result = await api.relocateBookmarks(
+        bookId,
+        currentDetail.chapters,
+        sourceKey: _sourceKeyNow,
+      );
+      await api.relocateMarkings(
+        bookId,
+        currentDetail.chapters,
+        sourceKey: _sourceKeyNow,
+      );
+      if (_disposed) return;
+      lastRelocateResult = result;
+      notifyListeners();
+      await _reloadBookmarkState();
+    } on Object {
+      // 重定位失败不该让正文打不开；下次开书再试。
+    }
+  }
+
+  Future<void> _reloadBookmarkState() async {
+    final api = bookmarks;
+    final current = chapter;
+    if (api == null || current == null) return;
+    try {
+      final all = await api.bookmarksForBook(bookId);
+      final markings = await api.markingsForChapter(
+        bookId,
+        current.index,
+        sourceKey: _sourceKeyNow,
+      );
+      final chapterSet = await api.bookmarkedChapterIndexes(
+        bookId,
+        sourceKey: _sourceKeyNow,
+      );
+      if (_disposed) return;
+      final currentKey = _sourceKeyNow;
+      chapterBookmarks = <NovelBookmark>[
+        for (final bookmark in all)
+          if (bookmark.chapterIndex == current.index &&
+              (bookmark.sourceKey.isEmpty || bookmark.sourceKey == currentKey))
+            bookmark,
+      ];
+      chapterMarkings = markings;
+      bookmarkedChapters = chapterSet;
+      notifyListeners();
+    } on Object {
+      // 读失败保留上一份快照，阅读继续。
+    }
+  }
+
+  /// 加/删书签（同一位置再点即删）。返回 null 表示书签库没接上或没有正文。
+  Future<NovelBookmarkToggleResult?> toggleBookmarkAt({
+    int? paragraph,
+    int charOffset = 0,
+  }) async {
+    final api = bookmarks;
+    final current = chapter;
+    final contentNow = content;
+    if (api == null || current == null || contentNow == null) return null;
+    final last = contentNow.paragraphs.isEmpty
+        ? 0
+        : contentNow.paragraphs.length - 1;
+    final targetParagraph = (paragraph ?? _scrollParagraph).clamp(0, last);
+    final raw = contentNow.paragraphs[targetParagraph];
+    final excerpt = raw.trim();
+    try {
+      final result = await api.toggleBookmark(
+        anchor: NovelTextAnchor(
+          bookId: bookId,
+          sourceKey: _sourceKeyNow,
+          chapterIndex: current.index,
+          paragraph: targetParagraph,
+          charOffset: charOffset,
+        ),
+        chapterName: current.title,
+        bookTitle: bookTitleNow,
+        bookAuthor: bookAuthorNow,
+        bookUrl: bookUrlNow,
+        excerpt: excerpt.length > 80 ? excerpt.substring(0, 80) : excerpt,
+      );
+      await _reloadBookmarkState();
+      return result;
+    } on Object {
+      return null;
+    }
+  }
+
+  Future<bool> removeBookmarkItem(NovelBookmark bookmark) async {
+    final api = bookmarks;
+    if (api == null) return false;
+    try {
+      final removed = await api.removeBookmark(bookmark.id);
+      if (removed) await _reloadBookmarkState();
+      return removed;
+    } on Object {
+      return false;
+    }
+  }
+
+  /// 跳到一条书签：章下标失效或标了 unresolved 时先按章标题在现目录里找，
+  /// 仍找不到返回 false（调用方提示「无法定位，可在书签列表删除」）。
+  Future<bool> jumpToBookmark(NovelBookmark bookmark) async {
+    final currentDetail = detail;
+    if (currentDetail == null) return false;
+    var index = bookmark.chapterIndex;
+    final invalid =
+        bookmark.unresolved ||
+        index < 0 ||
+        index >= currentDetail.chapters.length ||
+        currentDetail.chapters[index].isVolume;
+    if (invalid) {
+      index = _chapterIndexByTitle(bookmark.chapterName);
+    }
+    if (index < 0 || index >= currentDetail.chapters.length) return false;
+    final target = currentDetail.chapters[index];
+    if (target.isVolume) return false;
+    await jumpToLocator(
+      NovelLocator(
+        chapterIndex: index,
+        paragraph: bookmark.paragraph,
+        charOffset: bookmark.charOffset,
+        sourceKey: _sourceKeyNow,
+      ),
+    );
+    return true;
+  }
+
+  int _chapterIndexByTitle(String title) {
+    final currentDetail = detail;
+    if (currentDetail == null) return -1;
+    final key = normalizeNovelChapterTitle(title);
+    if (key.isEmpty) return -1;
+    for (var i = 0; i < currentDetail.chapters.length; i++) {
+      final chapter = currentDetail.chapters[i];
+      if (chapter.isVolume) continue;
+      if (normalizeNovelChapterTitle(chapter.title) == key) return i;
+    }
+    return -1;
+  }
+
+  /// 新建划线；区间越界在这里按当前段落长度 clamp，非法返回 null。
+  Future<NovelMarking?> addMarking({
+    required int paragraph,
+    required int startOffset,
+    required int endOffset,
+    NovelMarkingStyle? style,
+    String note = '',
+  }) async {
+    final api = bookmarks;
+    final current = chapter;
+    final contentNow = content;
+    if (api == null || current == null || contentNow == null) return null;
+    final last = contentNow.paragraphs.isEmpty
+        ? 0
+        : contentNow.paragraphs.length - 1;
+    final targetParagraph = paragraph.clamp(0, last);
+    final chosen = style ?? lastMarkingStyle;
+    try {
+      final marking = await api.addMarking(
+        anchor: NovelTextAnchor(
+          bookId: bookId,
+          sourceKey: _sourceKeyNow,
+          chapterIndex: current.index,
+          paragraph: targetParagraph,
+          charOffset: startOffset,
+        ),
+        endOffset: endOffset,
+        style: chosen,
+        note: note,
+        chapterName: current.title,
+        bookTitle: bookTitleNow,
+        bookAuthor: bookAuthorNow,
+        bookUrl: bookUrlNow,
+        paragraphLength: paragraphLength(targetParagraph),
+      );
+      if (marking != null) {
+        lastMarkingStyle = chosen;
+        await _reloadBookmarkState();
+      }
+      return marking;
+    } on Object {
+      return null;
+    }
+  }
+
+  Future<NovelMarking?> updateMarking(
+    NovelMarking marking, {
+    NovelMarkingStyle? style,
+    String? note,
+  }) async {
+    final api = bookmarks;
+    if (api == null) return null;
+    try {
+      final updated = await api.updateMarking(
+        marking.id,
+        style: style,
+        note: note,
+        paragraphLength: paragraphLength(marking.paragraph),
+      );
+      if (updated != null) await _reloadBookmarkState();
+      return updated;
+    } on Object {
+      return null;
+    }
+  }
+
+  Future<bool> removeMarkingItem(NovelMarking marking) async {
+    final api = bookmarks;
+    if (api == null) return false;
+    try {
+      final removed = await api.removeMarking(marking.id);
+      if (removed) await _reloadBookmarkState();
+      return removed;
+    } on Object {
+      return false;
+    }
+  }
+
   double bookPercent({int? page, int? pageCount}) {
     final currentDetail = detail;
     final current = chapter;
@@ -1142,6 +1594,8 @@ class NovelReaderController extends ChangeNotifier {
       pages = const <NovelTextPage>[];
       loadingDetail = false;
       notifyListeners();
+      // 换源后目录可能重排：书签/笔记按「章标题 + 段落」尽力找回原位置。
+      unawaited(_relocateBookmarks());
       await openChapter(target);
     } on Object catch (error) {
       if (_disposed) return;

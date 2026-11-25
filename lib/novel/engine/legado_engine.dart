@@ -16,6 +16,7 @@ import 'package:mimao/novel/engine/engine.dart';
 import 'package:mimao/novel/engine/explore_kinds.dart';
 import 'package:mimao/novel/engine/novel_http_client.dart';
 import 'package:mimao/novel/engine/online_engine.dart';
+import 'package:mimao/novel/engine/source_capability.dart';
 import 'package:mimao/novel/js/legado_js_host.dart';
 import 'package:mimao/novel/models/novel_models.dart';
 import 'package:mimao/novel/source/novel_source_model.dart';
@@ -33,7 +34,11 @@ class NovelEngineException implements Exception {
 
 /// 生产书源引擎。一个实例持有传输与每源一个 JS 宿主；用完调用 [close]。
 class LegadoNovelEngine
-    implements NovelEngine, NovelOnlineEngine, NovelContentRefresh {
+    implements
+        NovelEngine,
+        NovelOnlineEngine,
+        NovelContentRefresh,
+        NovelEngineWarnings {
   LegadoNovelEngine({
     NovelHttpTransport? transport,
     this.cache,
@@ -52,7 +57,26 @@ class LegadoNovelEngine
   bool _closed = false;
 
   /// 某源最近一次非致命警告（如 webView 降级），UI 可选择展示。
+  @override
   String? warningFor(String sourceKey) => _warnings[sourceKey];
+
+  /// 记一条非致命警告；同一源多条警告用「；」拼起来，不互相覆盖。
+  void _warn(NovelBookSource source, String message) {
+    final current = _warnings[source.key];
+    if (current == null || current.isEmpty || current.contains(message)) {
+      _warnings[source.key] = message;
+      return;
+    }
+    _warnings[source.key] = '$current；$message';
+  }
+
+  /// 书源正文规则的能力边界（书源详情页与引擎共用同一张表）。
+  ///
+  /// 解析到但不支持的字段不再静默：[NovelSourceCapability] 会明确给出
+  /// 「已支持 / 降级 / 暂不支持」与原因。
+  static List<NovelSourceCapability> contentCapabilities(
+    NovelBookSource source,
+  ) => novelContentCapabilities(source.ruleSet);
 
   @override
   void close() {
@@ -372,7 +396,7 @@ class LegadoNovelEngine
     // legado 的约定：`-` 前缀表示该源列表是倒序（最新在前），翻成阅读顺序；
     // 没有前缀就是源的自然顺序（多数站点即最旧在前），不要再翻。
     if (reversed) unique = unique.reversed.toList();
-    return <NovelChapter>[
+    final ordered = <NovelChapter>[
       for (var i = 0; i < unique.length; i++)
         NovelChapter(
           id: unique[i].id,
@@ -384,6 +408,56 @@ class LegadoNovelEngine
           tag: unique[i].tag,
         ),
     ];
+    await _applyTocFormatJs(source, rules.tocFormatJs, ordered);
+    return ordered;
+  }
+
+  /// 对齐 Kotlin BookChapterList：目录成型后逐条跑 `formatJs`，把返回值覆盖
+  /// 章节标题。绑定 `title`（当前标题）、`index`（1 基）、`chapter`（章节信息）、
+  /// `gInt`（可跨条累加的计数器）。单条失败只保留原标题，不阻断整本目录。
+  Future<void> _applyTocFormatJs(
+    NovelBookSource source,
+    String formatJs,
+    List<NovelChapter> chapters,
+  ) async {
+    if (formatJs.trim().isEmpty || chapters.isEmpty) return;
+    final runner = _host(source).evaluate;
+    for (var i = 0; i < chapters.length; i++) {
+      final chapter = chapters[i];
+      try {
+        final value = await runner(
+          formatJs,
+          RuleJsContext(
+            callbacks: _analyzer(source),
+            result: chapter.title,
+            chapterTitle: chapter.title,
+            page: i + 1,
+            variables: <String, String>{'gInt': '0', 'index': '${i + 1}'},
+            chapterInfo: <String, String>{
+              'title': chapter.title,
+              'index': '${i + 1}',
+              'url': chapter.url,
+            },
+          ),
+        );
+        if (value != null) {
+          final text = LegadoRuleAnalyzer.valueToString(value).trim();
+          if (text.isNotEmpty && text != chapter.title) {
+            chapters[i] = NovelChapter(
+              id: chapter.id,
+              title: text,
+              index: chapter.index,
+              url: chapter.url,
+              isVolume: chapter.isVolume,
+              isVip: chapter.isVip,
+              tag: chapter.tag,
+            );
+          }
+        }
+      } on Object {
+        // 单条格式化失败保留原标题。
+      }
+    }
   }
 
   Future<void> _parseTocPage(
@@ -460,7 +534,34 @@ class LegadoNovelEngine
   ) async {
     final rules = source.ruleSet;
     if (rules.contentRule.isEmpty) {
+      if (rules.contentWebJs.isNotEmpty) {
+        _warn(source, '正文依赖 WebView（webJs），桌面端没有 WebView，按 HTTP 抓取也没有正文规则');
+        throw NovelEngineException(
+          '书源正文依赖 WebView（webJs），桌面端暂不支持执行；'
+          '已在书源详情里标注为降级/不支持',
+          sourceName: source.name,
+        );
+      }
       throw NovelEngineException('书源没有正文规则', sourceName: source.name);
+    }
+    // 解析到但当前实现不完整支持的字段：运行时留一条警告，UI 可在书源详情
+    // 看到同一张能力表——不再「解析了但静默不生效」。
+    if (rules.contentWebJs.isNotEmpty) {
+      _warn(source, '书源正文使用 WebView（webJs），桌面端已降级为 HTTP 抓取');
+    }
+    if (rules.contentSourceRegex.isNotEmpty) {
+      _warn(source, 'sourceRegex 只在 WebView 渲染后生效，桌面端暂不支持');
+    }
+    if (rules.contentImageStyle.isNotEmpty) {
+      _warn(source, 'imageStyle 暂不支持：正文不渲染插图，图片只落占位');
+    }
+    if (rules.contentPayAction.isNotEmpty) {
+      _warn(
+        source,
+        chapter.isVip
+            ? '本章是 VIP 章且书源配置了 payAction；未接入购买，正文可能拿不到'
+            : '书源配置了 payAction（付费操作），暂不支持自动购买',
+      );
     }
     final chapterUrl = chapter.url.isNotEmpty ? chapter.url : _bookUrlOf(ref);
     if (chapterUrl.isEmpty) {
@@ -646,14 +747,18 @@ class LegadoNovelEngine
         : await analyzer.getElements(listRule);
     var books = <NovelSummary>[];
     if (elements.isEmpty) {
-      final single = await _summaryFromDetailPage(
-        source,
-        analyzer,
-        rules,
-        baseUrl,
-        requirePatternMatch: isSearch,
-      );
-      if (single != null) books.add(single);
+      // 只有搜索页才可能是"直接输入书籍 URL"的单书详情页；发现页列表选择器
+      // 失效时应走空态，不能把整页当详情硬凑一本书返回（幽灵书）。
+      if (isSearch) {
+        final single = await _summaryFromDetailPage(
+          source,
+          analyzer,
+          rules,
+          baseUrl,
+          requirePatternMatch: true,
+        );
+        if (single != null) books.add(single);
+      }
     } else {
       final nameRule = isSearch
           ? (rules.searchName)
@@ -797,6 +902,7 @@ class LegadoNovelEngine
       sourceInfo: _sourceInfo(source),
       key: key,
       page: page,
+      timeout: requestTimeout,
     );
     final response = await analyze.fetch();
     if (response.usedWebViewFallback) {
@@ -842,11 +948,13 @@ class LegadoNovelEngine
     if (source.jsLib.trim().isEmpty || _loadedLibraries.contains(source.key)) {
       return;
     }
-    _loadedLibraries.add(source.key);
     try {
       await _host(source).loadLibrary(source.jsLib);
+      _loadedLibraries.add(source.key);
     } on Object {
-      // jsLib 失败不阻断主流程；规则里会自然落到空结果。
+      // 失败必须回滚"已加载"标记：瞬时网络/插件故障后下一轮应能重试，
+      // 否则本进程内该源永久失效。jsLib 失败不阻断主流程。
+      _loadedLibraries.remove(source.key);
     }
   }
 

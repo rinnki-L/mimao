@@ -36,6 +36,7 @@ class NovelSearchSheet extends StatefulWidget {
     required this.onPick,
     this.onPickHit,
     this.ignoreCase = true,
+    this.initialQuery = '',
   });
 
   /// 与章节下标一一对应的标题（卷名不算命中，但保留占位）。
@@ -47,6 +48,9 @@ class NovelSearchSheet extends StatefulWidget {
   /// 需要字符偏移时用它；为空时回退到 [onPick]。
   final ValueChanged<NovelSearchHit>? onPickHit;
   final bool ignoreCase;
+
+  /// 选区「搜索」带进来的关键词；只预填，不自动开搜（避免没点就整本联网）。
+  final String initialQuery;
 
   @override
   State<NovelSearchSheet> createState() => _NovelSearchSheetState();
@@ -70,6 +74,12 @@ class _NovelSearchSheetState extends State<NovelSearchSheet> {
   @override
   void initState() {
     super.initState();
+    if (widget.initialQuery.isNotEmpty) {
+      _keyword.text = widget.initialQuery;
+      _keyword.selection = TextSelection.collapsed(
+        offset: _keyword.text.length,
+      );
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) => _focus.requestFocus());
   }
 

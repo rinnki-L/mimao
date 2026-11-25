@@ -124,6 +124,11 @@ const List<_SettingsSearchEntry> _settingsSearchIndex = <_SettingsSearchEntry>[
   _SettingsSearchEntry('点击区', _SettingsTab.menu, keywords: <String>['九宫格']),
   _SettingsSearchEntry('长按', _SettingsTab.menu),
   _SettingsSearchEntry('双击', _SettingsTab.menu),
+  _SettingsSearchEntry(
+    '下滑加书签',
+    _SettingsTab.menu,
+    keywords: <String>['手势', '书签'],
+  ),
   _SettingsSearchEntry('图标每行个数', _SettingsTab.menu),
   _SettingsSearchEntry('菜单行数', _SettingsTab.menu),
   _SettingsSearchEntry('底栏圆角', _SettingsTab.menu, keywords: <String>['圆角']),
@@ -1347,13 +1352,18 @@ class _NovelReaderSettingsSheetState extends State<NovelReaderSettingsSheet> {
                 title: '双击',
                 value: _settings.doubleTapAction,
                 values: NovelDoubleTapAction.values,
-                labelOf: (value) => value.available
-                    ? value.label
-                    : '${value.label}（${value.unavailableHint}）',
-                onChanged: (value) {
-                  if (!value.available) return;
-                  _apply(_settings.copyWith(doubleTapAction: value));
-                },
+                labelOf: (value) => value.label,
+                onChanged: (value) =>
+                    _apply(_settings.copyWith(doubleTapAction: value)),
+              ),
+              SwitchListTile(
+                key: const Key('novel-settings-swipe-bookmark'),
+                contentPadding: EdgeInsets.zero,
+                title: const Text('下滑加书签'),
+                subtitle: const Text('在正文顶部继续下滑时加/删书签；默认关，避免与回弹抢手势'),
+                value: _settings.swipeDownBookmark,
+                onChanged: (value) =>
+                    _apply(_settings.copyWith(swipeDownBookmark: value)),
               ),
             ],
           ),

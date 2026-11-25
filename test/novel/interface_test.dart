@@ -7,9 +7,21 @@ import 'package:mimao/novel/analyzer/rule_analyzer.dart';
 import 'package:mimao/novel/analyzer/rule_models.dart';
 import 'package:mimao/novel/cache/novel_cache.dart';
 import 'package:mimao/novel/engine/engine.dart';
+import 'package:mimao/novel/engine/legado_engine.dart';
+import 'package:mimao/novel/engine/novel_http_client.dart';
 import 'package:mimao/novel/js/js_host.dart';
 import 'package:mimao/novel/models/novel_models.dart';
 import 'package:mimao/novel/novel_entry.dart';
+
+/// 关闭引擎用的空传输（不会真的发请求）。
+class _NoopTransport implements NovelHttpTransport {
+  @override
+  Future<NovelHttpResponse> send(NovelHttpRequest request) async =>
+      NovelHttpResponse(url: request.url, statusCode: 200, body: '');
+
+  @override
+  void close() {}
+}
 
 const _ref = NovelRef(id: 'b1');
 const _chapter = NovelChapter(id: 'c1', title: '第一章', index: 1);
@@ -123,6 +135,15 @@ class FakeJsHost implements JsHost {
 }
 
 void main() {
+  test('6 NovelEngine 有真实生产实现 LegadoNovelEngine，不是孤儿契约', () {
+    // NovelDataSource 目前只有 fake——它是"上层只依赖接口"的注入缝，
+    // 真实抓取走带 BookSource 的 NovelEngine；此项把真实实现钉进测试，
+    // 避免窄接口 fake 测试自说自话、虚增覆盖率。
+    final engine = LegadoNovelEngine(transport: _NoopTransport());
+    expect(engine, isA<NovelEngine>());
+    engine.close();
+  });
+
   test('6 NovelDataSource / NovelEngine 可用 fake 实现并返回预期领域模型', () async {
     final ds = FakeDataSource();
     expect((await ds.search('关键词')).single, _summary);

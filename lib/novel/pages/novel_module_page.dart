@@ -20,6 +20,7 @@ import 'package:mimao/novel/pages/novel_profile_page.dart';
 import 'package:mimao/novel/pages/novel_routes.dart';
 import 'package:mimao/novel/pages/novel_shelf_page.dart';
 import 'package:mimao/novel/pages/novel_subscribe_page.dart';
+import 'package:mimao/novel/reader/novel_bookmark_service.dart';
 import 'package:mimao/novel/source/novel_source_importer.dart';
 import 'package:mimao/novel/source/novel_subscription.dart';
 import 'package:mimao/novel/webdav_backup.dart';
@@ -36,6 +37,7 @@ class NovelModulePage extends StatefulWidget {
     this.onlineEngine,
     this.stats,
     this.prefs,
+    this.bookmarks,
     this.booklistGate,
     this.settingsTab,
     this.subscriptionStore,
@@ -64,6 +66,9 @@ class NovelModulePage extends StatefulWidget {
   /// 阅读统计/模块偏好（生产注入同一实例）。null 时统计显示 0、偏好用默认值。
   final NovelStatsApi? stats;
   final NovelPrefsApi? prefs;
+
+  /// 书签/划线门面（「我的 → 书签」与阅读器共用）。
+  final NovelBookmarkApi? bookmarks;
 
   /// 书单文件选择缝；null 时书架页用 file_picker 生产实现（测试可注入 fake）。
   final NovelBooklistFileGate? booklistGate;
@@ -170,6 +175,7 @@ class _NovelModulePageState extends State<NovelModulePage> {
         history: widget.history,
         searchHistory: widget.searchHistory,
         stats: widget.stats,
+        bookmarks: widget.bookmarks,
         sourceImporter: widget.sourceImporter,
         openRoute: _openRoute,
         onSelectTab: _selectTab,

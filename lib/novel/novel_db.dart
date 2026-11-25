@@ -122,6 +122,168 @@ class NovelReadingDays extends Table {
   Set<Column> get primaryKey => {day};
 }
 
+/// 书签：锚点一律是 (章下标, 段落下标, 段内字符偏移)，不用页码/比例。
+///
+/// 列名对齐上游 legado 的 Bookmark（bookName/bookAuthor/chapterIndex/
+/// chapterPos/bookText），章节标题用来在换源后按「标题 + 段落」重定位。
+/// 同一本书换源会换 [sourceKey]：去重只看 bookId + 源 + 章 + 段 + 偏移。
+@DataClassName('NovelBookmarkRow')
+class NovelBookmarkEntries extends Table {
+  @override
+  String get tableName => 'bookmark';
+
+  IntColumn get id => integer().autoIncrement()();
+
+  TextColumn get bookId => text()();
+
+  TextColumn get sourceKey => text().withDefault(const Constant(''))();
+
+  /// 书名列（参考上游 bookName）：全书书签列表按书分组时不必回查收藏表。
+  TextColumn get bookTitle => text().withDefault(const Constant(''))();
+
+  TextColumn get bookAuthor => text().withDefault(const Constant(''))();
+
+  /// 书源详情页地址：从书签列表重新打开阅读器时重建 NovelRef 用
+  /// （跨会话没有内存里的 detail 可依）。
+  TextColumn get bookUrl => text().withDefault(const Constant(''))();
+
+  /// 0 起章下标（引擎口径，与 [NovelLocator.chapterIndex] 一致）。
+  IntColumn get chapterIndex => integer()();
+
+  /// 0 起段落下标；-1 表示章标题。
+  IntColumn get paragraph => integer().withDefault(const Constant(0))();
+
+  /// 段内字符偏移（不含段首缩进）。
+  IntColumn get charOffset => integer().withDefault(const Constant(0))();
+
+  TextColumn get chapterName => text().withDefault(const Constant(''))();
+
+  TextColumn get excerpt => text().withDefault(const Constant(''))();
+
+  /// 换源后按章标题/段落尽力重定位；失败置 true，列表里标「无法定位」，
+  /// 不删行（上游同样保留书签，跳转前再问用户）。
+  BoolColumn get unresolved => boolean().withDefault(const Constant(false))();
+
+  DateTimeColumn get createdAt => dateTime()();
+}
+
+/// 划线/笔记：与书签同构的锚点，加一个段内区间 [startOffset, endOffset)。
+///
+/// 样式落 [styleJson]（颜色 + 装饰），笔记落 [note]；渲染层只加背景/装饰，
+/// 不插 Widget，正文行高不受影响。
+@DataClassName('NovelMarkingRow')
+class NovelMarkingEntries extends Table {
+  @override
+  String get tableName => 'marking';
+
+  IntColumn get id => integer().autoIncrement()();
+
+  TextColumn get bookId => text()();
+
+  TextColumn get sourceKey => text().withDefault(const Constant(''))();
+
+  TextColumn get bookTitle => text().withDefault(const Constant(''))();
+
+  TextColumn get bookAuthor => text().withDefault(const Constant(''))();
+
+  TextColumn get bookUrl => text().withDefault(const Constant(''))();
+
+  IntColumn get chapterIndex => integer()();
+
+  IntColumn get paragraph => integer().withDefault(const Constant(0))();
+
+  IntColumn get startOffset => integer().withDefault(const Constant(0))();
+
+  IntColumn get endOffset => integer().withDefault(const Constant(0))();
+
+  TextColumn get chapterName => text().withDefault(const Constant(''))();
+
+  /// `{"color": <argb>, "decoration": "background|underline|wavy"}`。
+  TextColumn get styleJson => text().withDefault(const Constant('{}'))();
+
+  TextColumn get note => text().withDefault(const Constant(''))();
+
+  BoolColumn get unresolved => boolean().withDefault(const Constant(false))();
+
+  DateTimeColumn get createdAt => dateTime()();
+
+  DateTimeColumn get updatedAt => dateTime()();
+}
+
+/// 高亮规则：正则 → 日夜两套样式，[bookId] 为空表示全局。
+///
+/// 规则与书签/划线不同：它不改正文、不落段落区间，只描述「什么样的文字
+/// 画成什么样」；渲染时按当前段落文本现场匹配。颜色存 ARGB 整数，避免
+/// 用户在深/浅主题间切换后旧规则变色。
+@DataClassName('NovelHighlightRuleRow')
+class NovelHighlightRules extends Table {
+  @override
+  String get tableName => 'novel_highlight_rule';
+
+  IntColumn get id => integer().autoIncrement()();
+
+  /// 空串 = 全局；非空只对该 bookId 生效。
+  TextColumn get bookId => text().withDefault(const Constant(''))();
+
+  TextColumn get name => text().withDefault(const Constant(''))();
+
+  /// 正则表达式（高亮只支持正则）。
+  TextColumn get pattern => text()();
+
+  IntColumn get foregroundLight => integer()();
+
+  IntColumn get backgroundLight => integer().nullable()();
+
+  IntColumn get foregroundDark => integer()();
+
+  IntColumn get backgroundDark => integer().nullable()();
+
+  BoolColumn get underline => boolean().withDefault(const Constant(false))();
+
+  BoolColumn get bold => boolean().withDefault(const Constant(false))();
+
+  BoolColumn get enabled => boolean().withDefault(const Constant(true))();
+
+  /// 导入时的原始 JSON（手工新建为 `{}`）。
+  TextColumn get raw => text().withDefault(const Constant('{}'))();
+
+  DateTimeColumn get createdAt => dateTime()();
+
+  DateTimeColumn get updatedAt => dateTime()();
+}
+
+/// 单章正文的本地覆盖：用户编辑后优先于网络/缓存正文，随时可恢复原样。
+///
+/// 主键用 `(bookId, sourceKey, chapterKey)`：换源后 chapterKey 会变，旧覆盖
+/// 仍按原源留着，不误套到新源的同一章上。`chapterKey` 取章节 id（进不了
+/// 目录索引时退回 url），与引擎的 [NovelChapter.id] 口径一致。
+@DataClassName('NovelContentOverrideRow')
+class NovelContentOverrides extends Table {
+  @override
+  String get tableName => 'novel_content_override';
+
+  TextColumn get bookId => text()();
+
+  TextColumn get sourceKey => text().withDefault(const Constant(''))();
+
+  TextColumn get chapterKey => text()();
+
+  TextColumn get chapterTitle => text().withDefault(const Constant(''))();
+
+  /// 编辑后的章节标题；空串表示沿用原章节标题。
+  TextColumn get title => text().withDefault(const Constant(''))();
+
+  /// 正文段落 JSON 数组（`["第一段", "第二段"]`）。
+  TextColumn get paragraphsJson => text()();
+
+  IntColumn get paragraphCount => integer().withDefault(const Constant(0))();
+
+  DateTimeColumn get updatedAt => dateTime()();
+
+  @override
+  Set<Column> get primaryKey => {bookId, sourceKey, chapterKey};
+}
+
 @DriftDatabase(
   tables: [
     NovelCollectEntries,
@@ -129,6 +291,10 @@ class NovelReadingDays extends Table {
     NovelSearchTerms,
     NovelPrefs,
     NovelReadingDays,
+    NovelBookmarkEntries,
+    NovelMarkingEntries,
+    NovelHighlightRules,
+    NovelContentOverrides,
   ],
 )
 class NovelDb extends _$NovelDb {
@@ -151,10 +317,14 @@ class NovelDb extends _$NovelDb {
   });
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 4;
 
   /// v1 → v2：书架分组列 + 模块 kv + 阅读时长按天表。三者都是增量，旧行无需
   /// 回填（groupName 缺省 null、今日/总时长从 0 起算）。
+  ///
+  /// v2 → v3：书签与划线两张新表；纯增量，旧表一行都不动。
+  ///
+  /// v3 → v4：高亮规则表 + 单章内容覆盖表；同样纯增量，已有书签/划线不动。
   @override
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (m) => m.createAll(),
@@ -163,6 +333,14 @@ class NovelDb extends _$NovelDb {
         await m.addColumn(novelCollectEntries, novelCollectEntries.groupName);
         await m.createTable(novelPrefs);
         await m.createTable(novelReadingDays);
+      }
+      if (from < 3) {
+        await m.createTable(novelBookmarkEntries);
+        await m.createTable(novelMarkingEntries);
+      }
+      if (from < 4) {
+        await m.createTable(novelHighlightRules);
+        await m.createTable(novelContentOverrides);
       }
     },
   );

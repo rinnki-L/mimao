@@ -14,7 +14,22 @@ class NovelSourceRepository implements NovelSourceStorage {
   final Future<NovelSourceStore> Function() _open;
   Future<NovelSourceStore>? _resolved;
 
-  Future<NovelSourceStore> _store() => _resolved ??= _open();
+  /// 只缓存成功的 Future：瞬时的插件/路径故障后允许下一轮重试，而不是把
+  /// 失败的 Future 永久钉死、让本进程内该功能全废。
+  Future<NovelSourceStore> _store() {
+    final resolved = _resolved;
+    if (resolved != null) return resolved;
+    final future = _open();
+    _resolved = future;
+    // 成功就保留；失败则清掉，下一轮可重试。退回原 Future 让调用方拿到真实错误。
+    future.then(
+      (_) {},
+      onError: (Object _) {
+        if (identical(_resolved, future)) _resolved = null;
+      },
+    );
+    return future;
+  }
 
   @override
   Future<List<NovelBookSource>> loadAll() async => (await _store()).loadAll();

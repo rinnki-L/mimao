@@ -217,18 +217,34 @@ class NovelReplaceRule {
         ),
       );
 
-  NovelReplaceRule copyWith({bool? enabled}) => NovelReplaceRule(
-    key: key,
-    name: name,
-    pattern: pattern,
-    replacement: replacement,
-    isRegex: isRegex,
-    enabled: enabled ?? this.enabled,
-    scope: scope,
-    scopeTitle: scopeTitle,
-    scopeContent: scopeContent,
-    raw: raw,
-  );
+  /// 改任一影响主键的字段（名称 / 查找 / 替换）时自动重算 [key]：保存时
+  /// 用新 key 写、再删旧 key，规则内容变了才不会被当成另一条。
+  NovelReplaceRule copyWith({
+    String? name,
+    String? pattern,
+    String? replacement,
+    bool? isRegex,
+    bool? enabled,
+    String? scope,
+    bool? scopeTitle,
+    bool? scopeContent,
+  }) {
+    final nextName = name ?? this.name;
+    final nextPattern = pattern ?? this.pattern;
+    final nextReplacement = replacement ?? this.replacement;
+    return NovelReplaceRule(
+      key: keyFor(nextName, nextPattern, nextReplacement),
+      name: nextName,
+      pattern: nextPattern,
+      replacement: nextReplacement,
+      isRegex: isRegex ?? this.isRegex,
+      enabled: enabled ?? this.enabled,
+      scope: scope ?? this.scope,
+      scopeTitle: scopeTitle ?? this.scopeTitle,
+      scopeContent: scopeContent ?? this.scopeContent,
+      raw: raw,
+    );
+  }
 
   /// 规则是否作用于这本书。
   ///
@@ -285,7 +301,10 @@ String applyReplaceRules(String input, Iterable<NovelReplaceRule> rules) {
   return result;
 }
 
-/// 展开 Java 风格替换串里的 `$1`…`$99` 与 `\` 转义。
+/// 展开 Java 风格替换串里的 `$1`…`$99`、`${name}` 命名组与 `\` 转义。
+///
+/// 与 Legado（Java `Matcher.replaceAll`）一致：数字组越界写空串，命名组不存在
+/// 也写空串；`\` 后跟任意字符按该字符原样输出。
 String _expandJavaReplacement(String replacement, Match match) {
   final out = StringBuffer();
   for (var i = 0; i < replacement.length; i++) {
@@ -295,6 +314,16 @@ String _expandJavaReplacement(String replacement, Match match) {
       continue;
     }
     if (char == r'$' && i + 1 < replacement.length) {
+      if (replacement[i + 1] == '{') {
+        final close = replacement.indexOf('}', i + 2);
+        if (close > i + 2) {
+          final name = replacement.substring(i + 2, close);
+          final named = match is RegExpMatch ? match.namedGroup(name) : null;
+          out.write(named ?? '');
+          i = close;
+          continue;
+        }
+      }
       var cursor = i + 1;
       while (cursor < replacement.length &&
           replacement.codeUnitAt(cursor) >= 0x30 &&
@@ -313,4 +342,58 @@ String _expandJavaReplacement(String replacement, Match match) {
     out.write(char);
   }
   return out.toString();
+}
+
+/// 一条规则在样例正文上的实际效果（有效替换预览逐个展示）。
+class NovelReplaceOutcome {
+  const NovelReplaceOutcome({
+    required this.rule,
+    required this.before,
+    required this.after,
+    required this.matched,
+  });
+
+  final NovelReplaceRule rule;
+  final String before;
+  final String after;
+
+  /// 规则是否真的命中（替换成空时 before == after，仍算命中）。
+  final bool matched;
+}
+
+/// 判断一条规则在 [input] 上是否命中；坏正则当未命中。
+bool novelReplaceRuleMatches(String input, NovelReplaceRule rule) {
+  if (!rule.enabled || rule.pattern.isEmpty) return false;
+  try {
+    if (!rule.isRegex) return input.contains(rule.pattern);
+    return RegExp(rule.pattern).hasMatch(input);
+  } on Object {
+    return false;
+  }
+}
+
+/// 顺序应用 [rules]，逐条记录「应用前 / 应用后 / 是否命中」。
+///
+/// 与 [applyReplaceRules] 同一套语义（坏正则跳过、替换成空保留原文），供
+/// 编辑器的「有效替换」对照使用——预览看到的就是阅读器实际会做的。
+List<NovelReplaceOutcome> previewReplaceRules(
+  String input,
+  Iterable<NovelReplaceRule> rules,
+) {
+  var current = input;
+  final outcomes = <NovelReplaceOutcome>[];
+  for (final rule in rules) {
+    final before = current;
+    final matched = novelReplaceRuleMatches(before, rule);
+    current = applyReplaceRules(before, <NovelReplaceRule>[rule]);
+    outcomes.add(
+      NovelReplaceOutcome(
+        rule: rule,
+        before: before,
+        after: current,
+        matched: matched,
+      ),
+    );
+  }
+  return outcomes;
 }
