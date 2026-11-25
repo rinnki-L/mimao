@@ -186,16 +186,31 @@ while ($true) {
       $sapi.Speak((Decode ([string]$cmd.text)))
       Reply 'OK'
     } elseif ($op -eq 'synth') {
-      if ($cmd.voice) { try { $sapi.SelectVoice([string]$cmd.voice) } catch {} }
-      $sapi.Rate = [int]$cmd.rate
       $path = Decode ([string]$cmd.path)
-      $sapi.SetOutputToWaveFile($path)
-      try { $sapi.Speak((Decode ([string]$cmd.text))) } finally { $sapi.SetOutputToNull() }
+      # 每次合成用独立 synthesizer 并在 finally 里 Dispose：SetOutputToNull
+      # 不保证立刻放掉文件句柄，紧接着的 play 会打开一个仍被 SAPI 锁着的
+      # wav，PlaySync 可能一等等到超时。
+      $s = New-Object System.Speech.Synthesis.SpeechSynthesizer
+      try {
+        if ($cmd.voice) { try { $s.SelectVoice([string]$cmd.voice) } catch {} }
+        $s.Rate = [int]$cmd.rate
+        $s.SetOutputToWaveFile($path)
+        $s.Speak((Decode ([string]$cmd.text)))
+      } finally {
+        try { $s.SetOutputToNull() } catch {}
+        try { $s.Dispose() } catch {}
+      }
       Reply 'OK'
     } elseif ($op -eq 'play') {
       $path = Decode ([string]$cmd.path)
-      $player = New-Object System.Media.SoundPlayer($path)
-      $player.PlaySync()
+      # 共享读打开：文件即使还被上一手短暂持有，也能直接播放。
+      $stream = [System.IO.File]::Open($path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+      try {
+        $player = New-Object System.Media.SoundPlayer($stream)
+        $player.PlaySync()
+      } finally {
+        $stream.Dispose()
+      }
       Reply 'OK'
     } else {
       Reply 'ERR unknown op'
