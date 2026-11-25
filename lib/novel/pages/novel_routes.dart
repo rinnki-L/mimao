@@ -12,13 +12,28 @@ import 'package:flutter/material.dart';
 /// 小说模块内可导航的页面集合。仅冻结路由身份与展示信息，不含页面实现。
 enum NovelRoute {
   bookInfo('novel/book-info', '书籍详情', Icons.menu_book),
-  toc('novel/toc', '目录', Icons.list_alt),
   read('novel/read', '阅读', Icons.auto_stories),
   search('novel/search', '搜索', Icons.search),
   sourceManage('novel/source-manage', '规则管理', Icons.source),
+
+  /// 书源编辑器（表单 / 原始 JSON 双模式）。参数：`sourceKey`（编辑已有源，
+  /// 缺省 = 新建）、`raw`（新建时的初始 JSON 文本）。
+  sourceEdit('novel/source-edit', '编辑书源', Icons.edit_note),
+
+  /// 书源调试面板。**只在 debug 构建注册**（注册处用 `kDebugMode` 把关，
+  /// release 里这个路由落到占位屏，页面代码也不会被打包）。
+  /// 参数：`sourceKey`（预选书源）。
+  sourceDebug('novel/source-debug', '书源调试', Icons.bug_report_outlined),
   history('novel/history', '阅读记录', Icons.history),
+  stats('novel/stats', '阅读统计', Icons.insights),
   bookmarks('novel/bookmarks', '书签', Icons.bookmark_border),
-  settings('novel/settings', '设置', Icons.settings);
+  settings('novel/settings', '设置', Icons.settings),
+
+  /// 本地书导入（TXT / EPUB / Markdown）；带 `relocateBookId` 时是重新定位。
+  importBook('novel/import-book', '添加本地书', Icons.file_open_outlined),
+
+  /// TXT 目录规则管理（导入本地 TXT 时按这些规则分章）。
+  txtRules('novel/txt-rules', 'TXT 目录规则', Icons.format_list_numbered);
 
   const NovelRoute(this.routeName, this.label, this.icon);
 

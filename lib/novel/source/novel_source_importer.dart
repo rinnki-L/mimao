@@ -7,8 +7,10 @@
 library;
 
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
+import 'package:file_picker/file_picker.dart';
 
 import 'novel_rule_model.dart';
 import 'novel_rule_store.dart';
@@ -105,12 +107,16 @@ class NovelSourceImporter {
     this.fetcher, {
     this.rssStore,
     this.replaceStore,
+    this.fileGate,
   });
 
   final NovelSourceStorage store;
   final NovelRssSourceStorage? rssStore;
   final NovelReplaceRuleStorage? replaceStore;
   final NovelSourceFetcher fetcher;
+
+  /// 本地文件选择/保存缝；null 时用 [FilePickerNovelSourceFileGate]。
+  final NovelSourceFileGate? fileGate;
 
   /// 从 `yuedu://` 深链或手动粘贴的规则地址导入。
   ///
@@ -146,7 +152,17 @@ class NovelSourceImporter {
     } on Object catch (error) {
       throw NovelSourceImportException('下载规则文件失败：$error');
     }
+    return importFromText(text, kind: kind, origin: finalUrl);
+  }
 
+  /// 从已有正文导入（剪贴板 / 本地文件 / 下载后的内容共用）。
+  ///
+  /// [origin] 只用于结果展示与错误文案（地址或文件名）。
+  Future<NovelSourceImportResult> importFromText(
+    String text, {
+    NovelRuleKind? kind,
+    String origin = '',
+  }) async {
     final List<Map<String, dynamic>> rawItems;
     try {
       rawItems = parseLegadoSources(text);
@@ -165,15 +181,29 @@ class NovelSourceImporter {
     }
 
     return switch (resolved) {
-      NovelRuleKind.bookSource => _importBookSources(rawItems, finalUrl),
-      NovelRuleKind.rssSource => _importRssSources(rawItems, finalUrl),
-      NovelRuleKind.replaceRule => _importReplaceRules(rawItems, finalUrl),
+      NovelRuleKind.bookSource => _importBookSources(rawItems, origin),
+      NovelRuleKind.rssSource => _importRssSources(rawItems, origin),
+      NovelRuleKind.replaceRule => _importReplaceRules(rawItems, origin),
     };
+  }
+
+  /// 让用户选一个本地规则文件并导入（取消返回 null）。
+  Future<NovelSourceImportResult?> importFromPickedFile({
+    NovelRuleKind? kind,
+  }) async {
+    final gate = fileGate ?? const FilePickerNovelSourceFileGate();
+    final picked = await gate.pick();
+    if (picked == null) return null;
+    return importFromText(
+      utf8.decode(picked.bytes, allowMalformed: true),
+      kind: kind,
+      origin: picked.name,
+    );
   }
 
   Future<NovelSourceImportResult> _importBookSources(
     List<Map<String, dynamic>> rawItems,
-    String finalUrl,
+    String origin,
   ) async {
     final sources = <NovelBookSource>[];
     for (final raw in rawItems) {
@@ -188,14 +218,14 @@ class NovelSourceImporter {
     return NovelSourceImportResult(
       saved: saved,
       total: rawItems.length,
-      sourceUrl: finalUrl,
+      sourceUrl: origin,
       message: '已导入 $saved 个书源',
     );
   }
 
   Future<NovelSourceImportResult> _importRssSources(
     List<Map<String, dynamic>> rawItems,
-    String finalUrl,
+    String origin,
   ) async {
     final rssStore = this.rssStore;
     if (rssStore == null) {
@@ -214,7 +244,7 @@ class NovelSourceImporter {
     return NovelSourceImportResult(
       saved: saved,
       total: rawItems.length,
-      sourceUrl: finalUrl,
+      sourceUrl: origin,
       kind: NovelRuleKind.rssSource,
       message: '已导入 $saved 个订阅源',
     );
@@ -222,7 +252,7 @@ class NovelSourceImporter {
 
   Future<NovelSourceImportResult> _importReplaceRules(
     List<Map<String, dynamic>> rawItems,
-    String finalUrl,
+    String origin,
   ) async {
     final replaceStore = this.replaceStore;
     if (replaceStore == null) {
@@ -241,9 +271,56 @@ class NovelSourceImporter {
     return NovelSourceImportResult(
       saved: saved,
       total: rawItems.length,
-      sourceUrl: finalUrl,
+      sourceUrl: origin,
       kind: NovelRuleKind.replaceRule,
       message: '已导入 $saved 条替换规则',
     );
+  }
+}
+
+/// 本地文件选择/保存的窄接口（编辑器与管理页注入；测试注入 fake 不碰插件）。
+abstract interface class NovelSourceFileGate {
+  /// 让用户选一个书源 JSON 文件；取消返回 null。
+  Future<NovelSourcePickedFile?> pick();
+
+  /// 让用户选保存位置并写文件；取消/失败返回 null，成功返回落点描述。
+  Future<String?> save(String suggestedName, Uint8List bytes);
+}
+
+/// 选中的本地文件。
+class NovelSourcePickedFile {
+  const NovelSourcePickedFile({required this.name, required this.bytes});
+
+  final String name;
+  final Uint8List bytes;
+}
+
+/// 生产实现：file_picker 13.x 静态 API（与书单导入导出同款）。
+class FilePickerNovelSourceFileGate implements NovelSourceFileGate {
+  const FilePickerNovelSourceFileGate();
+
+  @override
+  Future<NovelSourcePickedFile?> pick() async {
+    final file = await FilePicker.pickFile(
+      dialogTitle: '选择书源文件',
+      type: FileType.custom,
+      allowedExtensions: const <String>['json', 'txt'],
+    );
+    if (file == null) return null;
+    return NovelSourcePickedFile(
+      name: file.name,
+      bytes: await file.readAsBytes(),
+    );
+  }
+
+  @override
+  Future<String?> save(String suggestedName, Uint8List bytes) async {
+    final uri = await FilePicker.saveFile(
+      dialogTitle: '导出书源',
+      fileName: suggestedName,
+      bytes: bytes,
+      mimeType: 'application/json',
+    );
+    return uri?.toString();
   }
 }

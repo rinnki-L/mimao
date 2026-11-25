@@ -14,6 +14,9 @@ import 'novel_rule_model.dart';
 /// 书源网站地址（应用内 WebView 打开它，点页面里的「一键导入」即可回灌本应用）。
 const String novelSourceSiteUrl = 'https://yuedu.miaogongzi.net/gx.html';
 
+/// 未分组书源的展示名（分组筛选、选源面板共用同一个字面量）。
+const String novelUngroupedLabel = '未分组';
+
 /// 书源规则字段的稳定视图：把 `ruleSearch/ruleExplore/ruleBookInfo/ruleToc/
 /// ruleContent` 里的字符串规则取出来。书源里缺字段时返回空串，调用方按空规则
 /// 走降级路径（与 legado 的 nullable 规则同义）。
@@ -185,7 +188,8 @@ class NovelBookSource implements BookSource {
   }
 
   /// 分组展示文案（无分组时给"未分组"，用于筛选面板）。
-  String get groupLabel => groups.isEmpty ? '未分组' : groups.join(' · ');
+  String get groupLabel =>
+      groups.isEmpty ? novelUngroupedLabel : groups.join(' · ');
 
   /// 书源类型文案（Legado `bookSourceType`：0 文本 / 1 音频 / 2 图片 / 3 文件）。
   String get typeLabel => switch (type) {

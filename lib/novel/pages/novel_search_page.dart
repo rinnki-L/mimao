@@ -1,9 +1,11 @@
 // ignore_for_file: deprecated_member_use — Flutter 3.50 弃用整个 material.dart，
 // 与其他模块页面同款说明。
-/// 统一搜索页：搜索历史（真实落库）+ 本地书架/阅读记录/书源的关键词匹配。
+/// 统一搜索页：搜索历史（真实落库）+ 本地书架/阅读记录/书源的关键词匹配 +
+/// 在线跨源搜索（选源范围 / 去重合并 / 排序 / 分页 / 单源重试 / 直接入架）。
 ///
-/// 在线跨源搜索走 `NovelOnlineEngine`（按源分组、限流并发）；本地匹配是
-/// 点书进详情、点书源进管理，不伪造搜索结果。
+/// 在线部分的状态机在 `search/novel_search_session.dart`（可单测），选源与
+/// 合并排序在 `search/novel_search_scope.dart` / `novel_search_merge.dart`；
+/// 本页只负责把它们接上 UI，不重复实现解析逻辑。
 library;
 
 import 'dart:async';
@@ -15,10 +17,14 @@ import 'package:mimao/novel/library_api.dart';
 import 'package:mimao/novel/models/novel_models.dart';
 import 'package:mimao/novel/pages/novel_routes.dart';
 import 'package:mimao/novel/pages/novel_widgets.dart';
+import 'package:mimao/novel/search/novel_search_merge.dart';
+import 'package:mimao/novel/search/novel_search_scope.dart';
+import 'package:mimao/novel/search/novel_search_session.dart';
 import 'package:mimao/novel/source/novel_source_importer.dart';
-import 'package:mimao/novel/source/novel_source_store.dart';
 import 'package:mimao/novel/source/novel_source_model.dart';
+import 'package:mimao/novel/source/novel_source_store.dart';
 
+/// 单次在线搜索最多并发搜多少个源（其余源可在「规则管理」里手动指定分组缩小范围）。
 const int _onlineSourceLimit = 60;
 
 class NovelSearchPage extends StatefulWidget {
@@ -59,18 +65,32 @@ class _NovelSearchPageState extends State<NovelSearchPage> {
   String? _error;
   _SearchResults _results = _SearchResults.empty;
 
-  final List<_OnlineGroup> _onlineGroups = <_OnlineGroup>[];
-  bool _onlineSearching = false;
-  int _onlineDone = 0;
-  int _onlineTotal = 0;
-  int _onlineFailures = 0;
-  String? _onlineError;
-  int _searchToken = 0;
+  /// 已加载的全部书源（选源面板与搜索共用同一份快照）。
+  List<NovelBookSource> _allSources = const <NovelBookSource>[];
+
+  /// 本次搜索范围。
+  NovelSearchScope _scope = const NovelSearchScope();
+
+  NovelSearchSession? _session;
+  NovelSearchSort _sort = NovelSearchSort.relevance;
+
+  /// 已加入书架的本地 id 集合（用于结果行按钮状态）。
+  Set<String> _collectedIds = <String>{};
+
+  /// 正在加入书架的合并键。
+  final Set<String> _collecting = <String>{};
+
+  /// 展开查看各源的合并键。
+  final Set<String> _expanded = <String>{};
+
+  String? _sourceError;
+  String? _status;
 
   @override
   void initState() {
     super.initState();
     _loadTerms();
+    unawaited(_loadCollected());
     final initial = widget.initialQuery?.trim() ?? '';
     if (initial.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -81,6 +101,7 @@ class _NovelSearchPageState extends State<NovelSearchPage> {
 
   @override
   void dispose() {
+    _session?.cancel();
     _controller.dispose();
     _focus.dispose();
     super.dispose();
@@ -100,6 +121,28 @@ class _NovelSearchPageState extends State<NovelSearchPage> {
     }
   }
 
+  Future<void> _loadCollected() async {
+    final api = widget.collect;
+    if (api == null) return;
+    try {
+      final ids = await api.collectedIds();
+      if (!mounted) return;
+      setState(() => _collectedIds = ids);
+    } on Object {
+      // 书架读取失败不影响搜索结果展示。
+    }
+  }
+
+  NovelSourceStorage? get _store =>
+      widget.sourceStore ?? widget.sourceImporter?.store;
+
+  /// 读全部书源（选源面板与在线搜索共用一次读取）。
+  Future<List<NovelBookSource>> _loadSources() async {
+    final store = _store;
+    if (store == null) return const <NovelBookSource>[];
+    return store.loadAll();
+  }
+
   Future<void> _submit(String raw) async {
     final keyword = raw.trim();
     if (keyword.isEmpty) {
@@ -108,17 +151,13 @@ class _NovelSearchPageState extends State<NovelSearchPage> {
     }
     _controller.text = keyword;
     _controller.selection = TextSelection.collapsed(offset: keyword.length);
-    final token = ++_searchToken;
     setState(() {
       _query = keyword;
       _loading = true;
       _error = null;
-      _onlineGroups.clear();
-      _onlineSearching = false;
-      _onlineDone = 0;
-      _onlineTotal = 0;
-      _onlineFailures = 0;
-      _onlineError = null;
+      _status = null;
+      _sourceError = null;
+      _expanded.clear();
     });
     try {
       await widget.searchHistory?.record(keyword);
@@ -133,7 +172,7 @@ class _NovelSearchPageState extends State<NovelSearchPage> {
         _results = results;
         _loading = false;
       });
-      unawaited(_searchOnline(keyword, token));
+      await _searchOnline(keyword);
     } on Object catch (error) {
       if (!mounted) return;
       setState(() {
@@ -166,10 +205,9 @@ class _NovelSearchPageState extends State<NovelSearchPage> {
       }
     }
     var sources = const <NovelBookSource>[];
-    final importer = widget.sourceImporter;
-    if (importer != null) {
+    if (_store != null) {
       try {
-        sources = await importer.store.loadAll();
+        sources = await _loadSources();
       } on Object catch (error) {
         errors.add('书源读取失败：$error');
       }
@@ -222,121 +260,138 @@ class _NovelSearchPageState extends State<NovelSearchPage> {
     );
   }
 
-  static const int _onlineConcurrency = 6;
-
-  Future<void> _searchOnline(String keyword, int token) async {
+  Future<void> _searchOnline(String keyword) async {
     final engine = widget.onlineEngine;
-    final store = widget.sourceStore ?? widget.sourceImporter?.store;
+    final store = _store;
     if (engine == null || store == null) return;
+
     List<NovelBookSource> all;
     try {
-      all = await store.loadAll();
+      all = await _loadSources();
     } on Object catch (error) {
-      if (token != _searchToken || !mounted) return;
-      setState(() => _onlineError = '书源读取失败：$error');
+      if (!mounted || _query != keyword) return;
+      setState(() => _sourceError = '书源读取失败：$error');
       return;
     }
-    final searchable =
-        <NovelBookSource>[
-          for (final source in all)
-            if (source.enabled &&
-                source.type == 0 &&
-                source.searchUrl.trim().isNotEmpty &&
-                source.searchUrl.trim() != '-')
-              source,
-        ]..sort((a, b) {
-          final weight = b.weight.compareTo(a.weight);
-          if (weight != 0) return weight;
-          return a.name.compareTo(b.name);
-        });
-    final selected = searchable.take(_onlineSourceLimit).toList();
-    if (token != _searchToken || !mounted) return;
-    if (selected.isEmpty) {
+    if (!mounted || _query != keyword) return;
+
+    final searchable = _scope.select(all);
+    setState(() {
+      _allSources = all;
+      _sourceError = null;
+    });
+    if (searchable.isEmpty) {
+      _session?.cancel();
       setState(() {
-        _onlineSearching = false;
-        _onlineTotal = 0;
-        _onlineError = '没有可搜索的启用书源（文本类型且配置了搜索地址）';
+        _session = null;
+        _sourceError =
+            '没有可搜索的启用书源（文本类型且配置了搜索地址）；'
+            '换个选源范围，或到「规则管理」里导入书源。';
       });
       return;
     }
-    setState(() {
-      _onlineSearching = true;
-      _onlineTotal = selected.length;
-      _onlineDone = 0;
-      _onlineFailures = 0;
-      _onlineGroups.clear();
-      _onlineError = null;
-    });
 
-    final queue = List<NovelBookSource>.of(selected);
-    final groups = <String, _OnlineGroup>{};
-    final failures = <String>[];
-    var done = 0;
-    Future<void> worker() async {
-      while (queue.isNotEmpty) {
-        if (token != _searchToken) return;
-        final source = queue.removeAt(0);
-        try {
-          final books = await engine
-              .searchSource(source, keyword)
-              .timeout(const Duration(seconds: 12));
-          if (token != _searchToken) return;
-          final visible = <NovelSummary>[
-            for (final book in books)
-              if (book.type == 0) book,
-          ];
-          if (visible.isNotEmpty) {
-            groups[source.key] = _OnlineGroup(source: source, books: visible);
-          }
-        } on Object catch (error) {
-          if (failures.length < 3) {
-            failures.add('${source.name}：$error');
-          }
-        } finally {
-          if (token == _searchToken) {
-            done++;
-            final sorted = groups.values.toList()
-              ..sort((a, b) => a.source.name.compareTo(b.source.name));
-            if (mounted) {
-              setState(() {
-                _onlineDone = done;
-                _onlineFailures = failures.length;
-                _onlineGroups
-                  ..clear()
-                  ..addAll(sorted);
-              });
-            }
-          }
-        }
+    final truncated = searchable.length > _onlineSourceLimit;
+    final selected = truncated
+        ? searchable.take(_onlineSourceLimit).toList()
+        : searchable;
+
+    _session?.cancel();
+    final session = NovelSearchSession(engine: engine)
+      ..onChanged = () {
+        if (mounted && _query == keyword) setState(() {});
+      };
+    setState(() {
+      _session = session;
+      if (truncated) {
+        _status =
+            '本次只搜前 $_onlineSourceLimit 个源（按权重）；'
+            '可在选源面板里手选或按分组缩小范围。';
       }
-    }
-
-    final workers = selected.length < _onlineConcurrency
-        ? selected.length
-        : _onlineConcurrency;
-    await Future.wait(<Future<void>>[
-      for (var i = 0; i < workers; i++) worker(),
-    ]);
-    if (token != _searchToken || !mounted) return;
-    setState(() {
-      _onlineSearching = false;
-      _onlineDone = selected.length;
-      _onlineError = failures.isEmpty ? null : failures.join('\n');
     });
+    await session.start(selected, keyword);
+    if (!mounted || _query != keyword) return;
+    await _loadCollected();
   }
 
-  Future<void> _openBook(_SearchBook item) async {
+  Future<void> _loadMore() async {
+    final session = _session;
+    if (session == null || session.running) return;
+    await session.loadMore();
+  }
+
+  Future<void> _retrySource(String sourceKey) async {
+    final session = _session;
+    if (session == null) return;
+    await session.retrySource(sourceKey);
+  }
+
+  Future<void> _retryAllFailed() async {
+    final session = _session;
+    if (session == null) return;
+    await session.retryFailed();
+  }
+
+  Future<void> _openScopePanel() async {
+    final sources = _allSources.isEmpty ? await _loadSources() : _allSources;
+    if (!mounted) return;
+    setState(() => _allSources = sources);
+    final next = await showModalBottomSheet<NovelSearchScope>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => _SearchScopeSheet(
+        sources: sources,
+        initial: _scope,
+        limit: _onlineSourceLimit,
+      ),
+    );
+    if (next == null || !mounted) return;
+    setState(() => _scope = next);
+    if (_query.isNotEmpty) await _searchOnline(_query);
+  }
+
+  Future<void> _changeSort(NovelSearchSort sort) async {
+    if (sort == _sort) return;
+    setState(() => _sort = sort);
+  }
+
+  /// 直接把搜索结果加入书架（不必先进详情）。
+  Future<void> _collectMerged(NovelMergedBook merged) async {
+    final api = widget.collect;
+    if (api == null) {
+      setState(() => _status = '没有注入书架服务，无法加入书架');
+      return;
+    }
+    if (_collecting.contains(merged.key)) return;
+    setState(() => _collecting.add(merged.key));
+    try {
+      await api.collect(merged.displayBook);
+      if (!mounted) return;
+      setState(() {
+        _collectedIds = <String>{..._collectedIds, merged.book.id};
+        _status = '已加入书架：${merged.book.title}';
+      });
+    } on Object catch (error) {
+      if (!mounted) return;
+      setState(() => _status = '加入书架失败：$error');
+    } finally {
+      if (mounted) setState(() => _collecting.remove(merged.key));
+    }
+  }
+
+  Future<void> _openBook(NovelSummary book) async {
     await openNovelRoute(
       context,
       widget.openRoute,
       NovelRoute.bookInfo,
       args: <String, Object?>{
-        'bookId': item.book.id,
-        'title': item.book.title,
-        'author': item.book.author,
-        'coverUrl': item.book.coverUrl,
-        'sourceKey': item.book.sourceKey,
-        'bookUrl': item.book.bookUrl,
+        'bookId': book.id,
+        'title': book.title,
+        'author': book.author,
+        'coverUrl': book.coverUrl,
+        'sourceKey': book.sourceKey,
+        'bookUrl': book.bookUrl,
       },
     );
   }
@@ -356,8 +411,33 @@ class _NovelSearchPageState extends State<NovelSearchPage> {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // 在线结果区
+
   Widget _buildOnlineSection(ThemeData theme, ColorScheme cs) {
-    final truncated = _onlineTotal >= _onlineSourceLimit;
+    final session = _session;
+    final online = widget.onlineEngine != null && _store != null;
+    if (!online) {
+      return NovelEmptyState(
+        icon: Icons.cloud_off,
+        title: '在线书源未接入',
+        message:
+            '当前只搜本地书架、阅读记录与已导入书源。'
+            '接入在线引擎后，这里会显示跨源搜索结果。',
+      );
+    }
+    if (session == null) {
+      if (_sourceError != null) {
+        return NovelErrorState(
+          message: _sourceError!,
+          onRetry: () => _searchOnline(_query),
+        );
+      }
+      return const SizedBox.shrink();
+    }
+
+    final merged = session.merged(sort: _sort);
+    final failed = session.failedStates;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
@@ -365,77 +445,109 @@ class _NovelSearchPageState extends State<NovelSearchPage> {
           children: <Widget>[
             Expanded(
               child: Text(
-                '在线书源 · ${_onlineGroups.length} 个源命中',
+                '在线书源 · ${merged.length} 本 / ${session.total} 个源',
                 style: theme.textTheme.titleSmall,
               ),
             ),
-            if (_onlineSearching)
+            if (session.running)
               Text(
-                '$_onlineDone/$_onlineTotal',
+                '${session.done}/${session.total}',
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: cs.onSurfaceVariant,
                 ),
               ),
+            PopupMenuButton<NovelSearchSort>(
+              key: const Key('novel-search-sort'),
+              tooltip: '排序',
+              initialValue: _sort,
+              onSelected: (value) => unawaited(_changeSort(value)),
+              itemBuilder: (context) => <PopupMenuEntry<NovelSearchSort>>[
+                for (final sort in NovelSearchSort.values)
+                  PopupMenuItem<NovelSearchSort>(
+                    value: sort,
+                    child: Text(sort.label),
+                  ),
+              ],
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Icon(Icons.sort, size: 18, color: cs.onSurfaceVariant),
+                    const SizedBox(width: 4),
+                    Text(_sort.label, style: theme.textTheme.labelLarge),
+                  ],
+                ),
+              ),
+            ),
           ],
         ),
-        if (_onlineSearching) ...<Widget>[
+        if (session.running) ...<Widget>[
           const SizedBox(height: 8),
           ClipRRect(
             borderRadius: BorderRadius.circular(MimaoRadii.pill),
             child: LinearProgressIndicator(
-              value: _onlineTotal == 0 ? null : _onlineDone / _onlineTotal,
+              value: session.total == 0 ? null : session.done / session.total,
               minHeight: 5,
               backgroundColor: cs.surfaceContainerHighest,
             ),
           ),
         ],
-        const SizedBox(height: 10),
-        if (_onlineGroups.isNotEmpty)
-          for (final group in _onlineGroups) ...<Widget>[
-            _ResultSection(
-              title: group.source.name,
-              count: group.books.length,
-              child: Column(
-                children: <Widget>[
-                  for (final book in group.books)
-                    _SearchBookRow(
-                      item: _SearchBook(book: book),
-                      onTap: () => _openBook(_SearchBook(book: book)),
-                    ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-          ]
-        else if (!_onlineSearching && _onlineTotal > 0)
+        if (failed.isNotEmpty) ...<Widget>[
+          const SizedBox(height: 10),
+          _FailedSourcesBar(
+            states: failed,
+            busy: session.running,
+            onRetry: _retrySource,
+            onRetryAll: _retryAllFailed,
+          ),
+        ],
+        const SizedBox(height: 12),
+        if (merged.isEmpty && !session.running)
           NovelEmptyState(
             icon: Icons.travel_explore,
             title: '在线书源没有结果',
-            message:
-                '已搜 $_onlineTotal 个源，${_onlineFailures > 0 ? '$_onlineFailures 个失败或超时。' : ''}'
-                '换一个关键词，或到「发现」里按源查看。',
-          ),
-        if (_onlineError != null && _onlineGroups.isEmpty)
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: Text(
-              _onlineError!,
-              maxLines: 4,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall?.copyWith(color: cs.error),
+            message: session.total == 0
+                ? '没有可搜索的源，先在选源面板里调整范围。'
+                : '已搜 ${session.total} 个源'
+                      '${session.failureCount > 0 ? '，${session.failureCount} 个失败或超时' : ''}。'
+                      '换一个关键词，或到「发现」里按源查看。',
+          )
+        else
+          for (final book in merged) ...<Widget>[
+            _MergedBookRow(
+              key: ValueKey<String>('merged-${book.key}'),
+              book: book,
+              collected: _collectedIds.contains(book.book.id),
+              collecting: _collecting.contains(book.key),
+              expanded: _expanded.contains(book.key),
+              onTap: () => _openBook(book.displayBook),
+              onCollect: () => unawaited(_collectMerged(book)),
+              onToggleExpand: () => setState(() {
+                if (!_expanded.remove(book.key)) _expanded.add(book.key);
+              }),
+              onOpenHit: (hit) => _openBook(hit.book),
             ),
+            const SizedBox(height: 8),
+          ],
+        if (merged.isNotEmpty && !session.running) ...<Widget>[
+          const SizedBox(height: 8),
+          Center(
+            child: session.canLoadMore
+                ? OutlinedButton.icon(
+                    key: const Key('novel-search-load-more'),
+                    onPressed: _loadMore,
+                    icon: const Icon(Icons.expand_more, size: 18),
+                    label: const Text('加载下一页'),
+                  )
+                : Text(
+                    '已到最后一页',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: cs.onSurfaceVariant,
+                    ),
+                  ),
           ),
-        if (truncated)
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: Text(
-              '每次最多并发搜索前 $_onlineSourceLimit 个启用书源（按权重）。'
-              '其余书源可在「发现」里单独搜索。',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: cs.onSurfaceVariant,
-              ),
-            ),
-          ),
+        ],
       ],
     );
   }
@@ -474,8 +586,19 @@ class _NovelSearchPageState extends State<NovelSearchPage> {
                 ),
               ],
             ),
-            const SizedBox(height: 14),
-            _BoundaryBanner(online: widget.onlineEngine != null),
+            const SizedBox(height: 12),
+            _ScopeBar(
+              scope: _scope,
+              enabled: widget.onlineEngine != null && _store != null,
+              onTap: _openScopePanel,
+            ),
+            if (_status != null) ...<Widget>[
+              const SizedBox(height: 8),
+              Text(
+                _status!,
+                style: theme.textTheme.bodySmall?.copyWith(color: cs.primary),
+              ),
+            ],
             if (_terms.isNotEmpty) ...<Widget>[
               const SizedBox(height: 20),
               Row(
@@ -539,7 +662,7 @@ class _NovelSearchPageState extends State<NovelSearchPage> {
                         for (final item in _results.books)
                           _SearchBookRow(
                             item: item,
-                            onTap: () => _openBook(item),
+                            onTap: () => _openBook(item.book),
                           ),
                       ],
                     ),
@@ -561,10 +684,8 @@ class _NovelSearchPageState extends State<NovelSearchPage> {
                     ),
                   ],
                 ],
-                if (widget.onlineEngine != null) ...<Widget>[
-                  const SizedBox(height: 24),
-                  _buildOnlineSection(theme, cs),
-                ],
+                const SizedBox(height: 24),
+                _buildOnlineSection(theme, cs),
               ],
             ],
           ],
@@ -593,13 +714,6 @@ class _SearchResults {
   bool get isEmpty => books.isEmpty && sources.isEmpty;
 }
 
-class _OnlineGroup {
-  const _OnlineGroup({required this.source, required this.books});
-
-  final NovelBookSource source;
-  final List<NovelSummary> books;
-}
-
 class _SearchBook {
   const _SearchBook({required this.book, this.history, this.collected = false});
 
@@ -608,37 +722,641 @@ class _SearchBook {
   final bool collected;
 }
 
-class _BoundaryBanner extends StatelessWidget {
-  const _BoundaryBanner({required this.online});
+/// 选源范围条：点开面板；未接入在线引擎时禁用并说明。
+class _ScopeBar extends StatelessWidget {
+  const _ScopeBar({
+    required this.scope,
+    required this.enabled,
+    required this.onTap,
+  });
 
-  final bool online;
+  final NovelSearchScope scope;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    return Material(
+      color: cs.surfaceContainerHighest.withValues(alpha: .6),
+      borderRadius: BorderRadius.circular(MimaoRadii.md),
+      child: InkWell(
+        key: const Key('novel-search-scope'),
+        borderRadius: BorderRadius.circular(MimaoRadii.md),
+        onTap: enabled ? onTap : null,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+          child: Row(
+            children: <Widget>[
+              Icon(
+                scope.isNarrowed ? Icons.filter_alt : Icons.filter_alt_outlined,
+                size: 18,
+                color: enabled ? cs.primary : cs.onSurfaceVariant,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      enabled ? '选源范围 · ${scope.describe()}' : '选源范围 · 在线引擎未接入',
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      enabled
+                          ? '全部启用源 / 指定分组 / 手选源；范围会记住到下次搜索。'
+                          : '接入在线引擎后可限定搜索范围。',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: cs.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.tune, size: 18, color: cs.onSurfaceVariant),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 选源面板：三种模式 + 分组多选 + 手选源多选。
+class _SearchScopeSheet extends StatefulWidget {
+  const _SearchScopeSheet({
+    required this.sources,
+    required this.initial,
+    required this.limit,
+  });
+
+  final List<NovelBookSource> sources;
+  final NovelSearchScope initial;
+  final int limit;
+
+  @override
+  State<_SearchScopeSheet> createState() => _SearchScopeSheetState();
+}
+
+class _SearchScopeSheetState extends State<_SearchScopeSheet> {
+  late NovelSearchScope _scope = widget.initial;
+  late final List<String> _groups = novelSourceGroups(widget.sources);
+  late final List<NovelBookSource> _searchable = const NovelSearchScope()
+      .select(widget.sources);
+  String _filter = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final selectedCount = _scope.select(widget.sources).length;
+    final visible = <NovelBookSource>[
+      for (final source in _searchable)
+        if (_filter.isEmpty ||
+            '${source.name} ${source.url} ${source.groupLabel}'
+                .toLowerCase()
+                .contains(_filter.toLowerCase()))
+          source,
+    ];
+    return SafeArea(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * .82,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+              child: Row(
+                children: <Widget>[
+                  Expanded(
+                    child: Text('选源范围', style: theme.textTheme.titleMedium),
+                  ),
+                  Text(
+                    '将搜 $selectedCount 个源',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: cs.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: SegmentedButton<NovelSearchScopeMode>(
+                segments: const <ButtonSegment<NovelSearchScopeMode>>[
+                  ButtonSegment<NovelSearchScopeMode>(
+                    value: NovelSearchScopeMode.all,
+                    label: Text('全部'),
+                    icon: Icon(Icons.public, size: 16),
+                  ),
+                  ButtonSegment<NovelSearchScopeMode>(
+                    value: NovelSearchScopeMode.group,
+                    label: Text('分组'),
+                    icon: Icon(Icons.folder_outlined, size: 16),
+                  ),
+                  ButtonSegment<NovelSearchScopeMode>(
+                    value: NovelSearchScopeMode.manual,
+                    label: Text('手选'),
+                    icon: Icon(Icons.checklist, size: 16),
+                  ),
+                ],
+                selected: <NovelSearchScopeMode>{_scope.mode},
+                onSelectionChanged: (value) =>
+                    setState(() => _scope = _scope.withMode(value.first)),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Expanded(
+              child: switch (_scope.mode) {
+                NovelSearchScopeMode.all => _buildAllMode(theme, cs),
+                NovelSearchScopeMode.group => _buildGroupMode(theme, cs),
+                NovelSearchScopeMode.manual => _buildManualMode(
+                  theme,
+                  cs,
+                  visible,
+                ),
+              },
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+              child: Row(
+                children: <Widget>[
+                  Expanded(
+                    child: Text(
+                      '面板只列可搜索的源（启用 + 文本 + 有搜索地址）。'
+                      '本次最多搜 ${widget.limit} 个源。',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: cs.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  TextButton(
+                    onPressed: () =>
+                        setState(() => _scope = const NovelSearchScope()),
+                    child: const Text('重置'),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    key: const Key('novel-search-scope-apply'),
+                    onPressed: () => Navigator.of(context).pop(_scope),
+                    child: const Text('应用'),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAllMode(ThemeData theme, ColorScheme cs) {
+    final groups = _groups;
+    return ListView(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      children: <Widget>[
+        Text(
+          '搜全部 ${_searchable.length} 个可搜索源，按权重从高到低排队；'
+          '超过 ${widget.limit} 个时只跑前 ${widget.limit} 个。',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: cs.onSurfaceVariant,
+          ),
+        ),
+        if (groups.isNotEmpty) ...<Widget>[
+          const SizedBox(height: 12),
+          Text('当前分组', style: theme.textTheme.titleSmall),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: <Widget>[
+              for (final group in groups)
+                NovelFilterChip(
+                  label: group,
+                  count: _searchable
+                      .where(
+                        (source) => group == novelUngroupedLabel
+                            ? source.groups.isEmpty
+                            : source.groups.contains(group),
+                      )
+                      .length,
+                  selected: false,
+                  onTap: () =>
+                      setState(() => _scope = _scope.toggleGroup(group)),
+                ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '点分组即切到「分组」模式并只搜它。',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: cs.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildGroupMode(ThemeData theme, ColorScheme cs) {
+    if (_groups.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        child: Text(
+          '所有书源都没有分组。到「规则管理 → 书源」里给书源加分组，'
+          '或在上面切到「手选」逐个勾。',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: cs.onSurfaceVariant,
+          ),
+        ),
+      );
+    }
+    return ListView(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      children: <Widget>[
+        Text(
+          '勾选要搜的分组；一个都不勾等于搜全部分组。',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: cs.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: <Widget>[
+            for (final group in _groups)
+              NovelFilterChip(
+                key: ValueKey<String>('scope-group-$group'),
+                label: group,
+                count: _searchable
+                    .where(
+                      (source) => group == novelUngroupedLabel
+                          ? source.groups.isEmpty
+                          : source.groups.contains(group),
+                    )
+                    .length,
+                selected: _scope.groups.contains(group),
+                onTap: () => setState(() => _scope = _scope.toggleGroup(group)),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildManualMode(
+    ThemeData theme,
+    ColorScheme cs,
+    List<NovelBookSource> visible,
+  ) {
+    return Column(
+      children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: TextField(
+            decoration: const InputDecoration(
+              hintText: '筛选书源名称 / 地址 / 分组',
+              prefixIcon: Icon(Icons.filter_list, size: 18),
+              isDense: true,
+            ),
+            onChanged: (value) => setState(() => _filter = value.trim()),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  '勾选要搜的源；一个都不勾等于搜全部源。',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: cs.onSurfaceVariant,
+                  ),
+                ),
+              ),
+              TextButton(
+                onPressed: () => setState(
+                  () => _scope = NovelSearchScope(
+                    mode: NovelSearchScopeMode.manual,
+                    groups: _scope.groups,
+                    sourceKeys: <String>{
+                      for (final source in visible) source.key,
+                    },
+                  ),
+                ),
+                child: const Text('全选'),
+              ),
+              TextButton(
+                onPressed: () => setState(
+                  () => _scope = NovelSearchScope(
+                    mode: NovelSearchScopeMode.manual,
+                    groups: _scope.groups,
+                  ),
+                ),
+                child: const Text('清空'),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: visible.isEmpty
+              ? Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Text(
+                    '没有匹配「$_filter」的可搜索书源。',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: cs.onSurfaceVariant,
+                    ),
+                  ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                  itemCount: visible.length,
+                  itemBuilder: (context, index) {
+                    final source = visible[index];
+                    return CheckboxListTile(
+                      key: ValueKey<String>('scope-source-${source.key}'),
+                      dense: true,
+                      value: _scope.includesSource(source.key),
+                      onChanged: (_) => setState(
+                        () => _scope = _scope.toggleSource(source.key),
+                      ),
+                      title: Text(
+                        source.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      subtitle: Text(
+                        '${source.groupLabel} · 权重 ${source.weight}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 失败源条：列出失败源与可读原因，支持单源重试 / 全部重试。
+class _FailedSourcesBar extends StatelessWidget {
+  const _FailedSourcesBar({
+    required this.states,
+    required this.busy,
+    required this.onRetry,
+    required this.onRetryAll,
+  });
+
+  final List<NovelSourceSearchState> states;
+  final bool busy;
+  final Future<void> Function(String sourceKey) onRetry;
+  final Future<void> Function() onRetryAll;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     return Container(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
       decoration: BoxDecoration(
-        color: cs.surfaceContainerHighest,
+        color: cs.errorContainer.withValues(alpha: .35),
         borderRadius: BorderRadius.circular(MimaoRadii.md),
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          Icon(Icons.info_outline, size: 18, color: cs.onSurfaceVariant),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              online
-                  ? '同时搜索本地书架与已启用书源；在线结果按书源分组，'
-                        '最多并发搜前 $_onlineSourceLimit 个源（按权重）。'
-                  : '当前只搜本地书架、阅读记录与已导入书源。'
-                        '在线书源引擎未注入。',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: cs.onSurfaceVariant,
+          Row(
+            children: <Widget>[
+              Icon(Icons.error_outline, size: 18, color: cs.error),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '${states.length} 个源失败或超时',
+                  style: theme.textTheme.bodyMedium?.copyWith(color: cs.error),
+                ),
+              ),
+              TextButton(
+                key: const Key('novel-search-retry-all'),
+                onPressed: busy ? null : () => onRetryAll(),
+                child: const Text('全部重试'),
+              ),
+            ],
+          ),
+          for (final state in states.take(4))
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Row(
+                children: <Widget>[
+                  Expanded(
+                    child: Text(
+                      '${state.source.name}：${state.error ?? '未知错误'}',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: cs.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  TextButton(
+                    key: ValueKey<String>('retry-${state.source.key}'),
+                    onPressed: busy ? null : () => onRetry(state.source.key),
+                    child: const Text('重试'),
+                  ),
+                ],
               ),
             ),
+          if (states.length > 4)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                '另有 ${states.length - 4} 个源失败，点「全部重试」。',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: cs.onSurfaceVariant,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 合并后的一本书：封面 + 书名 + 作者 + 覆盖源数 + 字数 + 加入书架 + 展开各源。
+class _MergedBookRow extends StatelessWidget {
+  const _MergedBookRow({
+    super.key,
+    required this.book,
+    required this.collected,
+    required this.collecting,
+    required this.expanded,
+    required this.onTap,
+    required this.onCollect,
+    required this.onToggleExpand,
+    required this.onOpenHit,
+  });
+
+  final NovelMergedBook book;
+  final bool collected;
+  final bool collecting;
+  final bool expanded;
+  final VoidCallback onTap;
+  final VoidCallback onCollect;
+  final VoidCallback onToggleExpand;
+  final void Function(NovelSearchHit hit) onOpenHit;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final display = book.displayBook;
+    final wordCount = book.wordCount;
+    return NovelCard(
+      padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              SizedBox(
+                width: 44,
+                height: 64,
+                child: NovelBookCover(
+                  url: display.coverUrl,
+                  title: display.title,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: InkWell(
+                  onTap: onTap,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        display.title,
+                        style: theme.textTheme.titleSmall,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        display.author.isEmpty ? '作者未知' : display.author,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: cs.onSurfaceVariant,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 4),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        children: <Widget>[
+                          NovelTag(
+                            label: '${book.sourceCount} 个源',
+                            highlighted: book.sourceCount > 1,
+                          ),
+                          if (display.kind.isNotEmpty)
+                            NovelTag(label: display.kind.split(',').first),
+                          if (wordCount != null)
+                            NovelTag(label: '${(wordCount / 10000).ceil()} 万字'),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              IconButton(
+                key: ValueKey<String>('collect-${book.key}'),
+                tooltip: collected ? '已在书架' : '加入书架',
+                onPressed: collected || collecting ? null : onCollect,
+                icon: collecting
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Icon(
+                        collected
+                            ? Icons.bookmark
+                            : Icons.bookmark_add_outlined,
+                        size: 20,
+                      ),
+              ),
+              IconButton(
+                tooltip: expanded ? '收起各源' : '展开各源',
+                onPressed: onToggleExpand,
+                icon: Icon(
+                  expanded ? Icons.expand_less : Icons.expand_more,
+                  size: 20,
+                ),
+              ),
+            ],
           ),
+          if (expanded) ...<Widget>[
+            const SizedBox(height: 8),
+            Divider(height: 1, color: cs.outlineVariant),
+            const SizedBox(height: 6),
+            for (final hit in book.hits)
+              InkWell(
+                key: ValueKey<String>('hit-${hit.source.key}'),
+                onTap: () => onOpenHit(hit),
+                borderRadius: BorderRadius.circular(MimaoRadii.sm),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 8,
+                  ),
+                  child: Row(
+                    children: <Widget>[
+                      NovelSourceBadge(name: hit.source.name, size: 24),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            Text(
+                              hit.source.name,
+                              style: theme.textTheme.bodyMedium,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            Text(
+                              [
+                                '权重 ${hit.source.weight}',
+                                if (hit.book.latestChapter.isNotEmpty)
+                                  '最新 ${hit.book.latestChapter}',
+                                '第 ${hit.page} 页',
+                              ].join(' · '),
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: cs.onSurfaceVariant,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
+                      Icon(
+                        Icons.chevron_right,
+                        size: 18,
+                        color: cs.onSurfaceVariant,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
         ],
       ),
     );

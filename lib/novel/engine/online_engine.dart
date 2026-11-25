@@ -5,6 +5,7 @@
 /// 并存，测试可只实现本接口做页面 fake。
 library;
 
+import 'package:mimao/novel/debug/novel_engine_trace.dart';
 import 'package:mimao/novel/engine/explore_kinds.dart';
 import 'package:mimao/novel/models/novel_models.dart';
 import 'package:mimao/novel/source/novel_source_model.dart';
@@ -51,6 +52,19 @@ abstract interface class NovelContentRefresh {
     NovelRef ref,
     NovelChapter chapter,
   );
+}
+
+/// 可选能力：把引擎的执行过程抛给调试观察者（书源调试面板用）。
+///
+/// 调试会话 `attachTrace(sink)` → 跑流水线 → `attachTrace(null)`；引擎在生产
+/// 路径上默认没有 sink，只多一次 null 判断。同一实例既跑真实阅读又跑调试，
+/// 所以调出来的现象与真实行为一致（不给调试另写解析路径）。
+abstract interface class NovelEngineTraceable {
+  /// 挂上/摘掉观察者（null = 摘掉）。
+  void attachTrace(NovelTraceSink? sink);
+
+  /// 标记一个新阶段（搜索 / 详情 / 目录 / 正文），后续事件带上相对耗时。
+  void beginTracePhase(String phase);
 }
 
 /// 可选能力：某书源最近一次非致命警告（如 WebView 降级、字段暂不支持）。

@@ -110,8 +110,11 @@ void main() {
     final names = NovelRoute.values.map((r) => r.routeName).toList();
     expect(names.toSet().length, names.length);
     expect(NovelRoute.read.routeName, 'novel/read');
-    expect(NovelRoute.toc.label, '目录');
+    expect(NovelRoute.sourceEdit.label, '编辑书源');
+    expect(NovelRoute.sourceDebug.label, '书源调试');
     expect(NovelRoute.history.routeName, 'novel/history');
+    // 目录不是独立路由（在详情页内展开），`novel/toc` 已删掉。
+    expect(names, isNot(contains('novel/toc')));
   });
 
   testWidgets('pushNovelRoute：路由名进 RouteSettings，占位屏展示参数', (tester) async {

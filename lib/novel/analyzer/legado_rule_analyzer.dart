@@ -98,6 +98,7 @@ class LegadoRuleAnalyzer
     Map<String, String>? bookInfo,
     Map<String, String>? chapterInfo,
     this.jsRunner,
+    this.traceRule,
   }) : _content = content,
        _variables = <String, String>{...?variables},
        _sourceInfo = <String, String>{...?sourceInfo},
@@ -107,6 +108,33 @@ class LegadoRuleAnalyzer
 
   Object? _content;
   bool _isJson;
+
+  void _traceRule(String? rule, Object? result) {
+    final trace = traceRule;
+    if (trace == null || rule == null || rule.isEmpty) return;
+    trace(rule, _describeResult(result));
+  }
+
+  /// 结果摘要：空集明确写「空」，元素给出数量与前几项，字符串截断。
+  static String _describeResult(Object? result) {
+    if (result == null) return '结果：null（规则未命中）';
+    if (result is List) {
+      if (result.isEmpty) return '结果：空列表（0 项）';
+      final preview = <String>[
+        for (final item in result.take(3)) _short(item),
+      ].join(' | ');
+      return '结果：${result.length} 项 · $preview';
+    }
+    return '结果：${_short(result)}';
+  }
+
+  static String _short(Object? value) {
+    final text = value is Element || value is Document
+        ? (value as Element).outerHtml
+        : '$value';
+    final single = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return single.length <= 120 ? single : '${single.substring(0, 120)}…';
+  }
 
   String? baseUrl;
   Uri? redirectUrl;
@@ -121,6 +149,11 @@ class LegadoRuleAnalyzer
   final Map<String, String> _bookInfo;
   final Map<String, String> _chapterInfo;
   final RuleJsRunner? jsRunner;
+
+  /// 调试观察者：每执行一条规则回报（规则串 + 结果摘要）。
+  ///
+  /// 只在书源调试会话里非空；引擎默认不传，生产路径零开销。回调必须不抛异常。
+  final void Function(String rule, String summary)? traceRule;
 
   @override
   Future<List<String>> parse(String content, Rule rule) async {
@@ -249,6 +282,7 @@ class LegadoRuleAnalyzer
         result = sourceRule.applyRegex(result.toString());
       }
     }
+    _traceRule(ruleStr, result);
     var text = result?.toString() ?? '';
     if (unescape && text.contains('&')) text = htmlUnescape(text);
     if (!isUrl) return text;
@@ -315,6 +349,7 @@ class LegadoRuleAnalyzer
       }
     }
     if (result == null) return null;
+    _traceRule(ruleStr, result);
     List<String> list;
     if (result is List) {
       list = <String>[for (final item in result) item.toString()];
@@ -384,6 +419,7 @@ class LegadoRuleAnalyzer
           break;
       }
     }
+    _traceRule(ruleStr, result);
     if (result is List) return <Object?>[...result];
     return const <Object?>[];
   }

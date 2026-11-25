@@ -10,6 +10,7 @@ import 'dart:async';
 import 'package:mimao/novel/analyzer/legado_rule_analyzer.dart';
 import 'package:mimao/novel/analyzer/rule_models.dart';
 import 'package:mimao/novel/cache/novel_cache.dart';
+import 'package:mimao/novel/debug/novel_engine_trace.dart';
 import 'package:mimao/novel/engine/analyze_url.dart';
 import 'package:mimao/novel/engine/content_text.dart';
 import 'package:mimao/novel/engine/engine.dart';
@@ -38,7 +39,8 @@ class LegadoNovelEngine
         NovelEngine,
         NovelOnlineEngine,
         NovelContentRefresh,
-        NovelEngineWarnings {
+        NovelEngineWarnings,
+        NovelEngineTraceable {
   LegadoNovelEngine({
     NovelHttpTransport? transport,
     this.cache,
@@ -56,12 +58,67 @@ class LegadoNovelEngine
 
   bool _closed = false;
 
+  /// 调试观察者（默认 null = 零开销）。调试会话把它挂上再摘掉，跑的是同一
+  /// 个实例、同一条流水线，因此「调出来的现象」与真实阅读一致。
+  NovelTraceSink? _traceSink;
+
+  /// 当前调试阶段名（搜索 / 详情 / 目录 / 正文），随事件带上便于分组。
+  String _tracePhase = '';
+
+  @override
+  void attachTrace(NovelTraceSink? sink) => _traceSink = sink;
+
+  /// 标记阶段起点：后续事件带上相对本阶段的耗时。
+  @override
+  void beginTracePhase(String phase) {
+    _tracePhase = phase;
+    _phaseStopwatch = Stopwatch()..start();
+    _trace(NovelTraceKind.phase, phase);
+  }
+
+  Stopwatch? _phaseStopwatch;
+
+  void _trace(NovelTraceKind kind, String label, {String detail = ''}) {
+    final sink = _traceSink;
+    if (sink == null) return;
+    // 阶段名前缀让面板能按「搜索/详情/目录/正文」分组读链路。
+    final phase = _tracePhase;
+    sink.add(
+      NovelTraceEvent(
+        kind: kind,
+        label: kind == NovelTraceKind.phase || phase.isEmpty
+            ? label
+            : '[$phase] $label',
+        detail: detail,
+        elapsedMs: _phaseStopwatch?.elapsedMilliseconds ?? 0,
+      ),
+    );
+  }
+
+  /// 把 JS 宿主新产生的 `java.log` 输出搬进追踪流（宿主只存全量日志，
+  /// 这里按已搬运条数增量取，避免每次重复刷）。
+  final Map<String, int> _flushedJsLogs = <String, int>{};
+
+  void _flushJsLogs(NovelBookSource source) {
+    if (_traceSink == null) return;
+    final host = _hosts[source.key];
+    if (host == null) return;
+    final from = _flushedJsLogs[source.key] ?? 0;
+    final logs = host.logs;
+    if (logs.length <= from) return;
+    for (var i = from; i < logs.length; i++) {
+      _trace(NovelTraceKind.js, '${source.name} · java.log', detail: logs[i]);
+    }
+    _flushedJsLogs[source.key] = logs.length;
+  }
+
   /// 某源最近一次非致命警告（如 webView 降级），UI 可选择展示。
   @override
   String? warningFor(String sourceKey) => _warnings[sourceKey];
 
   /// 记一条非致命警告；同一源多条警告用「；」拼起来，不互相覆盖。
   void _warn(NovelBookSource source, String message) {
+    _trace(NovelTraceKind.warning, source.name, detail: message);
     final current = _warnings[source.key];
     if (current == null || current.isEmpty || current.contains(message)) {
       _warnings[source.key] = message;
@@ -933,7 +990,26 @@ class LegadoNovelEngine
       page: page,
       timeout: requestTimeout,
     );
-    final response = await analyze.fetch();
+    _trace(NovelTraceKind.http, '→ ${analyze.url}', detail: analyze.method);
+    final NovelHttpResponse response;
+    final stopwatch = Stopwatch()..start();
+    try {
+      response = await analyze.fetch();
+    } on Object catch (error) {
+      stopwatch.stop();
+      _trace(
+        NovelTraceKind.error,
+        '请求失败 ${analyze.url}',
+        detail: '$error（${stopwatch.elapsedMilliseconds}ms）',
+      );
+      rethrow;
+    }
+    stopwatch.stop();
+    _trace(
+      NovelTraceKind.http,
+      '← ${response.statusCode} ${response.url}',
+      detail: response.body,
+    );
     if (response.usedWebViewFallback) {
       _warnings[source.key] = '书源要求 WebView，本次按 HTTP 抓取';
     }
@@ -949,6 +1025,10 @@ class LegadoNovelEngine
     NovelChapter? chapter,
   }) {
     final analyzer = LegadoRuleAnalyzer(
+      traceRule: (rule, summary) {
+        _trace(NovelTraceKind.rule, rule, detail: summary);
+        _flushJsLogs(source);
+      },
       content: content,
       baseUrl: baseUrl,
       bookName: bookInfo?['name'],

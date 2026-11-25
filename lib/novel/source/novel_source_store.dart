@@ -25,7 +25,19 @@ abstract interface class NovelSourceStorage {
   Future<bool> delete(String key);
 }
 
-class NovelSourceStore implements NovelSourceStorage {
+/// 可选能力：按编辑后的内容覆盖一条源（地址变了要迁移主键）。
+///
+/// 单独成接口而不是往 [NovelSourceStorage] 上加方法：`implements` 必须实现
+/// 全部方法，加进窄接口会一次性打断所有测试 fake（LESSON.md §八）。页面用
+/// `is` 探测，拿不到就退回「先 saveAll 再 delete」的等价两步。
+abstract interface class NovelSourceUpsert {
+  Future<NovelBookSource> upsert(
+    NovelBookSource source, {
+    String? previousKey,
+  });
+}
+
+class NovelSourceStore implements NovelSourceStorage, NovelSourceUpsert {
   NovelSourceStore(this.directory);
 
   static const String manifestFileName = 'manifest.json';
@@ -156,6 +168,26 @@ class NovelSourceStore implements NovelSourceStorage {
     if (target.isEmpty) return;
     await saveAll(target.map((s) => s.copyWith(enabled: enabled)));
   }
+
+  /// 用编辑后的内容覆盖一条源；地址（主键）变了时删掉旧文件。
+  ///
+  /// 单独成方法而不是「先 delete 再 saveAll」：两步之间失败会让书源凭空消失。
+  /// 这里先写新文件与清单，成功后再删旧 key，最坏情况是留下一个重复文件
+  /// （下次 loadAll 能读到，用户可再删），不会丢数据。
+  @override
+  Future<NovelBookSource> upsert(
+    NovelBookSource source, {
+    String? previousKey,
+  }) async {
+    await saveAll(<NovelBookSource>[source]);
+    if (previousKey != null && previousKey != source.key) {
+      await delete(previousKey);
+    }
+    return source;
+  }
+
+  /// 批量落库（分组改名/批量移动/批量启停用），一次写盘。
+  Future<int> saveMany(Iterable<NovelBookSource> sources) => saveAll(sources);
 
   /// 删除一条源（文件 + 清单）；返回是否真的删掉。
   @override

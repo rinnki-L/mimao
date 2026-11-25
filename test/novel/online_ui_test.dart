@@ -210,9 +210,13 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(engine.searchCalls, 1);
-    expect(find.text('在线书源 · 1 个源命中'), findsOneWidget);
-    expect(find.text('测试源 · 1'), findsOneWidget);
+    // 结果按「书名+作者」跨源合并后展示，标题区给出书数 / 源数。
+    expect(find.text('在线书源 · 1 本 / 1 个源'), findsOneWidget);
     expect(find.text('测试书名'), findsWidgets);
+    // 展开各源能看到命中来自哪个源。
+    await tester.tap(find.byTooltip('展开各源'));
+    await tester.pumpAndSettle();
+    expect(find.text('测试源'), findsWidgets);
   });
 
   testWidgets('详情页：在线目录、简介与点章进阅读路由', (tester) async {

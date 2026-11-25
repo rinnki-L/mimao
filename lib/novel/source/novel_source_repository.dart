@@ -6,9 +6,10 @@
 library;
 
 import 'novel_source_model.dart';
-import 'novel_source_store.dart' show NovelSourceStorage, NovelSourceStore;
+import 'novel_source_store.dart'
+    show NovelSourceStorage, NovelSourceStore, NovelSourceUpsert;
 
-class NovelSourceRepository implements NovelSourceStorage {
+class NovelSourceRepository implements NovelSourceStorage, NovelSourceUpsert {
   NovelSourceRepository(this._open);
 
   final Future<NovelSourceStore> Function() _open;
@@ -44,4 +45,10 @@ class NovelSourceRepository implements NovelSourceStorage {
 
   @override
   Future<bool> delete(String key) async => (await _store()).delete(key);
+
+  @override
+  Future<NovelBookSource> upsert(
+    NovelBookSource source, {
+    String? previousKey,
+  }) async => (await _store()).upsert(source, previousKey: previousKey);
 }
