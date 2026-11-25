@@ -38,6 +38,19 @@ extension NovelHomeModuleKindLabel on NovelHomeModuleKind {
   /// 内置模块每个最多出现一次；[customGroup] 可多张（靠 id 区分）。
   bool get isSingleton => this != NovelHomeModuleKind.customGroup;
 
+  /// 宽窗下的落位。默认值刻意还原改造前的两栏：最近阅读/统计/目标在左栏，
+  /// 书源/引擎在右栏，书架横条与备份整行铺满。窄窗一律按配置顺序单列。
+  NovelHomeModuleSlot get slot => switch (this) {
+    NovelHomeModuleKind.recent ||
+    NovelHomeModuleKind.stats ||
+    NovelHomeModuleKind.goal ||
+    NovelHomeModuleKind.customGroup => NovelHomeModuleSlot.main,
+    NovelHomeModuleKind.source ||
+    NovelHomeModuleKind.capability => NovelHomeModuleSlot.side,
+    NovelHomeModuleKind.shelfStrip ||
+    NovelHomeModuleKind.webdav => NovelHomeModuleSlot.full,
+  };
+
   static NovelHomeModuleKind? fromKey(String? value) {
     for (final kind in NovelHomeModuleKind.values) {
       if (kind.key == value) return kind;
@@ -45,6 +58,9 @@ extension NovelHomeModuleKindLabel on NovelHomeModuleKind {
     return null;
   }
 }
+
+/// 宽窗落位：左主栏 / 右侧栏 / 整行。
+enum NovelHomeModuleSlot { main, side, full }
 
 /// 首页上的一个模块实例。
 class NovelHomeModule {
@@ -120,8 +136,10 @@ class NovelHomeModuleConfig {
 
   final List<NovelHomeModule> modules;
 
-  List<NovelHomeModule> get enabledModules =>
-      <NovelHomeModule>[for (final m in modules) if (m.enabled) m];
+  List<NovelHomeModule> get enabledModules => <NovelHomeModule>[
+    for (final m in modules)
+      if (m.enabled) m,
+  ];
 
   /// 按 [id] 找模块下标；找不到返回 -1。
   int indexOf(String id) => modules.indexWhere((m) => m.id == id);
@@ -150,8 +168,7 @@ class NovelHomeModuleConfig {
     final name = groupName.trim();
     if (name.isEmpty) return this;
     if (modules.any(
-      (m) =>
-          m.kind == NovelHomeModuleKind.customGroup && m.groupName == name,
+      (m) => m.kind == NovelHomeModuleKind.customGroup && m.groupName == name,
     )) {
       return this;
     }
@@ -179,9 +196,7 @@ class NovelHomeModuleConfig {
   /// 把配置补齐成完整清单：缺失的内置模块补在末尾（默认启用），
   /// 这样旧配置遇到新增模块也能看到它。
   NovelHomeModuleConfig normalized() {
-    final present = <NovelHomeModuleKind>{
-      for (final m in modules) m.kind,
-    };
+    final present = <NovelHomeModuleKind>{for (final m in modules) m.kind};
     final result = <NovelHomeModule>[...modules];
     for (final kind in NovelHomeModuleKind.values) {
       if (!kind.isSingleton) continue;

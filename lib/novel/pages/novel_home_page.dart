@@ -3,15 +3,17 @@
 /// 小说「首页」：最近阅读 + 阅读统计 + 今日目标 + 书源状态 + 我的书架横条。
 ///
 /// 所有数字来自本地库：最近阅读 = novel_history 最新一条，累计阅读 = 历史条数，
-/// 阅读时长 = 阅读时长按天表之和（没有记录时为 0，不估算）。书源卡读真实
-/// 书源仓库；没有任何数据时给"为什么空 + 下一步做什么"的空态。
+/// 阅读时长 = 阅读时长按天表之和（没有记录时为 0，不估算）。
+/// 书源卡读真实书源仓库；没有任何数据时给"为什么空 + 下一步做什么"的空态。
 library;
 
 import 'package:flutter/material.dart';
 import 'package:mimao/core/navigation.dart';
 import 'package:mimao/core/theme.dart';
+import 'package:mimao/novel/home/home_module_config.dart';
 import 'package:mimao/novel/library_api.dart';
 import 'package:mimao/novel/models/novel_models.dart';
+import 'package:mimao/novel/pages/home/home_module_manager.dart';
 import 'package:mimao/novel/pages/novel_routes.dart';
 import 'package:mimao/novel/pages/novel_widgets.dart';
 import 'package:mimao/novel/source/novel_source_importer.dart';
@@ -65,6 +67,12 @@ class NovelHomePage extends StatefulWidget {
 
 class _NovelHomePageState extends State<NovelHomePage> with RouteAware {
   late Future<_HomeData> _future;
+
+  /// 首页模块配置（开关/顺序/自定义分组卡片）。读失败用默认清单，
+  /// 默认清单刻意等于改造前的排布。
+  NovelHomeModuleConfig _modules = const NovelHomeModuleConfig(
+    NovelHomeModuleConfig.defaults,
+  );
 
   @override
   void initState() {
@@ -172,6 +180,7 @@ class _NovelHomePageState extends State<NovelHomePage> with RouteAware {
     }
 
     NovelWebDavConfig? webDavConfig;
+    var modules = const NovelHomeModuleConfig(NovelHomeModuleConfig.defaults);
     final prefs = widget.prefs;
     if (prefs != null) {
       try {
@@ -179,7 +188,15 @@ class _NovelHomePageState extends State<NovelHomePage> with RouteAware {
       } on Object catch (error) {
         errors.add('WebDAV 配置读取失败：$error');
       }
+      try {
+        modules = NovelHomeModuleConfig.decode(
+          await prefs.read(novelPrefHomeModules),
+        );
+      } on Object catch (error) {
+        errors.add('首页模块配置读取失败：$error');
+      }
     }
+    if (mounted) _modules = modules;
 
     return _HomeData(
       recent: recent,
@@ -187,6 +204,7 @@ class _NovelHomePageState extends State<NovelHomePage> with RouteAware {
       stats: stats,
       sources: sources,
       webDavConfigured: webDavConfig != null,
+      modules: modules,
       error: errors.isEmpty ? null : errors.join('\n'),
     );
   }
@@ -280,6 +298,195 @@ class _NovelHomePageState extends State<NovelHomePage> with RouteAware {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // 模块化渲染
+
+  /// 按配置渲染首页模块。
+  ///
+  /// 宽窗保持改造前的两栏骨架：主栏（最近阅读/统计/目标/自定义分组）与
+  /// 侧栏（书源/引擎）并排，整行模块（书架横条/备份）铺满。窄窗一律单列，
+  /// 顺序完全按配置。模块被关掉时不占位，不会留空隙。
+  Widget _buildModules(
+    BuildContext context,
+    _HomeData data, {
+    required bool wide,
+  }) {
+    final modules = data.modules.enabledModules;
+    if (modules.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 32),
+        child: Column(
+          children: <Widget>[
+            Text('首页模块都被关掉了', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            Text(
+              '在下面的「管理模块」里重新打开至少一个模块。',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 16),
+            FilledButton.tonal(
+              onPressed: () => _openModuleManager(data),
+              child: const Text('管理模块'),
+            ),
+          ],
+        ),
+      );
+    }
+    if (!wide) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          for (final module in modules) ...<Widget>[
+            _buildModule(context, data, module),
+            const SizedBox(height: 16),
+          ],
+        ],
+      );
+    }
+    final main = <NovelHomeModule>[];
+    final side = <NovelHomeModule>[];
+    final full = <NovelHomeModule>[];
+    for (final module in modules) {
+      switch (module.kind.slot) {
+        case NovelHomeModuleSlot.main:
+          main.add(module);
+        case NovelHomeModuleSlot.side:
+          side.add(module);
+        case NovelHomeModuleSlot.full:
+          full.add(module);
+      }
+    }
+    // 主栏或侧栏被全部关掉时，另一栏直接占满，不留 380px 的空洞。
+    final onlyMain = side.isEmpty;
+    final onlySide = main.isEmpty;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        if (!onlySide)
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Expanded(
+                flex: 5,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    for (final module in main) ...<Widget>[
+                      _buildModule(context, data, module),
+                      if (module != main.last) const SizedBox(height: 16),
+                    ],
+                  ],
+                ),
+              ),
+              if (!onlyMain) ...<Widget>[
+                const SizedBox(width: 20),
+                SizedBox(
+                  width: 380,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: <Widget>[
+                      for (final module in side) ...<Widget>[
+                        _buildModule(context, data, module),
+                        if (module != side.last) const SizedBox(height: 16),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ],
+          ),
+        for (final module in full) ...<Widget>[
+          if (module != full.first || !onlySide) const SizedBox(height: 24),
+          _buildModule(context, data, module),
+        ],
+      ],
+    );
+  }
+
+  /// 单个模块 → Widget。未知/未实现的模块返回空盒，不抛错。
+  Widget _buildModule(
+    BuildContext context,
+    _HomeData data,
+    NovelHomeModule module,
+  ) {
+    return switch (module.kind) {
+      NovelHomeModuleKind.recent => _RecentReadingCard(
+        item: data.recent.isEmpty ? null : data.recent.first,
+        onOpen: _openBook,
+        onOpenHistory: () => _openRoute(NovelRoute.history),
+        onGoShelf: () => widget.onSelectTab?.call(1),
+      ),
+      NovelHomeModuleKind.stats => _StatsRow(
+        stats: data.stats,
+        statsWired: widget.stats != null,
+      ),
+      NovelHomeModuleKind.goal => _GoalCard(
+        stats: data.stats,
+        onEdit: () => _editGoal(data),
+      ),
+      NovelHomeModuleKind.source => _SourceCard(
+        sources: data.sources,
+        wired: widget.sourceImporter != null,
+        onOpenSubscribe: () => widget.onSelectTab?.call(3),
+      ),
+      NovelHomeModuleKind.capability => _CapabilityCard(
+        wired: widget.engineWired,
+      ),
+      NovelHomeModuleKind.shelfStrip => _ShelfStrip(
+        collects: data.collects,
+        onOpen: _openBook,
+        onGoShelf: () => widget.onSelectTab?.call(1),
+      ),
+      // 没有 prefs 就没法读写 WebDAV 配置，整卡不渲染（配置里留着，注入后自动出现）。
+      NovelHomeModuleKind.webdav =>
+        widget.prefs == null
+            ? const SizedBox.shrink()
+            : _WebDavBackupCard(
+                configured: data.webDavConfigured,
+                onOpen: () => _openWebDav(widget.prefs!),
+              ),
+      NovelHomeModuleKind.customGroup => _CustomGroupCard(
+        groupName: module.groupName ?? '',
+        collects: data.collects,
+        onOpen: _openBook,
+        onGoShelf: () => widget.onSelectTab?.call(1),
+        onEdit: () => _openModuleManager(data),
+      ),
+    };
+  }
+
+  /// 保存模块配置：先落 kv 再刷新，写失败只提示不清空界面。
+  Future<void> _saveModules(NovelHomeModuleConfig config) async {
+    setState(() => _modules = config);
+    final prefs = widget.prefs;
+    if (prefs == null) {
+      _toast('偏好服务未启用，模块设置本次有效但不能保存。重启应用后再试。');
+      return;
+    }
+    try {
+      await prefs.write(novelPrefHomeModules, config.encode());
+    } on Object catch (error) {
+      _toast('保存模块设置失败：$error');
+    }
+    if (mounted) _reload();
+  }
+
+  Future<void> _openModuleManager(_HomeData data) async {
+    final result = await showNovelHomeModuleManager(
+      context,
+      config: _modules,
+      availableGroups: <String>{
+        for (final item in data.collects)
+          if (item.groupName != null && item.groupName!.isNotEmpty)
+            item.groupName!,
+      }.toList()..sort(),
+    );
+    if (result == null) return;
+    await _saveModules(result);
+  }
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<_HomeData>(
@@ -308,6 +515,12 @@ class _NovelHomePageState extends State<NovelHomePage> with RouteAware {
                     tooltip: '搜索',
                     onPressed: () => _openRoute(NovelRoute.search),
                   ),
+                  NovelCircleAction(
+                    key: const Key('novel-home-modules'),
+                    icon: Icons.dashboard_customize_outlined,
+                    tooltip: '管理首页模块',
+                    onPressed: () => _openModuleManager(data),
+                  ),
                 ],
               ),
               if (data.error != null) ...<Widget>[
@@ -317,99 +530,9 @@ class _NovelHomePageState extends State<NovelHomePage> with RouteAware {
               LayoutBuilder(
                 builder: (context, constraints) {
                   final wide = constraints.maxWidth >= 980;
-                  if (!wide) {
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: <Widget>[
-                        _RecentReadingCard(
-                          item: data.recent.isEmpty ? null : data.recent.first,
-                          onOpen: _openBook,
-                          onOpenHistory: () => _openRoute(NovelRoute.history),
-                          onGoShelf: () => widget.onSelectTab?.call(1),
-                        ),
-                        const SizedBox(height: 16),
-                        _StatsRow(
-                          stats: data.stats,
-                          statsWired: widget.stats != null,
-                        ),
-                        const SizedBox(height: 16),
-                        _GoalCard(
-                          stats: data.stats,
-                          onEdit: () => _editGoal(data),
-                        ),
-                        const SizedBox(height: 16),
-                        _SourceCard(
-                          sources: data.sources,
-                          wired: widget.sourceImporter != null,
-                          onOpenSubscribe: () => widget.onSelectTab?.call(3),
-                        ),
-                      ],
-                    );
-                  }
-                  return Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Expanded(
-                        flex: 5,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: <Widget>[
-                            _RecentReadingCard(
-                              item: data.recent.isEmpty
-                                  ? null
-                                  : data.recent.first,
-                              onOpen: _openBook,
-                              onOpenHistory: () =>
-                                  _openRoute(NovelRoute.history),
-                              onGoShelf: () => widget.onSelectTab?.call(1),
-                            ),
-                            const SizedBox(height: 16),
-                            _StatsRow(
-                              stats: data.stats,
-                              statsWired: widget.stats != null,
-                            ),
-                            const SizedBox(height: 16),
-                            _GoalCard(
-                              stats: data.stats,
-                              onEdit: () => _editGoal(data),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 20),
-                      SizedBox(
-                        width: 380,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: <Widget>[
-                            _SourceCard(
-                              sources: data.sources,
-                              wired: widget.sourceImporter != null,
-                              onOpenSubscribe: () =>
-                                  widget.onSelectTab?.call(3),
-                            ),
-                            const SizedBox(height: 16),
-                            _CapabilityCard(wired: widget.engineWired),
-                          ],
-                        ),
-                      ),
-                    ],
-                  );
+                  return _buildModules(context, data, wide: wide);
                 },
               ),
-              const SizedBox(height: 24),
-              _ShelfStrip(
-                collects: data.collects,
-                onOpen: _openBook,
-                onGoShelf: () => widget.onSelectTab?.call(1),
-              ),
-              if (widget.prefs != null) ...<Widget>[
-                const SizedBox(height: 16),
-                _WebDavBackupCard(
-                  configured: data.webDavConfigured,
-                  onOpen: () => _openWebDav(widget.prefs!),
-                ),
-              ],
             ],
           ),
         );
@@ -426,6 +549,7 @@ class _HomeData {
     required this.stats,
     required this.sources,
     this.webDavConfigured = false,
+    this.modules = const NovelHomeModuleConfig(NovelHomeModuleConfig.defaults),
     this.error,
   });
 
@@ -447,6 +571,7 @@ class _HomeData {
   final NovelStats stats;
   final List<NovelBookSource> sources;
   final bool webDavConfigured;
+  final NovelHomeModuleConfig modules;
   final String? error;
 
   String get subtitle {
@@ -999,6 +1124,83 @@ class _ShelfStrip extends StatelessWidget {
             },
           ),
       ],
+    );
+  }
+}
+
+/// 自定义分组卡片：首页展示某个书架分组的封面横条。
+///
+/// 分组是书架收藏行上的字段，所以这里直接用收藏快照过滤，不额外查库。
+class _CustomGroupCard extends StatelessWidget {
+  const _CustomGroupCard({
+    required this.groupName,
+    required this.collects,
+    required this.onOpen,
+    required this.onGoShelf,
+    required this.onEdit,
+  });
+
+  final String groupName;
+  final List<NovelCollectItem> collects;
+  final ValueChanged<NovelSummary> onOpen;
+  final VoidCallback onGoShelf;
+  final VoidCallback onEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final items = <NovelCollectItem>[
+      for (final item in collects)
+        if (item.groupName == groupName) item,
+    ];
+    return NovelCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          NovelSectionHeader(
+            icon: Icons.folder_outlined,
+            title: groupName.isEmpty ? '分组' : groupName,
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                TextButton(onPressed: onGoShelf, child: const Text('去书架')),
+                IconButton(
+                  tooltip: '管理首页模块',
+                  icon: const Icon(Icons.settings_outlined, size: 18),
+                  onPressed: onEdit,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          if (items.isEmpty)
+            Text(
+              '「$groupName」里还没有书。去书架把书加入这个分组，或换一张卡片。',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: cs.onSurfaceVariant,
+              ),
+            )
+          else
+            NovelCoverStrip(
+              itemCount: items.length > 12 ? 12 : items.length,
+              itemBuilder: (context, index) {
+                final item = items[index];
+                return _ShelfStripItem(
+                  item: item,
+                  onTap: () => onOpen(
+                    item.book ??
+                        NovelSummary(
+                          id: item.ref.id,
+                          title: item.title,
+                          coverUrl: item.coverUrl ?? '',
+                        ),
+                  ),
+                );
+              },
+            ),
+        ],
+      ),
     );
   }
 }
