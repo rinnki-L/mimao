@@ -162,7 +162,15 @@ class _NovelExploreSheetState extends State<NovelExploreSheet> {
               padding: const EdgeInsets.only(bottom: 6),
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  final available = constraints.maxWidth;
+                  const gap = 8.0;
+                  // 间距要先从可用宽度里扣掉：百分比是「占父宽度」，
+                  // 直接把 available*factor 当宽度再额外加间距会溢出
+                  // （Row 的 overflow 条纹，实测出现过）。
+                  final gaps = gap * (row.length - 1);
+                  final available = (constraints.maxWidth - gaps).clamp(
+                    0.0,
+                    double.infinity,
+                  );
                   final fixed = row
                       .where((slot) => slot.factor != null)
                       .fold<double>(0, (sum, slot) => sum + slot.factor!);
@@ -173,20 +181,25 @@ class _NovelExploreSheetState extends State<NovelExploreSheet> {
                   return Row(
                     children: <Widget>[
                       for (final slot in row) ...<Widget>[
-                        SizedBox(
-                          width: slot.factor != null
-                              ? available * slot.factor!
-                              : growTotal > 0
-                              ? available * free * (slot.grow / growTotal)
-                              : null,
-                          child: slot.factor == null && growTotal <= 0
-                              ? _kindChip(_kinds[slot.index])
-                              : SizedBox(
-                                  width: double.infinity,
-                                  child: _kindChip(_kinds[slot.index]),
-                                ),
-                        ),
-                        if (slot != row.last) const SizedBox(width: 8),
+                        if (slot.factor != null)
+                          SizedBox(
+                            width: available * slot.factor!,
+                            child: SizedBox(
+                              width: double.infinity,
+                              child: _kindChip(_kinds[slot.index]),
+                            ),
+                          )
+                        else if (growTotal > 0)
+                          SizedBox(
+                            width: available * free * (slot.grow / growTotal),
+                            child: SizedBox(
+                              width: double.infinity,
+                              child: _kindChip(_kinds[slot.index]),
+                            ),
+                          )
+                        else
+                          Flexible(child: _kindChip(_kinds[slot.index])),
+                        if (slot != row.last) const SizedBox(width: gap),
                       ],
                     ],
                   );
@@ -199,11 +212,7 @@ class _NovelExploreSheetState extends State<NovelExploreSheet> {
   }
 
   Widget _kindChip(NovelExploreKind kind) => ChoiceChip(
-    label: Text(
-      kind.name,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-    ),
+    label: Text(kind.name, maxLines: 1, overflow: TextOverflow.ellipsis),
     labelPadding: const EdgeInsets.symmetric(horizontal: 2),
     selected: _kind?.name == kind.name,
     onSelected: (_) => _load(kind, page: 1),

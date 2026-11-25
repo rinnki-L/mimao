@@ -1404,7 +1404,9 @@ class _NovelShelfPageState extends State<NovelShelfPage> with RouteAware {
               padding: const EdgeInsets.only(top: 8, bottom: 16),
               child: _ShelfWrapGrid(
                 books: section.books,
-                columns: _columnsFor(MediaQuery.sizeOf(context).width - 48),
+                // 列数交给分区自己按实际可用宽度算（窗口有侧栏/内边距时
+                // MediaQuery 宽度会偏大，导致卡片被挤窄）。
+                columnsFor: (width) => _columnsFor(width),
                 coverWidth: _view.coverWidth,
                 itemBuilder: (index, item) => _maybeDraggable(
                   index: books.indexOf(item),
@@ -1431,7 +1433,12 @@ class _NovelShelfPageState extends State<NovelShelfPage> with RouteAware {
     return LayoutBuilder(
       builder: (context, constraints) {
         final paneWidth = (constraints.maxWidth - 20) / 2;
-        final paneColumns = _columnsFor(paneWidth).clamp(1, 5).toInt();
+        // 列数按「半窗宽 / 封面宽度」算，不沿用整窗列数——整窗 8 列时直接
+        // 套过来每栏还是 8 列，双列就退化成普通网格了。每栏 2..4 列。
+        final paneColumns = autoShelfColumns(
+          paneWidth,
+          _view.coverWidth,
+        ).clamp(2, 4).toInt();
         final left = <ShelfBook>[];
         final right = <ShelfBook>[];
         for (var index = 0; index < books.length; index++) {
@@ -1492,13 +1499,15 @@ class _NovelShelfPageState extends State<NovelShelfPage> with RouteAware {
 class _ShelfWrapGrid extends StatelessWidget {
   const _ShelfWrapGrid({
     required this.books,
-    required this.columns,
+    required this.columnsFor,
     required this.coverWidth,
     required this.itemBuilder,
   });
 
   final List<ShelfBook> books;
-  final int columns;
+
+  /// 按分区实际可用宽度算列数（不读 MediaQuery，避免侧栏/内边距误差）。
+  final int Function(double width) columnsFor;
   final double coverWidth;
   final Widget Function(int index, ShelfBook item) itemBuilder;
 
@@ -1508,6 +1517,7 @@ class _ShelfWrapGrid extends StatelessWidget {
       builder: (context, constraints) {
         const spacing = 16.0;
         final width = constraints.maxWidth;
+        final columns = columnsFor(width).clamp(1, 10).toInt();
         final itemWidth = (width - spacing * (columns - 1)) / columns;
         return Wrap(
           spacing: spacing,

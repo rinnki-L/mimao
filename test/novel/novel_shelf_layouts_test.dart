@@ -143,6 +143,37 @@ void main() {
     expect(find.byType(ShelfGridCard), findsWidgets);
   });
 
+  testWidgets('双列在宽窗下真的分成左右两栏（不退化成普通网格）', (tester) async {
+    // 回归：原实现把整窗列数套到半窗，1440 宽时每栏还是 8 列，
+    // 双列看起来和普通网格一模一样。
+    await collect.collect(book('b1', '第一本'));
+    await collect.collect(book('b2', '第二本'));
+    await collect.collect(book('b3', '第三本'));
+    await collect.collect(book('b4', '第四本'));
+    final prefs = _FakePrefs(<String, String>{
+      novelPrefShelfView: const NovelShelfViewConfig(
+        mode: NovelShelfMode.dualColumn,
+      ).encode(),
+    });
+    tester.view.physicalSize = const Size(1600, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await pumpShelf(tester, prefs: prefs);
+
+    final cards = tester.widgetList<ShelfGridCard>(find.byType(ShelfGridCard));
+    expect(cards, hasLength(4));
+    final xs = <double>[
+      for (final element in find.byType(ShelfGridCard).evaluate())
+        tester.getTopLeft(find.byWidget(element.widget)).dx,
+    ]..sort();
+    // 至少两个不同的起始 x，说明确实分了两栏。
+    expect(xs.first, lessThan(xs.last - 100));
+    // 每栏列数被限制在 2..4（不是整窗的 8 列）。
+    final perPane = cards.length ~/ 2;
+    final leftXs = xs.take(perPane).toSet();
+    expect(leftXs.length, lessThanOrEqualTo(4));
+  });
+
   testWidgets('展示项开关真的影响卡片', (tester) async {
     await collect.collect(book('b1', '三体', kind: '科幻'));
     final prefs = _FakePrefs(<String, String>{

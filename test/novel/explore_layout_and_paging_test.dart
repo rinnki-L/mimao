@@ -17,11 +17,7 @@ class _RecordingTransport implements NovelHttpTransport {
   @override
   Future<NovelHttpResponse> send(NovelHttpRequest request) async {
     requested.add(request.url);
-    return NovelHttpResponse(
-      url: request.url,
-      statusCode: 200,
-      body: body,
-    );
+    return NovelHttpResponse(url: request.url, statusCode: 200, body: body);
   }
 
   @override
@@ -84,11 +80,7 @@ void main() {
     });
 
     test('百分数写法（>1）按 0..100 折算', () {
-      const kind = NovelExploreKind(
-        name: 'A',
-        url: '/a',
-        flexBasisPercent: 25,
-      );
+      const kind = NovelExploreKind(name: 'A', url: '/a', flexBasisPercent: 25);
       expect(NovelExploreKindSlot.of(kind).widthFactor, closeTo(0.25, 1e-9));
     });
 
@@ -100,6 +92,26 @@ void main() {
       final rows = layoutExploreKindRows(kinds);
       expect(rows.single.map((slot) => slot.grow).toList(), <double>[1, 3]);
       expect(rows.single.every((slot) => slot.factor == null), isTrue);
+    });
+
+    test('分类入口条按「扣掉间距后的可用宽度」分配，不横向溢出', () {
+      // 回归：原实现把 available*factor 直接当宽度再额外加 8px 间距，
+      // 两列各 50% 时刚好溢出（截图里出现 Row overflow 条纹）。
+      const kinds = <NovelExploreKind>[
+        NovelExploreKind(name: 'A', url: '/a', flexBasisPercent: 0.5),
+        NovelExploreKind(name: 'B', url: '/b', flexBasisPercent: 0.5),
+      ];
+      final rows = layoutExploreKindRows(kinds);
+      expect(rows, hasLength(1));
+
+      const totalWidth = 400.0;
+      const gap = 8.0;
+      final available = totalWidth - gap * (rows.single.length - 1);
+      final widths = <double>[
+        for (final slot in rows.single) available * slot.factor!,
+      ];
+      final used = widths.fold<double>(0, (sum, w) => sum + w) + gap;
+      expect(used, lessThanOrEqualTo(totalWidth + 1e-9));
     });
 
     test('百分比之和超过 1 时换行，不横向溢出', () {
@@ -140,10 +152,7 @@ void main() {
         applyExplorePageParam('/list/<1,2,3>', pageParam: 'p', page: 2),
         '/list/<1,2,3>',
       );
-      expect(
-        exploreUrlHasPagePlaceholder('@js:"/list?p=" + page'),
-        isTrue,
-      );
+      expect(exploreUrlHasPagePlaceholder('@js:"/list?p=" + page'), isTrue);
       expect(exploreUrlHasPagePlaceholder('/list'), isFalse);
     });
 
