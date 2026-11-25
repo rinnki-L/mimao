@@ -31,6 +31,7 @@ import 'package:mimao/novel/bookmark/novel_bookmark_models.dart';
 import 'package:mimao/novel/engine/online_engine.dart';
 import 'package:mimao/novel/library_api.dart';
 import 'package:mimao/novel/models/novel_models.dart';
+import 'package:mimao/novel/webdav_backup.dart' show NovelProgressSync;
 import 'package:mimao/novel/pages/novel_bookmarks_page.dart';
 import 'package:mimao/novel/pages/novel_content_edit_page.dart';
 import 'package:mimao/novel/pages/novel_highlight_rules_page.dart';
@@ -88,6 +89,7 @@ class NovelReaderPage extends StatefulWidget {
     this.settingsStore,
     this.bookmarks,
     this.initialLocator,
+    this.progressSync,
     this.ttsEngine,
     this.ttsCache,
     this.readingClock,
@@ -125,6 +127,9 @@ class NovelReaderPage extends StatefulWidget {
   final NovelStatsApi? stats;
   final NovelPrefsApi? prefs;
 
+  /// WebDAV 进度同步；null 时「同步进度」菜单项置灰并说明原因。
+  final NovelProgressSync? progressSync;
+
   /// 替换规则仓库；注入后正文与标题在展示前统一净化。
   final NovelReplaceRuleStorage? replaceRules;
 
@@ -160,6 +165,25 @@ class _NovelReaderPageState extends State<NovelReaderPage>
     with WidgetsBindingObserver
     implements NovelClickActionHandler {
   static const double _contentTopGap = 12;
+
+  /// 「同步进度」菜单项是否可用：只取决于**是否配了 WebDAV 地址**，
+  /// 不看这次能不能连上（连不上是临时故障，不该让入口消失）。
+  bool _syncReady = false;
+
+  Future<void> _refreshSyncReady() async {
+    final sync = widget.progressSync;
+    var ready = false;
+    if (sync != null) {
+      try {
+        ready = await sync.isConfigured();
+      } on Object {
+        ready = false;
+      }
+    }
+    if (!mounted || ready == _syncReady) return;
+    setState(() => _syncReady = ready);
+  }
+
   static const double _contentBottomGap = 44;
   static const double _footerHeight = 26;
 
@@ -274,6 +298,7 @@ class _NovelReaderPageState extends State<NovelReaderPage>
       _showSnack('睡眠定时已到，朗读已停止');
     };
     _controller.addListener(_onControllerChanged);
+    unawaited(_refreshSyncReady());
     _scroll.addListener(_onScroll);
     // 首章正文还没回来就退出时，按路由参数里的章先归属（章号 0 起 → 1 起）。
     final initialChapterIndex = widget.chapterIndex;
@@ -1236,7 +1261,28 @@ class _NovelReaderPageState extends State<NovelReaderPage>
   }
 
   @override
-  void syncProgress() => _showSnack('WebDAV 同步还没接到阅读页，暂时不能手动同步');
+  void syncProgress() => unawaited(_syncProgressNow());
+
+  /// 手动同步进度：只拉"远端更靠后"的记录，本地更新的不动。
+  Future<void> _syncProgressNow() async {
+    final sync = widget.progressSync;
+    if (sync == null) {
+      _showSnack('进度同步服务未启用，重启应用后再试');
+      return;
+    }
+    if (!await sync.isConfigured()) {
+      _showSnack('还没配置 WebDAV 地址：去「首页 → WebDAV 备份」填好再同步');
+      return;
+    }
+    await _controller.savePositionNow();
+    final result = await sync.syncNow();
+    if (!mounted) return;
+    if (!result.ok) {
+      _showSnack('${result.error}（${result.hint}）');
+      return;
+    }
+    _showSnack('进度同步：${result.summary}');
+  }
 
   void _handleEscape() {
     if (_chromeVisible.value) {
@@ -3036,7 +3082,7 @@ class _NovelReaderPageState extends State<NovelReaderPage>
     bookmarkReady: _controller.bookmarksReady,
     contentEditReady: _controller.contentOverrideReady,
     replaceReady: widget.replaceRules != null,
-    syncReady: false,
+    syncReady: _syncReady,
   );
 
   /// 菜单动作 → 页面方法。注册表只管「长什么样 + 能不能用」，

@@ -51,7 +51,8 @@ import 'package:mimao/novel/source/novel_source_store.dart'
     show NovelSourceStorage;
 import 'package:mimao/novel/source/novel_subscription.dart'
     show NovelSubscriptionStore;
-import 'package:mimao/novel/webdav_backup.dart' show NovelWebDavClient;
+import 'package:mimao/novel/webdav_backup.dart'
+    show NovelProgressSync, NovelWebDavBackupService;
 
 class NovelModule implements AppModule {
   NovelModule({
@@ -71,7 +72,8 @@ class NovelModule implements AppModule {
     this.contentOverrides,
     this.booklistGate,
     this.subscriptionStore,
-    this.backupClient,
+    this.backupService,
+    this.progressSync,
     this.ttsCache,
     this.localBooks,
     this.txtRules,
@@ -114,7 +116,12 @@ class NovelModule implements AppModule {
   final NovelTtsCache? ttsCache;
   final NovelBooklistFileGate? booklistGate;
   final NovelSubscriptionStore? subscriptionStore;
-  final NovelWebDavClient? backupClient;
+
+  /// WebDAV 备份服务（装配处构造；含 client / db / 凭据）。
+  final NovelWebDavBackupService? backupService;
+
+  /// 进度同步（阅读页「同步进度」与备份中心共用）。
+  final NovelProgressSync? progressSync;
 
   @override
   MediaType get type => MediaType.novel;
@@ -263,6 +270,7 @@ class NovelModule implements AppModule {
         initialLocator: args['initialLocator'] is NovelLocator
             ? args['initialLocator'] as NovelLocator
             : null,
+        progressSync: progressSync,
       ),
     );
     registerNovelRoutePage(
@@ -332,7 +340,8 @@ class NovelModule implements AppModule {
       bookmarks: bookmarks,
       booklistGate: booklistGate,
       subscriptionStore: subscriptionStore,
-      backupClient: backupClient,
+      backupService: backupService,
+      progressSync: progressSync,
       localBooks: localBooks,
       // 侧栏底部「设置」项弹这张面板（与漫画/音乐同款），不是独立 tab。
       settingsTab: NovelSettingsPage(

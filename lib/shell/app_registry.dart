@@ -83,6 +83,14 @@ import 'package:mimao/novel/source/novel_source_repository.dart';
 import 'package:mimao/novel/source/novel_source_store.dart';
 import 'package:mimao/novel/source/novel_subscription.dart';
 import 'package:mimao/novel/stats_service.dart';
+import 'package:mimao/novel/webdav_backup.dart'
+    show
+        DioNovelWebDavClient,
+        NovelAutoBackupRunner,
+        NovelProgressSync,
+        NovelWebDavBackupService;
+import 'package:mimao/shell/lifecycle.dart'
+    show registerAppExitHook, registerAppResumeHook;
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -583,6 +591,20 @@ Future<void> initAppModules({
           store: sourceImporter.store,
         );
       }
+      final backupService = NovelWebDavBackupService(
+        client: DioNovelWebDavClient(),
+        db: db,
+        library: library,
+        sourceStorage: sourceImporter.store,
+        prefs: prefsApi,
+      );
+      final progressSync = NovelProgressSync(
+        client: DioNovelWebDavClient(),
+        db: db,
+        library: library,
+        prefs: prefsApi,
+        sourceStorage: sourceImporter.store,
+      );
       appModules[MediaType.novel] = NovelModule(
         onlineEngine: novelEngine,
         localBooks: localBookApi,
@@ -599,7 +621,14 @@ Future<void> initAppModules({
         contentOverrides: contentOverrideApi,
         ttsCache: ttsCache,
         subscriptionStore: NovelSubscriptionFileStore.lazy(),
+        backupService: backupService,
+        progressSync: progressSync,
       );
+      if (prefsApi != null) {
+        _registerNovelAutoBackupHooks(
+          NovelAutoBackupRunner(service: backupService, prefs: prefsApi),
+        );
+      }
     }
   } catch (error) {
     errors.add('小说模块初始化失败：$error');
@@ -616,6 +645,18 @@ Future<void> initAppModules({
   }
 
   appModulesError = errors.isEmpty ? null : errors.join('\n');
+}
+
+/// 把小说的自动备份挂到壳的退出/回前台钩子上。
+///
+/// 只在第一次注册（测试会反复 `initAppModules`，重复挂会让关窗跑 N 次备份）。
+bool _novelAutoBackupRegistered = false;
+
+void _registerNovelAutoBackupHooks(NovelAutoBackupRunner runner) {
+  if (_novelAutoBackupRegistered) return;
+  _novelAutoBackupRegistered = true;
+  registerAppExitHook(() => runner.run(onExit: true));
+  registerAppResumeHook(() => runner.run(onExit: false));
 }
 
 /// 小说书源 dev 能力（debug-only）：真源联调与 UI 验收用。

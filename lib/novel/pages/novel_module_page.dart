@@ -42,7 +42,8 @@ class NovelModulePage extends StatefulWidget {
     this.booklistGate,
     this.settingsTab,
     this.subscriptionStore,
-    this.backupClient,
+    this.backupService,
+    this.progressSync,
     this.localBooks,
   });
 
@@ -82,8 +83,11 @@ class NovelModulePage extends StatefulWidget {
   /// 书源订阅仓库；null 时订阅页用内置默认订阅（内存）。
   final NovelSubscriptionStore? subscriptionStore;
 
-  /// WebDAV 备份客户端缝；null 时用 dio 生产实现。
-  final NovelWebDavClient? backupClient;
+  /// WebDAV 备份服务（装配处构造）；null 时备份卡显示能力边界说明。
+  final NovelWebDavBackupService? backupService;
+
+  /// 进度同步（阅读页「同步进度」入口与备份中心共用）。
+  final NovelProgressSync? progressSync;
 
   /// 本地书门面（TXT / EPUB / Markdown）；null 时书架「添加本地书」置灰。
   final NovelLocalBookStorage? localBooks;
@@ -150,7 +154,7 @@ class _NovelModulePageState extends State<NovelModulePage> {
         openRoute: _openRoute,
         onSelectTab: _selectTab,
         prefs: widget.prefs,
-        backupClient: widget.backupClient,
+        backupService: widget.backupService,
       ),
       NovelShelfPage(
         active: _index == 1,
