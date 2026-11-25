@@ -23,6 +23,7 @@ import 'package:mimao/novel/pages/novel_routes.dart'
     show NovelRoute, pushNovelRoute, registerNovelRoutePage;
 import 'package:mimao/novel/pages/novel_search_page.dart';
 import 'package:mimao/novel/pages/novel_settings_page.dart';
+import 'package:mimao/novel/pages/novel_stats_page.dart';
 import 'package:mimao/novel/pages/novel_source_manage_page.dart'
     show NovelSourceManagePage;
 import 'package:mimao/novel/reader/novel_bookmark_service.dart';
@@ -191,7 +192,11 @@ class NovelModule implements AppModule {
     );
     registerNovelRoutePage(
       NovelRoute.history,
-      (_) => NovelHistoryPage(history: historyApi),
+      (_) => NovelHistoryPage(history: historyApi, stats: statsApi),
+    );
+    registerNovelRoutePage(
+      NovelRoute.stats,
+      (_) => NovelStatsPage(stats: statsApi),
     );
     registerNovelRoutePage(
       NovelRoute.bookmarks,

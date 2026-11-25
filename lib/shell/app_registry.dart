@@ -526,7 +526,7 @@ Future<void> initAppModules({
       final historyApi = novelHistory ?? NovelHistoryService(db, library);
       final searchHistoryApi =
           novelSearchHistory ?? NovelSearchHistoryService(db);
-      // 阅读统计与模块偏好：同一个 NovelStatsService（时长按天表 + 模块 kv）。
+      // 阅读统计与模块偏好：同一个 NovelStatsService（设备×书×章×日记录表 + 模块 kv）。
       final statsApi = novelStats ?? NovelStatsService(db);
       // 书签/划线：阅读器、书签页共用同一实例与同一个 drift 库。
       final bookmarkApi = NovelBookmarkService(db);

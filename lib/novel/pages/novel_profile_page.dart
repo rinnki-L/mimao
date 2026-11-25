@@ -428,6 +428,14 @@ class _NovelProfilePageState extends State<NovelProfilePage> {
                     onTap: () => _openRoute(NovelRoute.settings),
                   ),
                   _ProfileRow(
+                    icon: Icons.insights_outlined,
+                    title: '阅读统计',
+                    subtitle: data.stats.totalSeconds == 0
+                        ? '还没有阅读时长；读几页就能看到趋势'
+                        : '概览 · 柱状图 · 热力图 · 章节维度',
+                    onTap: () => _openRoute(NovelRoute.stats),
+                  ),
+                  _ProfileRow(
                     icon: Icons.history,
                     title: '阅读记录',
                     subtitle: data.stats.booksRead == 0
