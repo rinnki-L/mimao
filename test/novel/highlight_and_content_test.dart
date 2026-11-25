@@ -381,6 +381,18 @@ void main() {
   test('v3 → v4 迁移只建两新表', () async {
     final executor = NativeDatabase.memory();
     await executor.ensureOpen(_OpenUser(3));
+    // onUpgrade 会依次跑 from<4 之后的所有块（v6 的收藏加列、v8 的阅读记录
+    // 迁移），所以先按 v3 形态把它们依赖的基础表建出来；否则测的不是
+    // 「迁移做了什么」，而是「fixture 缺表」。
+    await executor.runCustom(
+      'CREATE TABLE novel_collect (id TEXT NOT NULL PRIMARY KEY, '
+      'title TEXT NOT NULL, cover_url TEXT NULL, payload TEXT NOT NULL '
+      "DEFAULT '{}', group_name TEXT NULL, collected_at INTEGER NOT NULL)",
+    );
+    await executor.runCustom(
+      'CREATE TABLE novel_pref (key TEXT NOT NULL PRIMARY KEY, '
+      'value TEXT NOT NULL)',
+    );
     final db = NovelDb.forTesting(executor);
     addTearDown(db.close);
 

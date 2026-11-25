@@ -45,6 +45,7 @@ import 'package:mimao/novel/reader/novel_locator.dart';
 import 'package:mimao/novel/reader/novel_menu_actions.dart';
 import 'package:mimao/novel/reader/novel_reader_chrome.dart';
 import 'package:mimao/novel/reader/novel_reader_controller.dart';
+import 'package:mimao/novel/reader/novel_reading_clock.dart';
 import 'package:mimao/novel/reader/novel_reader_fonts.dart';
 import 'package:mimao/novel/reader/novel_reader_settings.dart';
 import 'package:mimao/novel/reader/novel_reader_settings_sheet.dart';
@@ -87,6 +88,7 @@ class NovelReaderPage extends StatefulWidget {
     this.initialLocator,
     this.ttsEngine,
     this.ttsCache,
+    this.readingClock,
   });
 
   final String bookId;
@@ -132,6 +134,9 @@ class NovelReaderPage extends StatefulWidget {
   /// 朗读音频缓存（L2）；null = 不缓存。
   final NovelTtsCache? ttsCache;
 
+  /// 阅读计时器；null = 真实 [Stopwatch]。测试注入可控实现来断言时长归属。
+  final NovelReadingClock? readingClock;
+
   @override
   State<NovelReaderPage> createState() => _NovelReaderPageState();
 }
@@ -165,7 +170,8 @@ class _NovelReaderPageState extends State<NovelReaderPage>
   final FocusNode _focus = FocusNode(debugLabel: 'novel-reader');
   final ValueNotifier<bool> _chromeVisible = ValueNotifier<bool>(true);
   final ValueNotifier<double> _scrollRatio = ValueNotifier<double>(0);
-  final Stopwatch _session = Stopwatch();
+  late final NovelReadingClock _session =
+      widget.readingClock ?? StopwatchNovelReadingClock();
   final Map<int, GlobalKey> _paragraphKeys = <int, GlobalKey>{};
 
   late final NovelReaderController _controller;
@@ -254,6 +260,16 @@ class _NovelReaderPageState extends State<NovelReaderPage>
     };
     _controller.addListener(_onControllerChanged);
     _scroll.addListener(_onScroll);
+    // 首章正文还没回来就退出时，按路由参数里的章先归属（章号 0 起 → 1 起）。
+    final initialChapterIndex = widget.chapterIndex;
+    if (initialChapterIndex != null) {
+      _readTarget = NovelReadTarget(
+        bookId: widget.bookId,
+        bookTitle: widget.title ?? '',
+        chapterIndex: initialChapterIndex + 1,
+        chapterName: widget.chapterTitle ?? '',
+      );
+    }
     _session.start();
     WidgetsBinding.instance.addObserver(this);
     unawaited(_controller.init());
@@ -308,11 +324,13 @@ class _NovelReaderPageState extends State<NovelReaderPage>
     final epoch = _controller.contentEpoch;
     final changed = epoch != _lastEpoch;
     if (changed) {
-      // 换章时先把本章已读时长结掉，再重置计时；否则章与章之间的时间会被
+      // 换章时先把上一章已读时长结掉，再重置计时；否则章与章之间的时间会被
       // reset() 静默丢弃（旧实现只在退页面/切后台才 flush）。首章没有上一段
-      // 可结，跳过。
+      // 可结，跳过。结算用的是 [_readTarget]（上一章），不是此刻的
+      // `_controller.chapter`（已经指向新章）。
       if (_lastEpoch >= 0) _flushReadingTime();
       _lastEpoch = epoch;
+      _readTarget = _targetFromController();
       _paragraphKeys.clear();
       _disposeMarkingTaps();
       _session
@@ -480,16 +498,39 @@ class _NovelReaderPageState extends State<NovelReaderPage>
     );
   }
 
+  /// 本段计时归属的章节：换章前先按它结算，再把计时重置到新章。
+  ///
+  /// 不能在结算时读 `_controller.chapter`——`_applyContent` 先把 chapter 换成
+  /// 新章、再 bump epoch、再 notify，等到这里已经指向新章了，那样每段时长都会
+  /// 记到「下一章」头上。
+  NovelReadTarget? _readTarget;
+
   Future<void> _flushReadingTime() async {
     if (!_session.isRunning) return;
     _session.stop();
     final elapsed = _session.elapsed;
     if (elapsed.inSeconds <= 0) return;
     try {
-      await widget.stats?.addReadingTime(elapsed);
+      await widget.stats?.addReadingTime(elapsed, target: _readTarget);
     } on Object {
       // 统计失败不影响阅读。
     }
+  }
+
+  /// 从控制器当前章重建归属（章号 +1 转成历史/统计的 1 起口径）。
+  NovelReadTarget? _targetFromController() {
+    final chapter = _controller.chapter;
+    if (chapter == null) return null;
+    return NovelReadTarget(
+      bookId: widget.bookId,
+      bookTitle:
+          _controller.historyOverride?.title ??
+          _controller.detail?.title ??
+          widget.title ??
+          '',
+      chapterIndex: chapter.index + 1,
+      chapterName: chapter.title,
+    );
   }
 
   // ── 章节切换 ──────────────────────────────────────────────────────────

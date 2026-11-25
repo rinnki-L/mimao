@@ -996,6 +996,26 @@ String novelRelativeTime(DateTime at, {DateTime? now}) {
       '${local.day.toString().padLeft(2, '0')}';
 }
 
+/// 日键（`yyyy-MM-dd`）→ 时间轴分组标题：今天 / 昨天 / `M 月 d 日 · 周X`。
+String novelDayLabel(String dayKey, {DateTime? now}) {
+  final parts = dayKey.split('-');
+  if (parts.length != 3) return dayKey;
+  final year = int.tryParse(parts[0]);
+  final month = int.tryParse(parts[1]);
+  final date = int.tryParse(parts[2]);
+  if (year == null || month == null || date == null) return dayKey;
+  final day = DateTime(year, month, date);
+  final current = now ?? DateTime.now();
+  final today = DateTime(current.year, current.month, current.day);
+  final delta = today.difference(day).inDays;
+  if (delta == 0) return '今天';
+  if (delta == 1) return '昨天';
+  const weekdays = <String>['一', '二', '三', '四', '五', '六', '日'];
+  final weekday = weekdays[(day.weekday - 1).clamp(0, 6)];
+  final prefix = year == current.year ? '' : '$year 年 ';
+  return '$prefix$month 月 $date 日 · 周$weekday';
+}
+
 /// 水平书架条（首页的横向封面行）：鼠标可拖、末尾留白。
 class NovelCoverStrip extends StatelessWidget {
   const NovelCoverStrip({

@@ -186,7 +186,7 @@ class NovelStats {
   /// 收藏数。
   final int collected;
 
-  /// 累计阅读秒数（按天聚合表求和）。
+  /// 累计阅读秒数（本机设备在 `novel_read_record` 里的时长之和）。
   final int totalSeconds;
 
   /// 今日阅读秒数（本地日）。

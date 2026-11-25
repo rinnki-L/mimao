@@ -236,6 +236,8 @@ void main() {
 
     await tester.tap(find.byTooltip('书架操作'));
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('导入书单').last);
+    await tester.pumpAndSettle();
     await tester.tap(find.text('导入书单').last);
     await tester.pumpAndSettle();
 
@@ -244,6 +246,10 @@ void main() {
     expect(imported.single.groupName, '组A');
 
     await tester.tap(find.byTooltip('书架操作'));
+    await tester.pumpAndSettle();
+    // 菜单项变多后（排序四项 + 分组/系列管理），800x600 视口里「导出书单」
+    // 会落到可视区外；PopupMenu 本身可滚动，先滚到它再点。
+    await tester.ensureVisible(find.text('导出书单'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('导出书单'));
     await tester.pumpAndSettle();
@@ -281,6 +287,9 @@ void main() {
     await history.saveProgress(book('b2', '球状闪电'), 1, 10);
 
     await tester.pumpWidget(wrap(NovelHistoryPage(history: history)));
+    await tester.pumpAndSettle();
+    // 默认是时间轴视角；书目视角才有删除/清空入口。
+    await tester.tap(find.text('书目'));
     await tester.pumpAndSettle();
     expect(find.text('三体'), findsWidgets);
     expect(find.text('球状闪电'), findsWidgets);
