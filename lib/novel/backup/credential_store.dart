@@ -187,13 +187,14 @@ class NovelDpapiCredentialStore implements NovelCredentialStore {
 
   @override
   Future<String?> read(String key) async {
-    final file = await _fileFor(key);
-    if (!await file.exists()) return null;
     try {
+      final file = await _fileFor(key);
+      if (!await file.exists()) return null;
       final sealed = await file.readAsBytes();
       return utf8.decode((await _dpapi()).unprotect(sealed));
     } on Object {
-      // 解不开（换了用户/机器，或文件损坏）：当没有，让用户重新输一次。
+      // 目录拿不到、解不开（换了用户/机器，或文件损坏）：一律当"没有"，
+      // 让用户重新输一次——读失败不该掀掉整个备份页。
       return null;
     }
   }
@@ -213,8 +214,12 @@ class NovelDpapiCredentialStore implements NovelCredentialStore {
 
   @override
   Future<void> delete(String key) async {
-    final file = await _fileFor(key);
-    if (await file.exists()) await file.delete();
+    try {
+      final file = await _fileFor(key);
+      if (await file.exists()) await file.delete();
+    } on Object {
+      // 删不掉不该挡住"保存空密码"这条路径。
+    }
   }
 }
 

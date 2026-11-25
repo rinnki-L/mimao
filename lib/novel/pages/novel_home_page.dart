@@ -259,7 +259,13 @@ class _NovelHomePageState extends State<NovelHomePage> with RouteAware {
 
   /// 首页 WebDAV 卡：地址配置在弹层里做，备份/预览/恢复/撤销统一进备份中心。
   Future<void> _openWebDav(NovelPrefsApi prefs) async {
-    final current = await readWebDavConfig(prefs);
+    NovelWebDavConfig? current;
+    try {
+      // 记得住密码就回填；安全存储出问题也不该让弹层打不开。
+      current = await readWebDavConfig(prefs);
+    } on Object {
+      current = null;
+    }
     if (!mounted) return;
     final action = await showModalBottomSheet<_WebDavAction>(
       context: context,
