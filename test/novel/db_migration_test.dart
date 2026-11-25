@@ -102,4 +102,61 @@ void main() {
     final updated = await db.collectRow(NovelRef(id: 'b1'));
     expect(updated?.seriesId, seriesId);
   });
+
+  test('v6→v7 迁移：本地书表与 TXT 规则表建成，旧收藏行不受影响', () async {
+    final executor = NativeDatabase.memory();
+    await executor.ensureOpen(_OpenUser());
+    await executor.runCustom(
+      'CREATE TABLE novel_collect (id TEXT NOT NULL PRIMARY KEY, '
+      'title TEXT NOT NULL, cover_url TEXT NULL, payload TEXT NOT NULL '
+      "DEFAULT '{}', group_name TEXT NULL, note TEXT NOT NULL DEFAULT '', "
+      'custom_cover_path TEXT NULL, series_id INTEGER NULL, '
+      'collected_at INTEGER NOT NULL)',
+    );
+    await executor.runCustom(
+      'INSERT INTO novel_collect (id, title, payload, collected_at) '
+      "VALUES ('b1', '老书', '{}', 0)",
+    );
+
+    final db = NovelDb.forTesting(executor);
+    addTearDown(() => db.close());
+
+    final migrator = Migrator(db);
+    await db.migration.onUpgrade(migrator, 6, 7);
+
+    // 旧收藏行原样保留（本地书是增量能力，不该动到已有数据）。
+    final rows = await db.select(db.novelCollectEntries).get();
+    expect(rows, hasLength(1));
+    expect(rows.single.title, '老书');
+
+    // 本地书表建成且可写可读。
+    await db
+        .into(db.novelLocalBooks)
+        .insert(
+          NovelLocalBooksCompanion.insert(
+            id: 'local:abc',
+            path: '/books/a.txt',
+            title: '本地书',
+            format: 'txt',
+            addedAt: DateTime(2026, 11, 25),
+          ),
+        );
+    final local = await db.select(db.novelLocalBooks).getSingle();
+    expect(local.id, 'local:abc');
+    expect(local.tocJson, '[]');
+    expect(local.chapterCount, 0);
+
+    // TXT 规则表建成；迁移不写业务数据，内置规则由服务首次读取时补。
+    expect(await db.select(db.novelTxtTocRules).get(), isEmpty);
+    await db
+        .into(db.novelTxtTocRules)
+        .insert(
+          NovelTxtTocRulesCompanion.insert(
+            name: '测试规则',
+            pattern: r'^第.+章$',
+            updatedAt: DateTime(2026, 11, 25),
+          ),
+        );
+    expect((await db.select(db.novelTxtTocRules).getSingle()).name, '测试规则');
+  });
 }

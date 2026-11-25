@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart'
     show ValueListenable, kDebugMode, visibleForTesting;
+// ignore: deprecated_member_use — Flutter 3.50 弃用 material.dart，与页面同款说明。
+import 'package:flutter/material.dart' show MaterialPageRoute;
 import 'package:flutter/widgets.dart' show Center, Text;
 import 'package:mimao/comic/collect_service.dart';
 import 'package:mimao/comic/comic_db.dart';
@@ -66,6 +68,7 @@ import 'package:mimao/novel/local/local_book_service.dart';
 import 'package:mimao/novel/local/local_engine.dart';
 import 'package:mimao/novel/models/novel_models.dart';
 import 'package:mimao/novel/pages/novel_routes.dart';
+import 'package:mimao/novel/pages/novel_reader_page.dart';
 import 'package:mimao/novel/novel_db.dart';
 import 'package:mimao/novel/novel_entry.dart';
 import 'package:mimao/novel/reader/novel_bookmark_service.dart';
@@ -807,6 +810,57 @@ void _registerNovelDevCapabilities({
         'sourceKey': args['sourceKey']?.toString() ?? '',
         'bookUrl': args['bookUrl']?.toString() ?? '',
       },
+    );
+    return <String, Object?>{'ok': true};
+  });
+  // 截图/真机验收：直接推阅读器，绕过详情页的网络抓目录。
+  // chapters 由调用方给出（可只用已缓存的章节），无需先抓书源。
+  devRegisterCapability('novel.openReader', (args) async {
+    final nav = MimaoApp.navigatorKey.currentState;
+    if (nav == null) {
+      return <String, Object?>{'ok': false, 'error': 'no navigator'};
+    }
+    final raw = args['chapters'];
+    final chapters = <NovelChapter>[];
+    if (raw is List) {
+      for (final item in raw) {
+        if (item is! Map) continue;
+        final id = item['id']?.toString() ?? item['url']?.toString() ?? '';
+        if (id.isEmpty) continue;
+        chapters.add(
+          NovelChapter(
+            id: id,
+            title: item['title']?.toString() ?? '',
+            index: item['index'] is num
+                ? (item['index'] as num).toInt()
+                : chapters.length,
+            url: item['url']?.toString() ?? id,
+            isVolume: item['isVolume'] == true,
+          ),
+        );
+      }
+    }
+    if (chapters.isEmpty) {
+      return <String, Object?>{'ok': false, 'error': 'chapters empty'};
+    }
+    unawaited(
+      nav.push<void>(
+        MaterialPageRoute<void>(
+          builder: (_) => NovelReaderPage(
+            bookId: args['bookId']?.toString() ?? '',
+            title: args['title']?.toString(),
+            author: args['author']?.toString(),
+            sourceKey: args['sourceKey']?.toString(),
+            bookUrl: args['bookUrl']?.toString(),
+            chapterIndex: args['chapterIndex'] is num
+                ? (args['chapterIndex'] as num).toInt()
+                : 0,
+            chapters: chapters,
+            onlineEngine: engine,
+            sourceStore: store,
+          ),
+        ),
+      ),
     );
     return <String, Object?>{'ok': true};
   });

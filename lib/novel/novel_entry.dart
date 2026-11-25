@@ -7,16 +7,20 @@
 /// 本地快照/能力边界，不造假数据。
 library;
 
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:mimao/core/contract.dart';
 import 'package:mimao/novel/booklist_io.dart' show NovelBooklistFileGate;
 import 'package:mimao/novel/engine/engine.dart';
 import 'package:mimao/novel/engine/online_engine.dart';
 import 'package:mimao/novel/library_api.dart';
+import 'package:mimao/novel/local/local_book_service.dart';
+import 'package:mimao/novel/local/local_engine.dart';
 import 'package:mimao/novel/models/novel_models.dart';
 import 'package:mimao/novel/pages/novel_book_detail_page.dart';
 import 'package:mimao/novel/pages/novel_bookmarks_page.dart';
 import 'package:mimao/novel/pages/novel_history_page.dart';
+import 'package:mimao/novel/pages/novel_import_book_page.dart';
 import 'package:mimao/novel/pages/novel_module_page.dart' show NovelModulePage;
 import 'package:mimao/novel/pages/novel_reader_page.dart';
 import 'package:mimao/novel/pages/novel_routes.dart'
@@ -24,8 +28,15 @@ import 'package:mimao/novel/pages/novel_routes.dart'
 import 'package:mimao/novel/pages/novel_search_page.dart';
 import 'package:mimao/novel/pages/novel_settings_page.dart';
 import 'package:mimao/novel/pages/novel_stats_page.dart';
+import 'package:mimao/novel/pages/novel_source_debug_page.dart'
+    show NovelSourceDebugPage;
+import 'package:mimao/novel/pages/novel_source_edit_page.dart'
+    show NovelSourceEditPage;
 import 'package:mimao/novel/pages/novel_source_manage_page.dart'
     show NovelSourceManagePage;
+import 'package:mimao/novel/source/novel_source_model.dart'
+    show NovelBookSource;
+import 'package:mimao/novel/pages/novel_txt_rules_page.dart';
 import 'package:mimao/novel/reader/novel_bookmark_service.dart';
 import 'package:mimao/novel/reader/novel_content_override_service.dart';
 import 'package:mimao/novel/reader/novel_highlight_rule_service.dart';
@@ -36,6 +47,8 @@ import 'package:mimao/novel/source/novel_rule_store.dart'
     show NovelReplaceRuleStorage;
 import 'package:mimao/novel/source/novel_source_importer.dart'
     show NovelSourceImporter;
+import 'package:mimao/novel/source/novel_source_store.dart'
+    show NovelSourceStorage;
 import 'package:mimao/novel/source/novel_subscription.dart'
     show NovelSubscriptionStore;
 import 'package:mimao/novel/webdav_backup.dart' show NovelWebDavClient;
@@ -60,6 +73,9 @@ class NovelModule implements AppModule {
     this.subscriptionStore,
     this.backupClient,
     this.ttsCache,
+    this.localBooks,
+    this.txtRules,
+    this.localFileGate,
   });
 
   final NovelEngine? engine;
@@ -75,6 +91,15 @@ class NovelModule implements AppModule {
   final NovelBookmarkApi? bookmarks;
   final Object? sourceStore; // 书源仓库缝（保留旧注入点）
   final NovelSourceImporter? sourceImporter;
+
+  /// 本地书门面（TXT / EPUB / Markdown 第二条通路）：导入页与书架入口共用。
+  final NovelLocalBookStorage? localBooks;
+
+  /// TXT 目录规则仓库（导入页预览与「我的 → TXT 目录规则」共用）。
+  final NovelTxtRuleStorage? txtRules;
+
+  /// 本地书文件选择缝；null 时导入页用 file_picker 生产实现。
+  final NovelLocalFileGate? localFileGate;
 
   /// 替换规则仓库：阅读器展示正文/标题前按规则净化。
   final NovelReplaceRuleStorage? replaceStore;
@@ -107,6 +132,16 @@ class NovelModule implements AppModule {
     return null;
   }
 
+  /// 详情页 / 阅读器用的书源仓库：追加虚拟本地源。
+  ///
+  /// 没有本地书能力（`localBooks == null`）时原样返回，不引入任何新行为。
+  NovelSourceStorage? _readingSourceStore(NovelSourceImporter? importer) {
+    final store = importer?.store;
+    if (store == null) return null;
+    if (localBooks == null) return store;
+    return NovelLocalSourceStore(store);
+  }
+
   @override
   Widget buildHome(BuildContext context) {
     // 数据层、书源导入与抓取流水线（LegadoNovelEngine）都已接线；宿主没注入
@@ -117,6 +152,10 @@ class NovelModule implements AppModule {
     final collectApi = collect;
     final historyApi = history;
     final searchApi = searchHistory;
+    // 详情页/阅读器按 sourceKey 找源，本地书挂在虚拟源下——这两个页面拿
+    // 「追加了虚拟本地源」的仓库；搜索/发现/规则管理仍用原始仓库，
+    // 本地书不会混进在线搜索与源管理列表。
+    final readingStore = _readingSourceStore(importer);
 
     registerNovelRoutePage(
       NovelRoute.sourceManage,
@@ -127,6 +166,40 @@ class NovelModule implements AppModule {
               importer: importer,
               subscriptionStore: subscriptionStore,
               initialTab: _ruleKindFromTab(args['tab']),
+              onlineEngine: onlineEngine,
+              enableDebug: kDebugMode,
+            ),
+    );
+    registerNovelRoutePage(
+      NovelRoute.sourceEdit,
+      importer == null
+          ? null
+          : (args) => NovelSourceEditPage(
+              store: importer.store,
+              initial: args['source'] is NovelBookSource
+                  ? args['source'] as NovelBookSource
+                  : null,
+              initialSourceKey: args['sourceKey']?.toString(),
+              initialRaw: args['raw']?.toString(),
+              onDebug: kDebugMode && onlineEngine != null
+                  ? (saved) => pushNovelRoute<void>(
+                      context,
+                      NovelRoute.sourceDebug,
+                      args: <String, Object?>{'sourceKey': saved.key},
+                    )
+                  : null,
+            ),
+    );
+    // 调试面板只在 debug 构建注册：release 里该路由落到占位屏，
+    // NovelSourceDebugPage 不会被任何可达路径构造（AOT 整支剔除）。
+    registerNovelRoutePage(
+      NovelRoute.sourceDebug,
+      !kDebugMode || onlineEngine == null || importer == null
+          ? null
+          : (args) => NovelSourceDebugPage(
+              engine: onlineEngine!,
+              store: importer.store,
+              initialSourceKey: args['sourceKey']?.toString(),
             ),
     );
     registerNovelRoutePage(
@@ -140,9 +213,12 @@ class NovelModule implements AppModule {
         sourceKey: args['sourceKey']?.toString(),
         bookUrl: args['bookUrl']?.toString(),
         onlineEngine: onlineEngine,
-        sourceStore: importer?.store,
+        sourceStore: readingStore,
         collect: collectApi,
         history: historyApi,
+        localBooks: localBooks,
+        openRoute: (route, {args = const <String, Object?>{}}) =>
+            pushNovelRoute<void>(context, route, args: args),
       ),
     );
     registerNovelRoutePage(
@@ -164,7 +240,7 @@ class NovelModule implements AppModule {
             ? args['chapters'] as List<NovelChapter>
             : null,
         onlineEngine: onlineEngine,
-        sourceStore: importer?.store,
+        sourceStore: readingStore,
         history: historyApi,
         stats: statsApi,
         prefs: prefsApi,
@@ -173,6 +249,9 @@ class NovelModule implements AppModule {
         contentOverrides: contentOverrides,
         bookmarks: bookmarks,
         ttsCache: ttsCache,
+        localBooks: localBooks,
+        txtRules: txtRules,
+        localFileGate: localFileGate,
         initialLocator: args['initialLocator'] is NovelLocator
             ? args['initialLocator'] as NovelLocator
             : null,
@@ -217,6 +296,21 @@ class NovelModule implements AppModule {
         highlightStore: highlightStore,
       ),
     );
+    registerNovelRoutePage(
+      NovelRoute.importBook,
+      (args) => NovelImportBookPage(
+        localBooks: localBooks,
+        rules: txtRules,
+        fileGate: localFileGate,
+        collect: collectApi,
+        relocateBookId: args['relocateBookId']?.toString(),
+        initialPath: args['path']?.toString(),
+      ),
+    );
+    registerNovelRoutePage(
+      NovelRoute.txtRules,
+      (_) => NovelTxtRulesPage(rules: txtRules),
+    );
 
     return NovelModulePage(
       embedded: true,
@@ -231,6 +325,7 @@ class NovelModule implements AppModule {
       booklistGate: booklistGate,
       subscriptionStore: subscriptionStore,
       backupClient: backupClient,
+      localBooks: localBooks,
       // 侧栏底部「设置」项弹这张面板（与漫画/音乐同款），不是独立 tab。
       settingsTab: NovelSettingsPage(
         stats: statsApi,

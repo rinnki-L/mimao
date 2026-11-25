@@ -53,6 +53,8 @@ import 'package:mimao/novel/reader/novel_search_sheet.dart';
 import 'package:mimao/novel/reader/novel_selection_menu.dart';
 import 'package:mimao/novel/reader/novel_source_switch_sheet.dart';
 import 'package:mimao/novel/reader/novel_text_pagination.dart';
+import 'package:mimao/novel/local/local_book_service.dart';
+import 'package:mimao/novel/pages/novel_import_book_page.dart';
 import 'package:mimao/novel/reader/novel_tts.dart';
 import 'package:mimao/novel/reader/novel_tts_cache.dart';
 import 'package:mimao/novel/reader/novel_tts_export.dart';
@@ -89,10 +91,23 @@ class NovelReaderPage extends StatefulWidget {
     this.ttsEngine,
     this.ttsCache,
     this.readingClock,
+    this.localBooks,
+    this.txtRules,
+    this.localFileGate,
   });
 
   final String bookId;
   final String? title;
+
+  /// 本地书门面：文件被移动/删除时，「重新定位文件」要靠它把书指到新路径。
+  /// 在线书不需要（null 即不显示该入口）。
+  final NovelLocalBookStorage? localBooks;
+
+  /// TXT 目录规则仓库：重新定位后若换了文件版本，重扫目录时用同一套规则。
+  final NovelTxtRuleStorage? txtRules;
+
+  /// 本地书文件选择缝；null 时导入页用 file_picker 生产实现。
+  final NovelLocalFileGate? localFileGate;
   final String? author;
   final String? sourceKey;
   final String? bookUrl;
@@ -1065,6 +1080,27 @@ class _NovelReaderPageState extends State<NovelReaderPage>
       return;
     }
     _showSnack(result.removed ? '已删除这一处的书签' : '已加书签');
+  }
+
+  /// 本地书文件被移动/删除后的「重新定位」：进导入页的重新定位模式，
+  /// 选好新文件后把这本书指过去，回来重新加载当前章（进度/书签都保留）。
+  Future<void> _relocateLocalFile() async {
+    final bookId = _controller.bookId;
+    if (bookId.isEmpty) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'novel/import-book'),
+        builder: (_) => NovelImportBookPage(
+          localBooks: widget.localBooks,
+          rules: widget.txtRules,
+          fileGate: widget.localFileGate,
+          relocateBookId: bookId,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    // 重新定位可能换了文件版本，重读目录并重开当前章。
+    await _controller.retry();
   }
 
   /// 全书书签列表：pickMode 下点一条回本页，在同一个控制器里跳转。
@@ -2293,6 +2329,18 @@ class _NovelReaderPageState extends State<NovelReaderPage>
       return _centeredMessage('正在加载目录…');
     }
     if (_controller.content == null) {
+      if (_controller.localFileMissingPath != null) {
+        // 本地书文件被移动/删除：重试同一个路径没有意义，只给「重新定位」。
+        return _centeredMessage(
+          '${_controller.loadError}\n\n'
+          '把文件放回原处，或重新选择它的新位置'
+          '——阅读进度、书签与划线都会保留。',
+          actionLabel: '重新定位文件',
+          actionIcon: Icons.drive_file_move_outline,
+          actionKey: const Key('novel-reader-relocate'),
+          onAction: () => unawaited(_relocateLocalFile()),
+        );
+      }
       if (_controller.loadError != null) {
         return _centeredMessage(
           _controller.loadError!,
@@ -2924,11 +2972,18 @@ class _NovelReaderPageState extends State<NovelReaderPage>
                   ),
                 ),
               ),
-              TextButton(
-                key: const Key('novel-reader-chapter-retry'),
-                onPressed: () => unawaited(_controller.retry()),
-                child: const Text('重试'),
-              ),
+              if (_controller.localFileMissingPath != null)
+                TextButton(
+                  key: const Key('novel-reader-chapter-relocate'),
+                  onPressed: () => unawaited(_relocateLocalFile()),
+                  child: const Text('重新定位文件'),
+                )
+              else
+                TextButton(
+                  key: const Key('novel-reader-chapter-retry'),
+                  onPressed: () => unawaited(_controller.retry()),
+                  child: const Text('重试'),
+                ),
             ],
           ),
         ),
@@ -2940,6 +2995,8 @@ class _NovelReaderPageState extends State<NovelReaderPage>
     String message, {
     String? actionLabel,
     VoidCallback? onAction,
+    IconData actionIcon = Icons.refresh,
+    Key? actionKey,
   }) {
     final text = novelReaderTextColor(_controller.settings);
     final secondary = novelReaderSecondaryColor(_controller.settings);
@@ -2959,9 +3016,9 @@ class _NovelReaderPageState extends State<NovelReaderPage>
             if (actionLabel != null && onAction != null) ...<Widget>[
               const SizedBox(height: 16),
               TextButton.icon(
-                key: const Key('novel-reader-retry'),
+                key: actionKey ?? const Key('novel-reader-retry'),
                 onPressed: onAction,
-                icon: Icon(Icons.refresh, size: 18, color: text),
+                icon: Icon(actionIcon, size: 18, color: text),
                 label: Text(actionLabel, style: TextStyle(color: text)),
               ),
             ],

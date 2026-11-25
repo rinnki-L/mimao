@@ -11,6 +11,9 @@ import 'package:flutter/material.dart';
 import 'package:mimao/core/theme.dart';
 import 'package:mimao/novel/engine/online_engine.dart';
 import 'package:mimao/novel/library_api.dart';
+import 'package:mimao/novel/local/local_book_service.dart';
+import 'package:mimao/novel/local/local_models.dart';
+import 'package:mimao/novel/local/local_source.dart';
 import 'package:mimao/novel/models/novel_models.dart';
 import 'package:mimao/novel/pages/novel_routes.dart';
 import 'package:mimao/novel/pages/novel_widgets.dart';
@@ -31,6 +34,7 @@ class NovelBookDetailPage extends StatefulWidget {
     this.sourceStore,
     this.collect,
     this.history,
+    this.localBooks,
     this.openRoute,
   });
 
@@ -45,6 +49,9 @@ class NovelBookDetailPage extends StatefulWidget {
   final NovelSourceStorage? sourceStore;
   final NovelCollectApi? collect;
   final NovelHistoryApi? history;
+
+  /// 本地书门面：文件被移动/删除时给「重新定位文件」入口。
+  final NovelLocalBookStorage? localBooks;
   final NovelRouteOpener? openRoute;
 
   @override
@@ -107,6 +114,8 @@ class _NovelBookDetailPageState extends State<NovelBookDetailPage> {
     NovelDetail? online;
     NovelBookSource? source;
     String? onlineError;
+    String? missingPath;
+    final isLocal = isNovelLocalBookId(book.id);
     final engine = widget.onlineEngine;
     final store = widget.sourceStore;
     final sourceKey = widget.sourceKey ?? book.sourceKey;
@@ -153,8 +162,26 @@ class _NovelBookDetailPageState extends State<NovelBookDetailPage> {
           );
           book = online.summary;
         }
+      } on NovelLocalFileMissing catch (error) {
+        // 本地书文件被移动/删除：这不是「抓取失败」，页面要给「重新定位文件」，
+        // 所以单独记路径，渲染时走可操作错误态而不是通用重试。
+        missingPath = error.path;
+        onlineError = '$error';
       } on Object catch (error) {
         onlineError = '$error';
+      }
+    }
+    // 本地书的目录来自库里的缓存，文件不在时目录仍能列出——所以额外探一次
+    // 文件是否还在，否则用户点「继续阅读」才会撞上错误，比一开始就说清楚晚。
+    if (isLocal && online != null && missingPath == null) {
+      try {
+        final local = widget.localBooks;
+        final record = await local?.byId(book.id);
+        if (record != null) await NovelLocalFile(record.path).length();
+      } on NovelLocalFileMissing catch (error) {
+        missingPath = error.path;
+      } on Object {
+        // 探测本身出别的错不改变页面（真读正文时还会再报一次）。
       }
     }
     final groups = await widget.collect?.groups() ?? const <String>[];
@@ -166,6 +193,8 @@ class _NovelBookDetailPageState extends State<NovelBookDetailPage> {
       online: online,
       onlineError: onlineError,
       source: source,
+      isLocal: isLocal,
+      missingPath: missingPath,
     );
   }
 
@@ -287,6 +316,20 @@ class _NovelBookDetailPageState extends State<NovelBookDetailPage> {
     }
   }
 
+  /// 本地文件被移动/删除后的「重新定位」：跳到导入页的重新定位模式。
+  ///
+  /// 导入页会在原地选文件并把这本书指到新路径，进度/书签/划线都保留；
+  /// 返回后重读一次，目录恢复正常。
+  Future<void> _relocate(_DetailData data) async {
+    await openNovelRoute(
+      context,
+      widget.openRoute,
+      NovelRoute.importBook,
+      args: <String, Object?>{'relocateBookId': data.book.id},
+    );
+    if (mounted) _reload();
+  }
+
   Future<void> _removeLocal(_DetailData data) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -374,7 +417,14 @@ class _NovelBookDetailPageState extends State<NovelBookDetailPage> {
                 const SizedBox(height: 20),
                 _ProgressCard(item: data.history),
                 const SizedBox(height: 16),
-                if (data.online != null)
+                // 文件缺失优先于目录：本地书的目录来自缓存，文件不在时目录
+                // 照样列得出来，先显示目录会让人点进去才撞错误。
+                if (data.missingPath != null)
+                  _MissingFileCard(
+                    path: data.missingPath!,
+                    onRelocate: () => _relocate(data),
+                  )
+                else if (data.online != null)
                   _TocCard(
                     detail: data.online!,
                     onOpenChapter: (chapter) => _openChapter(data, chapter),
@@ -520,6 +570,8 @@ class _DetailData {
     this.online,
     this.onlineError,
     this.source,
+    this.isLocal = false,
+    this.missingPath,
   });
 
   final NovelSummary book;
@@ -529,6 +581,13 @@ class _DetailData {
   final NovelDetail? online;
   final String? onlineError;
   final NovelBookSource? source;
+
+  /// 本地导入的书（TXT / EPUB / Markdown）：只影响来源标记与错误文案，
+  /// 目录、正文、进度走与在线书完全相同的链路。
+  final bool isLocal;
+
+  /// 本地文件已不可读时的原路径（非 null = 渲染「重新定位文件」）。
+  final String? missingPath;
 
   bool get collected => collect != null;
 }
@@ -592,7 +651,10 @@ class _DetailHero extends StatelessWidget {
             if (data.collect?.groupName != null &&
                 data.collect!.groupName!.isNotEmpty)
               NovelTag(label: data.collect!.groupName!),
-            if (book.sourceName.isNotEmpty) NovelTag(label: '书源'),
+            if (data.isLocal)
+              NovelTag(label: novelLocalSourceLabel, highlighted: true)
+            else if (book.sourceName.isNotEmpty)
+              NovelTag(label: '书源'),
           ],
         ),
         const SizedBox(height: 18),
@@ -783,6 +845,57 @@ class _DetailStat extends StatelessWidget {
         const SizedBox(height: 2),
         Text(value, style: theme.textTheme.bodyMedium),
       ],
+    );
+  }
+}
+
+/// 本地文件已不可读：说明发生了什么 + 给出「重新定位文件」。
+///
+/// 与通用 [NovelErrorState] 的区别在**可操作性**：重试同一个路径没有意义
+/// （文件不在了），用户真正要做的只有两件事——找到文件、或把它放回原处。
+class _MissingFileCard extends StatelessWidget {
+  const _MissingFileCard({required this.path, required this.onRelocate});
+
+  final String path;
+  final VoidCallback onRelocate;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    return NovelCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          const NovelSectionHeader(
+            icon: Icons.folder_off_outlined,
+            title: '找不到本地文件',
+          ),
+          const SizedBox(height: 10),
+          Text(
+            '这本书的文件被移动、重命名或删除了。把文件放回原处，'
+            '或者重新选择它的新位置——阅读进度、书签与划线都会保留。',
+            style: theme.textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 8),
+          SelectableText(
+            path,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: cs.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: FilledButton.tonalIcon(
+              key: const Key('novel-detail-relocate'),
+              onPressed: onRelocate,
+              icon: const Icon(Icons.drive_file_move_outline),
+              label: const Text('重新定位文件'),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

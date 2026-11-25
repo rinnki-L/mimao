@@ -2,8 +2,8 @@
 // 与其他模块页面同款说明。
 /// 小说「我的」：书源/阅读数据总览 + 规则入口 + 其它（设置/记录/缓存/文件/关于）。
 ///
-/// 能被真实执行的入口全部接本地服务；TXT 目录规则、字典/标签规则、书签
-/// 这类尚未实现的入口保留在列表里并标注「暂未提供」，点击给出说明，不做假跳转。
+/// 能被真实执行的入口全部接本地服务；字典/标签规则这类尚未实现的入口保留
+/// 在列表里并标注「暂未提供」，点击给出说明，不做假跳转。
 library;
 
 import 'dart:io';
@@ -400,8 +400,14 @@ class _NovelProfilePageState extends State<NovelProfilePage> {
                   _ProfileRow(
                     icon: Icons.format_list_numbered,
                     title: 'TXT 目录规则',
-                    subtitle: '暂未提供',
-                    onTap: () => _showUnavailable('TXT 目录规则'),
+                    subtitle: '导入本地 TXT 时按这些规则分章',
+                    onTap: () => _openRoute(NovelRoute.txtRules),
+                  ),
+                  _ProfileRow(
+                    icon: Icons.file_open_outlined,
+                    title: '添加本地书',
+                    subtitle: 'TXT / EPUB / Markdown · 独立于书源的第二条通路',
+                    onTap: () => _openRoute(NovelRoute.importBook),
                   ),
                   _ProfileRow(
                     icon: Icons.translate,

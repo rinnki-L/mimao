@@ -17,6 +17,7 @@ import 'package:mimao/core/theme.dart' show MimaoFonts;
 import 'package:mimao/novel/bookmark/novel_bookmark_models.dart';
 import 'package:mimao/novel/engine/online_engine.dart';
 import 'package:mimao/novel/library_api.dart';
+import 'package:mimao/novel/local/local_source.dart';
 import 'package:mimao/novel/models/novel_models.dart';
 import 'package:mimao/novel/reader/novel_bookmark_service.dart';
 import 'package:mimao/novel/reader/novel_chapter_cache.dart';
@@ -146,6 +147,10 @@ class NovelReaderController extends ChangeNotifier {
   bool loadingDetail = true;
   bool loadingContent = false;
   bool paginating = false;
+
+  /// 本地书的文件已不可读时的原路径；非 null 时阅读页给「重新定位文件」，
+  /// 而不是让人对着「重试」反复点同一个不存在的文件。
+  String? localFileMissingPath;
 
   List<NovelTextPage> pages = const <NovelTextPage>[];
   int pageIndex = 0;
@@ -515,6 +520,7 @@ class NovelReaderController extends ChangeNotifier {
     if (_disposed) return;
 
     loadError = null;
+    localFileMissingPath = null;
     loadingContent = true;
     if (hadContent) {
       // 关键：不立刻清空正文，先把目标章记下来，页面继续显示上一章。
@@ -580,6 +586,15 @@ class NovelReaderController extends ChangeNotifier {
         resumeFrom: resumeFrom,
         reopening: reopening,
       );
+    } on NovelLocalFileMissing catch (error) {
+      if (_disposed || seq != _loadSeq) return;
+      loadingContent = false;
+      pendingChapter = null;
+      // 本地书文件被移动/删除：记下路径，页面据此给「重新定位文件」。
+      // 正文区若还有上一章就继续显示，只把错误条换成可操作提示。
+      localFileMissingPath = error.path;
+      loadError = '$error';
+      notifyListeners();
     } on Object catch (error) {
       if (_disposed || seq != _loadSeq) return;
       loadingContent = false;

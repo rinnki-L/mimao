@@ -14,6 +14,7 @@ import 'package:mimao/core/theme.dart';
 import 'package:mimao/novel/booklist_io.dart';
 import 'package:mimao/novel/engine/online_engine.dart';
 import 'package:mimao/novel/library_api.dart';
+import 'package:mimao/novel/local/local_book_service.dart';
 import 'package:mimao/novel/pages/novel_discover_page.dart';
 import 'package:mimao/novel/pages/novel_home_page.dart';
 import 'package:mimao/novel/pages/novel_profile_page.dart';
@@ -42,6 +43,7 @@ class NovelModulePage extends StatefulWidget {
     this.settingsTab,
     this.subscriptionStore,
     this.backupClient,
+    this.localBooks,
   });
 
   /// true 时由壳提供顶部「返回 + 标题」，本页不画自己的 AppBar。
@@ -82,6 +84,9 @@ class NovelModulePage extends StatefulWidget {
 
   /// WebDAV 备份客户端缝；null 时用 dio 生产实现。
   final NovelWebDavClient? backupClient;
+
+  /// 本地书门面（TXT / EPUB / Markdown）；null 时书架「添加本地书」置灰。
+  final NovelLocalBookStorage? localBooks;
 
   @override
   State<NovelModulePage> createState() => _NovelModulePageState();
@@ -154,6 +159,7 @@ class _NovelModulePageState extends State<NovelModulePage> {
         history: widget.history,
         prefs: widget.prefs,
         booklistGate: widget.booklistGate,
+        localBooks: widget.localBooks,
         openRoute: _openRoute,
         onSelectTab: _selectTab,
       ),
