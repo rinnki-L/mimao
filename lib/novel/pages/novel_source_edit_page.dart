@@ -37,6 +37,7 @@ class NovelSourceEditPage extends StatefulWidget {
     this.onSaved,
     this.onDebug,
     this.loginWebViewBuilder,
+    this.loginCookieReader,
   });
 
   final NovelSourceStorage store;
@@ -64,6 +65,12 @@ class NovelSourceEditPage extends StatefulWidget {
     Future<NovelLoginCookieResult?> Function() readCookie,
   )?
   loginWebViewBuilder;
+
+  /// 测试注入缝：直接给出「取 Cookie」结果，跳过真实 WebView。
+  ///
+  /// 生产为 null（走 `showNovelLoginCookiePage` 的内置 WebView）；测试用它
+  /// 确定性地驱动「取到 Cookie → 写进 header」这条链路。
+  final Future<NovelLoginCookieResult?> Function()? loginCookieReader;
 
   @override
   State<NovelSourceEditPage> createState() => _NovelSourceEditPageState();
@@ -371,12 +378,15 @@ class _NovelSourceEditPageState extends State<NovelSourceEditPage> {
       setState(() => _status = '先填书源地址或登录地址，才知道去哪登录');
       return;
     }
-    final result = await showNovelLoginCookiePage(
-      context,
-      url: target,
-      title: '登录 ${readNovelSourceField(_raw, <String>['bookSourceName'])}',
-      webViewBuilder: widget.loginWebViewBuilder,
-    );
+    final result = widget.loginCookieReader != null
+        ? await widget.loginCookieReader!()
+        : await showNovelLoginCookiePage(
+            context,
+            url: target,
+            title:
+                '登录 ${readNovelSourceField(_raw, <String>['bookSourceName'])}',
+            webViewBuilder: widget.loginWebViewBuilder,
+          );
     if (result == null || !mounted) return;
     if (result.isEmpty) {
       setState(() => _status = '没有取到 Cookie（登录页可能未完成登录）');

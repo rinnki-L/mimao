@@ -140,6 +140,21 @@ void main() {
       expect(errors.any((i) => i.field == 'ruleSearch.bookList'), isTrue);
     });
 
+    test('目录规则括号不配对报错（真源常见错法）', () {
+      final issues = validateNovelSourceRaw(<String, dynamic>{
+        'bookSourceName': 'a',
+        'bookSourceUrl': 'https://a.example',
+        'searchUrl': '/s',
+        'ruleSearch': <String, dynamic>{'bookList': '//li'},
+        'ruleToc': <String, dynamic>{'chapterList': '//div[@class=box_con'},
+        'ruleContent': <String, dynamic>{'content': '//div'},
+      });
+      expect(
+        issues.any((i) => i.field == 'ruleToc.chapterList' && i.isError),
+        isTrue,
+      );
+    });
+
     test('权重/类型非数字报错', () {
       final issues = validateNovelSourceRaw(<String, dynamic>{
         'bookSourceName': 'a',

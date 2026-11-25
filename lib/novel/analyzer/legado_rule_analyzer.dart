@@ -397,7 +397,7 @@ class LegadoRuleAnalyzer
       if (result == null) continue;
       switch (sourceRule.mode) {
         case RuleMode.js:
-          result = evalJs(sourceRule.rule, result: result);
+          result = await evalJs(sourceRule.rule, result: result);
           break;
         case RuleMode.json:
           result = JsonPathAnalyzer(result).getList(sourceRule.rule);
@@ -437,7 +437,7 @@ class LegadoRuleAnalyzer
       if (result == null) return null;
       switch (sourceRule.mode) {
         case RuleMode.js:
-          result = evalJs(sourceRule.rule, result: result);
+          result = await evalJs(sourceRule.rule, result: result);
           break;
         case RuleMode.json:
           result = JsonPathAnalyzer(result).getObject(sourceRule.rule);

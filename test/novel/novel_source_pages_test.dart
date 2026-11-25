@@ -10,6 +10,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mimao/novel/pages/novel_source_edit_page.dart';
+import 'package:mimao/novel/pages/novel_source_login_page.dart';
 import 'package:mimao/novel/pages/novel_source_manage_page.dart';
 import 'package:mimao/novel/source/novel_rule_model.dart';
 import 'package:mimao/novel/source/novel_rule_store.dart';
@@ -330,6 +331,67 @@ void main() {
       await tester.pumpAndSettle();
       // 没有搜索地址/目录/正文规则 → 至少 3 条警告。
       expect(find.textContaining('没有搜索地址'), findsOneWidget);
+    });
+  });
+
+  group('登录取 Cookie（编辑器闭环）', () {
+    testWidgets('取到 Cookie 后写进 header，并提示已写入', (tester) async {
+      final store = _MemoryStore();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: NovelSourceEditPage(
+            store: store,
+            initialRaw: jsonEncode(<String, dynamic>{
+              'bookSourceName': '登录源',
+              'bookSourceUrl': 'https://login.example',
+              'searchUrl': '/s',
+              'ruleSearch': <String, dynamic>{'bookList': '//li'},
+              'ruleToc': <String, dynamic>{'chapterList': '//dd'},
+              'ruleContent': <String, dynamic>{'content': '//div'},
+            }),
+            // 注入「取 Cookie」结果，跳过真实 WebView。
+            loginCookieReader: () async => const NovelLoginCookieResult(
+              cookieHeader: 'sid=abc; token=xyz',
+              url: 'https://login.example',
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('novel-source-edit-login')));
+      await tester.pumpAndSettle();
+
+      // UI 反馈 + 落库端到端：取 Cookie → 合并 header → 保存。
+      expect(find.textContaining('已写入 Cookie'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('novel-source-edit-save')));
+      await tester.pumpAndSettle();
+      final saved = (await store.loadAll()).single;
+      expect('${saved.raw['header']}', contains('Cookie'));
+      expect('${saved.raw['header']}', contains('sid=abc'));
+    });
+
+    testWidgets('没取到 Cookie 时提示可读原因，不写 header', (tester) async {
+      final store = _MemoryStore();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: NovelSourceEditPage(
+            store: store,
+            initialRaw: jsonEncode(<String, dynamic>{
+              'bookSourceName': '登录源',
+              'bookSourceUrl': 'https://login.example',
+            }),
+            loginCookieReader: () async => const NovelLoginCookieResult(
+              cookieHeader: '   ',
+              url: 'https://login.example',
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('novel-source-edit-login')));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('没有取到 Cookie'), findsOneWidget);
     });
   });
 

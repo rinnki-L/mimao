@@ -429,6 +429,9 @@ List<NovelSourceIssue> validateNovelSourceRaw(Map<String, dynamic> raw) {
   final tocList = readNovelSourceField(raw, <String>['ruleToc', 'chapterList']);
   if (tocList.isEmpty) {
     warn('ruleToc.chapterList', '没有目录规则：详情页拿不到章节列表');
+  } else if (!_balanced(tocList)) {
+    // 目录规则漏右括号/引号是一眼能看出的错，提前拦下比等「目录 0 章」更可读。
+    error('ruleToc.chapterList', '目录规则括号不配对');
   }
   final content = readNovelSourceField(raw, <String>['ruleContent', 'content']);
   if (content.isEmpty) {
