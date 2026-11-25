@@ -272,6 +272,33 @@ void main() {
     );
   });
 
+  testWidgets('编辑已有规则改 key 时删掉旧规则，不留下重复项', (tester) async {
+    final store = _MemoryReplaceStore(<NovelReplaceRule>[
+      _rule('旧规则', '广告', ''),
+    ]);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: NovelReplaceEditorPage(store: store, sampleText: '这里有广告'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('novel-replace-field-pattern')),
+      '广告位',
+    );
+    await tester.enterText(
+      find.byKey(const Key('novel-replace-field-replacement')),
+      '广告',
+    );
+    await tester.tap(find.byKey(const Key('novel-replace-save')));
+    await tester.pumpAndSettle();
+
+    expect(store.rules, hasLength(1));
+    expect(store.rules.single.pattern, '广告位');
+    expect(store.rules.single.replacement, '广告');
+  });
+
   testWidgets('正文编辑：保存本地覆盖后阅读控制器立即使用', (tester) async {
     final overrides = _MemoryOverrideStore();
     final controller = NovelReaderController(

@@ -202,13 +202,19 @@ class _NovelReplaceEditorPageState extends State<NovelReplaceEditorPage> {
       _saving = true;
       _formError = null;
     });
+    final previousKey = _selectedKey;
     final next = <NovelReplaceRule>[
       for (final existing in _rules)
-        if (existing.key != _selectedKey && existing.key != rule.key) existing,
+        if (existing.key != previousKey && existing.key != rule.key) existing,
       rule,
     ];
     try {
       await widget.store.saveAll(next);
+      // 改名称/查找/替换会换 key：saveAll 只增量写文件，不删旧 key，
+      // 不显式删除的话旧规则会留在 manifest 里，下次加载又冒出来。
+      if (previousKey != null && previousKey != rule.key) {
+        await widget.store.delete(previousKey);
+      }
       if (!mounted) return;
       setState(() => _saving = false);
       ScaffoldMessenger.of(
