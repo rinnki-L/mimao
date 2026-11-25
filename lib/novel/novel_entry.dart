@@ -166,8 +166,16 @@ class NovelModule implements AppModule {
               importer: importer,
               subscriptionStore: subscriptionStore,
               initialTab: _ruleKindFromTab(args['tab']),
-              onlineEngine: onlineEngine,
               enableDebug: kDebugMode,
+              // 只在 debug 构建给出调试入口：release 传 null，管理页里
+              // 没有任何路径能构造 NovelSourceDebugPage（AOT 整支剔除）。
+              openDebug: kDebugMode
+                  ? (sourceKey) => pushNovelRoute<void>(
+                      context,
+                      NovelRoute.sourceDebug,
+                      args: <String, Object?>{'sourceKey': sourceKey},
+                    )
+                  : null,
             ),
     );
     registerNovelRoutePage(

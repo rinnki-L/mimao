@@ -18,7 +18,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mimao/core/theme.dart';
 
-import '../engine/online_engine.dart';
 import '../source/novel_rule_model.dart';
 import '../source/novel_source_edit.dart';
 import '../source/novel_source_importer.dart';
@@ -29,7 +28,6 @@ import '../source/novel_subscription.dart'
         NovelSourceSubscription,
         NovelSubscriptionStore,
         defaultNovelSubscription;
-import 'novel_source_debug_page.dart';
 import 'novel_source_detail_page.dart';
 import 'novel_source_edit_page.dart';
 import 'novel_source_site_page.dart';
@@ -58,7 +56,7 @@ class NovelSourceManagePage extends StatefulWidget {
     this.siteUrl = novelSourceSiteUrl,
     this.initialTab = NovelRuleKind.bookSource,
     this.webViewBuilder,
-    this.onlineEngine,
+    this.openDebug,
     this.fileGate,
     this.clipboard,
     this.enableDebug = true,
@@ -82,8 +80,12 @@ class NovelSourceManagePage extends StatefulWidget {
   )?
   webViewBuilder;
 
-  /// 在线引擎：调试页要用；null 时不显示调试入口（只保留编辑）。
-  final NovelOnlineEngine? onlineEngine;
+  /// 打开调试面板的回调（由装配处注入，且只在 debug 构建给出）。
+  ///
+  /// 为什么是回调而不是本页直接 push：调试面板的类不能在 release 里被引用，
+  /// 否则 AOT 会把它连同追踪设施一起打进包。这里只持有一个可空函数，装配处
+  /// 在 `kDebugMode` 下才传，release 传 null → 入口不渲染、类不可达。
+  final Future<void> Function(String? sourceKey)? openDebug;
 
   /// 本地文件选择/保存缝；null 时走 file_picker。
   final NovelSourceFileGate? fileGate;
@@ -91,7 +93,7 @@ class NovelSourceManagePage extends StatefulWidget {
   /// 剪贴板读写缝（测试注入，避免碰平台通道）。
   final NovelClipboardGate? clipboard;
 
-  /// 是否显示调试入口（调用方按 `kDebugMode` 传）。
+  /// 是否显示调试入口（等价于 `openDebug != null`，保留显式开关便于测试）。
   final bool enableDebug;
 
   @override
@@ -394,7 +396,7 @@ class _NovelSourceManagePageState extends State<NovelSourceManagePage>
           store: widget.store,
           initial: source,
           onSaved: (_) => _setStatus('已保存书源，立即生效'),
-          onDebug: widget.enableDebug && widget.onlineEngine != null
+          onDebug: _canDebug
               ? (saved) => _openDebug(initialSourceKey: saved.key)
               : null,
         ),
@@ -404,23 +406,16 @@ class _NovelSourceManagePageState extends State<NovelSourceManagePage>
   }
 
   Future<void> _openDebug({String? initialSourceKey}) async {
-    final engine = widget.onlineEngine;
-    if (engine == null) {
-      _setStatus('在线引擎未接入，无法调试书源', error: true);
+    final open = widget.openDebug;
+    if (open == null) {
+      _setStatus('调试面板只在 debug 构建可用', error: true);
       return;
     }
-    await Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(
-        settings: const RouteSettings(name: 'novel/source-debug'),
-        builder: (_) => NovelSourceDebugPage(
-          engine: engine,
-          store: widget.store,
-          initialSourceKey: initialSourceKey,
-        ),
-      ),
-    );
+    await open(initialSourceKey);
     if (mounted) await _reloadAll();
   }
+
+  bool get _canDebug => widget.enableDebug && widget.openDebug != null;
 
   // ---------------------------------------------------------------------------
   // 批量操作
@@ -848,7 +843,7 @@ class _NovelSourceManagePageState extends State<NovelSourceManagePage>
               icon: const Icon(Icons.folder_outlined, size: 18),
               label: const Text('分组管理'),
             ),
-            if (widget.enableDebug && widget.onlineEngine != null)
+            if (_canDebug)
               OutlinedButton.icon(
                 key: const Key('novel-source-debug'),
                 onPressed: _busy ? null : () => _openDebug(),
@@ -1051,7 +1046,7 @@ class _NovelSourceManagePageState extends State<NovelSourceManagePage>
                 onEdit: () => _openEditor(source: source),
                 onWeight: () => _editWeight(source),
                 onExport: () => _showExportMenu(<NovelBookSource>[source]),
-                onDebug: widget.enableDebug && widget.onlineEngine != null
+                onDebug: _canDebug
                     ? () => _openDebug(initialSourceKey: source.key)
                     : null,
                 onDelete: () => _confirmDelete(
