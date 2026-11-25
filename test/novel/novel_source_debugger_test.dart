@@ -1,11 +1,14 @@
 // 书源校验/调试会话测试：四步结果结构、动作分发、取消、追踪事件。
 //
 // 用 fake 引擎覆盖（不碰网络/QuickJS）；真实引擎链路由 legado_engine_test 覆盖。
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mimao/novel/debug/novel_engine_trace.dart';
 import 'package:mimao/novel/debug/novel_source_debugger.dart';
 import 'package:mimao/novel/engine/explore_kinds.dart';
 import 'package:mimao/novel/engine/online_engine.dart';
+import 'package:mimao/novel/engine/safe_timeout.dart';
 import 'package:mimao/novel/models/novel_models.dart';
 import 'package:mimao/novel/source/novel_source_model.dart';
 
@@ -49,7 +52,6 @@ class _FakeEngine implements NovelOnlineEngine, NovelEngineTraceable {
     this.contentParagraphs,
     this.searchError,
     this.detailError,
-    this.contentError,
   });
 
   List<NovelSummary>? searchBooks;
@@ -57,7 +59,6 @@ class _FakeEngine implements NovelOnlineEngine, NovelEngineTraceable {
   List<String>? contentParagraphs;
   String? searchError;
   String? detailError;
-  String? contentError;
 
   final List<String> calls = <String>[];
   NovelTraceSink? sink;
@@ -111,7 +112,6 @@ class _FakeEngine implements NovelOnlineEngine, NovelEngineTraceable {
     NovelChapter chapter,
   ) async {
     calls.add('content:${chapter.title}');
-    if (contentError != null) throw Exception(contentError);
     _emitHttp(chapter.url, '<html>正文页</html>');
     return NovelContent(
       chapterId: chapter.id,
@@ -133,6 +133,23 @@ class _FakeEngine implements NovelOnlineEngine, NovelEngineTraceable {
 
   @override
   void close() {}
+}
+
+/// 搜索卡住不返回，用于验证「超时后迟到错误」的兜底。
+class _SlowEngine extends _FakeEngine {
+  _SlowEngine(this.future);
+
+  final Future<List<NovelSummary>> future;
+
+  @override
+  Future<List<NovelSummary>> searchSource(
+    NovelBookSource source,
+    String keyword, {
+    int page = 1,
+  }) {
+    calls.add('search:$keyword');
+    return future;
+  }
 }
 
 void main() {
@@ -310,6 +327,45 @@ void main() {
       expect(json['ok'], isTrue);
       expect(json['rawHtmlLength'], isA<int>());
       expect(json['jsLogs'], isA<List<Object?>>());
+    });
+  });
+
+  group('超时与迟到错误', () {
+    // 为什么不用 runZonedGuarded 断言「没有 unhandled」：flutter_test 的
+    // test zone 会把任何未处理异步错误直接记成用例失败，嵌套 guard 也拦不住，
+    // 于是「断言没有 unhandled」本身没法在这个环境里写。改为验证可观测契约
+    // （超时抛 TimeoutException 且第一步失败），迟到错误由
+    // `withSafeTimeout` 里的吞错监听兜住（该 helper 在纯 Dart 下已验证）。
+    test('单步超时按失败记录，可读为「超时」', () async {
+      final completer = Completer<List<NovelSummary>>();
+      final debugger = NovelSourceDebugger(
+        engine: _SlowEngine(completer.future),
+        stepTimeout: const Duration(milliseconds: 50),
+      );
+      final result = await debugger.verify(_source);
+      expect(result.steps, hasLength(1));
+      expect(result.firstFailure?.error, contains('超时'));
+      // 收尾：让原 future 正常完成，避免悬挂。
+      completer.complete(const <NovelSummary>[]);
+    });
+
+    test('withSafeTimeout 超时抛 TimeoutException 带 label', () async {
+      final completer = Completer<int>();
+      await expectLater(
+        withSafeTimeout(
+          completer.future,
+          const Duration(milliseconds: 20),
+          label: '搜索',
+        ),
+        throwsA(
+          isA<TimeoutException>().having(
+            (e) => e.message,
+            'message',
+            contains('搜索'),
+          ),
+        ),
+      );
+      completer.complete(1);
     });
   });
 

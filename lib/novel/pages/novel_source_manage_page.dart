@@ -261,6 +261,7 @@ class _NovelSourceManagePageState extends State<NovelSourceManagePage>
     try {
       final result = await widget.importer.importFromPickedFile(
         kind: NovelRuleKind.bookSource,
+        gate: _fileGate,
       );
       if (result == null) {
         if (mounted) setState(() => _busy = false);
@@ -686,34 +687,15 @@ class _NovelSourceManagePageState extends State<NovelSourceManagePage>
     required String hint,
     String initial = '',
     bool numeric = false,
-  }) async {
-    final controller = TextEditingController(text: initial);
-    final result = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          keyboardType: numeric ? TextInputType.number : TextInputType.text,
-          decoration: InputDecoration(hintText: hint),
-          onSubmitted: (value) => Navigator.of(context).pop(value),
-        ),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(controller.text),
-            child: const Text('确定'),
-          ),
-        ],
-      ),
-    );
-    controller.dispose();
-    return result;
-  }
+  }) => showDialog<String>(
+    context: context,
+    builder: (context) => _TextPromptDialog(
+      title: title,
+      hint: hint,
+      initial: initial,
+      numeric: numeric,
+    ),
+  );
 
   // ---------------------------------------------------------------------------
   // 构建
@@ -1643,6 +1625,67 @@ class _RuleCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// 单行文本输入对话框：自己持有 controller 并在自己的 dispose 里释放。
+///
+/// 为什么不让调用方 `final c = TextEditingController(); ...; c.dispose()`：
+/// `showDialog` 的 Future 在 pop 时就完成，此时对话框退场动画还在跑、仍要读
+/// controller，立刻 dispose 会抛 "A TextEditingController was used after being
+/// disposed"（截图/测试都踩到）。
+class _TextPromptDialog extends StatefulWidget {
+  const _TextPromptDialog({
+    required this.title,
+    required this.hint,
+    this.initial = '',
+    this.numeric = false,
+  });
+
+  final String title;
+  final String hint;
+  final String initial;
+  final bool numeric;
+
+  @override
+  State<_TextPromptDialog> createState() => _TextPromptDialogState();
+}
+
+class _TextPromptDialogState extends State<_TextPromptDialog> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.initial,
+  );
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        keyboardType: widget.numeric
+            ? TextInputType.number
+            : TextInputType.text,
+        decoration: InputDecoration(hintText: widget.hint),
+        onSubmitted: (value) => Navigator.of(context).pop(value),
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_controller.text),
+          child: const Text('确定'),
+        ),
+      ],
     );
   }
 }

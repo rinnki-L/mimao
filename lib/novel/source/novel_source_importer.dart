@@ -188,11 +188,15 @@ class NovelSourceImporter {
   }
 
   /// 让用户选一个本地规则文件并导入（取消返回 null）。
+  ///
+  /// [gate] 优先于构造时注入的 [fileGate]：页面常在自己那层持有文件选择缝
+  /// （测试注入），逐次传入比让装配处再复制一份更直接。
   Future<NovelSourceImportResult?> importFromPickedFile({
     NovelRuleKind? kind,
+    NovelSourceFileGate? gate,
   }) async {
-    final gate = fileGate ?? const FilePickerNovelSourceFileGate();
-    final picked = await gate.pick();
+    final resolved = gate ?? fileGate ?? const FilePickerNovelSourceFileGate();
+    final picked = await resolved.pick();
     if (picked == null) return null;
     return importFromText(
       utf8.decode(picked.bytes, allowMalformed: true),

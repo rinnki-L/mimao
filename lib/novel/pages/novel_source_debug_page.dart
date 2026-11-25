@@ -44,7 +44,8 @@ class NovelSourceDebugPage extends StatefulWidget {
   State<NovelSourceDebugPage> createState() => _NovelSourceDebugPageState();
 }
 
-class _NovelSourceDebugPageState extends State<NovelSourceDebugPage> {
+class _NovelSourceDebugPageState extends State<NovelSourceDebugPage>
+    with SingleTickerProviderStateMixin {
   late final NovelSourceDebugger _debugger = NovelSourceDebugger(
     engine: widget.engine,
   );
@@ -67,7 +68,19 @@ class _NovelSourceDebugPageState extends State<NovelSourceDebugPage> {
   final Map<String, NovelVerifyResult> _batch = <String, NovelVerifyResult>{};
   bool _batchRunning = false;
 
+  /// 是否处于批量校验上下文：只有点过「校验全部」才显示批量汇总条，
+  /// 单条「完整校验」的结果只进左栏校验链（否则会出现「批量校验 1/904」
+  /// 这种自相矛盾的标题）。
+  bool _batchMode = false;
+
   int _tab = 0;
+
+  /// 页签控制器：TabBar 必须挂显式 controller（或 DefaultTabController），
+  /// 否则运行时红屏 "No TabController for TabBar"（截图验收时踩到）。
+  late final TabController _tabController = TabController(
+    length: 4,
+    vsync: this,
+  );
 
   @override
   void initState() {
@@ -78,6 +91,7 @@ class _NovelSourceDebugPageState extends State<NovelSourceDebugPage> {
 
   @override
   void dispose() {
+    _tabController.dispose();
     _keywordController.dispose();
     super.dispose();
   }
@@ -137,6 +151,7 @@ class _NovelSourceDebugPageState extends State<NovelSourceDebugPage> {
       _running = true;
       _cancellation = cancellation;
       _verify = null;
+      _batchMode = false;
       _batch.remove(source.key);
     });
     final result = await _debugger.verify(
@@ -158,6 +173,7 @@ class _NovelSourceDebugPageState extends State<NovelSourceDebugPage> {
     final cancellation = NovelDebugCancellation();
     setState(() {
       _batchRunning = true;
+      _batchMode = true;
       _cancellation = cancellation;
       _batch.clear();
     });
@@ -245,7 +261,7 @@ class _NovelSourceDebugPageState extends State<NovelSourceDebugPage> {
           children: <Widget>[
             _buildControls(theme, cs),
             const SizedBox(height: 12),
-            if (_batchRunning || _batch.isNotEmpty) ...<Widget>[
+            if (_batchMode && (_batchRunning || _batch.isNotEmpty)) ...<Widget>[
               _BatchSummary(
                 results: _batch,
                 total: _sources.length,
@@ -458,9 +474,22 @@ class _NovelSourceDebugPageState extends State<NovelSourceDebugPage> {
           NovelSectionHeader(
             icon: Icons.route,
             title: '校验链 · ${verify.sourceName}',
+            // 只在 trailing 放极短状态；完整结论（可能是一长串错误）放下面
+            // 的正文里——NovelTag 不换行，长文本会把 Row 撑爆（截图验收踩到）。
             trailing: NovelTag(
-              label: verify.headline,
+              label: verify.cancelled
+                  ? '已取消'
+                  : verify.passed
+                  ? '通过'
+                  : '失败',
               highlighted: verify.passed,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            verify.headline,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: verify.passed ? cs.onSurfaceVariant : cs.error,
             ),
           ),
           const SizedBox(height: 10),
@@ -503,6 +532,7 @@ class _NovelSourceDebugPageState extends State<NovelSourceDebugPage> {
             children: <Widget>[
               Expanded(
                 child: TabBar(
+                  controller: _tabController,
                   isScrollable: true,
                   tabAlignment: TabAlignment.start,
                   onTap: (index) => setState(() => _tab = index),
@@ -534,20 +564,28 @@ class _NovelSourceDebugPageState extends State<NovelSourceDebugPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(4, 6, 4, 6),
-                    child: Wrap(
-                      spacing: 8,
-                      runSpacing: 4,
+                  // 摘要标签可能很长（含错误消息），限高并可横向滚动，
+                  // 否则窄窗口下整块右侧内容溢出（截图验收时踩到）。
+                  SizedBox(
+                    height: 34,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(vertical: 4),
                       children: <Widget>[
-                        NovelTag(
-                          label: run.isOk ? '成功' : '失败',
-                          highlighted: run.isOk,
-                        ),
-                        NovelTag(label: '${run.durationMs} ms'),
-                        if (run.summary.isNotEmpty)
-                          NovelTag(label: run.summary),
-                        if (run.truncated) const NovelTag(label: '响应已截断'),
+                        for (final tag in <Widget>[
+                          NovelTag(
+                            label: run.isOk ? '成功' : '失败',
+                            highlighted: run.isOk,
+                          ),
+                          NovelTag(label: '${run.durationMs} ms'),
+                          if (run.summary.isNotEmpty)
+                            NovelTag(label: run.summary),
+                          if (run.truncated) const NovelTag(label: '响应已截断'),
+                        ])
+                          Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: tag,
+                          ),
                       ],
                     ),
                   ),

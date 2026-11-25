@@ -14,6 +14,7 @@ import 'dart:async';
 
 import 'package:mimao/novel/debug/novel_engine_trace.dart';
 import 'package:mimao/novel/engine/online_engine.dart';
+import 'package:mimao/novel/engine/safe_timeout.dart';
 import 'package:mimao/novel/models/novel_models.dart';
 import 'package:mimao/novel/source/novel_source_model.dart';
 
@@ -122,12 +123,15 @@ class NovelVerifyResult {
 /// 一个会话对应一条书源的一次跑动；同一实例可重复 [verify] / [debug]，每次
 /// 都重挂追踪 sink 并在结束时摘掉（不影响正常阅读）。
 class NovelSourceDebugger {
-  NovelSourceDebugger({required NovelOnlineEngine engine}) : _engine = engine;
+  NovelSourceDebugger({
+    required NovelOnlineEngine engine,
+    this.stepTimeout = const Duration(seconds: 30),
+  }) : _engine = engine;
 
   final NovelOnlineEngine _engine;
 
-  /// 单步超时（校验链每一步都用它）。
-  final Duration stepTimeout = const Duration(seconds: 30);
+  /// 单步超时（校验链每一步、单动作调试都用它）。
+  final Duration stepTimeout;
 
   /// 跑完整校验链：搜索 → 详情 → 目录 → 正文。
   ///
@@ -158,7 +162,7 @@ class NovelSourceDebugger {
       _beginPhase(name);
       final stopwatch = Stopwatch()..start();
       try {
-        final summary = await body().timeout(stepTimeout);
+        final summary = await withSafeTimeout(body(), stepTimeout, label: name);
         stopwatch.stop();
         return NovelVerifyStep(
           name: name,
@@ -303,12 +307,21 @@ class NovelSourceDebugger {
       if (cancellation?.isCancelled == true) {
         throw const NovelDebugCancelled();
       }
-      summary = await switch (action) {
-        NovelDebugAction.search => _debugSearch(source, keyword, sink),
-        NovelDebugAction.detail => _debugDetail(source, book, sink),
-        NovelDebugAction.toc => _debugToc(source, book, sink),
-        NovelDebugAction.content => _debugContent(source, book, chapter, sink),
-      }.timeout(stepTimeout);
+      summary = await withSafeTimeout(
+        switch (action) {
+          NovelDebugAction.search => _debugSearch(source, keyword, sink),
+          NovelDebugAction.detail => _debugDetail(source, book, sink),
+          NovelDebugAction.toc => _debugToc(source, book, sink),
+          NovelDebugAction.content => _debugContent(
+            source,
+            book,
+            chapter,
+            sink,
+          ),
+        },
+        stepTimeout,
+        label: action.label,
+      );
     } on TimeoutException {
       error = '超时（${stepTimeout.inSeconds}s）';
     } on NovelDebugCancelled {

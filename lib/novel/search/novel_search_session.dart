@@ -8,6 +8,7 @@ library;
 import 'dart:async';
 
 import 'package:mimao/novel/engine/online_engine.dart';
+import 'package:mimao/novel/engine/safe_timeout.dart';
 import 'package:mimao/novel/models/novel_models.dart';
 import 'package:mimao/novel/search/novel_search_merge.dart';
 import 'package:mimao/novel/source/novel_source_model.dart';
@@ -208,9 +209,11 @@ class NovelSearchSession {
         _notify();
         final stopwatch = Stopwatch()..start();
         try {
-          final books = await _engine
-              .searchSource(state.source, _keyword, page: targetPage)
-              .timeout(sourceTimeout);
+          final books = await withSafeTimeout(
+            _engine.searchSource(state.source, _keyword, page: targetPage),
+            sourceTimeout,
+            label: state.source.name,
+          );
           stopwatch.stop();
           if (token != _token) return;
           final known = <String>{for (final book in state.books) book.bookUrl};

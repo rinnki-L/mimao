@@ -13,6 +13,11 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mimao/core/theme.dart';
+import 'package:mimao/novel/pages/novel_source_login_page.dart'
+    show
+        NovelLoginCookieResult,
+        mergeNovelCookieIntoHeader,
+        showNovelLoginCookiePage;
 import 'package:mimao/novel/pages/novel_widgets.dart';
 import 'package:mimao/novel/source/novel_source_edit.dart';
 import 'package:mimao/novel/source/novel_source_model.dart';
@@ -29,6 +34,7 @@ class NovelSourceEditPage extends StatefulWidget {
     this.initialRaw,
     this.onSaved,
     this.onDebug,
+    this.loginWebViewBuilder,
   });
 
   final NovelSourceStorage store;
@@ -43,6 +49,13 @@ class NovelSourceEditPage extends StatefulWidget {
 
   /// 「调试这条源」入口；null 时不显示按钮。
   final void Function(NovelBookSource source)? onDebug;
+
+  /// 测试注入缝：登录取 Cookie 页的 WebView 替身。
+  final Widget Function(
+    BuildContext context,
+    Future<NovelLoginCookieResult?> Function() readCookie,
+  )?
+  loginWebViewBuilder;
 
   @override
   State<NovelSourceEditPage> createState() => _NovelSourceEditPageState();
@@ -280,6 +293,53 @@ class _NovelSourceEditPageState extends State<NovelSourceEditPage> {
     }
   }
 
+  /// 打开内置 WebView 登录书源站点，取 Cookie 合并进 `header`。
+  ///
+  /// 桌面端走应用内页面（不移植 Android 的 WebSocket 服务形态），Android
+  /// 复用同一个页面与返回契约；拿到的 Cookie 只写本机书源文件。
+  Future<void> _loginForCookie() async {
+    if (_mode == NovelSourceEditorMode.raw) {
+      final parsed = _parseRawText();
+      if (parsed == null) return;
+      _raw = parsed;
+    } else {
+      _syncFormToRaw();
+    }
+    final loginUrl = readNovelSourceField(_raw, <String>['loginUrl']);
+    final sourceUrl = readNovelSourceField(_raw, <String>['bookSourceUrl']);
+    final target = loginUrl.trim().isNotEmpty
+        ? loginUrl.trim()
+        : sourceUrl.trim();
+    if (target.isEmpty) {
+      setState(() => _status = '先填书源地址或登录地址，才知道去哪登录');
+      return;
+    }
+    final result = await showNovelLoginCookiePage(
+      context,
+      url: target,
+      title: '登录 ${readNovelSourceField(_raw, <String>['bookSourceName'])}',
+      webViewBuilder: widget.loginWebViewBuilder,
+    );
+    if (result == null || !mounted) return;
+    if (result.isEmpty) {
+      setState(() => _status = '没有取到 Cookie（登录页可能未完成登录）');
+      return;
+    }
+    final header = readNovelSourceField(_raw, <String>['header']);
+    final merged = mergeNovelCookieIntoHeader(header, result.cookieHeader);
+    if (merged == header && header.trim().isNotEmpty) {
+      setState(() => _status = '请求头不是合法 JSON，Cookie 未写入；请先在表单里修正「请求头」');
+      return;
+    }
+    _raw = writeNovelSourceField(_raw, <String>['header'], merged);
+    _syncRawToForm();
+    _rawController.text = _prettyRaw();
+    setState(() {
+      _status = '已写入 Cookie（${result.cookieHeader.length} 字符），记得保存';
+      _issues = validateNovelSourceRaw(_raw);
+    });
+  }
+
   Future<void> _copyJson() async {
     if (_mode == NovelSourceEditorMode.form) _syncFormToRaw();
     await Clipboard.setData(ClipboardData(text: _prettyRaw()));
@@ -308,6 +368,12 @@ class _NovelSourceEditPageState extends State<NovelSourceEditPage> {
             tooltip: '复制 JSON',
             icon: const Icon(Icons.copy_all_outlined),
             onPressed: _copyJson,
+          ),
+          IconButton(
+            key: const Key('novel-source-edit-login'),
+            tooltip: '登录取 Cookie',
+            icon: const Icon(Icons.login),
+            onPressed: _loginForCookie,
           ),
           if (widget.onDebug != null)
             IconButton(

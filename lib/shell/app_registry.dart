@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart'
     show ValueListenable, kDebugMode, visibleForTesting;
 import 'package:flutter/widgets.dart' show Center, Text;
@@ -54,11 +56,14 @@ import 'package:mimao/music/player/player_ui_impl.dart';
 import 'package:mimao/music/player/song_collection.dart';
 import 'package:mimao/music/search_history_service.dart';
 import 'package:mimao/novel/collect_service.dart';
+import 'package:mimao/novel/debug/novel_source_debugger.dart';
 import 'package:mimao/novel/history_service.dart';
 import 'package:mimao/novel/library_api.dart';
 import 'package:mimao/novel/cache/file_novel_cache.dart';
 import 'package:mimao/novel/engine/legado_engine.dart';
 import 'package:mimao/novel/engine/online_engine.dart';
+import 'package:mimao/novel/local/local_book_service.dart';
+import 'package:mimao/novel/local/local_engine.dart';
 import 'package:mimao/novel/models/novel_models.dart';
 import 'package:mimao/novel/pages/novel_routes.dart';
 import 'package:mimao/novel/novel_db.dart';
@@ -555,14 +560,30 @@ Future<void> initAppModules({
           );
       final onlineEngine =
           novelOnlineEngine ?? LegadoNovelEngine(cache: DefaultNovelCache());
+      // 本地书（TXT / EPUB / Markdown）：第二条通路。目录与规则表都在同一个
+      // 小说库里，文件只记原地路径——装配期零 I/O，用户不导入就不碰文件系统。
+      final txtRuleApi = NovelTxtRuleService(db);
+      final localBookApi = NovelLocalBookService(db, rules: txtRuleApi);
+      // 引擎按 sourceKey 分流：虚拟本地源走本地服务，其余原样转给在线引擎，
+      // 于是详情页/阅读器/进度/书签/TTS 都不需要分叉。
+      final novelEngine = NovelLocalEngine(
+        local: localBookApi,
+        online: onlineEngine,
+      );
       if (kDebugMode) {
         _registerNovelDevCapabilities(
           engine: onlineEngine,
           store: sourceImporter.store,
         );
+        _registerNovelSourceDebugCapabilities(
+          engine: onlineEngine,
+          store: sourceImporter.store,
+        );
       }
       appModules[MediaType.novel] = NovelModule(
-        onlineEngine: onlineEngine,
+        onlineEngine: novelEngine,
+        localBooks: localBookApi,
+        txtRules: txtRuleApi,
         collect: collectApi,
         history: historyApi,
         searchHistory: searchHistoryApi,
@@ -735,6 +756,37 @@ void _registerNovelDevCapabilities({
     );
     return <String, Object?>{'ok': true};
   });
+  // 按路由名推任意小说页面（截图/联调走位用）：route 取 NovelRoute.name，
+  // args 原样透传。找不到路由名时返回可用值列表，不静默。
+  devRegisterCapability('novel.pushRoute', (args) async {
+    final nav = MimaoApp.navigatorKey.currentState;
+    if (nav == null) {
+      return <String, Object?>{'ok': false, 'error': 'no navigator'};
+    }
+    final name = (args['route'] ?? '').toString();
+    NovelRoute? route;
+    for (final candidate in NovelRoute.values) {
+      if (candidate.name == name || candidate.routeName == name) {
+        route = candidate;
+        break;
+      }
+    }
+    if (route == null) {
+      return <String, Object?>{
+        'ok': false,
+        'error': 'unknown route "$name"',
+        'routes': <String>[for (final r in NovelRoute.values) r.name],
+      };
+    }
+    final rawArgs = args['args'];
+    final routeArgs = rawArgs is Map
+        ? <String, Object?>{
+            for (final entry in rawArgs.entries) '${entry.key}': entry.value,
+          }
+        : const <String, Object?>{};
+    await pushNovelRoute<void>(nav.context, route, args: routeArgs);
+    return <String, Object?>{'ok': true, 'route': route.name};
+  });
   devRegisterCapability('novel.open', (args) async {
     final nav = MimaoApp.navigatorKey.currentState;
     if (nav == null) {
@@ -754,6 +806,41 @@ void _registerNovelDevCapabilities({
       },
     );
     return <String, Object?>{'ok': true};
+  });
+  // 通用 push：任何 NovelRoute 都能直接推，省得为一个新页面再加一条能力。
+  //
+  // 截图验收要靠它：像「阅读统计」这种藏在长列表底部、又不在壳导航里的页面，
+  // /tap 的坐标落在视口外点不到（dev harness 没有滚动端点），只能从路由进。
+  devRegisterCapability('novel.pushRoute', (args) async {
+    final nav = MimaoApp.navigatorKey.currentState;
+    if (nav == null) {
+      return <String, Object?>{'ok': false, 'error': 'no navigator'};
+    }
+    final raw = args['route']?.toString() ?? '';
+    final route = NovelRoute.values.where(
+      (r) => r.routeName == raw || r.name == raw,
+    );
+    if (route.isEmpty) {
+      return <String, Object?>{
+        'ok': false,
+        'error': 'unknown route: $raw',
+        'routes': <String>[for (final r in NovelRoute.values) r.routeName],
+      };
+    }
+    final rawArgs = args['args'];
+    // 不 await：push 的 Future 在路由被 pop 时才完成，await 会把 /eval 请求
+    // 挂到用户手动退出页面为止（dev 端点 120s 超时）。
+    unawaited(
+      pushNovelRoute<void>(
+        nav.context,
+        route.first,
+        args: rawArgs is Map
+            ? rawArgs.map((key, value) => MapEntry('$key', value))
+            : const <String, Object?>{},
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    return <String, Object?>{'ok': true, 'route': route.first.routeName};
   });
 }
 
@@ -887,4 +974,96 @@ Future<void> _resetOwnedDb() async {
       // 同上；惰性连接从未打开时 close 是空操作。
     }
   }
+}
+
+/// 书源调试的 dev HTTP 通道（debug-only）：把 `NovelSourceDebugger` 暴露成
+/// `/eval` 能力，桌面端用「应用内调试页」，命令行/CI 用这条 HTTP 接口。
+///
+/// 接口形态（与 Android 复用的契约）：
+///   - `novel.verify`  `{source, keyword?}` → 完整校验链结果 JSON
+///   - `novel.debug`   `{source, action, keyword?, bookId?, bookUrl?, chapterUrl?}`
+///     → 单动作调试结果（含原始 HTML、JS 日志、事件链）
+///   - `novel.sources` 已由 [_registerNovelDevCapabilities] 提供
+///
+/// 不移植 Android 的 WebSocket 服务形态：桌面端走应用内页面 + 本地 HTTP，
+/// 两者调用的是同一个 `NovelSourceDebugger`，行为一致。
+void _registerNovelSourceDebugCapabilities({
+  required NovelOnlineEngine engine,
+  required NovelSourceStorage store,
+}) {
+  Future<NovelBookSource?> resolveSource(Map<String, Object?> args) async {
+    final needle = (args['source'] ?? args['sourceKey'] ?? '').toString();
+    if (needle.isEmpty) return null;
+    final sources = await store.loadAll();
+    for (final candidate in sources) {
+      if (candidate.key == needle || candidate.name == needle) return candidate;
+    }
+    return null;
+  }
+
+  devRegisterCapability('novel.verify', (args) async {
+    final source = await resolveSource(args);
+    if (source == null) {
+      return <String, Object?>{'ok': false, 'error': 'source not found'};
+    }
+    final debugger = NovelSourceDebugger(engine: engine);
+    final result = await debugger.verify(
+      source,
+      keyword: (args['keyword'] ?? '').toString(),
+    );
+    return <String, Object?>{'ok': true, 'result': result.toJson()};
+  });
+
+  devRegisterCapability('novel.debug', (args) async {
+    final source = await resolveSource(args);
+    if (source == null) {
+      return <String, Object?>{'ok': false, 'error': 'source not found'};
+    }
+    final actionName = (args['action'] ?? 'search').toString();
+    final action = NovelDebugAction.values.firstWhere(
+      (value) => value.name == actionName,
+      orElse: () => NovelDebugAction.search,
+    );
+    final bookUrl = (args['bookUrl'] ?? '').toString();
+    final book = bookUrl.isEmpty
+        ? null
+        : NovelSummary(
+            id: (args['bookId'] ?? bookUrl).toString(),
+            title: (args['title'] ?? '').toString(),
+            author: (args['author'] ?? '').toString(),
+            sourceKey: source.key,
+            bookUrl: bookUrl,
+          );
+    final chapterUrl = (args['chapterUrl'] ?? '').toString();
+    final chapter = chapterUrl.isEmpty
+        ? null
+        : NovelChapter(
+            id: chapterUrl,
+            title: (args['chapterTitle'] ?? '').toString(),
+            index: args['chapterIndex'] is num
+                ? (args['chapterIndex']! as num).toInt()
+                : 0,
+            url: chapterUrl,
+          );
+    final run = await NovelSourceDebugger(engine: engine).debug(
+      source: source,
+      action: action,
+      keyword: (args['keyword'] ?? '').toString(),
+      book: book,
+      chapter: chapter,
+    );
+    // 原始 HTML 可能很大：HTTP 通道默认只回长度与头部预览，要全文传
+    // `includeHtml: true`（命令行排查时显式要）。
+    final includeHtml = args['includeHtml'] == true;
+    final payload = run.toJson();
+    if (!includeHtml && run.rawHtml.isNotEmpty) {
+      payload['rawHtmlPreview'] = run.rawHtml.length <= 2000
+          ? run.rawHtml
+          : run.rawHtml.substring(0, 2000);
+      payload['rawHtmlOmitted'] = true;
+    } else {
+      payload['rawHtml'] = run.rawHtml;
+    }
+    return <String, Object?>{'ok': run.isOk, 'result': payload};
+  });
 }
