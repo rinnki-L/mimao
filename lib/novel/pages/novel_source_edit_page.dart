@@ -8,6 +8,7 @@
 /// 「先 saveAll 再 delete」的等价两步。
 library;
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -31,6 +32,7 @@ class NovelSourceEditPage extends StatefulWidget {
     super.key,
     required this.store,
     this.initial,
+    this.initialSourceKey,
     this.initialRaw,
     this.onSaved,
     this.onDebug,
@@ -41,6 +43,12 @@ class NovelSourceEditPage extends StatefulWidget {
 
   /// 编辑已有书源；null 表示新建（配合 [initialRaw] 预填）。
   final NovelBookSource? initial;
+
+  /// 按主键编辑已有书源（路由只带 key 时用）：进页面后自己读仓库。
+  ///
+  /// 路由注册处是同步 builder，拿不到 `loadAll()` 的结果，所以这里按 key 惰性
+  /// 读一次；[initial] 优先于本字段。
+  final String? initialSourceKey;
 
   /// 新建时的初始 JSON（如从剪贴板粘一条过来改）。
   final String? initialRaw;
@@ -73,11 +81,21 @@ class _NovelSourceEditPageState extends State<NovelSourceEditPage> {
   String? _status;
   bool _saving = false;
 
-  bool get _isNew => widget.initial == null;
+  /// 按 key 读到的书源（[initialSourceKey] 路径）；读完前是 null。
+  NovelBookSource? _loaded;
+  bool _loadingSource = false;
+  String? _loadError;
+
+  bool get _isNew => widget.initial == null && _loaded == null;
 
   @override
   void initState() {
     super.initState();
+    final key = widget.initialSourceKey;
+    if (widget.initial == null && key != null && key.isNotEmpty) {
+      _loadingSource = true;
+      unawaited(_loadByKey(key));
+    }
     _raw = _initialRawMap();
     _rawController = TextEditingController(text: _prettyRaw());
     for (final spec in novelSourceFieldSpecs) {
@@ -87,6 +105,45 @@ class _NovelSourceEditPageState extends State<NovelSourceEditPage> {
     }
     _issues = validateNovelSourceRaw(_raw);
   }
+
+  /// 按主键从仓库读一条书源，读到了就用它填表单。
+  Future<void> _loadByKey(String key) async {
+    try {
+      final sources = await widget.store.loadAll();
+      final match = sources.where((s) => s.key == key).firstOrNull;
+      if (!mounted) return;
+      if (match == null) {
+        setState(() {
+          _loadingSource = false;
+          _loadError = '找不到这条书源（可能已被删除）';
+        });
+        return;
+      }
+      _applyLoaded(match);
+    } on Object catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loadingSource = false;
+        _loadError = '读取书源失败：$error';
+      });
+    }
+  }
+
+  void _applyLoaded(NovelBookSource source) {
+    _loaded = source;
+    _raw = Map<String, dynamic>.from(source.raw);
+    _rawController.text = _prettyRaw();
+    for (final spec in novelSourceFieldSpecs) {
+      _fieldControllers[spec.key]?.text = readNovelSourceField(_raw, spec.path);
+    }
+    setState(() {
+      _loadingSource = false;
+      _issues = validateNovelSourceRaw(_raw);
+    });
+  }
+
+  /// 当前编辑对象：显式传入的 > 按 key 读到的 > null（新建）。
+  NovelBookSource? get _editing => widget.initial ?? _loaded;
 
   Map<String, dynamic> _initialRawMap() {
     final initial = widget.initial;
@@ -261,7 +318,7 @@ class _NovelSourceEditPageState extends State<NovelSourceEditPage> {
     }
 
     setState(() => _saving = true);
-    final previous = widget.initial;
+    final previous = _editing;
     final rebuilt = previous == null
         ? novelSourceFromRaw(_raw)
         : applyNovelSourceRaw(previous, _raw);
@@ -351,6 +408,29 @@ class _NovelSourceEditPageState extends State<NovelSourceEditPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    if (_loadingSource) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('编辑书源')),
+        body: const NovelLoadingState(label: '正在读取书源…'),
+      );
+    }
+    if (_loadError != null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('编辑书源')),
+        body: NovelErrorState(
+          message: _loadError!,
+          onRetry: () {
+            final key = widget.initialSourceKey;
+            if (key == null || key.isEmpty) return;
+            setState(() {
+              _loadingSource = true;
+              _loadError = null;
+            });
+            unawaited(_loadByKey(key));
+          },
+        ),
+      );
+    }
     final errorCount = _issues.where((issue) => issue.isError).length;
     final warningCount = _issues.where((issue) => !issue.isError).length;
     return Scaffold(
@@ -380,11 +460,14 @@ class _NovelSourceEditPageState extends State<NovelSourceEditPage> {
               key: const Key('novel-source-edit-debug'),
               tooltip: '调试这条源',
               icon: const Icon(Icons.bug_report_outlined),
-              onPressed: () => widget.onDebug?.call(
-                _isNew
-                    ? novelSourceFromRaw(_raw)
-                    : applyNovelSourceRaw(widget.initial!, _raw),
-              ),
+              onPressed: () {
+                final editing = _editing;
+                widget.onDebug?.call(
+                  editing == null
+                      ? novelSourceFromRaw(_raw)
+                      : applyNovelSourceRaw(editing, _raw),
+                );
+              },
             ),
           const SizedBox(width: 8),
           FilledButton.icon(

@@ -13,7 +13,7 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mimao/novel/local/local_book_service.dart';
 import 'package:mimao/novel/local/local_encoding.dart';
-import 'package:mimao/novel/local/local_engine.dart';
+import 'package:mimao/novel/engine/local_engine.dart';
 import 'package:mimao/novel/local/local_epub.dart';
 import 'package:mimao/novel/local/local_models.dart';
 import 'package:mimao/novel/local/local_source.dart';

@@ -13,6 +13,7 @@
 library;
 
 import 'package:mimao/novel/engine/explore_kinds.dart';
+import 'package:mimao/novel/debug/novel_engine_trace.dart';
 import 'package:mimao/novel/engine/online_engine.dart';
 import 'package:mimao/novel/local/local_book_service.dart';
 import 'package:mimao/novel/local/local_models.dart';
@@ -76,7 +77,7 @@ class NovelLocalSourceStore implements NovelSourceStorage {
 }
 
 /// 本地书引擎：按 sourceKey 分流到本地服务或被包裹的在线引擎。
-class NovelLocalEngine implements NovelOnlineEngine {
+class NovelLocalEngine implements NovelOnlineEngine, NovelEngineTraceable {
   NovelLocalEngine({required this.local, this.online});
 
   final NovelLocalBookStorage local;
@@ -199,6 +200,25 @@ class NovelLocalEngine implements NovelOnlineEngine {
   @override
   void close() {
     online?.close();
+  }
+
+  // 调试追踪必须穿透这层包装：书源调试面板拿到的引擎是 `NovelLocalEngine`，
+  // 它把在线请求转给 `online`。不转发的话，调试面板「跑」出来只有一条解析
+  // 结果、看不到 HTTP 与规则链路（真源联调时踩到）。
+  @override
+  void attachTrace(NovelTraceSink? sink) {
+    final inner = online;
+    if (inner is NovelEngineTraceable) {
+      (inner as NovelEngineTraceable).attachTrace(sink);
+    }
+  }
+
+  @override
+  void beginTracePhase(String phase) {
+    final inner = online;
+    if (inner is NovelEngineTraceable) {
+      (inner as NovelEngineTraceable).beginTracePhase(phase);
+    }
   }
 
   Future<NovelLocalBook> _requireBook(String id) async {

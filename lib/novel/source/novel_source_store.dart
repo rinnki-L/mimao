@@ -31,10 +31,7 @@ abstract interface class NovelSourceStorage {
 /// 全部方法，加进窄接口会一次性打断所有测试 fake（LESSON.md §八）。页面用
 /// `is` 探测，拿不到就退回「先 saveAll 再 delete」的等价两步。
 abstract interface class NovelSourceUpsert {
-  Future<NovelBookSource> upsert(
-    NovelBookSource source, {
-    String? previousKey,
-  });
+  Future<NovelBookSource> upsert(NovelBookSource source, {String? previousKey});
 }
 
 class NovelSourceStore implements NovelSourceStorage, NovelSourceUpsert {

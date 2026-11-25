@@ -65,7 +65,7 @@ import 'package:mimao/novel/cache/file_novel_cache.dart';
 import 'package:mimao/novel/engine/legado_engine.dart';
 import 'package:mimao/novel/engine/online_engine.dart';
 import 'package:mimao/novel/local/local_book_service.dart';
-import 'package:mimao/novel/local/local_engine.dart';
+import 'package:mimao/novel/engine/local_engine.dart';
 import 'package:mimao/novel/models/novel_models.dart';
 import 'package:mimao/novel/pages/novel_routes.dart';
 import 'package:mimao/novel/pages/novel_reader_page.dart';
