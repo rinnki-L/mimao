@@ -66,6 +66,12 @@ dependencies:
   # 纯 Dart 实现，无平台插件，CI 安全）。MD5 走上面的 crypto 包。
   pointycastle: ^3.9.0
 
+  # 小说 · WebDAV 备份：账号密码不能明文落 kv。Windows 端由
+  # flutter_secure_storage_windows 走 DPAPI + 凭据管理器（dartPluginClass
+  # 之外的 C++ 部分也用 wincred），Android 端走 EncryptedSharedPreferences
+  # + Keystore。只在读写凭据时触达，测试一律注入内存 fake，不碰插件。
+  flutter_secure_storage: ^11.2.0
+
   # 音乐快捷键：应用内快捷键走 Flutter 原生 Shortcuts/Actions，全局（系统级）
   # 快捷键走 hotkey_manager（Windows 首发桌面端；Android 无系统级快捷键）。
   # 0.4.0 要求 Dart ^3.14 / Flutter >=3.50，与本项目 3.14/3.50 基线一致。
