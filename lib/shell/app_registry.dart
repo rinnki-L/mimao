@@ -60,6 +60,7 @@ import 'package:mimao/music/search_history_service.dart';
 import 'package:mimao/novel/collect_service.dart';
 import 'package:mimao/novel/debug/novel_source_debugger.dart';
 import 'package:mimao/novel/history_service.dart';
+import 'package:mimao/novel/device_id.dart' show novelPrefDeviceId;
 import 'package:mimao/novel/library_api.dart';
 import 'package:mimao/novel/cache/file_novel_cache.dart';
 import 'package:mimao/novel/engine/legado_engine.dart';
@@ -88,7 +89,9 @@ import 'package:mimao/novel/webdav_backup.dart'
         DioNovelWebDavClient,
         NovelAutoBackupRunner,
         NovelProgressSync,
-        NovelWebDavBackupService;
+        NovelWebDavBackupService,
+        readNovelBackupPassword,
+        readNovelWebDavConfig;
 import 'package:mimao/shell/lifecycle.dart'
     show registerAppExitHook, registerAppResumeHook;
 import 'dart:io';
@@ -605,6 +608,14 @@ Future<void> initAppModules({
         prefs: prefsApi,
         sourceStorage: sourceImporter.store,
       );
+      if (kDebugMode && prefsApi != null) {
+        _registerNovelBackupDevCapabilities(
+          db: db,
+          prefs: prefsApi,
+          service: backupService,
+          progressSync: progressSync,
+        );
+      }
       appModules[MediaType.novel] = NovelModule(
         onlineEngine: novelEngine,
         localBooks: localBookApi,
@@ -657,6 +668,57 @@ void _registerNovelAutoBackupHooks(NovelAutoBackupRunner runner) {
   _novelAutoBackupRegistered = true;
   registerAppExitHook(() => runner.run(onExit: true));
   registerAppResumeHook(() => runner.run(onExit: false));
+}
+
+/// 小说备份的 dev 能力（debug-only）：两台设备同步的手测靠它改 deviceId。
+///
+/// - `novel.deviceId` 读当前设备 ID；带 `id` 参数则改写并返回新值。
+/// - `novel.backup` 直接跑一次上传（用 kv 里的配置）。
+/// - `novel.progressSync` 跑一次进度同步。
+///
+/// 只在 debug 构建注册（release 里 dev 能力整体不存在）。
+void _registerNovelBackupDevCapabilities({
+  required NovelDb db,
+  required NovelPrefsApi prefs,
+  required NovelWebDavBackupService service,
+  required NovelProgressSync progressSync,
+}) {
+  devRegisterCapability('novel.deviceId', (args) async {
+    final next = '${args['id'] ?? ''}'.trim();
+    if (next.isNotEmpty) {
+      await prefs.write(novelPrefDeviceId, next);
+    }
+    return <String, Object?>{'deviceId': await db.ensureDeviceId()};
+  });
+  devRegisterCapability('novel.backup', (args) async {
+    final config = await readNovelWebDavConfig(prefs);
+    if (config == null || !config.isValid) {
+      return <String, Object?>{'ok': false, 'error': 'WebDAV 地址未配置'};
+    }
+    final password = await readNovelBackupPassword();
+    final run = await service.backup(
+      config,
+      password: password,
+      mergeRemote: args['merge'] != false,
+    );
+    return <String, Object?>{
+      'ok': true,
+      'collects': run.collects,
+      'histories': run.histories,
+      'progress': run.progress,
+      'merged': run.mergedWithRemote,
+    };
+  });
+  devRegisterCapability('novel.progressSync', (args) async {
+    final result = await progressSync.syncNow();
+    return <String, Object?>{
+      'ok': result.ok,
+      'updated': result.updated,
+      'uploaded': result.uploaded,
+      'skipped': result.skipped,
+      'error': result.error,
+    };
+  });
 }
 
 /// 小说书源 dev 能力（debug-only）：真源联调与 UI 验收用。
