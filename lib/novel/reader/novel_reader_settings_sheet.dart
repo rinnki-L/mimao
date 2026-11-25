@@ -16,6 +16,8 @@ import 'novel_menu_actions.dart';
 import 'novel_reader_chrome.dart';
 import 'novel_reader_fonts.dart';
 import 'novel_reader_settings.dart';
+import 'novel_tts.dart';
+import 'novel_tts_cache.dart';
 
 /// 「信息」页签展示的只读书籍信息。
 class NovelReaderBookInfo {
@@ -139,6 +141,36 @@ const List<_SettingsSearchEntry> _settingsSearchIndex = <_SettingsSearchEntry>[
   _SettingsSearchEntry('浮动按钮', _SettingsTab.menu, keywords: <String>['自定义']),
   _SettingsSearchEntry('页眉页脚', _SettingsTab.info),
   _SettingsSearchEntry('自动翻页间隔', _SettingsTab.more, keywords: <String>['速度']),
+  _SettingsSearchEntry(
+    '朗读语速',
+    _SettingsTab.more,
+    keywords: <String>['tts', '速度'],
+  ),
+  _SettingsSearchEntry(
+    '朗读音色',
+    _SettingsTab.more,
+    keywords: <String>['声音', 'voice'],
+  ),
+  _SettingsSearchEntry(
+    '段间停顿',
+    _SettingsTab.more,
+    keywords: <String>['朗读', '间隔'],
+  ),
+  _SettingsSearchEntry(
+    '自动续章',
+    _SettingsTab.more,
+    keywords: <String>['朗读', '下一章'],
+  ),
+  _SettingsSearchEntry(
+    '手动翻页行为',
+    _SettingsTab.more,
+    keywords: <String>['朗读', '暂停', '跟随'],
+  ),
+  _SettingsSearchEntry(
+    '睡眠定时',
+    _SettingsTab.more,
+    keywords: <String>['朗读', '定时停止'],
+  ),
   _SettingsSearchEntry('行距', _SettingsTab.more),
   _SettingsSearchEntry('段距', _SettingsTab.more),
   _SettingsSearchEntry('左右边距', _SettingsTab.more, keywords: <String>['留白']),
@@ -155,6 +187,13 @@ class NovelReaderSettingsSheet extends StatefulWidget {
     required this.onClose,
     this.hasBookOverride = false,
     this.onClearBookOverride,
+    this.loadTtsVoices,
+    this.ttsSleepDeadline,
+    this.onTtsSleepTimerChanged,
+    this.loadTtsCacheStats,
+    this.onClearTtsCache,
+    this.onExportChapterAudio,
+    this.onExportBookAudio,
   });
 
   final NovelReaderSettings initial;
@@ -170,6 +209,25 @@ class NovelReaderSettingsSheet extends StatefulWidget {
 
   final VoidCallback? onClearBookOverride;
 
+  /// 读取系统音色；null 表示当前环境没有朗读后端（只显示「自动」）。
+  final Future<List<NovelTtsVoice>> Function()? loadTtsVoices;
+
+  /// 睡眠定时到点时间；null = 未设。
+  final DateTime? ttsSleepDeadline;
+
+  /// 用户改睡眠定时（null = 关闭）；由阅读页写到控制器。
+  final ValueChanged<Duration?>? onTtsSleepTimerChanged;
+
+  /// 朗读缓存占用；null 表示没有缓存服务（不显示缓存行）。
+  final Future<NovelTtsCacheStats?> Function()? loadTtsCacheStats;
+
+  /// 清理朗读缓存；返回删掉的段数。
+  final Future<int> Function()? onClearTtsCache;
+
+  /// 导出当前章 / 全书朗读音频（由阅读页选目录、跑进度、提示结果）。
+  final Future<void> Function()? onExportChapterAudio;
+  final Future<void> Function()? onExportBookAudio;
+
   @override
   State<NovelReaderSettingsSheet> createState() =>
       _NovelReaderSettingsSheetState();
@@ -180,6 +238,14 @@ class _NovelReaderSettingsSheetState extends State<NovelReaderSettingsSheet> {
   _SettingsTab _tab = _SettingsTab.global;
   List<NovelFontFile> _importedFonts = const <NovelFontFile>[];
   late final TextEditingController _dividerController;
+
+  /// 朗读：系统音色表 + 睡眠定时倒计时。
+  List<NovelTtsVoice> _ttsVoices = const <NovelTtsVoice>[];
+  bool _loadingTtsVoices = false;
+  DateTime? _sleepDeadline;
+  Timer? _sleepTicker;
+  NovelTtsCacheStats? _ttsCacheStats;
+  bool _loadingTtsCache = false;
 
   /// 搜索框与当前关键词；非空时正文区换成搜索结果列表。
   final TextEditingController _searchController = TextEditingController();
@@ -199,10 +265,15 @@ class _NovelReaderSettingsSheetState extends State<NovelReaderSettingsSheet> {
       text: widget.initial.titleSegmentDivider,
     );
     unawaited(_loadImportedFonts());
+    _sleepDeadline = widget.ttsSleepDeadline;
+    if (_sleepDeadline != null) _startSleepTicker();
+    if (widget.loadTtsVoices != null) unawaited(_loadTtsVoices());
+    if (widget.loadTtsCacheStats != null) unawaited(_loadTtsCacheStats());
   }
 
   @override
   void dispose() {
+    _sleepTicker?.cancel();
     _dividerController.dispose();
     _searchController.dispose();
     _scroll.dispose();
@@ -223,6 +294,107 @@ class _NovelReaderSettingsSheetState extends State<NovelReaderSettingsSheet> {
     final fonts = await NovelFontRegistry.instance.list();
     if (!mounted) return;
     setState(() => _importedFonts = fonts);
+  }
+
+  // ── 朗读辅助 ─────────────────────────────────────────────────────────
+  Future<void> _loadTtsVoices() async {
+    final loader = widget.loadTtsVoices;
+    if (loader == null || _loadingTtsVoices || _ttsVoices.isNotEmpty) return;
+    setState(() => _loadingTtsVoices = true);
+    try {
+      final voices = await loader();
+      if (mounted) setState(() => _ttsVoices = voices);
+    } on Object {
+      // 音色读不到不影响其它朗读设置。
+    } finally {
+      if (mounted) setState(() => _loadingTtsVoices = false);
+    }
+  }
+
+  void _startSleepTicker() {
+    _sleepTicker?.cancel();
+    _sleepTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      if (_sleepDeadline == null) {
+        _sleepTicker?.cancel();
+        _sleepTicker = null;
+      }
+      setState(() {});
+    });
+  }
+
+  void _setSleepTimer(Duration? duration) {
+    setState(() {
+      _sleepDeadline = duration == null ? null : DateTime.now().add(duration);
+    });
+    widget.onTtsSleepTimerChanged?.call(duration);
+    if (duration == null) {
+      _sleepTicker?.cancel();
+      _sleepTicker = null;
+    } else {
+      _startSleepTicker();
+    }
+  }
+
+  Duration _sleepRemaining() {
+    final deadline = _sleepDeadline;
+    if (deadline == null) return Duration.zero;
+    final remaining = deadline.difference(DateTime.now());
+    return remaining.isNegative ? Duration.zero : remaining;
+  }
+
+  String _sleepLabel() {
+    final remaining = _sleepRemaining();
+    final seconds = remaining.inSeconds;
+    final minutes = seconds ~/ 60;
+    final rest = seconds % 60;
+    return '$minutes:${rest.toString().padLeft(2, '0')}';
+  }
+
+  Future<void> _loadTtsCacheStats() async {
+    final loader = widget.loadTtsCacheStats;
+    if (loader == null) return;
+    setState(() => _loadingTtsCache = true);
+    try {
+      final stats = await loader();
+      if (mounted) setState(() => _ttsCacheStats = stats);
+    } on Object {
+      // 缓存统计失败不挡朗读设置。
+    } finally {
+      if (mounted) setState(() => _loadingTtsCache = false);
+    }
+  }
+
+  Future<void> _clearTtsCache() async {
+    final clear = widget.onClearTtsCache;
+    if (clear == null) return;
+    setState(() => _loadingTtsCache = true);
+    try {
+      final removed = await clear();
+      if (!mounted) return;
+      setState(() {});
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('已清理 $removed 段朗读缓存')));
+    } on Object catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('清理缓存失败：$error')));
+    } finally {
+      if (mounted) {
+        await _loadTtsCacheStats();
+      }
+    }
+  }
+
+  String _formatBytes(int bytes) {
+    if (bytes <= 0) return '0 B';
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) {
+      return '${(bytes / 1024).toStringAsFixed(0)} KB';
+    }
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 
   void _apply(NovelReaderSettings next) {
@@ -338,7 +510,7 @@ class _NovelReaderSettingsSheetState extends State<NovelReaderSettingsSheet> {
     final scheme = theme.colorScheme;
     return Tooltip(
       message: _bookOnly
-          ? '只改这本：背景 / 字体 / 翻页方式 / 动画 / 点击区；菜单外观与按钮配置仍改全局'
+          ? '只改这本：背景 / 字体 / 翻页方式 / 动画 / 点击区；菜单外观、按钮配置与朗读设置仍改全局'
           : '正在改全局设置；点一下改成只改这本书',
       child: InkWell(
         key: const Key('novel-settings-scope'),
@@ -1925,6 +2097,10 @@ class _NovelReaderSettingsSheetState extends State<NovelReaderSettingsSheet> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
+        // 朗读放最上面：这是「更多」里改动频率最高的一组，也免得用户在
+        // 一段长滑杆里翻找。
+        _card(child: _buildTtsSettings(context)),
+        const SizedBox(height: 8),
         _card(
           child: Column(
             children: <Widget>[
@@ -2003,6 +2179,246 @@ class _NovelReaderSettingsSheetState extends State<NovelReaderSettingsSheet> {
             label: const Text('恢复默认设置'),
           ),
         ),
+      ],
+    );
+  }
+
+  /// 朗读设置卡：语速 / 音色 / 段间停顿 / 自动续章 / 手动翻页 / 睡眠定时。
+  ///
+  /// 这些项都是全局设置（每书覆盖白名单只收背景/字体/翻页/动画/点击区），
+  /// 「只改这本」开着时由控制器把差异落全局，不会静默丢弃。
+  Widget _buildTtsSettings(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final voiceValue = _ttsVoices.any((v) => v.id == _settings.ttsVoice)
+        ? _settings.ttsVoice
+        : '';
+    final remaining = _sleepRemaining();
+    final hasSleep = _sleepDeadline != null && remaining > Duration.zero;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Row(
+          children: <Widget>[
+            Icon(
+              Icons.record_voice_over_outlined,
+              size: 18,
+              color: scheme.primary,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              '朗读',
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: MimaoFonts.bold,
+              ),
+            ),
+            const Spacer(),
+            if (hasSleep)
+              Text(
+                '剩余 ${_sleepLabel()}',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: scheme.primary,
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        _sliderRow(
+          context,
+          key: 'novel-settings-tts-rate',
+          title: '语速',
+          valueLabel: '×${_settings.ttsRate.toStringAsFixed(1)}',
+          value: _settings.ttsRate,
+          min: NovelReaderSettings.minTtsRate,
+          max: NovelReaderSettings.maxTtsRate,
+          divisions: 15,
+          onChanged: (value) => _apply(
+            _settings.copyWith(ttsRate: (value * 10).roundToDouble() / 10),
+          ),
+        ),
+        _sliderRow(
+          context,
+          key: 'novel-settings-tts-pause',
+          title: '段间停顿',
+          valueLabel: '${_settings.ttsParagraphPauseMs} ms',
+          value: _settings.ttsParagraphPauseMs.toDouble(),
+          min: NovelReaderSettings.minTtsParagraphPauseMs.toDouble(),
+          max: NovelReaderSettings.maxTtsParagraphPauseMs.toDouble(),
+          divisions:
+              (NovelReaderSettings.maxTtsParagraphPauseMs -
+                  NovelReaderSettings.minTtsParagraphPauseMs) ~/
+              100,
+          onChanged: (value) => _apply(
+            _settings.copyWith(
+              ttsParagraphPauseMs: (value / 100).round() * 100,
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Row(
+            children: <Widget>[
+              SizedBox(
+                width: 88,
+                child: Text('音色', style: theme.textTheme.bodyMedium),
+              ),
+              Expanded(
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    key: const Key('novel-settings-tts-voice'),
+                    isExpanded: true,
+                    value: voiceValue,
+                    items: <DropdownMenuItem<String>>[
+                      const DropdownMenuItem<String>(
+                        value: '',
+                        child: Text('自动（中文优先）'),
+                      ),
+                      for (final voice in _ttsVoices)
+                        DropdownMenuItem<String>(
+                          value: voice.id,
+                          child: Text(
+                            voice.locale.isEmpty
+                                ? voice.label
+                                : '${voice.label} · ${voice.locale}',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                    ],
+                    onChanged: (value) {
+                      if (value == null) return;
+                      _apply(_settings.copyWith(ttsVoice: value));
+                    },
+                  ),
+                ),
+              ),
+              if (_loadingTtsVoices)
+                const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              else
+                IconButton(
+                  tooltip: '刷新系统音色',
+                  icon: const Icon(Icons.refresh, size: 18),
+                  onPressed: () {
+                    setState(() => _ttsVoices = const <NovelTtsVoice>[]);
+                    unawaited(_loadTtsVoices());
+                  },
+                ),
+            ],
+          ),
+        ),
+        SwitchListTile(
+          key: const Key('novel-settings-tts-auto-next'),
+          contentPadding: EdgeInsets.zero,
+          title: const Text('读完自动续章'),
+          subtitle: const Text('本章读完接着读下一章，直到书末或手动停止'),
+          value: _settings.ttsAutoNextChapter,
+          onChanged: (value) =>
+              _apply(_settings.copyWith(ttsAutoNextChapter: value)),
+        ),
+        _enumDropdownRow<NovelTtsTurnPolicy>(
+          key: 'novel-settings-tts-turn-policy',
+          title: '手动翻页',
+          value: _settings.ttsTurnPagePolicy,
+          values: NovelTtsTurnPolicy.values,
+          labelOf: (value) => value.label,
+          onChanged: (value) =>
+              _apply(_settings.copyWith(ttsTurnPagePolicy: value)),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(top: 4, bottom: 2),
+          child: Row(
+            children: <Widget>[
+              SizedBox(
+                width: 88,
+                child: Text('睡眠定时', style: theme.textTheme.bodyMedium),
+              ),
+              Expanded(
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  alignment: WrapAlignment.end,
+                  children: <Widget>[
+                    for (final minutes in const <int>[0, 15, 30, 60])
+                      ChoiceChip(
+                        key: Key('novel-settings-tts-sleep-$minutes'),
+                        label: Text(minutes == 0 ? '关闭' : '$minutes 分钟'),
+                        selected: minutes == 0
+                            ? !hasSleep
+                            : hasSleep &&
+                                  (remaining.inSeconds + 30) ~/ 60 == minutes,
+                        onSelected: (_) => _setSleepTimer(
+                          minutes == 0 ? null : Duration(minutes: minutes),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        Text(
+          '睡眠定时只在本次阅读有效；到点停止朗读并提示。',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: scheme.onSurfaceVariant,
+          ),
+        ),
+        if (widget.loadTtsCacheStats != null || widget.onClearTtsCache != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Row(
+              children: <Widget>[
+                Expanded(
+                  child: Text(
+                    _ttsCacheStats == null
+                        ? '音频缓存：读取中…'
+                        : '音频缓存：${_ttsCacheStats!.count} 段 · '
+                              '${_formatBytes(_ttsCacheStats!.bytes)} / '
+                              '${_formatBytes(_ttsCacheStats!.maxBytes)}',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+                TextButton(
+                  key: const Key('novel-settings-tts-cache-clear'),
+                  onPressed: _loadingTtsCache || widget.onClearTtsCache == null
+                      ? null
+                      : () => unawaited(_clearTtsCache()),
+                  child: const Text('清理'),
+                ),
+              ],
+            ),
+          ),
+        if (widget.onExportChapterAudio != null ||
+            widget.onExportBookAudio != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: <Widget>[
+                if (widget.onExportChapterAudio != null)
+                  OutlinedButton.icon(
+                    key: const Key('novel-settings-tts-export-chapter'),
+                    onPressed: () =>
+                        unawaited(widget.onExportChapterAudio!.call()),
+                    icon: const Icon(Icons.audio_file_outlined, size: 18),
+                    label: const Text('导出本章音频'),
+                  ),
+                if (widget.onExportBookAudio != null)
+                  OutlinedButton.icon(
+                    key: const Key('novel-settings-tts-export-book'),
+                    onPressed: () =>
+                        unawaited(widget.onExportBookAudio!.call()),
+                    icon: const Icon(Icons.library_music_outlined, size: 18),
+                    label: const Text('导出全书音频'),
+                  ),
+              ],
+            ),
+          ),
       ],
     );
   }

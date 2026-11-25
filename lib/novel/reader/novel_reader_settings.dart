@@ -162,6 +162,16 @@ enum NovelChineseConvert {
   final String label;
 }
 
+/// 朗读开着时手动翻页的行为：暂停朗读，或把朗读位置跟到新页首段。
+enum NovelTtsTurnPolicy {
+  pause('暂停朗读'),
+  follow('跟随朗读');
+
+  const NovelTtsTurnPolicy(this.label);
+
+  final String label;
+}
+
 /// 一个背景预设：名称 + ARGB 颜色 + 是否深色底。
 class NovelReaderBackground {
   const NovelReaderBackground(this.name, this.argb, {required this.dark});
@@ -226,6 +236,11 @@ class NovelReaderSettings {
     this.doubleTapAction = NovelDoubleTapAction.none,
     this.swipeDownBookmark = false,
     this.autoPageSeconds = 15,
+    this.ttsRate = 1.0,
+    this.ttsVoice = '',
+    this.ttsParagraphPauseMs = 300,
+    this.ttsAutoNextChapter = true,
+    this.ttsTurnPagePolicy = NovelTtsTurnPolicy.pause,
     this.showFooter = true,
     this.footerLeft = NovelFooterLeft.chapter,
     this.footerRight = NovelFooterRight.pageAndPercent,
@@ -295,6 +310,10 @@ class NovelReaderSettings {
   static const double maxHorizontalPadding = 64;
   static const int minAutoPageSeconds = 5;
   static const int maxAutoPageSeconds = 120;
+  static const double minTtsRate = 0.5;
+  static const double maxTtsRate = 2.0;
+  static const int minTtsParagraphPauseMs = 0;
+  static const int maxTtsParagraphPauseMs = 3000;
 
   static const double minLetterSpacing = -1;
   static const double maxLetterSpacing = 3;
@@ -377,6 +396,21 @@ class NovelReaderSettings {
 
   /// 自动翻页间隔（秒）。
   final int autoPageSeconds;
+
+  /// 朗读语速 0.5–2.0（1.0 正常）。
+  final double ttsRate;
+
+  /// 朗读音色 id；空串 = 自动（优先中文）。
+  final String ttsVoice;
+
+  /// 段与段之间的停顿（毫秒）。
+  final int ttsParagraphPauseMs;
+
+  /// 本章读完自动开下一章继续朗读。
+  final bool ttsAutoNextChapter;
+
+  /// 朗读开着时手动翻页：暂停朗读 / 跟随到新页首段。
+  final NovelTtsTurnPolicy ttsTurnPagePolicy;
 
   /// 是否显示页脚。
   final bool showFooter;
@@ -623,6 +657,11 @@ class NovelReaderSettings {
     NovelDoubleTapAction? doubleTapAction,
     bool? swipeDownBookmark,
     int? autoPageSeconds,
+    double? ttsRate,
+    String? ttsVoice,
+    int? ttsParagraphPauseMs,
+    bool? ttsAutoNextChapter,
+    NovelTtsTurnPolicy? ttsTurnPagePolicy,
     bool? showFooter,
     NovelFooterLeft? footerLeft,
     NovelFooterRight? footerRight,
@@ -727,6 +766,12 @@ class NovelReaderSettings {
         minAutoPageSeconds,
         maxAutoPageSeconds,
       ),
+      ttsRate: _clampDouble(ttsRate ?? this.ttsRate, minTtsRate, maxTtsRate),
+      ttsVoice: ttsVoice ?? this.ttsVoice,
+      ttsParagraphPauseMs: (ttsParagraphPauseMs ?? this.ttsParagraphPauseMs)
+          .clamp(minTtsParagraphPauseMs, maxTtsParagraphPauseMs),
+      ttsAutoNextChapter: ttsAutoNextChapter ?? this.ttsAutoNextChapter,
+      ttsTurnPagePolicy: ttsTurnPagePolicy ?? this.ttsTurnPagePolicy,
       showFooter: showFooter ?? this.showFooter,
       footerLeft: legacyLeft,
       footerRight: legacyRight,
@@ -877,6 +922,11 @@ class NovelReaderSettings {
     'doubleTapAction': doubleTapAction.name,
     'swipeDownBookmark': swipeDownBookmark,
     'autoPageSeconds': autoPageSeconds,
+    'ttsRate': ttsRate,
+    'ttsVoice': ttsVoice,
+    'ttsParagraphPauseMs': ttsParagraphPauseMs,
+    'ttsAutoNextChapter': ttsAutoNextChapter,
+    'ttsTurnPagePolicy': ttsTurnPagePolicy.name,
     'showFooter': showFooter,
     // 旧键继续写：老版本读到新 JSON 也不至于丢页脚。
     'footerLeft': _toLegacyLeft(slotAt(footerSlots, 0)).name,
@@ -1013,6 +1063,23 @@ class NovelReaderSettings {
                   ? (json['autoPageSeconds']! as num).round()
                   : 15)
               .clamp(minAutoPageSeconds, maxAutoPageSeconds),
+      ttsRate: _clampDouble(
+        _double(json['ttsRate'], 1.0),
+        minTtsRate,
+        maxTtsRate,
+      ),
+      ttsVoice: '${json['ttsVoice'] ?? ''}',
+      ttsParagraphPauseMs:
+          ((json['ttsParagraphPauseMs'] is num)
+                  ? (json['ttsParagraphPauseMs']! as num).round()
+                  : 300)
+              .clamp(minTtsParagraphPauseMs, maxTtsParagraphPauseMs),
+      ttsAutoNextChapter: _bool(json['ttsAutoNextChapter'], true),
+      ttsTurnPagePolicy: _enumByName(
+        NovelTtsTurnPolicy.values,
+        json['ttsTurnPagePolicy'],
+        NovelTtsTurnPolicy.pause,
+      ),
       showFooter: json['showFooter'] is bool
           ? json['showFooter']! as bool
           : true,

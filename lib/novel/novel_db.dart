@@ -284,6 +284,32 @@ class NovelContentOverrides extends Table {
   Set<Column> get primaryKey => {bookId, sourceKey, chapterKey};
 }
 
+/// 朗读音频缓存索引（L2）：一段一行的 wav 元数据。
+///
+/// 文件落在应用支持目录的 `novel_tts_cache/`，这里只存索引；`cacheKey` 是
+/// `(书, 章节, 段落, 音色, 语速)` 的可读键的 sha256，命中后直接播文件、
+/// 免重合成。容量按 [lastUsedAt] 淘汰最久未用的行，并删除对应文件。
+@DataClassName('NovelTtsCacheRow')
+class NovelTtsCacheEntries extends Table {
+  @override
+  String get tableName => 'novel_tts_cache';
+
+  /// sha256(bookId|chapterKey|paragraph|voice|rate)。
+  TextColumn get cacheKey => text()();
+
+  TextColumn get path => text()();
+
+  /// 文件字节数，用于容量统计。
+  IntColumn get bytes => integer().withDefault(const Constant(0))();
+
+  DateTimeColumn get createdAt => dateTime()();
+
+  DateTimeColumn get lastUsedAt => dateTime()();
+
+  @override
+  Set<Column> get primaryKey => {cacheKey};
+}
+
 @DriftDatabase(
   tables: [
     NovelCollectEntries,
@@ -295,6 +321,7 @@ class NovelContentOverrides extends Table {
     NovelMarkingEntries,
     NovelHighlightRules,
     NovelContentOverrides,
+    NovelTtsCacheEntries,
   ],
 )
 class NovelDb extends _$NovelDb {
@@ -317,7 +344,7 @@ class NovelDb extends _$NovelDb {
   });
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
 
   /// v1 → v2：书架分组列 + 模块 kv + 阅读时长按天表。三者都是增量，旧行无需
   /// 回填（groupName 缺省 null、今日/总时长从 0 起算）。
@@ -325,6 +352,8 @@ class NovelDb extends _$NovelDb {
   /// v2 → v3：书签与划线两张新表；纯增量，旧表一行都不动。
   ///
   /// v3 → v4：高亮规则表 + 单章内容覆盖表；同样纯增量，已有书签/划线不动。
+  ///
+  /// v4 → v5：朗读音频缓存索引表；旧表一行不动，缓存文件由服务按需重建。
   @override
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (m) => m.createAll(),
@@ -341,6 +370,9 @@ class NovelDb extends _$NovelDb {
       if (from < 4) {
         await m.createTable(novelHighlightRules);
         await m.createTable(novelContentOverrides);
+      }
+      if (from < 5) {
+        await m.createTable(novelTtsCacheEntries);
       }
     },
   );

@@ -8,6 +8,7 @@
 //   （会话内，换章不白屏）。
 
 import 'dart:async';
+import 'dart:io' show Directory;
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -28,6 +29,9 @@ import 'package:mimao/novel/reader/novel_reader_position.dart';
 import 'package:mimao/novel/reader/novel_reader_settings.dart';
 import 'package:mimao/novel/reader/novel_chinese_convert.dart';
 import 'package:mimao/novel/reader/novel_text_pagination.dart';
+import 'package:mimao/novel/reader/novel_tts.dart';
+import 'package:mimao/novel/reader/novel_tts_cache.dart';
+import 'package:mimao/novel/reader/novel_tts_export.dart';
 import 'package:mimao/novel/source/novel_rule_model.dart';
 import 'package:mimao/novel/source/novel_rule_store.dart';
 import 'package:mimao/novel/source/novel_source_model.dart';
@@ -63,6 +67,8 @@ class NovelReaderController extends ChangeNotifier {
     this.contentOverrides,
     this.bookmarks,
     this.initialLocator,
+    this.ttsEngine,
+    this.ttsCache,
     NovelReaderSettingsStore? settingsStore,
     NovelLayoutService? layoutService,
     NovelChapterCache? chapterCache,
@@ -99,6 +105,12 @@ class NovelReaderController extends ChangeNotifier {
 
   /// 从书签列表打开时指定的落点（优先于续读位置）。
   final NovelLocator? initialLocator;
+
+  /// 朗读后端注入缝；null 时按平台创建（测试不注入即不朗读）。
+  final NovelTtsEngine? ttsEngine;
+
+  /// 朗读音频缓存（L2）；null = 只读不缓存（测试/无数据层）。
+  final NovelTtsCache? ttsCache;
 
   final NovelReaderSettingsStore settingsStore;
   final NovelBookSettingsStore bookStore;
@@ -197,6 +209,38 @@ class NovelReaderController extends ChangeNotifier {
   Timer? _saveTimer;
   bool _disposed = false;
   int _loadSeq = 0;
+
+  // ── 朗读运行时状态（不落库：睡眠定时/暂停是本次会话的事） ─────────────
+  NovelTtsPlayer? _ttsPlayer;
+  NovelTtsEngine? _ownedTtsEngine;
+  NovelTtsEngine? _cachedTtsEngine;
+  bool _ttsEngineReady = false;
+
+  /// 控制器自己发起的续章加载；页面据此区分「朗读换章」与「用户换章」。
+  bool _ttsAdvancingChapter = false;
+  Timer? _ttsSleepTimer;
+
+  /// 睡眠定时到点时间；null = 未设。UI 据此倒计时。
+  DateTime? ttsSleepDeadline;
+
+  /// 朗读出错（后端故障）时通知页面；页面只提示，不吞掉错误。
+  void Function(Object error)? onTtsError;
+
+  /// 睡眠定时到点：控制器已停读，页面负责提示。
+  void Function()? onTtsSleepTimerFired;
+
+  bool get ttsAdvancingChapter => _ttsAdvancingChapter;
+
+  NovelTtsPlaybackState get ttsState =>
+      _ttsPlayer?.state ?? NovelTtsPlaybackState.idle;
+
+  bool get ttsActive => ttsState != NovelTtsPlaybackState.idle;
+
+  bool get ttsSpeaking => ttsState == NovelTtsPlaybackState.speaking;
+
+  bool get ttsPaused => ttsState == NovelTtsPlaybackState.paused;
+
+  int get ttsParagraph => _ttsPlayer?.paragraph ?? 0;
 
   bool get disposed => _disposed;
 
@@ -724,6 +768,306 @@ class NovelReaderController extends ChangeNotifier {
   ///
   /// [paragraphs] 是编辑后的最终段落（不含段首缩进）；空正文拒绝保存，
   /// 避免一次误删把整章变成空白。
+  // ── 朗读 ────────────────────────────────────────────────────────────────
+
+  /// 创建/复用后端。测试环境且未注入时返回 null（页面提示不支持）。
+  Future<NovelTtsEngine?> ensureTtsEngine() async {
+    final injected = ttsEngine;
+    if (injected != null) {
+      if (!_ttsEngineReady) {
+        try {
+          await injected.configure();
+        } on Object {
+          return null;
+        }
+        _ttsEngineReady = true;
+      }
+      return _withCache(injected);
+    }
+    final owned = _ownedTtsEngine;
+    if (owned != null) return _withCache(owned);
+    final created = createNovelTtsEngine();
+    if (created == null) return null;
+    try {
+      await created.configure();
+    } on Object {
+      return null;
+    }
+    _ownedTtsEngine = created;
+    return _withCache(created);
+  }
+
+  /// 系统可用音色；引擎不可用时返回空表（UI 回落到「自动」）。
+  Future<List<NovelTtsVoice>> availableTtsVoices() async {
+    final engine = await ensureTtsEngine();
+    if (engine == null) return const <NovelTtsVoice>[];
+    return engine.voices();
+  }
+
+  /// 缓存统计（设置面板展示）；没有缓存服务返回 null。
+  Future<NovelTtsCacheStats?> ttsCacheStats() async => await ttsCache?.stats();
+
+  /// 清空朗读缓存；返回删掉的段数。
+  Future<int> clearTtsCache() async => await ttsCache?.clear() ?? 0;
+
+  /// 有缓存服务且后端能「合成到文件 + 播文件」时套缓存装饰器。
+  NovelTtsEngine _withCache(NovelTtsEngine engine) {
+    final cache = ttsCache;
+    if (cache == null ||
+        !engine.supportsFileOutput ||
+        !engine.supportsFilePlayback) {
+      return engine;
+    }
+    return _cachedTtsEngine ??= CachedNovelTtsEngine(
+      inner: engine,
+      cache: cache,
+    );
+  }
+
+  /// 开始朗读；[fromParagraph] 缺省从本章第一段。返回 false = 当前平台无后端。
+  Future<bool> startTts({int? fromParagraph}) async {
+    if (ttsActive) return true;
+    final current = content;
+    if (current == null || current.paragraphs.isEmpty) return false;
+    final engine = await ensureTtsEngine();
+    if (engine == null || _disposed) return false;
+    final player = NovelTtsPlayer(
+      engine: engine,
+      runtime: () => NovelTtsRuntime(
+        rate: settings.ttsRate,
+        voice: settings.ttsVoice,
+        paragraphPauseMs: settings.ttsParagraphPauseMs,
+        autoNextChapter: settings.ttsAutoNextChapter,
+      ),
+      loadNextChapter: _loadNextChapterForTts,
+      cacheKey: ttsCache == null
+          ? null
+          : (paragraph) => novelTtsCacheKey(
+              bookId: bookId,
+              chapterKey: (chapter?.id.isNotEmpty ?? false)
+                  ? chapter!.id
+                  : (chapter?.url ?? ''),
+              paragraph: paragraph,
+              voice: settings.ttsVoice,
+              rate: settings.ttsRate,
+            ),
+      onParagraphChanged: (_) {
+        if (!_disposed) notifyListeners();
+      },
+      onStateChanged: (state) {
+        if (state == NovelTtsPlaybackState.idle) _cancelTtsSleepTimer();
+        if (!_disposed) notifyListeners();
+      },
+      onError: (error) {
+        onTtsError?.call(error);
+        if (!_disposed) notifyListeners();
+      },
+    );
+    _ttsPlayer = player;
+    notifyListeners();
+    await player.start(_ttsParagraphs(), from: fromParagraph ?? 0);
+    return true;
+  }
+
+  /// 朗读中 → 暂停；暂停中 → 继续；没开 → 从头开始。
+  Future<void> toggleTts() async {
+    switch (ttsState) {
+      case NovelTtsPlaybackState.idle:
+        await startTts();
+      case NovelTtsPlaybackState.speaking:
+        pauseTts();
+      case NovelTtsPlaybackState.paused:
+        resumeTts();
+    }
+  }
+
+  void pauseTts() {
+    final player = _ttsPlayer;
+    if (player == null || !player.isSpeaking) return;
+    player.pause();
+    notifyListeners();
+  }
+
+  void resumeTts() {
+    final player = _ttsPlayer;
+    if (player == null || player.state != NovelTtsPlaybackState.paused) {
+      return;
+    }
+    player.resume();
+    notifyListeners();
+  }
+
+  /// 停止朗读并清理睡眠定时。
+  Future<void> stopTts() async {
+    final player = _ttsPlayer;
+    _ttsPlayer = null;
+    _cancelTtsSleepTimer();
+    await player?.stop();
+    if (!_disposed) notifyListeners();
+  }
+
+  /// 手动翻页「跟随」：把朗读位置挪到指定段。
+  void seekTtsToParagraph(int paragraph) {
+    final player = _ttsPlayer;
+    if (player == null || !player.isActive) return;
+    player.seek(paragraph);
+  }
+
+  /// 设置/清除睡眠定时；null 或非正数 = 关闭。
+  void setTtsSleepTimer(Duration? duration) {
+    _ttsSleepTimer?.cancel();
+    _ttsSleepTimer = null;
+    if (duration == null || duration <= Duration.zero) {
+      ttsSleepDeadline = null;
+      notifyListeners();
+      return;
+    }
+    final deadline = DateTime.now().add(duration);
+    ttsSleepDeadline = deadline;
+    _ttsSleepTimer = Timer(duration, () {
+      if (_disposed) return;
+      _ttsSleepTimer = null;
+      ttsSleepDeadline = null;
+      final player = _ttsPlayer;
+      _ttsPlayer = null;
+      unawaited(player?.stop());
+      onTtsSleepTimerFired?.call();
+      notifyListeners();
+    });
+    notifyListeners();
+  }
+
+  void _cancelTtsSleepTimer() {
+    _ttsSleepTimer?.cancel();
+    _ttsSleepTimer = null;
+    ttsSleepDeadline = null;
+  }
+
+  /// 章末续章：读下一章并返回它的段落。null = 没有下一章或加载失败。
+  Future<List<String>?> _loadNextChapterForTts() async {
+    if (!settings.ttsAutoNextChapter) return null;
+    final next = neighborChapter(1);
+    if (next == null) return null;
+    _ttsAdvancingChapter = true;
+    try {
+      await openChapter(next);
+    } finally {
+      _ttsAdvancingChapter = false;
+    }
+    if (_disposed || loadError != null) return null;
+    final current = content;
+    if (current == null || current.paragraphs.isEmpty) return null;
+    return _ttsParagraphs();
+  }
+
+  /// 当前章的朗读文本（简繁转换后，不含段首缩进——缩进是排版，不该念出来）。
+  List<String> _ttsParagraphs() {
+    final current = content;
+    if (current == null) return const <String>[];
+    return <String>[
+      for (final paragraph in current.paragraphs) _convert(paragraph),
+    ];
+  }
+
+  /// 导出朗读音频（L2）：[wholeBook] 为 true 时逐章拉正文，否则只导当前章。
+  ///
+  /// 合成走独立临时目录，成功拼成 wav 后删除临时文件；取消/失败时连同
+  /// 半成品目标文件一起清掉。返回已写入的段数与字节数。
+  Future<NovelTtsExportResult> exportTtsAudio({
+    required String outputPath,
+    required bool wholeBook,
+    void Function(int done, int total)? onProgress,
+    bool Function()? isCancelled,
+  }) async {
+    if (ttsActive) await stopTts();
+    final engine = await ensureTtsEngine();
+    if (engine == null) {
+      throw StateError('当前平台不支持导出朗读音频');
+    }
+    if (!engine.supportsFileOutput) {
+      throw StateError('当前语音后端不支持合成到文件');
+    }
+    final work = await Directory.systemTemp.createTemp('mimao_tts_export_');
+    try {
+      final total = wholeBook
+          ? (detail?.chapters.where((chapter) => !chapter.isVolume).length ?? 1)
+          : 1;
+      return await NovelTtsExporter(engine: engine, workDirectory: work).export(
+        outputPath: outputPath,
+        chapters: wholeBook
+            ? _exportWholeBookStream()
+            : _exportCurrentChapterStream(),
+        rate: settings.ttsRate,
+        voice: settings.ttsVoice,
+        totalChapters: total,
+        onProgress: onProgress,
+        isCancelled: isCancelled,
+      );
+    } finally {
+      try {
+        await work.delete(recursive: true);
+      } on Object {
+        // 临时目录清不掉不阻塞导出结果。
+      }
+    }
+  }
+
+  Stream<List<String>> _exportCurrentChapterStream() async* {
+    final paragraphs = _ttsParagraphs();
+    if (paragraphs.isEmpty) return;
+    final target = chapter;
+    final title = target == null ? '' : _convert(target.title);
+    yield <String>[if (title.trim().isNotEmpty) title, ...paragraphs];
+  }
+
+  Stream<List<String>> _exportWholeBookStream() async* {
+    final currentDetail = detail;
+    final engine = onlineEngine;
+    final currentSource = source;
+    if (currentDetail == null || engine == null || currentSource == null) {
+      throw StateError('这本书没有可导出的在线目录');
+    }
+    for (final target in currentDetail.chapters) {
+      if (target.isVolume) continue;
+      NovelContent raw;
+      try {
+        raw = await chapterCache.load(
+          engine: engine,
+          source: currentSource,
+          ref: currentDetail.ref,
+          chapter: target,
+        );
+      } on Object catch (error) {
+        throw StateError('第 ${target.index + 1} 章加载失败：$error');
+      }
+      final cleaned = applyContentReplaceRules(raw);
+      final title = _convert(target.title);
+      final paragraphs = <String>[
+        if (title.trim().isNotEmpty) title,
+        for (final paragraph in cleaned.paragraphs) _convert(paragraph),
+      ].where((paragraph) => paragraph.trim().isNotEmpty).toList();
+      if (paragraphs.isNotEmpty) yield paragraphs;
+    }
+  }
+
+  /// 段落落在哪一页（翻页模式）；未排版或找不到返回 null。
+  int? pageIndexForParagraph(int paragraph) {
+    for (var i = 0; i < pages.length; i++) {
+      for (final slice in pages[i].slices) {
+        if (!slice.isTitle && slice.paragraph == paragraph) return i;
+      }
+    }
+    return null;
+  }
+
+  /// 翻页模式跟随朗读：把 pageIndex 对齐到目标段所在页。返回是否翻页。
+  bool syncPageToParagraph(int paragraph) {
+    final index = pageIndexForParagraph(paragraph);
+    if (index == null || index == pageIndex) return false;
+    setPageIndex(index);
+    return true;
+  }
+
   Future<bool> saveChapterOverride(
     List<String> paragraphs, {
     String? title,
@@ -1648,6 +1992,12 @@ class NovelReaderController extends ChangeNotifier {
     _disposed = true;
     _saveTimer?.cancel();
     _settingsTimer?.cancel();
+    _ttsSleepTimer?.cancel();
+    _ttsSleepTimer = null;
+    final player = _ttsPlayer;
+    _ttsPlayer = null;
+    unawaited(player?.stop());
+    unawaited(_ownedTtsEngine?.stop());
     layoutService.cancel();
     chapterCache.clear();
     super.dispose();

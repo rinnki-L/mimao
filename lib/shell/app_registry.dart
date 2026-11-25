@@ -66,6 +66,7 @@ import 'package:mimao/novel/novel_entry.dart';
 import 'package:mimao/novel/reader/novel_bookmark_service.dart';
 import 'package:mimao/novel/reader/novel_content_override_service.dart';
 import 'package:mimao/novel/reader/novel_highlight_rule_service.dart';
+import 'package:mimao/novel/reader/novel_tts_cache.dart';
 import 'package:mimao/novel/search_history_service.dart';
 import 'package:mimao/novel/source/novel_rule_store.dart';
 import 'package:mimao/novel/source/novel_source_importer.dart';
@@ -532,6 +533,8 @@ Future<void> initAppModules({
       // 高亮规则与单章正文覆盖：同库不同表，阅读器与编辑页共用。
       final highlightRuleApi = NovelHighlightRuleService(db);
       final contentOverrideApi = NovelContentOverrideService(db);
+      // 朗读音频缓存：同库不同表，文件落应用支持目录（惰性解析，装配期零 I/O）。
+      final ttsCache = NovelTtsCache.app(db);
       NovelPrefsApi? prefsApi = novelPrefs;
       if (prefsApi == null) {
         final candidate = statsApi;
@@ -570,6 +573,7 @@ Future<void> initAppModules({
         replaceStore: sourceImporter.replaceStore,
         highlightStore: highlightRuleApi,
         contentOverrides: contentOverrideApi,
+        ttsCache: ttsCache,
         subscriptionStore: NovelSubscriptionFileStore.lazy(),
       );
     }

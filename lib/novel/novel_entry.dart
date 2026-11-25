@@ -29,6 +29,7 @@ import 'package:mimao/novel/reader/novel_bookmark_service.dart';
 import 'package:mimao/novel/reader/novel_content_override_service.dart';
 import 'package:mimao/novel/reader/novel_highlight_rule_service.dart';
 import 'package:mimao/novel/reader/novel_locator.dart';
+import 'package:mimao/novel/reader/novel_tts_cache.dart';
 import 'package:mimao/novel/source/novel_rule_model.dart' show NovelRuleKind;
 import 'package:mimao/novel/source/novel_rule_store.dart'
     show NovelReplaceRuleStorage;
@@ -57,6 +58,7 @@ class NovelModule implements AppModule {
     this.booklistGate,
     this.subscriptionStore,
     this.backupClient,
+    this.ttsCache,
   });
 
   final NovelEngine? engine;
@@ -81,6 +83,9 @@ class NovelModule implements AppModule {
 
   /// 单章本地覆盖仓库（阅读器正文编辑）。
   final NovelContentOverrideStorage? contentOverrides;
+
+  /// 朗读音频缓存（L2）；null = 不做缓存（测试或未接数据层）。
+  final NovelTtsCache? ttsCache;
   final NovelBooklistFileGate? booklistGate;
   final NovelSubscriptionStore? subscriptionStore;
   final NovelWebDavClient? backupClient;
@@ -166,6 +171,7 @@ class NovelModule implements AppModule {
         highlightRules: highlightStore,
         contentOverrides: contentOverrides,
         bookmarks: bookmarks,
+        ttsCache: ttsCache,
         initialLocator: args['initialLocator'] is NovelLocator
             ? args['initialLocator'] as NovelLocator
             : null,

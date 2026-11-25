@@ -4674,6 +4674,376 @@ class NovelContentOverridesCompanion
   }
 }
 
+class $NovelTtsCacheEntriesTable extends NovelTtsCacheEntries
+    with TableInfo<$NovelTtsCacheEntriesTable, NovelTtsCacheRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $NovelTtsCacheEntriesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _cacheKeyMeta = const VerificationMeta(
+    'cacheKey',
+  );
+  @override
+  late final GeneratedColumn<String> cacheKey = GeneratedColumn<String>(
+    'cache_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _pathMeta = const VerificationMeta('path');
+  @override
+  late final GeneratedColumn<String> path = GeneratedColumn<String>(
+    'path',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _bytesMeta = const VerificationMeta('bytes');
+  @override
+  late final GeneratedColumn<int> bytes = GeneratedColumn<int>(
+    'bytes',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _lastUsedAtMeta = const VerificationMeta(
+    'lastUsedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> lastUsedAt = GeneratedColumn<DateTime>(
+    'last_used_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    cacheKey,
+    path,
+    bytes,
+    createdAt,
+    lastUsedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'novel_tts_cache';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<NovelTtsCacheRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('cache_key')) {
+      context.handle(
+        _cacheKeyMeta,
+        cacheKey.isAcceptableOrUnknown(data['cache_key']!, _cacheKeyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_cacheKeyMeta);
+    }
+    if (data.containsKey('path')) {
+      context.handle(
+        _pathMeta,
+        path.isAcceptableOrUnknown(data['path']!, _pathMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_pathMeta);
+    }
+    if (data.containsKey('bytes')) {
+      context.handle(
+        _bytesMeta,
+        bytes.isAcceptableOrUnknown(data['bytes']!, _bytesMeta),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('last_used_at')) {
+      context.handle(
+        _lastUsedAtMeta,
+        lastUsedAt.isAcceptableOrUnknown(
+          data['last_used_at']!,
+          _lastUsedAtMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_lastUsedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {cacheKey};
+  @override
+  NovelTtsCacheRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return NovelTtsCacheRow(
+      cacheKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}cache_key'],
+      )!,
+      path: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}path'],
+      )!,
+      bytes: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}bytes'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+      lastUsedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}last_used_at'],
+      )!,
+    );
+  }
+
+  @override
+  $NovelTtsCacheEntriesTable createAlias(String alias) {
+    return $NovelTtsCacheEntriesTable(attachedDatabase, alias);
+  }
+}
+
+class NovelTtsCacheRow extends DataClass
+    implements Insertable<NovelTtsCacheRow> {
+  /// sha256(bookId|chapterKey|paragraph|voice|rate)。
+  final String cacheKey;
+  final String path;
+
+  /// 文件字节数，用于容量统计。
+  final int bytes;
+  final DateTime createdAt;
+  final DateTime lastUsedAt;
+  const NovelTtsCacheRow({
+    required this.cacheKey,
+    required this.path,
+    required this.bytes,
+    required this.createdAt,
+    required this.lastUsedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['cache_key'] = Variable<String>(cacheKey);
+    map['path'] = Variable<String>(path);
+    map['bytes'] = Variable<int>(bytes);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    map['last_used_at'] = Variable<DateTime>(lastUsedAt);
+    return map;
+  }
+
+  NovelTtsCacheEntriesCompanion toCompanion(bool nullToAbsent) {
+    return NovelTtsCacheEntriesCompanion(
+      cacheKey: Value(cacheKey),
+      path: Value(path),
+      bytes: Value(bytes),
+      createdAt: Value(createdAt),
+      lastUsedAt: Value(lastUsedAt),
+    );
+  }
+
+  factory NovelTtsCacheRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return NovelTtsCacheRow(
+      cacheKey: serializer.fromJson<String>(json['cacheKey']),
+      path: serializer.fromJson<String>(json['path']),
+      bytes: serializer.fromJson<int>(json['bytes']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      lastUsedAt: serializer.fromJson<DateTime>(json['lastUsedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'cacheKey': serializer.toJson<String>(cacheKey),
+      'path': serializer.toJson<String>(path),
+      'bytes': serializer.toJson<int>(bytes),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'lastUsedAt': serializer.toJson<DateTime>(lastUsedAt),
+    };
+  }
+
+  NovelTtsCacheRow copyWith({
+    String? cacheKey,
+    String? path,
+    int? bytes,
+    DateTime? createdAt,
+    DateTime? lastUsedAt,
+  }) => NovelTtsCacheRow(
+    cacheKey: cacheKey ?? this.cacheKey,
+    path: path ?? this.path,
+    bytes: bytes ?? this.bytes,
+    createdAt: createdAt ?? this.createdAt,
+    lastUsedAt: lastUsedAt ?? this.lastUsedAt,
+  );
+  NovelTtsCacheRow copyWithCompanion(NovelTtsCacheEntriesCompanion data) {
+    return NovelTtsCacheRow(
+      cacheKey: data.cacheKey.present ? data.cacheKey.value : this.cacheKey,
+      path: data.path.present ? data.path.value : this.path,
+      bytes: data.bytes.present ? data.bytes.value : this.bytes,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      lastUsedAt: data.lastUsedAt.present
+          ? data.lastUsedAt.value
+          : this.lastUsedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('NovelTtsCacheRow(')
+          ..write('cacheKey: $cacheKey, ')
+          ..write('path: $path, ')
+          ..write('bytes: $bytes, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('lastUsedAt: $lastUsedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(cacheKey, path, bytes, createdAt, lastUsedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is NovelTtsCacheRow &&
+          other.cacheKey == this.cacheKey &&
+          other.path == this.path &&
+          other.bytes == this.bytes &&
+          other.createdAt == this.createdAt &&
+          other.lastUsedAt == this.lastUsedAt);
+}
+
+class NovelTtsCacheEntriesCompanion extends UpdateCompanion<NovelTtsCacheRow> {
+  final Value<String> cacheKey;
+  final Value<String> path;
+  final Value<int> bytes;
+  final Value<DateTime> createdAt;
+  final Value<DateTime> lastUsedAt;
+  final Value<int> rowid;
+  const NovelTtsCacheEntriesCompanion({
+    this.cacheKey = const Value.absent(),
+    this.path = const Value.absent(),
+    this.bytes = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.lastUsedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  NovelTtsCacheEntriesCompanion.insert({
+    required String cacheKey,
+    required String path,
+    this.bytes = const Value.absent(),
+    required DateTime createdAt,
+    required DateTime lastUsedAt,
+    this.rowid = const Value.absent(),
+  }) : cacheKey = Value(cacheKey),
+       path = Value(path),
+       createdAt = Value(createdAt),
+       lastUsedAt = Value(lastUsedAt);
+  static Insertable<NovelTtsCacheRow> custom({
+    Expression<String>? cacheKey,
+    Expression<String>? path,
+    Expression<int>? bytes,
+    Expression<DateTime>? createdAt,
+    Expression<DateTime>? lastUsedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (cacheKey != null) 'cache_key': cacheKey,
+      if (path != null) 'path': path,
+      if (bytes != null) 'bytes': bytes,
+      if (createdAt != null) 'created_at': createdAt,
+      if (lastUsedAt != null) 'last_used_at': lastUsedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  NovelTtsCacheEntriesCompanion copyWith({
+    Value<String>? cacheKey,
+    Value<String>? path,
+    Value<int>? bytes,
+    Value<DateTime>? createdAt,
+    Value<DateTime>? lastUsedAt,
+    Value<int>? rowid,
+  }) {
+    return NovelTtsCacheEntriesCompanion(
+      cacheKey: cacheKey ?? this.cacheKey,
+      path: path ?? this.path,
+      bytes: bytes ?? this.bytes,
+      createdAt: createdAt ?? this.createdAt,
+      lastUsedAt: lastUsedAt ?? this.lastUsedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (cacheKey.present) {
+      map['cache_key'] = Variable<String>(cacheKey.value);
+    }
+    if (path.present) {
+      map['path'] = Variable<String>(path.value);
+    }
+    if (bytes.present) {
+      map['bytes'] = Variable<int>(bytes.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (lastUsedAt.present) {
+      map['last_used_at'] = Variable<DateTime>(lastUsedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('NovelTtsCacheEntriesCompanion(')
+          ..write('cacheKey: $cacheKey, ')
+          ..write('path: $path, ')
+          ..write('bytes: $bytes, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('lastUsedAt: $lastUsedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$NovelDb extends GeneratedDatabase {
   _$NovelDb(QueryExecutor e) : super(e);
   $NovelDbManager get managers => $NovelDbManager(this);
@@ -4696,6 +5066,8 @@ abstract class _$NovelDb extends GeneratedDatabase {
       $NovelHighlightRulesTable(this);
   late final $NovelContentOverridesTable novelContentOverrides =
       $NovelContentOverridesTable(this);
+  late final $NovelTtsCacheEntriesTable novelTtsCacheEntries =
+      $NovelTtsCacheEntriesTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -4710,6 +5082,7 @@ abstract class _$NovelDb extends GeneratedDatabase {
     novelMarkingEntries,
     novelHighlightRules,
     novelContentOverrides,
+    novelTtsCacheEntries,
   ];
 }
 
@@ -7159,6 +7532,220 @@ typedef $$NovelContentOverridesTableProcessedTableManager =
       NovelContentOverrideRow,
       PrefetchHooks Function()
     >;
+typedef $$NovelTtsCacheEntriesTableCreateCompanionBuilder =
+    NovelTtsCacheEntriesCompanion Function({
+      required String cacheKey,
+      required String path,
+      Value<int> bytes,
+      required DateTime createdAt,
+      required DateTime lastUsedAt,
+      Value<int> rowid,
+    });
+typedef $$NovelTtsCacheEntriesTableUpdateCompanionBuilder =
+    NovelTtsCacheEntriesCompanion Function({
+      Value<String> cacheKey,
+      Value<String> path,
+      Value<int> bytes,
+      Value<DateTime> createdAt,
+      Value<DateTime> lastUsedAt,
+      Value<int> rowid,
+    });
+
+class $$NovelTtsCacheEntriesTableFilterComposer
+    extends Composer<_$NovelDb, $NovelTtsCacheEntriesTable> {
+  $$NovelTtsCacheEntriesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get cacheKey => $composableBuilder(
+    column: $table.cacheKey,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get path => $composableBuilder(
+    column: $table.path,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get bytes => $composableBuilder(
+    column: $table.bytes,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get lastUsedAt => $composableBuilder(
+    column: $table.lastUsedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$NovelTtsCacheEntriesTableOrderingComposer
+    extends Composer<_$NovelDb, $NovelTtsCacheEntriesTable> {
+  $$NovelTtsCacheEntriesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get cacheKey => $composableBuilder(
+    column: $table.cacheKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get path => $composableBuilder(
+    column: $table.path,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get bytes => $composableBuilder(
+    column: $table.bytes,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get lastUsedAt => $composableBuilder(
+    column: $table.lastUsedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$NovelTtsCacheEntriesTableAnnotationComposer
+    extends Composer<_$NovelDb, $NovelTtsCacheEntriesTable> {
+  $$NovelTtsCacheEntriesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get cacheKey =>
+      $composableBuilder(column: $table.cacheKey, builder: (column) => column);
+
+  GeneratedColumn<String> get path =>
+      $composableBuilder(column: $table.path, builder: (column) => column);
+
+  GeneratedColumn<int> get bytes =>
+      $composableBuilder(column: $table.bytes, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get lastUsedAt => $composableBuilder(
+    column: $table.lastUsedAt,
+    builder: (column) => column,
+  );
+}
+
+class $$NovelTtsCacheEntriesTableTableManager
+    extends
+        RootTableManager<
+          _$NovelDb,
+          $NovelTtsCacheEntriesTable,
+          NovelTtsCacheRow,
+          $$NovelTtsCacheEntriesTableFilterComposer,
+          $$NovelTtsCacheEntriesTableOrderingComposer,
+          $$NovelTtsCacheEntriesTableAnnotationComposer,
+          $$NovelTtsCacheEntriesTableCreateCompanionBuilder,
+          $$NovelTtsCacheEntriesTableUpdateCompanionBuilder,
+          (
+            NovelTtsCacheRow,
+            BaseReferences<
+              _$NovelDb,
+              $NovelTtsCacheEntriesTable,
+              NovelTtsCacheRow
+            >,
+          ),
+          NovelTtsCacheRow,
+          PrefetchHooks Function()
+        > {
+  $$NovelTtsCacheEntriesTableTableManager(
+    _$NovelDb db,
+    $NovelTtsCacheEntriesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$NovelTtsCacheEntriesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$NovelTtsCacheEntriesTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$NovelTtsCacheEntriesTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> cacheKey = const Value.absent(),
+                Value<String> path = const Value.absent(),
+                Value<int> bytes = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<DateTime> lastUsedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => NovelTtsCacheEntriesCompanion(
+                cacheKey: cacheKey,
+                path: path,
+                bytes: bytes,
+                createdAt: createdAt,
+                lastUsedAt: lastUsedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String cacheKey,
+                required String path,
+                Value<int> bytes = const Value.absent(),
+                required DateTime createdAt,
+                required DateTime lastUsedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => NovelTtsCacheEntriesCompanion.insert(
+                cacheKey: cacheKey,
+                path: path,
+                bytes: bytes,
+                createdAt: createdAt,
+                lastUsedAt: lastUsedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$NovelTtsCacheEntriesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$NovelDb,
+      $NovelTtsCacheEntriesTable,
+      NovelTtsCacheRow,
+      $$NovelTtsCacheEntriesTableFilterComposer,
+      $$NovelTtsCacheEntriesTableOrderingComposer,
+      $$NovelTtsCacheEntriesTableAnnotationComposer,
+      $$NovelTtsCacheEntriesTableCreateCompanionBuilder,
+      $$NovelTtsCacheEntriesTableUpdateCompanionBuilder,
+      (
+        NovelTtsCacheRow,
+        BaseReferences<_$NovelDb, $NovelTtsCacheEntriesTable, NovelTtsCacheRow>,
+      ),
+      NovelTtsCacheRow,
+      PrefetchHooks Function()
+    >;
 
 class $NovelDbManager {
   final _$NovelDb _db;
@@ -7181,4 +7768,6 @@ class $NovelDbManager {
       $$NovelHighlightRulesTableTableManager(_db, _db.novelHighlightRules);
   $$NovelContentOverridesTableTableManager get novelContentOverrides =>
       $$NovelContentOverridesTableTableManager(_db, _db.novelContentOverrides);
+  $$NovelTtsCacheEntriesTableTableManager get novelTtsCacheEntries =>
+      $$NovelTtsCacheEntriesTableTableManager(_db, _db.novelTtsCacheEntries);
 }

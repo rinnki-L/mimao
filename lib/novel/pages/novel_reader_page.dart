@@ -20,6 +20,7 @@ import 'dart:async';
 import 'dart:io' show File, Platform;
 import 'dart:math' as math;
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/gestures.dart'
     show PointerScrollEvent, TapGestureRecognizer;
@@ -52,9 +53,12 @@ import 'package:mimao/novel/reader/novel_selection_menu.dart';
 import 'package:mimao/novel/reader/novel_source_switch_sheet.dart';
 import 'package:mimao/novel/reader/novel_text_pagination.dart';
 import 'package:mimao/novel/reader/novel_tts.dart';
+import 'package:mimao/novel/reader/novel_tts_cache.dart';
+import 'package:mimao/novel/reader/novel_tts_export.dart';
 import 'package:mimao/novel/source/novel_rule_store.dart';
 import 'package:mimao/novel/source/novel_source_model.dart';
 import 'package:mimao/novel/source/novel_source_store.dart';
+import 'package:path/path.dart' as p;
 
 class NovelReaderPage extends StatefulWidget {
   const NovelReaderPage({
@@ -81,6 +85,8 @@ class NovelReaderPage extends StatefulWidget {
     this.settingsStore,
     this.bookmarks,
     this.initialLocator,
+    this.ttsEngine,
+    this.ttsCache,
   });
 
   final String bookId;
@@ -120,6 +126,12 @@ class NovelReaderPage extends StatefulWidget {
   /// 从书签列表直接打开时带进来的落点；首章据此选章并跳过续读位置。
   final NovelLocator? initialLocator;
 
+  /// 朗读后端注入缝；测试注入 fake，生产按平台自动创建。
+  final NovelTtsEngine? ttsEngine;
+
+  /// 朗读音频缓存（L2）；null = 不缓存。
+  final NovelTtsCache? ttsCache;
+
   @override
   State<NovelReaderPage> createState() => _NovelReaderPageState();
 }
@@ -145,9 +157,6 @@ class _NovelReaderPageState extends State<NovelReaderPage>
       ? math.max(_footerHeight, _settings.footerFontSize * 1.5 + 16)
       : 0;
 
-  static bool get _isTest =>
-      !kIsWeb && Platform.environment.containsKey('FLUTTER_TEST');
-
   /// 自动亮度需要系统亮度接口（Android 侧后续接入 screen_brightness）；
   /// 桌面端没有可靠接口，隐藏该按钮，亮度用遮罩滑杆。
   static bool get _supportsAutoBrightness => !kIsWeb && Platform.isAndroid;
@@ -168,13 +177,17 @@ class _NovelReaderPageState extends State<NovelReaderPage>
   Timer? _autoTimer;
   bool _appPaused = false;
 
-  NovelTtsEngine? _tts;
-  bool _speaking = false;
-  bool _ensuringTts = false;
-  int _ttsParagraph = 0;
-
   int? _highlightParagraph;
   Timer? _highlightTimer;
+
+  /// 朗读跟随：上一段/上一状态，用于只在「段变了 / 刚开始读」时滚动一次，
+  /// 避免每帧 notify 都把用户手动滚走的视口拽回来。
+  int _lastTtsParagraph = -1;
+  NovelTtsPlaybackState _lastTtsState = NovelTtsPlaybackState.idle;
+
+  /// 导出朗读音频的进行/取消状态（同一时间只允许一个导出）。
+  bool _exporting = false;
+  bool _exportCancelled = false;
 
   /// 划线点击识别器：按 marking id 复用，切章/退出时统一 dispose。
   final Map<int, TapGestureRecognizer> _markingTaps =
@@ -219,7 +232,17 @@ class _NovelReaderPageState extends State<NovelReaderPage>
       settingsStore: widget.settingsStore,
       bookmarks: widget.bookmarks,
       initialLocator: widget.initialLocator,
+      ttsEngine: widget.ttsEngine,
+      ttsCache: widget.ttsCache,
     );
+    _controller.onTtsError = (error) {
+      if (!mounted) return;
+      _showSnack('朗读中断：$error');
+    };
+    _controller.onTtsSleepTimerFired = () {
+      if (!mounted) return;
+      _showSnack('睡眠定时已到，朗读已停止');
+    };
     _controller.addListener(_onControllerChanged);
     _scroll.addListener(_onScroll);
     _session.start();
@@ -246,7 +269,6 @@ class _NovelReaderPageState extends State<NovelReaderPage>
     _scrollRatio.dispose();
     _chromeVisible.dispose();
     _focus.dispose();
-    unawaited(_stopTts());
     unawaited(NovelImmersive.exit());
     super.dispose();
   }
@@ -261,7 +283,7 @@ class _NovelReaderPageState extends State<NovelReaderPage>
         _autoTimer?.cancel();
         _autoTimer = null;
         _flushReadingTime();
-        unawaited(_stopTts());
+        unawaited(_controller.stopTts());
       case AppLifecycleState.resumed:
         _appPaused = false;
         _session.start();
@@ -288,10 +310,25 @@ class _NovelReaderPageState extends State<NovelReaderPage>
         ..reset()
         ..start();
       _highlightParagraph = null;
-      unawaited(_stopTts());
+      // 朗读自己续章时不停读；用户手动换章（目录/上一章/换源）才停。
+      if (!_controller.ttsAdvancingChapter) {
+        unawaited(_controller.stopTts());
+      }
+      _lastTtsParagraph = _controller.ttsParagraph;
     }
     _markingSnapshot = List<NovelMarking>.of(_controller.chapterMarkings);
     setState(() {});
+    final ttsState = _controller.ttsState;
+    final ttsParagraph = _controller.ttsParagraph;
+    final startedOrResumed =
+        ttsState == NovelTtsPlaybackState.speaking &&
+        _lastTtsState != NovelTtsPlaybackState.speaking;
+    if (ttsState == NovelTtsPlaybackState.speaking &&
+        (ttsParagraph != _lastTtsParagraph || startedOrResumed)) {
+      _lastTtsParagraph = ttsParagraph;
+      _followTtsParagraph(ttsParagraph);
+    }
+    _lastTtsState = ttsState;
     if (!_restoreScheduled) {
       _restoreScheduled = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -367,6 +404,38 @@ class _NovelReaderPageState extends State<NovelReaderPage>
         ),
       );
     });
+  }
+
+  /// 朗读跟随：把视口带到正在读的段落。
+  ///
+  /// 翻页模式直接对齐页码；滚动模式优先在当前已构建的段落上做
+  /// ensureVisible（对齐到视口上部 1/3，前后文都留一点），没构建就退回
+  /// 按段落比例粗定位。只在段落变化 / 开始朗读时调用，不跟每一帧。
+  void _followTtsParagraph(int paragraph) {
+    final content = _controller.content;
+    if (content == null ||
+        paragraph < 0 ||
+        paragraph >= content.paragraphs.length) {
+      return;
+    }
+    if (_controller.settings.pageMode == NovelPageMode.page) {
+      if (_controller.syncPageToParagraph(paragraph)) setState(() {});
+      return;
+    }
+    if (!_scroll.hasClients) return;
+    final target = _paragraphKey(paragraph).currentContext;
+    if (target != null && target.mounted) {
+      unawaited(
+        Scrollable.ensureVisible(
+          target,
+          alignment: 0.3,
+          duration: const Duration(milliseconds: 240),
+          curve: Curves.easeOut,
+        ),
+      );
+      return;
+    }
+    _jumpToParagraph(paragraph);
   }
 
   int _visibleParagraph() {
@@ -478,7 +547,24 @@ class _NovelReaderPageState extends State<NovelReaderPage>
     _controller.setPageIndex(spreads[index].first);
   }
 
-  void _turnPage(int direction) {
+  /// 手动翻页：朗读开着时按设置暂停或跟随。
+  ///
+  /// - 默认「暂停」：避免朗读还在上一页、眼睛已经翻到下一页；
+  /// - 「跟随」：把朗读位置挪到新页第一段，声音跟着视线走。
+  void _turnPage(int direction, {bool manual = true}) {
+    final settings = _controller.settings;
+    final follow =
+        manual &&
+        _controller.ttsActive &&
+        settings.ttsTurnPagePolicy == NovelTtsTurnPolicy.follow;
+    if (manual && _controller.ttsActive && !follow) {
+      _controller.pauseTts();
+    }
+    _turnPageCore(direction);
+    if (follow) _controller.seekTtsToParagraph(_firstParagraphOnPage());
+  }
+
+  void _turnPageCore(int direction) {
     final settings = _controller.settings;
     if (!_controller.settingsReady || _controller.content == null) return;
     if (settings.pageMode == NovelPageMode.page) {
@@ -692,6 +778,28 @@ class _NovelReaderPageState extends State<NovelReaderPage>
   }
 
   /// 给一段正文套上选区探针；探针进出时登记/注销自己的 notifier。
+  /// 正在朗读的段落加一层底色（暂停时保留，表示「停在哪儿」）。
+  ///
+  /// [keySuffix] 用于翻页模式：同一段可能被切成多个 slice，键不能重复。
+  Widget _withTtsHighlight(
+    int paragraph,
+    Widget child, {
+    String keySuffix = '',
+  }) {
+    if (!_controller.ttsActive || _controller.ttsParagraph != paragraph) {
+      return child;
+    }
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      key: Key('novel-tts-current-$paragraph$keySuffix'),
+      decoration: BoxDecoration(
+        color: scheme.secondary.withValues(alpha: 0.20),
+        borderRadius: MimaoShapes.sm,
+      ),
+      child: child,
+    );
+  }
+
   Widget _withSelectionListener(int paragraph, Widget child) {
     return _NovelSelectionProbe(
       paragraph: paragraph,
@@ -1115,7 +1223,7 @@ class _NovelReaderPageState extends State<NovelReaderPage>
       Duration(seconds: _controller.settings.autoPageSeconds),
       (_) {
         if (!mounted || !_autoReading || _appPaused) return;
-        _turnPage(1);
+        _turnPage(1, manual: false);
       },
     );
   }
@@ -1127,41 +1235,22 @@ class _NovelReaderPageState extends State<NovelReaderPage>
   }
 
   // ── 朗读 ──────────────────────────────────────────────────────────────
-  Future<NovelTtsEngine?> _ensureTts() async {
-    if (_isTest) return null;
-    final existing = _tts;
-    if (existing != null) return existing;
-    final engine = createNovelTtsEngine();
-    if (engine == null) return null;
-    try {
-      await engine.configure();
-      _tts = engine;
-      return engine;
-    } on Object {
-      await engine.stop();
-      return null;
-    }
-  }
-
   Future<void> _toggleTts() async {
-    if (_speaking) {
-      await _stopTts();
-      return;
+    switch (_controller.ttsState) {
+      case NovelTtsPlaybackState.speaking:
+        _controller.pauseTts();
+      case NovelTtsPlaybackState.paused:
+        _controller.resumeTts();
+      case NovelTtsPlaybackState.idle:
+        if (_controller.content == null) {
+          _showSnack('正文还没加载完，暂时不能朗读');
+          return;
+        }
+        final ok = await _controller.startTts(
+          fromParagraph: _firstParagraphOnPage(),
+        );
+        if (!ok && mounted) _showSnack('当前平台暂不支持朗读');
     }
-    if (_ensuringTts) return;
-    final content = _controller.content;
-    if (content == null) return;
-    _ensuringTts = true;
-    final tts = await _ensureTts();
-    _ensuringTts = false;
-    if (!mounted) return;
-    if (tts == null) {
-      _showSnack('当前平台暂不支持朗读');
-      return;
-    }
-    setState(() => _speaking = true);
-    _ttsParagraph = _firstParagraphOnPage();
-    await _speakParagraphs(tts, content);
   }
 
   int _firstParagraphOnPage() {
@@ -1177,34 +1266,110 @@ class _NovelReaderPageState extends State<NovelReaderPage>
     return _visibleParagraph();
   }
 
-  Future<void> _speakParagraphs(
-    NovelTtsEngine tts,
-    NovelContent content,
-  ) async {
-    for (var i = _ttsParagraph; i < content.paragraphs.length; i++) {
-      if (!_speaking || !mounted) return;
-      _ttsParagraph = i;
-      try {
-        await tts.speak(content.paragraphs[i]);
-      } on Object {
-        await _stopTts();
-        if (mounted) _showSnack('朗读失败，已停止');
-        return;
-      }
+  Future<void> _stopTts() => _controller.stopTts();
+
+  /// 导出当前章/全书朗读音频：选目录 → 进度对话框可取消 → 完成提示路径。
+  Future<void> _exportAudio({required bool wholeBook}) async {
+    if (_exporting) return;
+    final content = _controller.content;
+    final detail = _controller.detail;
+    if (content == null || detail == null) {
+      _showSnack('正文和目录还没加载完，暂时不能导出');
+      return;
     }
-    await _stopTts();
+    final directory = await FilePicker.getDirectoryPath(
+      dialogTitle: wholeBook ? '选择全书朗读音频的保存目录' : '选择本章朗读音频的保存目录',
+    );
+    if (!mounted || directory == null || directory.trim().isEmpty) return;
+    final bookTitle = _exportFileSafe(
+      detail.title.isEmpty ? (widget.title ?? '朗读') : detail.title,
+    );
+    final chapterTitle = _exportFileSafe(_controller.chapter?.title ?? '本章');
+    final outputPath = p.join(
+      directory,
+      wholeBook ? '$bookTitle-全书.wav' : '$bookTitle-$chapterTitle.wav',
+    );
+    final total = wholeBook
+        ? detail.chapters.where((chapter) => !chapter.isVolume).length
+        : 1;
+    _exporting = true;
+    _exportCancelled = false;
+    final progress = ValueNotifier<int>(0);
+    var dialogOpen = true;
+    unawaited(
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => AlertDialog(
+          title: Text(wholeBook ? '导出全书音频' : '导出本章音频'),
+          content: ValueListenableBuilder<int>(
+            valueListenable: progress,
+            builder: (_, done, _) => Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                LinearProgressIndicator(
+                  value: total <= 0 ? null : (done / total).clamp(0.0, 1.0),
+                ),
+                const SizedBox(height: 12),
+                Text('已合成 $done / $total 章'),
+                const SizedBox(height: 6),
+                Text(
+                  outputPath,
+                  style: Theme.of(dialogContext).textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              key: const Key('novel-tts-export-cancel'),
+              onPressed: () {
+                _exportCancelled = true;
+                dialogOpen = false;
+                Navigator.of(dialogContext).pop();
+              },
+              child: const Text('取消'),
+            ),
+          ],
+        ),
+      ),
+    );
+    try {
+      final result = await _controller.exportTtsAudio(
+        outputPath: outputPath,
+        wholeBook: wholeBook,
+        onProgress: (done, _) => progress.value = done,
+        isCancelled: () => _exportCancelled,
+      );
+      if (dialogOpen && mounted) {
+        dialogOpen = false;
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+      if (mounted) {
+        _showSnack('已导出 ${result.paragraphs} 段：${result.path}');
+      }
+    } on NovelTtsExportCancelled {
+      if (dialogOpen && mounted) {
+        dialogOpen = false;
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+      if (mounted) _showSnack('已取消导出');
+    } on Object catch (error) {
+      if (dialogOpen && mounted) {
+        dialogOpen = false;
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+      if (mounted) _showSnack('导出失败：$error');
+    } finally {
+      progress.dispose();
+      _exporting = false;
+      _exportCancelled = false;
+    }
   }
 
-  Future<void> _stopTts() async {
-    if (!_speaking) return;
-    _speaking = false;
-    try {
-      await _tts?.stop();
-    } on Object {
-      // 停止失败不阻塞切章/退出。
-    }
-    if (mounted) setState(() {});
-  }
+  String _exportFileSafe(String raw) =>
+      raw.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
 
   // ── 面板入口 ──────────────────────────────────────────────────────────
   Future<void> _openSettings() async {
@@ -1249,6 +1414,13 @@ class _NovelReaderPageState extends State<NovelReaderPage>
             hasBookOverride: _controller.hasBookOverride,
             onChanged: _applySettings,
             onClearBookOverride: _controller.clearBookOverride,
+            loadTtsVoices: _controller.availableTtsVoices,
+            ttsSleepDeadline: _controller.ttsSleepDeadline,
+            onTtsSleepTimerChanged: _controller.setTtsSleepTimer,
+            loadTtsCacheStats: _controller.ttsCacheStats,
+            onClearTtsCache: _controller.clearTtsCache,
+            onExportChapterAudio: () => _exportAudio(wholeBook: false),
+            onExportBookAudio: () => _exportAudio(wholeBook: true),
             onClose: () => Navigator.of(sheetContext).pop(),
           ),
         ),
@@ -2142,25 +2314,28 @@ class _NovelReaderPageState extends State<NovelReaderPage>
                   ),
                   child: _withSelectionListener(
                     paragraph,
-                    _highlightParagraph == paragraph
-                        ? DecoratedBox(
-                            decoration: BoxDecoration(
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.primary.withValues(alpha: 0.18),
-                              borderRadius: MimaoShapes.sm,
-                            ),
-                            child: _buildBodyText(
+                    _withTtsHighlight(
+                      paragraph,
+                      _highlightParagraph == paragraph
+                          ? DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.primary.withValues(alpha: 0.18),
+                                borderRadius: MimaoShapes.sm,
+                              ),
+                              child: _buildBodyText(
+                                _controller.paragraphText(paragraph),
+                                style: body,
+                                paragraph: paragraph,
+                              ),
+                            )
+                          : _buildBodyText(
                               _controller.paragraphText(paragraph),
                               style: body,
                               paragraph: paragraph,
                             ),
-                          )
-                        : _buildBodyText(
-                            _controller.paragraphText(paragraph),
-                            style: body,
-                            paragraph: paragraph,
-                          ),
+                    ),
                   ),
                 ),
               );
@@ -2597,12 +2772,16 @@ class _NovelReaderPageState extends State<NovelReaderPage>
       if (end > start) {
         final substring = full.substring(start, end);
         children.add(
-          _buildBodyText(
-            substring,
-            style: body,
-            paragraph: slice.paragraph,
-            sliceStart: start,
-            highlight: _highlightParagraph == slice.paragraph,
+          _withTtsHighlight(
+            slice.paragraph,
+            keySuffix: '$column-$start',
+            _buildBodyText(
+              substring,
+              style: body,
+              paragraph: slice.paragraph,
+              sliceStart: start,
+              highlight: _highlightParagraph == slice.paragraph,
+            ),
           ),
         );
       }
@@ -2747,6 +2926,12 @@ class _NovelReaderPageState extends State<NovelReaderPage>
   /// 所以这里先按 id 特判，再落到点击区分发器。
   VoidCallback? _menuActionTap(NovelMenuActionDef def) {
     switch (def.id) {
+      case novelMenuActionTts:
+        // 菜单按钮开着时是「停止朗读」语义（图标/提示已换），不是暂停；
+        // 暂停/继续留给点击区与快捷动作。
+        return _controller.ttsActive
+            ? () => unawaited(_stopTts())
+            : () => unawaited(_toggleTts());
       case novelMenuActionSettings:
         return () => unawaited(_openSettings());
       case novelMenuActionDownload:
@@ -2875,7 +3060,7 @@ class _NovelReaderPageState extends State<NovelReaderPage>
                 onTap: _menuActionTap,
                 actionContext: _menuActionContext,
                 autoReading: _autoReading,
-                speaking: _speaking,
+                speaking: _controller.ttsActive,
               ),
             ),
           ),
