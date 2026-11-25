@@ -57,6 +57,7 @@ class NovelReaderController extends ChangeNotifier {
     NovelLayoutService? layoutService,
     NovelChapterCache? chapterCache,
   }) : settingsStore = settingsStore ?? PrefsNovelReaderSettingsStore(prefs),
+       bookStore = NovelBookSettingsStore(prefs),
        layoutService = layoutService ?? NovelLayoutService(),
        chapterCache = chapterCache ?? NovelChapterCache();
 
@@ -78,12 +79,20 @@ class NovelReaderController extends ChangeNotifier {
   final NovelReplaceRuleStorage? replaceRules;
 
   final NovelReaderSettingsStore settingsStore;
+  final NovelBookSettingsStore bookStore;
   final NovelLayoutService layoutService;
   final NovelChapterCache chapterCache;
   late final NovelReaderPositionStore positionStore = NovelReaderPositionStore(
     prefs,
   );
 
+  /// 全局设置（跨书共用，落 [NovelReaderSettingsStore]）。
+  NovelReaderSettings globalSettings = const NovelReaderSettings();
+
+  /// 本书的差异覆盖（只含与全局不同的字段，落 [NovelBookSettingsStore]）。
+  Map<String, Object?> bookOverride = const <String, Object?>{};
+
+  /// 当前生效的设置 = 每书覆盖叠加在全局之上（每书 > 全局 > 默认）。
   NovelReaderSettings settings = const NovelReaderSettings();
   bool settingsReady = false;
 
@@ -155,12 +164,15 @@ class NovelReaderController extends ChangeNotifier {
 
   Future<void> init() async {
     final loaded = await settingsStore.load();
+    final override = await bookStore.load(bookId);
     final position = await positionStore.load(
       bookId,
       sourceKey: sourceKey ?? '',
     );
     if (_disposed) return;
-    settings = loaded;
+    globalSettings = loaded;
+    bookOverride = override;
+    settings = mergeNovelBookOverride(loaded, override);
     savedPosition = position;
     settingsReady = true;
     _replaceRulesReady = _loadReplaceRules();
@@ -785,7 +797,16 @@ class NovelReaderController extends ChangeNotifier {
     }
   }
 
-  void applySettings(NovelReaderSettings next) {
+  /// 应用一次设置修改。
+  ///
+  /// [scope] 默认 [NovelSettingsScope.global]（与上游一致）：改的是全局设置，
+  /// 本书的覆盖字段若与这次改动冲突，按「每书 > 全局」保留每书的值。
+  /// [NovelSettingsScope.book] 时只把「与全局不同的字段」写进本书覆盖，
+  /// 全局设置一个字都不动——以后改全局，这本书的差异仍然有效。
+  void applySettings(
+    NovelReaderSettings next, {
+    NovelSettingsScope scope = NovelSettingsScope.global,
+  }) {
     final previous = settings;
     final ratio = currentPageRatio();
     final locator = currentLocator();
@@ -810,7 +831,32 @@ class NovelReaderController extends ChangeNotifier {
         next.chineseConvert != previous.chineseConvert ||
         next.twoColumn != previous.twoColumn;
 
-    settings = next;
+    switch (scope) {
+      case NovelSettingsScope.global:
+        // 只把「这次真正被改动的字段」写进全局：面板展示的是叠加后的
+        // 生效值，若整份当新全局，本书的覆盖值会泄漏进全局。
+        final delta = diffNovelReaderSettingsAllFields(previous, next);
+        globalSettings = applyNovelReaderSettingsJson(globalSettings, delta);
+        settings = mergeNovelBookOverride(globalSettings, bookOverride);
+      case NovelSettingsScope.book:
+        // 每书覆盖只认白名单字段（背景/字体/翻页/动画/点击区）。菜单外观、
+        // 按钮配置这类不在白名单的改动**不能静默丢掉**——用户点了开关却
+        // 什么都没发生比"改不了"更糟。这里把差异拆两半：白名单进覆盖，
+        // 其余落全局（菜单布局本来就是全局概念）。
+        final allDiff = diffNovelReaderSettingsAllFields(previous, next);
+        final scoped = diffNovelReaderSettings(globalSettings, next);
+        bookOverride = scoped;
+        final rest = <String, Object?>{
+          for (final entry in allDiff.entries)
+            if (!novelBookOverrideFields.contains(entry.key))
+              entry.key: entry.value,
+        };
+        if (rest.isNotEmpty) {
+          globalSettings = applyNovelReaderSettingsJson(globalSettings, rest);
+        }
+        settings = mergeNovelBookOverride(globalSettings, bookOverride);
+    }
+
     if (layoutChanged || modeChanged) {
       _pendingPageRatioForRestore = ratio;
       _pendingLocator = locator;
@@ -822,19 +868,59 @@ class NovelReaderController extends ChangeNotifier {
         _pendingScrollRatio = ratio;
       }
     }
-    _scheduleSettingsSave();
+    _scheduleSettingsSave(scope);
     notifyListeners();
   }
+
+  /// 清掉本书覆盖，回到纯全局设置。
+  void clearBookOverride() {
+    if (bookOverride.isEmpty) return;
+    final ratio = currentPageRatio();
+    final locator = currentLocator();
+    bookOverride = const <String, Object?>{};
+    final next = globalSettings;
+    final modeChanged = next.pageMode != settings.pageMode;
+    settings = next;
+    if (modeChanged || true) {
+      _pendingPageRatioForRestore = ratio;
+      _pendingLocator = locator;
+      _layoutKey = '';
+      _requestedKey = '';
+      if (next.pageMode == NovelPageMode.scroll) {
+        pages = const <NovelTextPage>[];
+        paginating = false;
+        _pendingScrollRatio = ratio;
+      }
+    }
+    _scheduleBookSave();
+    notifyListeners();
+  }
+
+  bool get hasBookOverride => bookOverride.isNotEmpty;
 
   double? _pendingPageRatioForRestore;
 
   double get pendingPageRatio => _pendingPageRatioForRestore ?? 0;
 
-  void _scheduleSettingsSave() {
+  /// 落盘：全局与每书覆盖各写各的键。
+  ///
+  /// 不能按 [scope] 决定要不要写全局——「只改这本」下改了菜单外观这类
+  /// 非可覆盖字段时，[globalSettings] 也变了（见 applySettings 里的拆分），
+  /// 只写覆盖会让那次改动在重启后消失。这里一律两份都写：
+  /// 覆盖为空时 bookStore.save 本身就是清空，成本可忽略。
+  void _scheduleSettingsSave(NovelSettingsScope scope) {
+    _settingsTimer?.cancel();
+    _settingsTimer = Timer(const Duration(milliseconds: 300), () {
+      unawaited(settingsStore.save(globalSettings));
+      unawaited(bookStore.save(bookId, bookOverride));
+    });
+  }
+
+  void _scheduleBookSave() {
     _settingsTimer?.cancel();
     _settingsTimer = Timer(
       const Duration(milliseconds: 300),
-      () => unawaited(settingsStore.save(settings)),
+      () => unawaited(bookStore.save(bookId, bookOverride)),
     );
   }
 

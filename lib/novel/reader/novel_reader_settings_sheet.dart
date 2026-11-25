@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme.dart';
 import 'novel_click_actions.dart';
+import 'novel_menu_actions.dart';
 import 'novel_reader_chrome.dart';
 import 'novel_reader_fonts.dart';
 import 'novel_reader_settings.dart';
@@ -51,6 +52,95 @@ const Map<_SettingsTab, String> _tabLabels = <_SettingsTab, String>{
   _SettingsTab.more: '更多',
 };
 
+/// 设置项搜索索引的一条：文案 + 所属页签 + 额外关键词。
+///
+/// 搜索只做「找到并跳过去」，不复制控件——同一个设置在面板里仍只有一处
+/// 实现，索引只登记它的名字，避免两份真相漂移。
+class _SettingsSearchEntry {
+  const _SettingsSearchEntry(
+    this.title,
+    this.tab, {
+    this.keywords = const <String>[],
+  });
+
+  final String title;
+  final _SettingsTab tab;
+  final List<String> keywords;
+
+  bool matches(String query) {
+    final q = query.toLowerCase();
+    if (title.toLowerCase().contains(q)) return true;
+    for (final keyword in keywords) {
+      if (keyword.toLowerCase().contains(q)) return true;
+    }
+    return false;
+  }
+}
+
+/// 可搜索的设置项清单（覆盖五个页签里的主要条目）。
+const List<_SettingsSearchEntry> _settingsSearchIndex = <_SettingsSearchEntry>[
+  _SettingsSearchEntry('字号', _SettingsTab.global, keywords: <String>['字体大小']),
+  _SettingsSearchEntry(
+    '字体',
+    _SettingsTab.global,
+    keywords: <String>['Tt', 'font'],
+  ),
+  _SettingsSearchEntry(
+    '背景',
+    _SettingsTab.global,
+    keywords: <String>['底色', '背景色'],
+  ),
+  _SettingsSearchEntry(
+    '背景图',
+    _SettingsTab.global,
+    keywords: <String>['图片', '铺放'],
+  ),
+  _SettingsSearchEntry(
+    '背景纹理',
+    _SettingsTab.global,
+    keywords: <String>['网格', '斜纹'],
+  ),
+  _SettingsSearchEntry('护眼模式', _SettingsTab.global, keywords: <String>['滤光']),
+  _SettingsSearchEntry('翻页动画', _SettingsTab.global, keywords: <String>['过渡']),
+  _SettingsSearchEntry(
+    '翻页动画风格',
+    _SettingsTab.menu,
+    keywords: <String>['淡入淡出', '滑动', '视差'],
+  ),
+  _SettingsSearchEntry('正文加粗', _SettingsTab.typography),
+  _SettingsSearchEntry('正文斜体', _SettingsTab.typography),
+  _SettingsSearchEntry('两端对齐', _SettingsTab.typography),
+  _SettingsSearchEntry('行距包含行内留白', _SettingsTab.typography),
+  _SettingsSearchEntry('字距', _SettingsTab.typography),
+  _SettingsSearchEntry('段首缩进', _SettingsTab.typography),
+  _SettingsSearchEntry('简繁转换', _SettingsTab.typography),
+  _SettingsSearchEntry('标题', _SettingsTab.typography),
+  _SettingsSearchEntry('标题分段', _SettingsTab.typography),
+  _SettingsSearchEntry('文字阴影', _SettingsTab.typography),
+  _SettingsSearchEntry('下划线', _SettingsTab.typography),
+  _SettingsSearchEntry('双栏分页', _SettingsTab.typography),
+  _SettingsSearchEntry('显示页脚', _SettingsTab.menu),
+  _SettingsSearchEntry('翻页过渡动画', _SettingsTab.menu),
+  _SettingsSearchEntry('点击区', _SettingsTab.menu, keywords: <String>['九宫格']),
+  _SettingsSearchEntry('长按', _SettingsTab.menu),
+  _SettingsSearchEntry('双击', _SettingsTab.menu),
+  _SettingsSearchEntry('图标每行个数', _SettingsTab.menu),
+  _SettingsSearchEntry('菜单行数', _SettingsTab.menu),
+  _SettingsSearchEntry('底栏圆角', _SettingsTab.menu, keywords: <String>['圆角']),
+  _SettingsSearchEntry('图标文字', _SettingsTab.menu),
+  _SettingsSearchEntry('紧凑标题栏', _SettingsTab.menu, keywords: <String>['顶栏']),
+  _SettingsSearchEntry('顶栏按钮', _SettingsTab.menu, keywords: <String>['自定义']),
+  _SettingsSearchEntry('底栏按钮', _SettingsTab.menu, keywords: <String>['自定义']),
+  _SettingsSearchEntry('浮动按钮', _SettingsTab.menu, keywords: <String>['自定义']),
+  _SettingsSearchEntry('页眉页脚', _SettingsTab.info),
+  _SettingsSearchEntry('自动翻页间隔', _SettingsTab.more, keywords: <String>['速度']),
+  _SettingsSearchEntry('行距', _SettingsTab.more),
+  _SettingsSearchEntry('段距', _SettingsTab.more),
+  _SettingsSearchEntry('左右边距', _SettingsTab.more, keywords: <String>['留白']),
+  _SettingsSearchEntry('阅读亮度', _SettingsTab.more, keywords: <String>['亮度']),
+  _SettingsSearchEntry('恢复默认设置', _SettingsTab.more, keywords: <String>['重置']),
+];
+
 class NovelReaderSettingsSheet extends StatefulWidget {
   const NovelReaderSettingsSheet({
     super.key,
@@ -58,14 +148,22 @@ class NovelReaderSettingsSheet extends StatefulWidget {
     required this.info,
     required this.onChanged,
     required this.onClose,
+    this.hasBookOverride = false,
+    this.onClearBookOverride,
   });
 
   final NovelReaderSettings initial;
   final NovelReaderBookInfo info;
-  final ValueChanged<NovelReaderSettings> onChanged;
+
+  /// [scope] 由面板的「只改这本」开关给出，默认改全局。
+  final void Function(NovelReaderSettings settings, {NovelSettingsScope scope})
+  onChanged;
   final VoidCallback onClose;
 
-  /// 背景「预览」：收起面板看效果。
+  /// 这本书是否已有独立设置（有则在头部提示，可一键清掉）。
+  final bool hasBookOverride;
+
+  final VoidCallback? onClearBookOverride;
 
   @override
   State<NovelReaderSettingsSheet> createState() =>
@@ -77,6 +175,13 @@ class _NovelReaderSettingsSheetState extends State<NovelReaderSettingsSheet> {
   _SettingsTab _tab = _SettingsTab.global;
   List<NovelFontFile> _importedFonts = const <NovelFontFile>[];
   late final TextEditingController _dividerController;
+
+  /// 搜索框与当前关键词；非空时正文区换成搜索结果列表。
+  final TextEditingController _searchController = TextEditingController();
+  String _query = '';
+
+  /// 「只改这本」开关；默认关（改全局，与上游一致）。
+  bool _bookOnly = false;
 
   /// 页签共用同一个滚动区：不重置的话切到短页签会停在半空中（甚至滚过头
   /// 看到空白），切到长页签又像是"跳过了顶部"。
@@ -94,12 +199,18 @@ class _NovelReaderSettingsSheetState extends State<NovelReaderSettingsSheet> {
   @override
   void dispose() {
     _dividerController.dispose();
+    _searchController.dispose();
     _scroll.dispose();
     super.dispose();
   }
 
   void _selectTab(_SettingsTab tab) {
-    setState(() => _tab = tab);
+    setState(() {
+      _tab = tab;
+      // 从搜索结果跳过来时把搜索清掉，否则用户会以为页签没切换。
+      _query = '';
+      _searchController.clear();
+    });
     if (_scroll.hasClients) _scroll.jumpTo(0);
   }
 
@@ -111,7 +222,10 @@ class _NovelReaderSettingsSheetState extends State<NovelReaderSettingsSheet> {
 
   void _apply(NovelReaderSettings next) {
     setState(() => _settings = next);
-    widget.onChanged(next);
+    widget.onChanged(
+      next,
+      scope: _bookOnly ? NovelSettingsScope.book : NovelSettingsScope.global,
+    );
   }
 
   @override
@@ -162,9 +276,21 @@ class _NovelReaderSettingsSheetState extends State<NovelReaderSettingsSheet> {
                     fontWeight: MimaoFonts.bold,
                   ),
                 ),
+                const Spacer(),
+                _buildScopeToggle(context),
+                const SizedBox(width: 4),
               ],
             ),
           ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+            child: _buildSearchField(context),
+          ),
+          if (widget.hasBookOverride && _query.isEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
+              child: _buildBookOverrideHint(context),
+            ),
           ConstrainedBox(
             constraints: BoxConstraints(
               maxHeight: MediaQuery.sizeOf(context).height * 0.55,
@@ -175,13 +301,15 @@ class _NovelReaderSettingsSheetState extends State<NovelReaderSettingsSheet> {
               child: AnimatedSize(
                 duration: const Duration(milliseconds: 160),
                 alignment: Alignment.topCenter,
-                child: switch (_tab) {
-                  _SettingsTab.global => _buildGlobal(context),
-                  _SettingsTab.typography => _buildTypography(context),
-                  _SettingsTab.menu => _buildMenu(context),
-                  _SettingsTab.info => _buildInfo(context),
-                  _SettingsTab.more => _buildMore(context),
-                },
+                child: _query.isEmpty
+                    ? switch (_tab) {
+                        _SettingsTab.global => _buildGlobal(context),
+                        _SettingsTab.typography => _buildTypography(context),
+                        _SettingsTab.menu => _buildMenu(context),
+                        _SettingsTab.info => _buildInfo(context),
+                        _SettingsTab.more => _buildMore(context),
+                      }
+                    : _buildSearchResults(context),
               ),
             ),
           ),
@@ -191,6 +319,216 @@ class _NovelReaderSettingsSheetState extends State<NovelReaderSettingsSheet> {
           ),
         ],
       ),
+    );
+  }
+
+  /// 「只改这本 / 改全局」切换。默认全局；开着时只有可覆盖字段落本书。
+  ///
+  /// 每书覆盖刻意只收「背景 / 字体 / 翻页 / 动画 / 点击区」五项
+  /// （见 [novelBookOverrideFields]）；菜单外观、按钮配置这类全局项
+  /// 即使在「只改这本」下也写全局——在 Tooltip 里说清楚，别让用户以为
+  /// 点了个开关却什么都没发生。
+  Widget _buildScopeToggle(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Tooltip(
+      message: _bookOnly
+          ? '只改这本：背景 / 字体 / 翻页方式 / 动画 / 点击区；菜单外观与按钮配置仍改全局'
+          : '正在改全局设置；点一下改成只改这本书',
+      child: InkWell(
+        key: const Key('novel-settings-scope'),
+        onTap: () => setState(() => _bookOnly = !_bookOnly),
+        borderRadius: MimaoShapes.pill,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: _bookOnly
+                ? scheme.primaryContainer
+                : scheme.surfaceContainerHighest,
+            borderRadius: MimaoShapes.pill,
+            border: Border.all(
+              color: _bookOnly ? scheme.primary : scheme.outlineVariant,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Icon(
+                _bookOnly ? Icons.book_outlined : Icons.public,
+                size: 16,
+                color: _bookOnly
+                    ? scheme.onPrimaryContainer
+                    : scheme.onSurfaceVariant,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                _bookOnly ? '只改这本' : '改全局',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: _bookOnly
+                      ? scheme.onPrimaryContainer
+                      : scheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSearchField(BuildContext context) {
+    return TextField(
+      key: const Key('novel-settings-search'),
+      controller: _searchController,
+      textInputAction: TextInputAction.search,
+      decoration: InputDecoration(
+        isDense: true,
+        hintText: '搜索设置项',
+        prefixIcon: const Icon(Icons.search, size: 20),
+        suffixIcon: _query.isEmpty
+            ? null
+            : IconButton(
+                key: const Key('novel-settings-search-clear'),
+                tooltip: '清空搜索',
+                icon: const Icon(Icons.close, size: 18),
+                onPressed: () {
+                  _searchController.clear();
+                  setState(() => _query = '');
+                },
+              ),
+      ),
+      onChanged: (value) => setState(() => _query = value.trim()),
+    );
+  }
+
+  /// 本书有独立设置时的提示条：说明「为什么和别的书不一样」并给出一键清掉。
+  Widget _buildBookOverrideHint(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Material(
+      color: scheme.secondaryContainer,
+      borderRadius: MimaoShapes.md,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 6, 6, 6),
+        child: Row(
+          children: <Widget>[
+            Icon(
+              Icons.bookmark_added_outlined,
+              size: 18,
+              color: scheme.onSecondaryContainer,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '这本书有独立设置，只存了与全局不同的项',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: scheme.onSecondaryContainer,
+                ),
+              ),
+            ),
+            TextButton(
+              key: const Key('novel-settings-clear-book-override'),
+              onPressed: widget.onClearBookOverride,
+              child: const Text('跟随全局'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 跨页签的搜索结果：命中标题高亮，点一条跳到对应页签。
+  Widget _buildSearchResults(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final hits = <_SettingsSearchEntry>[
+      for (final entry in _settingsSearchIndex)
+        if (entry.matches(_query)) entry,
+    ];
+    if (hits.isEmpty) {
+      return Padding(
+        key: const Key('novel-settings-search-empty'),
+        padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 12),
+        child: Column(
+          children: <Widget>[
+            Icon(Icons.search_off, size: 36, color: scheme.onSurfaceVariant),
+            const SizedBox(height: 8),
+            Text(
+              '没有匹配「$_query」的设置项',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '试试点数、背景、翻页、菜单、亮度这类关键词；'
+              '清空搜索框回到当前页签。',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    return Column(
+      key: const Key('novel-settings-search-results'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.only(bottom: 4),
+          child: Text(
+            '找到 ${hits.length} 项',
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+        for (final hit in hits)
+          ListTile(
+            key: Key('novel-settings-search-hit-${hit.title}'),
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            title: _highlighted(hit.title, _query, theme, scheme),
+            trailing: Text(
+              _tabLabels[hit.tab]!,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+            onTap: () => _selectTab(hit.tab),
+          ),
+      ],
+    );
+  }
+
+  /// 把命中片段包成主色加粗，让用户一眼看到为什么这条被搜出来。
+  Widget _highlighted(
+    String text,
+    String query,
+    ThemeData theme,
+    ColorScheme scheme,
+  ) {
+    final index = text.toLowerCase().indexOf(query.toLowerCase());
+    if (query.isEmpty || index < 0) {
+      return Text(text, style: theme.textTheme.bodyMedium);
+    }
+    final end = index + query.length;
+    return Text.rich(
+      TextSpan(
+        children: <InlineSpan>[
+          if (index > 0) TextSpan(text: text.substring(0, index)),
+          TextSpan(
+            text: text.substring(index, end),
+            style: TextStyle(
+              color: scheme.primary,
+              fontWeight: MimaoFonts.bold,
+            ),
+          ),
+          if (end < text.length) TextSpan(text: text.substring(end)),
+        ],
+      ),
+      style: theme.textTheme.bodyMedium,
     );
   }
 
@@ -910,6 +1248,10 @@ class _NovelReaderSettingsSheetState extends State<NovelReaderSettingsSheet> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
+        _buildMenuAppearance(context),
+        _buildMenuBarEditor(context, NovelMenuBar.titleBar),
+        _buildMenuBarEditor(context, NovelMenuBar.bottomBar),
+        _buildMenuBarEditor(context, NovelMenuBar.floatingBar),
         _card(
           child: Column(
             children: <Widget>[
@@ -1017,6 +1359,277 @@ class _NovelReaderSettingsSheetState extends State<NovelReaderSettingsSheet> {
           ),
         ),
       ],
+    );
+  }
+
+  /// 菜单外观：每行几个、几行、底栏圆角、图标文字、紧凑标题栏。
+  Widget _buildMenuAppearance(BuildContext context) {
+    final theme = Theme.of(context);
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Text('菜单外观', style: theme.textTheme.titleSmall),
+          const SizedBox(height: 2),
+          Text(
+            '底栏与浮动行共用「每行几个 / 几行」；顶栏最多 '
+            '$novelTitleBarMaxActions 个按钮',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          _sliderRow(
+            context,
+            key: 'novel-settings-menu-items-per-row',
+            title: '图标每行个数',
+            valueLabel: '${_settings.menuIconItemsPerRow}',
+            value: _settings.menuIconItemsPerRow.toDouble(),
+            min: NovelReaderSettings.minMenuIconItemsPerRow.toDouble(),
+            max: NovelReaderSettings.maxMenuIconItemsPerRow.toDouble(),
+            divisions:
+                NovelReaderSettings.maxMenuIconItemsPerRow -
+                NovelReaderSettings.minMenuIconItemsPerRow,
+            onChanged: (value) =>
+                _apply(_settings.copyWith(menuIconItemsPerRow: value.round())),
+          ),
+          _sliderRow(
+            context,
+            key: 'novel-settings-menu-row-count',
+            title: '菜单行数',
+            valueLabel: '${_settings.menuIconRowCount} 行',
+            value: _settings.menuIconRowCount.toDouble(),
+            min: NovelReaderSettings.minMenuIconRowCount.toDouble(),
+            max: NovelReaderSettings.maxMenuIconRowCount.toDouble(),
+            divisions:
+                NovelReaderSettings.maxMenuIconRowCount -
+                NovelReaderSettings.minMenuIconRowCount,
+            onChanged: (value) =>
+                _apply(_settings.copyWith(menuIconRowCount: value.round())),
+          ),
+          _sliderRow(
+            context,
+            key: 'novel-settings-menu-bottom-radius',
+            title: '底栏圆角',
+            valueLabel: '${_settings.menuBottomRadius}',
+            value: _settings.menuBottomRadius.toDouble(),
+            min: NovelReaderSettings.minMenuBottomRadius.toDouble(),
+            max: NovelReaderSettings.maxMenuBottomRadius.toDouble(),
+            divisions:
+                NovelReaderSettings.maxMenuBottomRadius -
+                NovelReaderSettings.minMenuBottomRadius,
+            onChanged: (value) =>
+                _apply(_settings.copyWith(menuBottomRadius: value.round())),
+          ),
+          SwitchListTile(
+            key: const Key('novel-settings-menu-icon-text'),
+            contentPadding: EdgeInsets.zero,
+            title: const Text('图标显示文字'),
+            subtitle: const Text('关掉后只留图标，靠长按/悬停看名字'),
+            value: _settings.menuShowIconText,
+            onChanged: (value) =>
+                _apply(_settings.copyWith(menuShowIconText: value)),
+          ),
+          SwitchListTile(
+            key: const Key('novel-settings-title-bar-compact'),
+            contentPadding: EdgeInsets.zero,
+            title: const Text('紧凑标题栏'),
+            subtitle: const Text('顶栏只留「更多」，书名独占一行'),
+            value: _settings.titleBarCompact,
+            onChanged: (value) =>
+                _apply(_settings.copyWith(titleBarCompact: value)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 一处菜单栏的按钮编辑器：勾选启用 + 上下移动调顺序。
+  ///
+  /// 顶栏/底栏/浮动行各存一份配置，互不影响；顺序就是渲染顺序。
+  Widget _buildMenuBarEditor(BuildContext context, NovelMenuBar bar) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final items = _settings.menuBarItems(bar);
+    final title = switch (bar) {
+      NovelMenuBar.titleBar => '顶栏按钮',
+      NovelMenuBar.bottomBar => '底栏按钮',
+      NovelMenuBar.floatingBar => '浮动按钮',
+    };
+    final hint = switch (bar) {
+      NovelMenuBar.titleBar => '最多显示 $novelTitleBarMaxActions 个；紧凑标题栏下只留「更多」',
+      NovelMenuBar.bottomBar => '底栏滑杆下面的功能键',
+      NovelMenuBar.floatingBar => '浮在底栏上方的一排，默认空',
+    };
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Expanded(child: Text(title, style: theme.textTheme.titleSmall)),
+              TextButton(
+                key: Key('novel-settings-menu-reset-${bar.name}'),
+                onPressed: () => _resetMenuBar(bar),
+                child: const Text('恢复默认'),
+              ),
+            ],
+          ),
+          Text(
+            hint,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 4),
+          if (items.isEmpty)
+            Padding(
+              key: Key('novel-settings-menu-empty-${bar.name}'),
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              child: Text(
+                bar == NovelMenuBar.floatingBar
+                    ? '还没有浮动按钮；勾选下面的动作把它放到这一行'
+                    : '这一行没有按钮；勾选下面的动作把它加回来',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+          for (var i = 0; i < items.length; i++)
+            _menuBarRow(bar, items, i, theme, scheme),
+          const Divider(height: 16),
+          Text(
+            '添加动作',
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Wrap(
+            spacing: 6,
+            runSpacing: 2,
+            children: <Widget>[
+              for (final def in novelMenuActionDefs)
+                if (!items.any((item) => item.id == def.id))
+                  ActionChip(
+                    key: Key('novel-settings-menu-add-${bar.name}-${def.id}'),
+                    avatar: Icon(def.icon, size: 16),
+                    label: Text(def.label),
+                    onPressed: () => _addMenuBarItem(bar, def.id),
+                  ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _menuBarRow(
+    NovelMenuBar bar,
+    List<NovelMenuButtonItem> items,
+    int index,
+    ThemeData theme,
+    ColorScheme scheme,
+  ) {
+    final item = items[index];
+    final def = novelMenuActionById(item.id);
+    final label = def?.label ?? item.id;
+    return Padding(
+      key: Key('novel-settings-menu-row-${bar.name}-${item.id}'),
+      padding: const EdgeInsets.symmetric(vertical: 1),
+      child: Row(
+        children: <Widget>[
+          Checkbox(
+            key: Key('novel-settings-menu-toggle-${bar.name}-${item.id}'),
+            value: item.enabled,
+            onChanged: (value) =>
+                _setMenuBarItem(bar, index, item.copyWith(enabled: value)),
+          ),
+          Icon(
+            def?.icon ?? Icons.help_outline,
+            size: 18,
+            color: scheme.onSurface,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: item.enabled
+                    ? scheme.onSurface
+                    : scheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          IconButton(
+            key: Key('novel-settings-menu-up-${bar.name}-${item.id}'),
+            tooltip: '上移',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.arrow_upward, size: 18),
+            onPressed: index == 0
+                ? null
+                : () => _moveMenuBarItem(bar, index, -1),
+          ),
+          IconButton(
+            key: Key('novel-settings-menu-down-${bar.name}-${item.id}'),
+            tooltip: '下移',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.arrow_downward, size: 18),
+            onPressed: index == items.length - 1
+                ? null
+                : () => _moveMenuBarItem(bar, index, 1),
+          ),
+          IconButton(
+            key: Key('novel-settings-menu-remove-${bar.name}-${item.id}'),
+            tooltip: '移除',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.remove_circle_outline, size: 18),
+            onPressed: () => _removeMenuBarItem(bar, index),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _setMenuBarItem(NovelMenuBar bar, int index, NovelMenuButtonItem item) {
+    final items = List<NovelMenuButtonItem>.from(_settings.menuBarItems(bar));
+    if (index < 0 || index >= items.length) return;
+    items[index] = item;
+    _apply(_settings.withMenuBar(bar, items));
+  }
+
+  void _moveMenuBarItem(NovelMenuBar bar, int index, int delta) {
+    final items = List<NovelMenuButtonItem>.from(_settings.menuBarItems(bar));
+    final target = index + delta;
+    if (target < 0 || target >= items.length) return;
+    final moved = items.removeAt(index);
+    items.insert(target, moved);
+    _apply(_settings.withMenuBar(bar, items));
+  }
+
+  void _removeMenuBarItem(NovelMenuBar bar, int index) {
+    final items = List<NovelMenuButtonItem>.from(_settings.menuBarItems(bar));
+    if (index < 0 || index >= items.length) return;
+    items.removeAt(index);
+    _apply(_settings.withMenuBar(bar, items));
+  }
+
+  void _addMenuBarItem(NovelMenuBar bar, String id) {
+    final items = List<NovelMenuButtonItem>.from(_settings.menuBarItems(bar));
+    if (items.any((item) => item.id == id)) return;
+    items.add(NovelMenuButtonItem(id));
+    _apply(_settings.withMenuBar(bar, items));
+  }
+
+  void _resetMenuBar(NovelMenuBar bar) {
+    final defaults = switch (bar) {
+      NovelMenuBar.titleBar => novelDefaultTitleBarMenu,
+      NovelMenuBar.bottomBar => novelDefaultBottomBarMenu,
+      NovelMenuBar.floatingBar => novelDefaultFloatingMenu,
+    };
+    _apply(
+      _settings.withMenuBar(bar, List<NovelMenuButtonItem>.from(defaults)),
     );
   }
 

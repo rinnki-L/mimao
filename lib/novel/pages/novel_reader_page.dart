@@ -31,6 +31,7 @@ import 'package:mimao/novel/models/novel_models.dart';
 import 'package:mimao/novel/reader/novel_click_actions.dart';
 import 'package:mimao/novel/reader/novel_immersive.dart';
 import 'package:mimao/novel/reader/novel_locator.dart';
+import 'package:mimao/novel/reader/novel_menu_actions.dart';
 import 'package:mimao/novel/reader/novel_reader_chrome.dart';
 import 'package:mimao/novel/reader/novel_reader_controller.dart';
 import 'package:mimao/novel/reader/novel_reader_fonts.dart';
@@ -627,9 +628,14 @@ class _NovelReaderPageState extends State<NovelReaderPage>
   }
 
   // ── 设置 ──────────────────────────────────────────────────────────────
-  void _applySettings(NovelReaderSettings next) {
+  /// 设置面板回调。[scope] 由面板的「只改这本 / 改全局」开关给出，
+  /// 默认全局（与上游一致）。
+  void _applySettings(
+    NovelReaderSettings next, {
+    NovelSettingsScope scope = NovelSettingsScope.global,
+  }) {
     final oldInterval = _controller.settings.autoPageSeconds;
-    _controller.applySettings(next);
+    _controller.applySettings(next, scope: scope);
     if (_autoReading && next.autoPageSeconds != oldInterval) {
       _startAutoTimer();
     }
@@ -824,7 +830,9 @@ class _NovelReaderPageState extends State<NovelReaderPage>
           child: NovelReaderSettingsSheet(
             initial: _controller.settings,
             info: info,
+            hasBookOverride: _controller.hasBookOverride,
             onChanged: _applySettings,
+            onClearBookOverride: _controller.clearBookOverride,
             onClose: () => Navigator.of(sheetContext).pop(),
           ),
         ),
@@ -1173,6 +1181,57 @@ class _NovelReaderPageState extends State<NovelReaderPage>
       case 'settings':
         await _openSettings();
     }
+  }
+
+  /// 「更多动作」面板：底栏放不下的动作收在这里，不静默丢掉。
+  Future<void> _openMoreActions() async {
+    final contextSnapshot = _menuActionContext;
+    final defs = <NovelMenuActionDef>[];
+    for (final bar in NovelMenuBar.values) {
+      for (final def in resolveNovelMenuActions(
+        items: _controller.settings.menuBarItems(bar),
+        context: contextSnapshot,
+      )) {
+        if (!defs.any((existing) => existing.id == def.id)) defs.add(def);
+      }
+    }
+    _pauseAutoForSheet();
+    _chromeVisible.value = false;
+    final picked = await showModalBottomSheet<NovelMenuActionDef>(
+      context: context,
+      backgroundColor: _sheetThemeData().colorScheme.surfaceContainerLow,
+      showDragHandle: false,
+      builder: (sheetContext) => _sheetTheme(
+        SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              if (defs.isEmpty)
+                ListTile(
+                  key: const Key('novel-more-actions-empty'),
+                  leading: const Icon(Icons.info_outline),
+                  title: const Text('没有可用的动作'),
+                  subtitle: const Text('当前这本书没有已启用的动作；去「阅读设置 → 菜单」里勾几个'),
+                )
+              else
+                for (final def in defs)
+                  ListTile(
+                    key: Key('novel-more-action-${def.id}'),
+                    leading: Icon(def.icon),
+                    title: Text(def.label),
+                    onTap: () => Navigator.of(sheetContext).pop(def),
+                  ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (mounted) {
+      _chromeVisible.value = true;
+      _resumeAutoFromSheet();
+      _refocusReader();
+    }
+    if (picked != null) _menuActionTap(picked)?.call();
   }
 
   Future<void> _showBookInfo() async {
@@ -2018,6 +2077,46 @@ class _NovelReaderPageState extends State<NovelReaderPage>
     );
   }
 
+  /// 注册表里每个动作的可用性上下文：只跟这本书的类型与已落地能力有关。
+  NovelMenuActionContext get _menuActionContext => NovelMenuActionContext(
+    hasOnlineSource:
+        _controller.source != null || (widget.sourceKey ?? '').isNotEmpty,
+    // 书签库（区 4）尚未落地；这里保持 false，按钮显灰而不是静默无效。
+    bookmarkReady: false,
+    contentEditReady: false,
+    replaceReady: false,
+    syncReady: false,
+  );
+
+  /// 菜单动作 → 页面方法。注册表只管「长什么样 + 能不能用」，
+  /// 副作用入口集中在这里，别处不再各写一套 switch。
+  ///
+  /// 注意 [novelMenuActionSettings] 虽然在注册表里挂着
+  /// [NovelClickAction.menu]（九宫格里的「菜单」是显隐浮层），
+  /// 但菜单栏上的「阅读设置」必须打开设置面板——两者语义不同，
+  /// 所以这里先按 id 特判，再落到点击区分发器。
+  VoidCallback? _menuActionTap(NovelMenuActionDef def) {
+    switch (def.id) {
+      case novelMenuActionSettings:
+        return () => unawaited(_openSettings());
+      case novelMenuActionDownload:
+        return () => unawaited(_downloadCurrentChapter());
+      case novelMenuActionRefresh:
+        return () => unawaited(_refreshCurrentChapter());
+      case novelMenuActionSwitchSource:
+        return () => unawaited(_openSourceSwitch());
+      case novelMenuActionMore:
+        return () => unawaited(_openMore());
+      case novelMenuActionMorePanel:
+        return () => unawaited(_openMoreActions());
+    }
+    final click = def.clickAction;
+    if (click == null) return null;
+    // 点击区动作复用同一个分发器：未实现/不可用的动作返回 false 不执行。
+    if (!click.available) return null;
+    return () => dispatchClickAction(click, this);
+  }
+
   Widget _buildTopBar() {
     return Positioned(
       top: 0,
@@ -2037,10 +2136,33 @@ class _NovelReaderPageState extends State<NovelReaderPage>
           chapterTitle: _controller.chapter?.title ?? widget.chapterTitle ?? '',
           sourceName: _controller.source?.name ?? '',
           onBack: () => Navigator.of(context).maybePop(),
-          onDownload: () => unawaited(_downloadCurrentChapter()),
-          onRefresh: () => unawaited(_refreshCurrentChapter()),
-          onSwitchSource: () => unawaited(_openSourceSwitch()),
-          onMore: () => unawaited(_openMore()),
+          onTap: _menuActionTap,
+          actionContext: _menuActionContext,
+        ),
+      ),
+    );
+  }
+
+  /// 浮动图标行：贴在底栏上方，配置为空时不占位。
+  Widget _buildFloatingBar() {
+    final settings = _controller.settings;
+    if (settings.floatingBarMenu.every((item) => !item.enabled)) {
+      return const SizedBox.shrink();
+    }
+    return Align(
+      alignment: Alignment.centerRight,
+      child: ValueListenableBuilder<bool>(
+        valueListenable: _chromeVisible,
+        builder: (context, visible, child) => AnimatedSlide(
+          offset: visible ? Offset.zero : const Offset(0, 1.1),
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+          child: IgnorePointer(ignoring: !visible, child: child),
+        ),
+        child: NovelReaderFloatingBar(
+          settings: settings,
+          onTap: _menuActionTap,
+          actionContext: _menuActionContext,
         ),
       ),
     );
@@ -2056,50 +2178,56 @@ class _NovelReaderPageState extends State<NovelReaderPage>
       left: 12,
       right: 12,
       bottom: bottom,
-      child: ValueListenableBuilder<bool>(
-        valueListenable: _chromeVisible,
-        builder: (context, visible, child) => AnimatedSlide(
-          offset: visible ? Offset.zero : const Offset(0, 1.1),
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOut,
-          child: IgnorePointer(ignoring: !visible, child: child),
-        ),
-        child: ValueListenableBuilder<double>(
-          valueListenable: _scrollRatio,
-          builder: (context, ratio, __) => NovelReaderBottomPanel(
-            settings: settings,
-            brightness: settings.dimBrightness.toDouble(),
-            onBrightnessChanged: _setBrightness,
-            showAutoBrightness: _supportsAutoBrightness,
-            autoBrightness: settings.autoBrightness,
-            onToggleAutoBrightness: _toggleAutoBrightness,
-            page: pageMode ? _displayPage(pageCount) : 1,
-            pageCount: pageMode ? pageCount : 1,
-            onSeekPage: _seekDisplayPage,
-            scrollMode: !pageMode,
-            progress: ratio,
-            onSeekProgress: (value) {
-              if (!_scroll.hasClients) return;
-              final max = _scroll.position.maxScrollExtent;
-              unawaited(
-                _scroll.animateTo(
-                  (value * max).clamp(0.0, max),
-                  duration: const Duration(milliseconds: 220),
-                  curve: Curves.easeOut,
-                ),
-              );
-            },
-            onPrevChapter: () => unawaited(_previousChapter()),
-            onNextChapter: () => unawaited(_nextChapter()),
-            onSearch: () => unawaited(_openSearch()),
-            onToggleAutoPage: _toggleAutoReading,
-            onCatalog: () => unawaited(_openCatalog()),
-            onTts: () => unawaited(_toggleTts()),
-            onSettings: () => unawaited(_openSettings()),
-            autoReading: _autoReading,
-            speaking: _speaking,
+      // 浮动行与底栏同处一个纵向栈：浮动行在上、底栏在下，
+      // 底栏高度随行数/图标文字变化时不会互相压住。
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          _buildFloatingBar(),
+          ValueListenableBuilder<bool>(
+            valueListenable: _chromeVisible,
+            builder: (context, visible, child) => AnimatedSlide(
+              offset: visible ? Offset.zero : const Offset(0, 1.1),
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOut,
+              child: IgnorePointer(ignoring: !visible, child: child),
+            ),
+            child: ValueListenableBuilder<double>(
+              valueListenable: _scrollRatio,
+              builder: (context, ratio, __) => NovelReaderBottomPanel(
+                settings: settings,
+                brightness: settings.dimBrightness.toDouble(),
+                onBrightnessChanged: _setBrightness,
+                showAutoBrightness: _supportsAutoBrightness,
+                autoBrightness: settings.autoBrightness,
+                onToggleAutoBrightness: _toggleAutoBrightness,
+                page: pageMode ? _displayPage(pageCount) : 1,
+                pageCount: pageMode ? pageCount : 1,
+                onSeekPage: _seekDisplayPage,
+                scrollMode: !pageMode,
+                progress: ratio,
+                onSeekProgress: (value) {
+                  if (!_scroll.hasClients) return;
+                  final max = _scroll.position.maxScrollExtent;
+                  unawaited(
+                    _scroll.animateTo(
+                      (value * max).clamp(0.0, max),
+                      duration: const Duration(milliseconds: 220),
+                      curve: Curves.easeOut,
+                    ),
+                  );
+                },
+                onPrevChapter: () => unawaited(_previousChapter()),
+                onNextChapter: () => unawaited(_nextChapter()),
+                onTap: _menuActionTap,
+                actionContext: _menuActionContext,
+                autoReading: _autoReading,
+                speaking: _speaking,
+              ),
+            ),
           ),
-        ),
+        ],
       ),
     );
   }

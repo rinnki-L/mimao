@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme.dart';
 import 'novel_click_actions.dart';
+import 'novel_menu_actions.dart';
 import 'novel_reader_settings.dart';
 
 /// 阅读背景色。
@@ -36,7 +37,15 @@ Color novelReaderPanelColor(NovelReaderSettings settings) {
   )!;
 }
 
-/// 顶部栏：返回 / 书名章节名 / 缓存、刷新、换源、更多 / 当前书源名。
+/// 解析一个菜单动作的点击回调；返回 null 表示该动作在当前页面没有入口
+/// （按钮仍渲染但禁用，避免「配了却消失」让人以为设置没生效）。
+typedef NovelMenuActionOnTap = VoidCallback? Function(NovelMenuActionDef def);
+
+/// 顶部栏：返回 / 书名章节名 / 按注册表渲染的按钮 / 当前书源名。
+///
+/// 按钮清单来自 [NovelReaderSettings.titleBarMenu]：先按
+/// [resolveNovelTitleBarActions] 过滤掉不可用项、截断到
+/// [novelTitleBarMaxActions]，紧凑模式下只留「更多」。
 class NovelReaderTopBar extends StatelessWidget {
   const NovelReaderTopBar({
     super.key,
@@ -45,10 +54,8 @@ class NovelReaderTopBar extends StatelessWidget {
     required this.chapterTitle,
     required this.sourceName,
     required this.onBack,
-    required this.onDownload,
-    required this.onRefresh,
-    required this.onSwitchSource,
-    required this.onMore,
+    required this.onTap,
+    this.actionContext = const NovelMenuActionContext(),
   });
 
   final NovelReaderSettings settings;
@@ -56,10 +63,8 @@ class NovelReaderTopBar extends StatelessWidget {
   final String chapterTitle;
   final String sourceName;
   final VoidCallback onBack;
-  final VoidCallback onDownload;
-  final VoidCallback onRefresh;
-  final VoidCallback onSwitchSource;
-  final VoidCallback onMore;
+  final NovelMenuActionOnTap onTap;
+  final NovelMenuActionContext actionContext;
 
   @override
   Widget build(BuildContext context) {
@@ -67,6 +72,11 @@ class NovelReaderTopBar extends StatelessWidget {
     final text = novelReaderTextColor(settings);
     final secondary = novelReaderSecondaryColor(settings);
     final bg = novelReaderBackgroundColor(settings);
+    final actions = resolveNovelTitleBarActions(
+      items: settings.titleBarMenu,
+      context: actionContext,
+      compact: settings.titleBarCompact,
+    );
     return Material(
       color: bg.withValues(alpha: 0.94),
       child: SafeArea(
@@ -86,34 +96,14 @@ class NovelReaderTopBar extends StatelessWidget {
                     onPressed: onBack,
                   ),
                   const Spacer(),
-                  IconButton(
-                    key: const Key('novel-reader-download'),
-                    tooltip: '缓存本章',
-                    color: text,
-                    icon: const Icon(Icons.cloud_download_outlined),
-                    onPressed: onDownload,
-                  ),
-                  IconButton(
-                    key: const Key('novel-reader-refresh'),
-                    tooltip: '刷新本章',
-                    color: text,
-                    icon: const Icon(Icons.refresh),
-                    onPressed: onRefresh,
-                  ),
-                  IconButton(
-                    key: const Key('novel-reader-switch-source'),
-                    tooltip: '换源',
-                    color: text,
-                    icon: const Icon(Icons.swap_horiz),
-                    onPressed: onSwitchSource,
-                  ),
-                  IconButton(
-                    key: const Key('novel-reader-more'),
-                    tooltip: '更多',
-                    color: text,
-                    icon: const Icon(Icons.more_vert),
-                    onPressed: onMore,
-                  ),
+                  for (final def in actions)
+                    IconButton(
+                      key: Key(novelMenuActionKey(def.id)),
+                      tooltip: def.label,
+                      color: text,
+                      icon: Icon(def.icon),
+                      onPressed: onTap(def),
+                    ),
                   const SizedBox(width: 4),
                 ],
               ),
@@ -136,23 +126,32 @@ class NovelReaderTopBar extends StatelessWidget {
                             fontWeight: MimaoFonts.bold,
                           ),
                         ),
-                        const SizedBox(height: 2),
-                        Text(
-                          chapterTitle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: secondary,
+                        // 紧凑标题栏连副标题一起收掉：只留书名，把纵向空间
+                        // 还给正文。
+                        if (!settings.titleBarCompact) ...<Widget>[
+                          const SizedBox(height: 2),
+                          Text(
+                            chapterTitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: secondary,
+                            ),
                           ),
-                        ),
+                        ],
                       ],
                     ),
                   ),
-                  if (sourceName.isNotEmpty) ...<Widget>[
+                  // 书源名与「换源」是同一件事，紧凑模式下按钮都没了，
+                  // 这里也不再单独占位。
+                  if (sourceName.isNotEmpty &&
+                      !settings.titleBarCompact) ...<Widget>[
                     const SizedBox(width: 12),
                     InkWell(
                       key: const Key('novel-reader-source-name'),
-                      onTap: onSwitchSource,
+                      onTap: onTap(
+                        novelMenuActionById(novelMenuActionSwitchSource)!,
+                      ),
                       borderRadius: MimaoShapes.sm,
                       child: Padding(
                         padding: const EdgeInsets.symmetric(
@@ -178,7 +177,7 @@ class NovelReaderTopBar extends StatelessWidget {
   }
 }
 
-/// 底部菜单面板：亮度 / 章节进度滑杆 / 五个功能键。
+/// 底部菜单面板：亮度 / 章节进度滑杆 / 按注册表渲染的功能键网格。
 class NovelReaderBottomPanel extends StatelessWidget {
   const NovelReaderBottomPanel({
     super.key,
@@ -196,11 +195,8 @@ class NovelReaderBottomPanel extends StatelessWidget {
     this.onSeekProgress,
     required this.onPrevChapter,
     required this.onNextChapter,
-    required this.onSearch,
-    required this.onToggleAutoPage,
-    required this.onCatalog,
-    required this.onTts,
-    required this.onSettings,
+    required this.onTap,
+    this.actionContext = const NovelMenuActionContext(),
     this.autoReading = false,
     this.speaking = false,
   });
@@ -221,11 +217,8 @@ class NovelReaderBottomPanel extends StatelessWidget {
   final ValueChanged<double>? onSeekProgress;
   final VoidCallback onPrevChapter;
   final VoidCallback onNextChapter;
-  final VoidCallback onSearch;
-  final VoidCallback onToggleAutoPage;
-  final VoidCallback onCatalog;
-  final VoidCallback onTts;
-  final VoidCallback onSettings;
+  final NovelMenuActionOnTap onTap;
+  final NovelMenuActionContext actionContext;
   final bool autoReading;
   final bool speaking;
 
@@ -237,10 +230,22 @@ class NovelReaderBottomPanel extends StatelessWidget {
     final panel = novelReaderPanelColor(settings);
     final scheme = theme.colorScheme;
     final maxPage = pageCount < 1 ? 1 : pageCount;
+    final actions = resolveNovelMenuActions(
+      items: settings.bottomBarMenu,
+      context: actionContext,
+    );
+    final layout = layoutNovelMenuRows(
+      actions: actions,
+      itemsPerRow: settings.menuIconItemsPerRow,
+      rowCount: settings.menuIconRowCount,
+      showMore: false,
+    );
 
     return Material(
       color: panel,
-      shape: RoundedRectangleBorder(borderRadius: MimaoShapes.xl),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(settings.menuBottomRadiusValue),
+      ),
       clipBehavior: Clip.antiAlias,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
@@ -341,31 +346,58 @@ class NovelReaderBottomPanel extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 2),
-            // 第三行：按钮清单来自 [novelBottomMenuButtons]（与九宫格下拉、
-            // 将来的顶栏自定义共用同一份动作定义），顺序与改造前一致：
-            // 搜索 / 自动翻页 / 目录 / 朗读 / 设置。
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: <Widget>[
-                for (final button in novelBottomMenuButtons)
-                  _action(
-                    context,
-                    key: _bottomButtonKey(button.action),
-                    tooltip: _bottomButtonTooltip(
-                      button.action,
-                      autoReading,
-                      speaking,
-                    ),
-                    icon: _bottomButtonIcon(button.action, autoReading),
-                    color: text,
-                    active: _bottomButtonActive(
-                      button.action,
-                      autoReading,
-                      speaking,
-                    ),
-                    onPressed: _bottomButtonCallback(button.action),
-                  ),
-              ],
+            // 功能键：顺序/启用/每行几个/几行都来自设置，动作来自注册表。
+            for (final row in layout.rows)
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: <Widget>[
+                  for (final def in row)
+                    _actionButton(context, def, text, secondary),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _actionButton(
+    BuildContext context,
+    NovelMenuActionDef def,
+    Color text,
+    Color secondary,
+  ) {
+    final scheme = Theme.of(context).colorScheme;
+    final active = _actionActive(def);
+    final icon = _actionIcon(def, active);
+    final onPressed = onTap(def);
+    if (!settings.menuShowIconText) {
+      return IconButton(
+        key: Key(novelMenuActionKey(def.id)),
+        tooltip: _actionTooltip(def, active),
+        color: active ? scheme.primary : text,
+        icon: Icon(icon),
+        onPressed: onPressed,
+      );
+    }
+    return InkWell(
+      key: Key(novelMenuActionKey(def.id)),
+      onTap: onPressed,
+      borderRadius: MimaoShapes.md,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Icon(icon, size: 22, color: active ? scheme.primary : text),
+            const SizedBox(height: 2),
+            Text(
+              def.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: active ? scheme.primary : secondary,
+              ),
             ),
           ],
         ),
@@ -373,80 +405,24 @@ class NovelReaderBottomPanel extends StatelessWidget {
     );
   }
 
-  Widget _action(
-    BuildContext context, {
-    required String key,
-    required String tooltip,
-    required IconData icon,
-    required Color color,
-    required VoidCallback onPressed,
-    bool active = false,
-  }) {
-    final scheme = Theme.of(context).colorScheme;
-    return IconButton(
-      key: Key(key),
-      tooltip: tooltip,
-      color: active ? scheme.primary : color,
-      icon: Icon(icon),
-      onPressed: onPressed,
-    );
-  }
-
-  /// 底栏按钮 → 测试/自动化用的稳定 key。
-  ///
-  /// 历史上各按钮的 key 是手写的（search / auto-page / catalog / tts /
-  /// settings），改名会让既有 UI 测试与截图脚本失效，所以这里保持原名。
-  String _bottomButtonKey(NovelClickAction action) => switch (action) {
-    NovelClickAction.search => 'novel-reader-search',
-    NovelClickAction.autoPage => 'novel-reader-auto-page',
-    NovelClickAction.catalog => 'novel-reader-catalog',
-    NovelClickAction.ttsToggle => 'novel-reader-tts',
-    NovelClickAction.menu => 'novel-reader-settings',
-    _ => 'novel-reader-${action.name}',
-  };
-
-  String _bottomButtonTooltip(
-    NovelClickAction action,
-    bool autoReading,
-    bool speaking,
-  ) => switch (action) {
-    NovelClickAction.search => '书内搜索',
-    NovelClickAction.autoPage => autoReading ? '停止自动翻页' : '自动翻页',
-    NovelClickAction.catalog => '目录',
-    NovelClickAction.ttsToggle => speaking ? '停止朗读' : '语音朗读',
-    NovelClickAction.menu => '阅读设置',
-    _ => action.label,
-  };
-
-  IconData _bottomButtonIcon(NovelClickAction action, bool autoReading) =>
-      switch (action) {
-        NovelClickAction.search => Icons.search,
-        NovelClickAction.autoPage =>
-          autoReading ? Icons.pause : Icons.play_arrow,
-        NovelClickAction.catalog => Icons.menu,
-        NovelClickAction.ttsToggle => Icons.record_voice_over_outlined,
-        NovelClickAction.menu => Icons.settings_outlined,
-        _ => Icons.circle_outlined,
-      };
-
-  bool _bottomButtonActive(
-    NovelClickAction action,
-    bool autoReading,
-    bool speaking,
-  ) => switch (action) {
-    NovelClickAction.autoPage => autoReading,
-    NovelClickAction.ttsToggle => speaking,
+  /// 自动翻页 / 朗读开着的按钮高亮，图标也换成「停止」语义。
+  bool _actionActive(NovelMenuActionDef def) => switch (def.id) {
+    novelMenuActionAutoPage => autoReading,
+    novelMenuActionTts => speaking,
     _ => false,
   };
 
-  VoidCallback _bottomButtonCallback(NovelClickAction action) =>
-      switch (action) {
-        NovelClickAction.search => onSearch,
-        NovelClickAction.autoPage => onToggleAutoPage,
-        NovelClickAction.catalog => onCatalog,
-        NovelClickAction.ttsToggle => onTts,
-        NovelClickAction.menu => onSettings,
-        _ => () {},
+  IconData _actionIcon(NovelMenuActionDef def, bool active) => switch (def.id) {
+    novelMenuActionAutoPage when active => Icons.pause,
+    novelMenuActionTts when active => Icons.stop_circle_outlined,
+    _ => def.icon,
+  };
+
+  String _actionTooltip(NovelMenuActionDef def, bool active) =>
+      switch (def.id) {
+        novelMenuActionAutoPage when active => '停止自动翻页',
+        novelMenuActionTts when active => '停止朗读',
+        _ => def.label,
       };
 
   Widget _slimSlider(
@@ -1246,50 +1222,93 @@ class _ZoneCell extends StatelessWidget {
   }
 }
 
-/// 底部菜单按钮：图标 + 文案 + 动作。
+/// 浮动图标行：贴底栏上方的一排按钮，配置为空时不渲染。
 ///
-/// 底栏渲染、点击区下拉、将来的顶栏自定义都从这里取，避免三处各写一套
-/// 图标/文案。动作本身仍由 [NovelClickAction] 定义，这里只负责「长什么样」。
-class NovelMenuButtonDef {
-  const NovelMenuButtonDef({
-    required this.action,
-    required this.icon,
-    required this.label,
+/// 与底栏分开存配置（[NovelReaderSettings.floatingBarMenu]），
+/// 用户可以把「翻页/章节」这类低频动作放这里，底栏只留常用项。
+class NovelReaderFloatingBar extends StatelessWidget {
+  const NovelReaderFloatingBar({
+    super.key,
+    required this.settings,
+    required this.onTap,
+    this.actionContext = const NovelMenuActionContext(),
   });
 
-  final NovelClickAction action;
-  final IconData icon;
-  final String label;
-}
+  final NovelReaderSettings settings;
+  final NovelMenuActionOnTap onTap;
+  final NovelMenuActionContext actionContext;
 
-/// 底栏默认按钮顺序（改造前的五个入口，顺序与行为都不变）。
-///
-/// 这里只是「按钮长什么样」的默认清单；阅读页按自己的状态（自动翻页开没开、
-/// 朗读在不在跑）决定哪个按钮高亮，不把状态塞进常量。
-const List<NovelMenuButtonDef> novelBottomMenuButtons = <NovelMenuButtonDef>[
-  NovelMenuButtonDef(
-    action: NovelClickAction.search,
-    icon: Icons.search,
-    label: '书内搜索',
-  ),
-  NovelMenuButtonDef(
-    action: NovelClickAction.autoPage,
-    icon: Icons.play_arrow,
-    label: '自动翻页',
-  ),
-  NovelMenuButtonDef(
-    action: NovelClickAction.catalog,
-    icon: Icons.menu,
-    label: '目录',
-  ),
-  NovelMenuButtonDef(
-    action: NovelClickAction.ttsToggle,
-    icon: Icons.record_voice_over_outlined,
-    label: '语音朗读',
-  ),
-  NovelMenuButtonDef(
-    action: NovelClickAction.menu,
-    icon: Icons.settings_outlined,
-    label: '阅读设置',
-  ),
-];
+  @override
+  Widget build(BuildContext context) {
+    final actions = resolveNovelMenuActions(
+      items: settings.floatingBarMenu,
+      context: actionContext,
+    );
+    if (actions.isEmpty) return const SizedBox.shrink();
+    final layout = layoutNovelMenuRows(
+      actions: actions,
+      itemsPerRow: settings.menuIconItemsPerRow,
+      rowCount: settings.menuIconRowCount,
+      showMore: false,
+    );
+    final text = novelReaderTextColor(settings);
+    final secondary = novelReaderSecondaryColor(settings);
+    final panel = novelReaderPanelColor(settings);
+    return Material(
+      color: panel,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(settings.menuBottomRadiusValue),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            for (final row in layout.rows)
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: <Widget>[
+                  for (final def in row)
+                    if (settings.menuShowIconText)
+                      InkWell(
+                        key: Key(novelMenuActionKey(def.id)),
+                        onTap: onTap(def),
+                        borderRadius: MimaoShapes.md,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: <Widget>[
+                              Icon(def.icon, size: 20, color: text),
+                              const SizedBox(height: 2),
+                              Text(
+                                def.label,
+                                style: Theme.of(context).textTheme.labelSmall
+                                    ?.copyWith(color: secondary),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    else
+                      IconButton(
+                        key: Key(novelMenuActionKey(def.id)),
+                        tooltip: def.label,
+                        color: text,
+                        visualDensity: VisualDensity.compact,
+                        icon: Icon(def.icon, size: 20),
+                        onPressed: onTap(def),
+                      ),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}

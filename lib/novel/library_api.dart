@@ -188,3 +188,9 @@ const String novelPrefShelfSort = 'shelf_sort';
 const String novelPrefReaderFontSize = 'reader_font_size';
 const String novelPrefReaderSettings = 'reader_settings';
 const String novelPrefReaderPositions = 'reader_positions';
+
+/// 每书阅读设置覆盖：一条 kv 里存 `{bookId: 部分 JSON}`。
+///
+/// 只存与全局设置不同的字段，避免整份复制——否则用户以后改全局时，
+/// 每书那份旧快照会把改动吃掉。合并优先级：每书 > 全局 > 默认。
+const String novelPrefReaderBookSettings = 'reader_book_settings';

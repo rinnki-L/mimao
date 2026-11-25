@@ -13,11 +13,22 @@
 import 'dart:convert';
 
 import 'package:mimao/novel/library_api.dart'
-    show NovelPrefsApi, novelPrefReaderFontSize, novelPrefReaderSettings;
+    show
+        NovelPrefsApi,
+        novelPrefReaderBookSettings,
+        novelPrefReaderFontSize,
+        novelPrefReaderSettings;
 import 'package:mimao/novel/reader/novel_click_actions.dart';
+import 'package:mimao/novel/reader/novel_menu_actions.dart';
 
 /// 翻页方式：上下滚动（默认）/ 左右翻页。
 enum NovelPageMode { scroll, page }
+
+/// 一次修改的作用域：改全局，还是只改当前这本书。
+///
+/// 默认 [global]（与上游一致）；[book] 时只把「与全局不同的字段」写进
+/// 每书覆盖，全局设置保持不动。
+enum NovelSettingsScope { global, book }
 
 /// 左右翻页的过渡动画风格（对照 legado 的 PageAnim）。
 ///
@@ -259,8 +270,19 @@ class NovelReaderSettings {
     this.backgroundTexture = NovelBackgroundTexture.none,
     this.chineseConvert = NovelChineseConvert.none,
     this.twoColumn = false,
+    this.menuIconItemsPerRow = 5,
+    this.menuIconRowCount = 1,
+    this.menuBottomRadius = 32,
+    this.menuShowIconText = false,
+    this.titleBarCompact = false,
+    List<NovelMenuButtonItem>? titleBarMenu,
+    List<NovelMenuButtonItem>? bottomBarMenu,
+    List<NovelMenuButtonItem>? floatingBarMenu,
   }) : _footerSlots = footerSlots,
-       _clickZones = clickZones;
+       _clickZones = clickZones,
+       _titleBarMenu = titleBarMenu,
+       _bottomBarMenu = bottomBarMenu,
+       _floatingBarMenu = floatingBarMenu;
 
   static const double minFontSize = 12;
   static const double maxFontSize = 40;
@@ -296,6 +318,13 @@ class NovelReaderSettings {
   static const double maxChromeFontSize = 24;
   static const int minBackgroundImageOpacity = 0;
   static const int maxBackgroundImageOpacity = 100;
+
+  static const int minMenuIconItemsPerRow = 2;
+  static const int maxMenuIconItemsPerRow = 8;
+  static const int minMenuIconRowCount = 1;
+  static const int maxMenuIconRowCount = 2;
+  static const int minMenuBottomRadius = 0;
+  static const int maxMenuBottomRadius = 32;
 
   /// 正文字号（逻辑像素，与截图里的 20 对齐）。
   final double fontSize;
@@ -458,6 +487,63 @@ class NovelReaderSettings {
   /// 宽窗口（≥1100 且横向）时可选双栏分页；标题页不拆。
   final bool twoColumn;
 
+  // ── 菜单外观与布局 ────────────────────────────────────────────────────
+
+  /// 底栏 / 浮动行每行放几个图标（2–8）。
+  final int menuIconItemsPerRow;
+
+  /// 底栏 / 浮动行的行数（1–2）。
+  final int menuIconRowCount;
+
+  /// 底栏圆角（0–32）。0 = 直角，32 = 胶囊感。
+  final int menuBottomRadius;
+
+  /// 图标下面是否带文字标签。
+  final bool menuShowIconText;
+
+  /// 紧凑标题栏：顶栏只留「更多」，把书名与章节名让出来。
+  final bool titleBarCompact;
+
+  /// 顶栏按钮配置（顺序 + 启用）；null = [novelDefaultTitleBarMenu]。
+  final List<NovelMenuButtonItem>? _titleBarMenu;
+
+  /// 底栏按钮配置；null = [novelDefaultBottomBarMenu]。
+  final List<NovelMenuButtonItem>? _bottomBarMenu;
+
+  /// 浮动行按钮配置；null = 空（不渲染）。
+  final List<NovelMenuButtonItem>? _floatingBarMenu;
+
+  List<NovelMenuButtonItem> get titleBarMenu =>
+      _titleBarMenu ?? novelDefaultTitleBarMenu;
+
+  List<NovelMenuButtonItem> get bottomBarMenu =>
+      _bottomBarMenu ?? novelDefaultBottomBarMenu;
+
+  List<NovelMenuButtonItem> get floatingBarMenu =>
+      _floatingBarMenu ?? novelDefaultFloatingMenu;
+
+  /// 取某一处菜单栏的配置。
+  List<NovelMenuButtonItem> menuBarItems(NovelMenuBar bar) => switch (bar) {
+    NovelMenuBar.titleBar => titleBarMenu,
+    NovelMenuBar.bottomBar => bottomBarMenu,
+    NovelMenuBar.floatingBar => floatingBarMenu,
+  };
+
+  /// 换某一处菜单栏的配置（其余两处不动）。
+  NovelReaderSettings withMenuBar(
+    NovelMenuBar bar,
+    List<NovelMenuButtonItem> items,
+  ) => switch (bar) {
+    NovelMenuBar.titleBar => copyWith(titleBarMenu: items),
+    NovelMenuBar.bottomBar => copyWith(bottomBarMenu: items),
+    NovelMenuBar.floatingBar => copyWith(floatingBarMenu: items),
+  };
+
+  /// 底栏圆角 → BorderRadius（走统一阶梯之外的显式像素，因为它是用户可调项）。
+  double get menuBottomRadiusValue => menuBottomRadius
+      .clamp(minMenuBottomRadius, maxMenuBottomRadius)
+      .toDouble();
+
   /// 段首缩进串。
   String get indent => '　' * indentCount;
 
@@ -575,6 +661,14 @@ class NovelReaderSettings {
     NovelBackgroundTexture? backgroundTexture,
     NovelChineseConvert? chineseConvert,
     bool? twoColumn,
+    int? menuIconItemsPerRow,
+    int? menuIconRowCount,
+    int? menuBottomRadius,
+    bool? menuShowIconText,
+    bool? titleBarCompact,
+    List<NovelMenuButtonItem>? titleBarMenu,
+    List<NovelMenuButtonItem>? bottomBarMenu,
+    List<NovelMenuButtonItem>? floatingBarMenu,
   }) {
     final legacyLeft = footerLeft ?? this.footerLeft;
     final legacyRight = footerRight ?? this.footerRight;
@@ -732,6 +826,21 @@ class NovelReaderSettings {
       backgroundTexture: backgroundTexture ?? this.backgroundTexture,
       chineseConvert: chineseConvert ?? this.chineseConvert,
       twoColumn: twoColumn ?? this.twoColumn,
+      menuIconItemsPerRow: (menuIconItemsPerRow ?? this.menuIconItemsPerRow)
+          .clamp(minMenuIconItemsPerRow, maxMenuIconItemsPerRow),
+      menuIconRowCount: (menuIconRowCount ?? this.menuIconRowCount).clamp(
+        minMenuIconRowCount,
+        maxMenuIconRowCount,
+      ),
+      menuBottomRadius: (menuBottomRadius ?? this.menuBottomRadius).clamp(
+        minMenuBottomRadius,
+        maxMenuBottomRadius,
+      ),
+      menuShowIconText: menuShowIconText ?? this.menuShowIconText,
+      titleBarCompact: titleBarCompact ?? this.titleBarCompact,
+      titleBarMenu: titleBarMenu ?? _titleBarMenu,
+      bottomBarMenu: bottomBarMenu ?? _bottomBarMenu,
+      floatingBarMenu: floatingBarMenu ?? _floatingBarMenu,
     );
   }
 
@@ -803,6 +912,14 @@ class NovelReaderSettings {
     'backgroundTexture': backgroundTexture.name,
     'chineseConvert': chineseConvert.name,
     'twoColumn': twoColumn,
+    'menuIconItemsPerRow': menuIconItemsPerRow,
+    'menuIconRowCount': menuIconRowCount,
+    'menuBottomRadius': menuBottomRadius,
+    'menuShowIconText': menuShowIconText,
+    'titleBarCompact': titleBarCompact,
+    'titleBarMenu': NovelMenuButtonItem.listToJson(titleBarMenu),
+    'bottomBarMenu': NovelMenuButtonItem.listToJson(bottomBarMenu),
+    'floatingBarMenu': NovelMenuButtonItem.listToJson(floatingBarMenu),
   };
 
   static NovelReaderSettings fromJson(Map<String, Object?> json) {
@@ -1019,6 +1136,33 @@ class NovelReaderSettings {
         NovelChineseConvert.none,
       ),
       twoColumn: _bool(json['twoColumn'], false),
+      menuIconItemsPerRow:
+          ((json['menuIconItemsPerRow'] is num)
+                  ? (json['menuIconItemsPerRow']! as num).round()
+                  : 5)
+              .clamp(minMenuIconItemsPerRow, maxMenuIconItemsPerRow),
+      menuIconRowCount:
+          ((json['menuIconRowCount'] is num)
+                  ? (json['menuIconRowCount']! as num).round()
+                  : 1)
+              .clamp(minMenuIconRowCount, maxMenuIconRowCount),
+      menuBottomRadius:
+          ((json['menuBottomRadius'] is num)
+                  ? (json['menuBottomRadius']! as num).round()
+                  : 32)
+              .clamp(minMenuBottomRadius, maxMenuBottomRadius),
+      menuShowIconText: _bool(json['menuShowIconText'], false),
+      titleBarCompact: _bool(json['titleBarCompact'], false),
+      // 缺键 = 走默认；显式空列表 = 用户把这一行清空了，两者必须区分开。
+      titleBarMenu: json.containsKey('titleBarMenu')
+          ? NovelMenuButtonItem.listFromJson(json['titleBarMenu'])
+          : null,
+      bottomBarMenu: json.containsKey('bottomBarMenu')
+          ? NovelMenuButtonItem.listFromJson(json['bottomBarMenu'])
+          : null,
+      floatingBarMenu: json.containsKey('floatingBarMenu')
+          ? NovelMenuButtonItem.listFromJson(json['floatingBarMenu'])
+          : null,
     );
   }
 
@@ -1157,6 +1301,215 @@ class NovelReaderSettings {
 abstract interface class NovelReaderSettingsStore {
   Future<NovelReaderSettings> load();
   Future<void> save(NovelReaderSettings settings);
+}
+
+/// 每书覆盖允许的字段：背景 / 字体 / 翻页方式 / 动画 / 点击区。
+///
+/// 只放「这本书看起来不一样」的项；行距、页眉页脚这类排版细节仍走全局，
+/// 免得覆盖面越滚越大、用户搞不清哪项是哪层生效的。
+const List<String> novelBookOverrideFields = <String>[
+  'fontSize',
+  'fontFamily',
+  'backgroundIndex',
+  'customBackgroundArgb',
+  'backgroundImagePath',
+  'backgroundImageFit',
+  'backgroundImageOpacity',
+  'backgroundImageAlign',
+  'pageMode',
+  'pageAnimation',
+  'pageAnimStyle',
+  'pageAnimationMs',
+  'clickZones',
+];
+
+/// 算出 [effective] 里与 [global] 不同的可覆盖字段（部分 JSON）。
+///
+/// 这是「每书覆盖只存差异」的唯一实现：整份复制会让用户以后改全局时，
+/// 每书那份旧快照把改动吃掉。空 map 表示与全局完全一致。
+Map<String, Object?> diffNovelReaderSettings(
+  NovelReaderSettings global,
+  NovelReaderSettings effective,
+) {
+  final globalJson = global.toJson();
+  final effectiveJson = effective.toJson();
+  final result = <String, Object?>{};
+  for (final field in novelBookOverrideFields) {
+    final before = globalJson[field];
+    final after = effectiveJson[field];
+    if (!_novelJsonEquals(before, after)) result[field] = after;
+  }
+  return result;
+}
+
+/// 算出两份设置之间的全部字段差异（部分 JSON，不限于可覆盖字段）。
+///
+/// 设置面板展示的是「每书 > 全局」叠加后的生效值；用户在面板里改一项时，
+/// 只有这一项该写进全局，不能把整份生效值（含每书覆盖）当新全局。
+Map<String, Object?> diffNovelReaderSettingsAllFields(
+  NovelReaderSettings before,
+  NovelReaderSettings after,
+) {
+  final beforeJson = before.toJson();
+  final afterJson = after.toJson();
+  final result = <String, Object?>{};
+  for (final entry in afterJson.entries) {
+    if (!_novelJsonEquals(beforeJson[entry.key], entry.value)) {
+      result[entry.key] = entry.value;
+    }
+  }
+  return result;
+}
+
+/// 把一份部分 JSON 叠到设置上（缺的字段沿用 [base]）。
+NovelReaderSettings applyNovelReaderSettingsJson(
+  NovelReaderSettings base,
+  Map<String, Object?> partial,
+) {
+  if (partial.isEmpty) return base;
+  return NovelReaderSettings.fromJson(<String, Object?>{
+    ...base.toJson(),
+    ...partial,
+  });
+}
+
+/// 把每书覆盖叠到全局设置上（每书 > 全局 > 默认）。///
+/// [override] 只含差异字段；不在 [novelBookOverrideFields] 里的键一律忽略，
+/// 坏值由 [NovelReaderSettings.fromJson] 逐项回退默认并 clamp。
+NovelReaderSettings mergeNovelBookOverride(
+  NovelReaderSettings global,
+  Map<String, Object?> override,
+) {
+  if (override.isEmpty) return global;
+  final merged = <String, Object?>{...global.toJson()};
+  for (final field in novelBookOverrideFields) {
+    if (override.containsKey(field)) merged[field] = override[field];
+  }
+  return NovelReaderSettings.fromJson(merged);
+}
+
+/// 解析一条覆盖 JSON（kv 里存的是 `{bookId: {...}}` 的其中一个值）。
+Map<String, Object?> parseNovelBookOverride(Object? raw) {
+  if (raw is Map) {
+    return <String, Object?>{
+      for (final entry in raw.entries)
+        if (entry.key is String) entry.key as String: entry.value,
+    };
+  }
+  return const <String, Object?>{};
+}
+
+bool _novelJsonEquals(Object? a, Object? b) {
+  if (identical(a, b)) return true;
+  if (a is List && b is List) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (!_novelJsonEquals(a[i], b[i])) return false;
+    }
+    return true;
+  }
+  // 菜单配置是 List<Map>，Map 的 == 是引用比较，必须逐键比内容。
+  if (a is Map && b is Map) {
+    if (a.length != b.length) return false;
+    for (final entry in a.entries) {
+      if (!b.containsKey(entry.key)) return false;
+      if (!_novelJsonEquals(entry.value, b[entry.key])) return false;
+    }
+    return true;
+  }
+  return a == b;
+}
+
+/// 每书覆盖存储：一条 kv 存 `{bookId: 部分 JSON}`。
+///
+/// 与全局设置分两个键存，互不覆盖；[prefs] 为空时读写都落在内存里。
+class NovelBookSettingsStore {
+  NovelBookSettingsStore(this.prefs);
+
+  final NovelPrefsApi? prefs;
+
+  static const String key = novelPrefReaderBookSettings;
+
+  final Map<String, Map<String, Object?>> _memory =
+      <String, Map<String, Object?>>{};
+
+  Future<Map<String, Object?>> load(String bookId) async {
+    final all = await _readAll();
+    return Map<String, Object?>.unmodifiable(
+      all[bookId] ?? const <String, Object?>{},
+    );
+  }
+
+  /// 保存这本书的差异；空 map 等于清掉覆盖。
+  Future<void> save(String bookId, Map<String, Object?> partial) async {
+    final all = await _readAll();
+    if (partial.isEmpty) {
+      all.remove(bookId);
+    } else {
+      all[bookId] = <String, Object?>{
+        for (final field in novelBookOverrideFields)
+          if (partial.containsKey(field)) field: partial[field],
+      };
+    }
+    await _writeAll(all);
+  }
+
+  Future<void> clear(String bookId) async {
+    final all = await _readAll();
+    all.remove(bookId);
+    await _writeAll(all);
+  }
+
+  /// 有覆盖的书 id（设置页提示「这本书有独立设置」用）。
+  Future<Set<String>> bookIds() async => (await _readAll()).keys.toSet();
+
+  /// 读全量覆盖表。
+  ///
+  /// 恒返回**新** map：调用方会就地增删再交给 [_writeAll]，
+  /// 若直接把内部缓存交出去，`_memory..clear()..addAll(同一个 map)` 会把
+  /// 刚写进去的内容一起清掉（写一次就丢一次）。
+  Future<Map<String, Map<String, Object?>>> _readAll() async {
+    final api = prefs;
+    if (api == null) return _copyAll(_memory);
+    try {
+      final raw = await api.read(key);
+      if (raw == null || raw.isEmpty) return _copyAll(_memory);
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return _copyAll(_memory);
+      final result = <String, Map<String, Object?>>{};
+      for (final entry in decoded.entries) {
+        final bookId = entry.key;
+        if (bookId is! String || bookId.isEmpty) continue;
+        result[bookId] = parseNovelBookOverride(entry.value);
+      }
+      _memory
+        ..clear()
+        ..addAll(result);
+      return _copyAll(result);
+    } on Object {
+      return _copyAll(_memory);
+    }
+  }
+
+  static Map<String, Map<String, Object?>> _copyAll(
+    Map<String, Map<String, Object?>> source,
+  ) => <String, Map<String, Object?>>{
+    for (final entry in source.entries)
+      entry.key: Map<String, Object?>.from(entry.value),
+  };
+
+  Future<void> _writeAll(Map<String, Map<String, Object?>> all) async {
+    _memory
+      ..clear()
+      ..addAll(all);
+    final api = prefs;
+    if (api == null) return;
+    try {
+      await api.write(key, jsonEncode(all));
+    } on Object {
+      // 写失败不影响本次阅读。
+    }
+  }
 }
 
 /// 模块 kv 版设置存储；[prefs] 为空时读写都落在内存里（测试/依赖未注入）。

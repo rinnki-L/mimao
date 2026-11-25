@@ -405,6 +405,7 @@ class NovelWebDavBackupService {
         novelPrefShelfSort,
         novelPrefReaderFontSize,
         novelPrefReaderSettings,
+        novelPrefReaderBookSettings,
         novelPrefReaderPositions,
       ]) {
         final value = await prefsApi.read(key);
