@@ -10,6 +10,7 @@ library;
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:mimao/core/theme.dart';
 import 'package:mimao/novel/pages/novel_widgets.dart';
 import 'package:mimao/novel/reader/novel_reader_controller.dart';
 
@@ -32,6 +33,13 @@ class _NovelContentEditPageState extends State<NovelContentEditPage> {
   bool _busy = false;
   bool _loadingOverride = true;
 
+  /// 本地覆盖状态读取失败：页面给「重试读取」而不是假装「没有覆盖」。
+  bool _overrideReadFailed = false;
+
+  /// 保存/恢复失败的错误文案；非空时页面顶部给重试按钮。
+  String? _actionError;
+  bool _retryIsRestore = false;
+
   @override
   void initState() {
     super.initState();
@@ -39,11 +47,13 @@ class _NovelContentEditPageState extends State<NovelContentEditPage> {
   }
 
   Future<void> _loadOverrideState() async {
-    final has = await widget.controller.hasChapterOverride();
+    final has = await widget.controller.readChapterOverrideState();
     if (!mounted) return;
     setState(() {
-      _hasOverride = has;
+      _hasOverride = has ?? false;
+      _overrideReadFailed = has == null;
       _loadingOverride = false;
+      if (has != null) _actionError = null;
     });
   }
 
@@ -71,14 +81,20 @@ class _NovelContentEditPageState extends State<NovelContentEditPage> {
       _toast('正文不能为空：至少保留一段，再点保存');
       return;
     }
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _actionError = null;
+    });
     final ok = await widget.controller.saveChapterOverride(paragraphs);
     if (!mounted) return;
-    setState(() => _busy = false);
-    if (!ok) {
-      _toast('保存失败：本地库暂时不可写，稍后重试');
-      return;
-    }
+    setState(() {
+      _busy = false;
+      if (!ok) {
+        _actionError = '保存失败：本地库暂时不可写。可重试；仍不行就退出后重启应用。';
+        _retryIsRestore = false;
+      }
+    });
+    if (!ok) return;
     Navigator.of(context).pop(true);
   }
 
@@ -101,14 +117,20 @@ class _NovelContentEditPageState extends State<NovelContentEditPage> {
       ),
     );
     if (confirmed != true || !mounted) return;
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _actionError = null;
+    });
     final ok = await widget.controller.restoreChapterOverride();
     if (!mounted) return;
-    setState(() => _busy = false);
-    if (!ok) {
-      _toast('恢复失败：没有找到本地覆盖，或本地库暂时不可写');
-      return;
-    }
+    setState(() {
+      _busy = false;
+      if (!ok) {
+        _actionError = '恢复失败：没有找到本地覆盖，或本地库暂时不可写。可重试。';
+        _retryIsRestore = true;
+      }
+    });
+    if (!ok) return;
     Navigator.of(context).pop(true);
   }
 
@@ -182,6 +204,8 @@ class _NovelContentEditPageState extends State<NovelContentEditPage> {
                               Text(
                                 _loadingOverride
                                     ? '正在检查本地覆盖…'
+                                    : _overrideReadFailed
+                                    ? '本地覆盖状态读取失败；可重试，仍不行就退出后重启应用。'
                                     : _hasOverride
                                     ? '当前章已有本地覆盖：下次打开这一章优先使用编辑后的正文。'
                                     : '保存后写入本地覆盖，下次打开这一章优先使用它；随时可以恢复原样。',
@@ -195,6 +219,31 @@ class _NovelContentEditPageState extends State<NovelContentEditPage> {
                       ],
                     ),
                   ),
+                  if (_overrideReadFailed) ...<Widget>[
+                    const SizedBox(height: 10),
+                    _OverrideErrorBanner(
+                      key: const Key('novel-content-edit-read-error'),
+                      message: '读不到本地覆盖状态：本地库暂时不可读。仍可继续编辑，但保存可能失败。',
+                      actionLabel: '重试读取',
+                      onAction: _busy
+                          ? null
+                          : () {
+                              setState(() => _loadingOverride = true);
+                              unawaited(_loadOverrideState());
+                            },
+                    ),
+                  ],
+                  if (_actionError != null) ...<Widget>[
+                    const SizedBox(height: 10),
+                    _OverrideErrorBanner(
+                      key: const Key('novel-content-edit-action-error'),
+                      message: _actionError!,
+                      actionLabel: _retryIsRestore ? '重试恢复' : '重试保存',
+                      onAction: _busy
+                          ? null
+                          : (_retryIsRestore ? _restore : _save),
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   Expanded(
                     child: TextField(
@@ -239,6 +288,51 @@ class _NovelContentEditPageState extends State<NovelContentEditPage> {
                 ],
               ),
             ),
+    );
+  }
+}
+
+/// 正文编辑页的局部错误条：只挡状态/动作，不把编辑器整块换成错误屏，
+/// 用户仍能改字；按钮给可操作的重试。
+class _OverrideErrorBanner extends StatelessWidget {
+  const _OverrideErrorBanner({
+    super.key,
+    required this.message,
+    required this.actionLabel,
+    required this.onAction,
+  });
+
+  final String message;
+  final String actionLabel;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
+      decoration: BoxDecoration(
+        color: cs.errorContainer,
+        borderRadius: MimaoShapes.sm,
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Icon(Icons.error_outline, size: 20, color: cs.error),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: cs.onErrorContainer,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          TextButton(onPressed: onAction, child: Text(actionLabel)),
+        ],
+      ),
     );
   }
 }

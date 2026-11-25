@@ -1131,6 +1131,25 @@ class NovelReaderController extends ChangeNotifier {
     }
   }
 
+  /// 读覆盖状态；仓库读失败返回 null，页面据此显示「错误 + 重试」。
+  ///
+  /// 与 [hasChapterOverride] 分开：后者把读失败当「没有覆盖」，会静默藏掉
+  /// 本地库故障；正文编辑页需要把失败显式告诉用户。
+  Future<bool?> readChapterOverrideState() async {
+    final storage = contentOverrides;
+    final target = chapter;
+    if (storage == null || target == null) return null;
+    try {
+      return await storage.has(
+        bookId: bookId,
+        sourceKey: _sourceKeyNow,
+        chapterKey: novelChapterOverrideKey(target),
+      );
+    } on Object {
+      return null;
+    }
+  }
+
   /// 正文样式：字体、字距、加粗/斜体、阴影。
   ///
   /// 下划线不在这里：`TextStyle.decoration` 只能贴着字形画、也拿不到行边界，

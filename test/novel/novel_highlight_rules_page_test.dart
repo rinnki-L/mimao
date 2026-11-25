@@ -17,9 +17,14 @@ class _MemoryHighlightStore implements NovelHighlightRuleStorage {
   final List<NovelHighlightRule> rules;
   int _nextId = 1;
 
+  /// 注入读失败，验证错误态与重试。
+  bool failLoad = false;
+
   @override
-  Future<List<NovelHighlightRule>> loadAll() async =>
-      List<NovelHighlightRule>.of(rules);
+  Future<List<NovelHighlightRule>> loadAll() async {
+    if (failLoad) throw StateError('模拟本地库不可读');
+    return List<NovelHighlightRule>.of(rules);
+  }
 
   @override
   Future<NovelHighlightRule> save(NovelHighlightRule rule) async {
@@ -79,6 +84,29 @@ void main() {
     expect(store.rules.single.pattern, '艾琳娜');
     expect(store.rules.single.bookId, 'book-1');
     expect(find.text('人名'), findsOneWidget);
+  });
+
+  testWidgets('高亮规则读取失败：错误态说明 + 重试可恢复', (tester) async {
+    final store = _MemoryHighlightStore()..failLoad = true;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: NovelHighlightRulesPage(
+          store: store,
+          bookId: 'book-1',
+          bookTitle: '测试书',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('没能加载出来'), findsOneWidget);
+    expect(find.textContaining('读取高亮规则失败'), findsOneWidget);
+    expect(find.textContaining('重启应用'), findsOneWidget);
+
+    store.failLoad = false;
+    await tester.tap(find.text('重试'));
+    await tester.pumpAndSettle();
+    expect(find.text('还没有高亮规则'), findsOneWidget);
   });
 
   testWidgets('坏正则不保存并给可读提示', (tester) async {

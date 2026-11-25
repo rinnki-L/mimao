@@ -21,9 +21,14 @@ class _MemoryReplaceStore implements NovelReplaceRuleStorage {
 
   final List<NovelReplaceRule> rules;
 
+  /// 注入读失败，验证错误态与重试。
+  bool failLoad = false;
+
   @override
-  Future<List<NovelReplaceRule>> loadAll() async =>
-      List<NovelReplaceRule>.of(rules);
+  Future<List<NovelReplaceRule>> loadAll() async {
+    if (failLoad) throw StateError('模拟规则目录不可读');
+    return List<NovelReplaceRule>.of(rules);
+  }
 
   @override
   Future<int> saveAll(Iterable<NovelReplaceRule> input) async {
@@ -55,6 +60,10 @@ class _MemoryReplaceStore implements NovelReplaceRuleStorage {
 class _MemoryOverrideStore implements NovelContentOverrideStorage {
   final Map<String, NovelContent> saved = <String, NovelContent>{};
 
+  /// 注入失败：模拟本地库读/写故障，验证页面的错误态与重试入口。
+  bool failRead = false;
+  bool failSave = false;
+
   String _key(String bookId, String sourceKey, String chapterKey) =>
       '$bookId|$sourceKey|$chapterKey';
 
@@ -70,7 +79,10 @@ class _MemoryOverrideStore implements NovelContentOverrideStorage {
     required String bookId,
     required String sourceKey,
     required String chapterKey,
-  }) async => saved.containsKey(_key(bookId, sourceKey, chapterKey));
+  }) async {
+    if (failRead) throw StateError('overrides 库暂时不可读');
+    return saved.containsKey(_key(bookId, sourceKey, chapterKey));
+  }
 
   @override
   Future<void> save({
@@ -82,6 +94,7 @@ class _MemoryOverrideStore implements NovelContentOverrideStorage {
     String title = '',
     DateTime? now,
   }) async {
+    if (failSave) throw StateError('overrides 库暂时不可写');
     saved[_key(bookId, sourceKey, chapterKey)] = NovelContent(
       chapterId: chapterKey,
       title: title.isEmpty ? chapterTitle : title,
@@ -272,6 +285,23 @@ void main() {
     );
   });
 
+  testWidgets('替换规则读取失败：错误态说明 + 重试可恢复', (tester) async {
+    final store = _MemoryReplaceStore()..failLoad = true;
+    await tester.pumpWidget(
+      MaterialApp(home: NovelReplaceEditorPage(store: store)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('没能加载出来'), findsOneWidget);
+    expect(find.textContaining('读取替换规则失败'), findsOneWidget);
+    expect(find.text('重试'), findsOneWidget);
+
+    store.failLoad = false;
+    await tester.tap(find.text('重试'));
+    await tester.pumpAndSettle();
+    expect(find.text('还没有替换规则'), findsOneWidget);
+  });
+
   testWidgets('编辑已有规则改 key 时删掉旧规则，不留下重复项', (tester) async {
     final store = _MemoryReplaceStore(<NovelReplaceRule>[
       _rule('旧规则', '广告', ''),
@@ -372,5 +402,80 @@ void main() {
     expect(controller.content?.paragraphs, <String>['引擎原文']);
     expect(controller.chapterIsLocalOverride, isFalse);
     expect(overrides.saved, isEmpty);
+  });
+  testWidgets('正文编辑：覆盖状态读失败给错误条与重试', (tester) async {
+    final overrides = _MemoryOverrideStore()..failRead = true;
+    final controller = NovelReaderController(
+      bookId: 'book-1',
+      title: '测试书',
+      sourceKey: 'src-a',
+      bookUrl: 'https://site.test/book/1',
+      onlineEngine: _Engine(const <String>['引擎原文']),
+      sourceStore: _Store(<NovelBookSource>[_source]),
+      contentOverrides: overrides,
+      settingsStore: MemoryNovelReaderSettingsStore(
+        const NovelReaderSettings(),
+      ),
+    );
+    addTearDown(controller.dispose);
+    await controller.init();
+
+    await tester.pumpWidget(
+      MaterialApp(home: NovelContentEditPage(controller: controller)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('novel-content-edit-read-error')),
+      findsOneWidget,
+    );
+    expect(find.text('重试读取'), findsOneWidget);
+
+    // 修好仓库后点重试，错误条消失。
+    overrides.failRead = false;
+    await tester.tap(find.text('重试读取'));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const Key('novel-content-edit-read-error')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('正文编辑：保存失败给错误条与重试保存', (tester) async {
+    final overrides = _MemoryOverrideStore()..failSave = true;
+    final controller = NovelReaderController(
+      bookId: 'book-1',
+      title: '测试书',
+      sourceKey: 'src-a',
+      bookUrl: 'https://site.test/book/1',
+      onlineEngine: _Engine(const <String>['引擎原文']),
+      sourceStore: _Store(<NovelBookSource>[_source]),
+      contentOverrides: overrides,
+      settingsStore: MemoryNovelReaderSettingsStore(
+        const NovelReaderSettings(),
+      ),
+    );
+    addTearDown(controller.dispose);
+    await controller.init();
+
+    await tester.pumpWidget(
+      MaterialApp(home: NovelContentEditPage(controller: controller)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('novel-content-edit-field')),
+      '改过的正文',
+    );
+    await tester.tap(find.byKey(const Key('novel-content-edit-save')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('novel-content-edit-action-error')),
+      findsOneWidget,
+    );
+    expect(find.text('重试保存'), findsOneWidget);
+    expect(controller.content?.paragraphs, <String>['引擎原文']);
+    expect(controller.chapterIsLocalOverride, isFalse);
   });
 }

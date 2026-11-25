@@ -621,17 +621,25 @@ class NovelEmptyState extends StatelessWidget {
 
 /// 错误态：给可操作下一步，技术细节留给日志。
 class NovelErrorState extends StatelessWidget {
-  const NovelErrorState({super.key, required this.message, this.onRetry});
+  const NovelErrorState({
+    super.key,
+    required this.message,
+    this.onRetry,
+    this.hint,
+  });
 
   final String message;
   final VoidCallback? onRetry;
+
+  /// 可操作提示；null 时用旧版「检查书源」兜底（多数页面仍是抓取类错误）。
+  final String? hint;
 
   @override
   Widget build(BuildContext context) {
     return NovelEmptyState(
       icon: Icons.error_outline,
       title: '没能加载出来',
-      message: '$message\n可以重试一次；反复失败时去「我的 → 规则管理」检查书源是否可用。',
+      message: '$message\n${hint ?? '可以重试一次；反复失败时去「我的 → 规则管理」检查书源是否可用。'}',
       action: onRetry == null
           ? null
           : FilledButton.tonalIcon(

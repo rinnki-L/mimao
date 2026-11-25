@@ -115,9 +115,10 @@ class _NovelReplaceEditorPageState extends State<NovelReplaceEditorPage> {
         _newRule();
       }
     } on Object catch (error) {
+      debugPrint('novel: 读取替换规则失败: $error');
       if (!mounted) return;
       setState(() {
-        _loadError = '读取替换规则失败：$error';
+        _loadError = '读取替换规则失败：规则目录暂时不可用。';
         _loading = false;
       });
     }
@@ -313,6 +314,7 @@ class _NovelReplaceEditorPageState extends State<NovelReplaceEditorPage> {
           : _loadError != null
           ? NovelErrorState(
               message: _loadError!,
+              hint: '检查规则目录是否可写，或退出后重启应用；重试会重新读取规则目录。',
               onRetry: () => _reload(selectFirst: true),
             )
           : LayoutBuilder(

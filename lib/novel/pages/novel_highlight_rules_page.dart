@@ -53,9 +53,10 @@ class _NovelHighlightRulesPageState extends State<NovelHighlightRulesPage> {
         _loading = false;
       });
     } on Object catch (error) {
+      debugPrint('novel: 读取高亮规则失败: $error');
       if (!mounted) return;
       setState(() {
-        _error = '读取高亮规则失败：$error';
+        _error = '读取高亮规则失败：本地库暂时打不开。';
         _loading = false;
       });
     }
@@ -136,7 +137,11 @@ class _NovelHighlightRulesPageState extends State<NovelHighlightRulesPage> {
         child: _loading
             ? const NovelLoadingState(label: '正在读取高亮规则…')
             : _error != null
-            ? NovelErrorState(message: _error!, onRetry: _reload)
+            ? NovelErrorState(
+                message: _error!,
+                hint: '可以重试一次；反复失败就退出后重启应用，让本地库重新打开。',
+                onRetry: _reload,
+              )
             : _rules.isEmpty
             ? NovelEmptyState(
                 icon: Icons.border_color_outlined,

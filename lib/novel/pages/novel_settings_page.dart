@@ -74,6 +74,8 @@ class _NovelSettingsPageState extends State<NovelSettingsPage> {
     var sources = const <NovelBookSource>[];
     var replaceCount = 0;
     var highlightCount = 0;
+    var replaceFailed = false;
+    var highlightFailed = false;
     final errors = <String>[];
     final statsApi = widget.stats;
     if (statsApi != null) {
@@ -104,7 +106,9 @@ class _NovelSettingsPageState extends State<NovelSettingsPage> {
       try {
         replaceCount = (await replaceStore.loadAll()).length;
       } on Object catch (error) {
-        errors.add('替换规则读取失败：$error');
+        debugPrint('novel: 设置页读取替换规则失败: $error');
+        replaceFailed = true;
+        errors.add('替换规则读取失败：规则目录暂时不可用。');
       }
     }
     final highlightStore = widget.highlightStore;
@@ -112,7 +116,9 @@ class _NovelSettingsPageState extends State<NovelSettingsPage> {
       try {
         highlightCount = (await highlightStore.loadAll()).length;
       } on Object catch (error) {
-        errors.add('高亮规则读取失败：$error');
+        debugPrint('novel: 设置页读取高亮规则失败: $error');
+        highlightFailed = true;
+        errors.add('高亮规则读取失败：本地库暂时打不开。');
       }
     }
     return _SettingsData(
@@ -121,6 +127,8 @@ class _NovelSettingsPageState extends State<NovelSettingsPage> {
       sourceCount: sources.length,
       replaceCount: replaceCount,
       highlightCount: highlightCount,
+      replaceFailed: replaceFailed,
+      highlightFailed: highlightFailed,
       error: errors.isEmpty ? null : errors.join('\n'),
     );
   }
@@ -337,7 +345,9 @@ class _NovelSettingsPageState extends State<NovelSettingsPage> {
                 _SettingsRow(
                   icon: Icons.find_replace,
                   title: '替换规则',
-                  subtitle: data.replaceCount == 0
+                  subtitle: data.replaceFailed
+                      ? '读取失败，点右侧「编辑」重试'
+                      : data.replaceCount == 0
                       ? '还没有替换规则（点右侧新建）'
                       : '${data.replaceCount} 条 · 可视化编辑 + 样例预览',
                   trailing: TextButton(
@@ -348,7 +358,9 @@ class _NovelSettingsPageState extends State<NovelSettingsPage> {
                 _SettingsRow(
                   icon: Icons.border_color_outlined,
                   title: '高亮规则',
-                  subtitle: data.highlightCount == 0
+                  subtitle: data.highlightFailed
+                      ? '读取失败，点右侧「管理」重试'
+                      : data.highlightCount == 0
                       ? '还没有高亮规则（点右侧新建）'
                       : '${data.highlightCount} 条 · 正则匹配，日夜两套色',
                   trailing: TextButton(
@@ -423,6 +435,8 @@ class _SettingsData {
     required this.sourceCount,
     this.replaceCount = 0,
     this.highlightCount = 0,
+    this.replaceFailed = false,
+    this.highlightFailed = false,
     this.error,
   });
 
@@ -443,6 +457,8 @@ class _SettingsData {
   final int sourceCount;
   final int replaceCount;
   final int highlightCount;
+  final bool replaceFailed;
+  final bool highlightFailed;
   final String? error;
 }
 
