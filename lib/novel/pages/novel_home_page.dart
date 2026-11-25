@@ -13,6 +13,7 @@ import 'package:mimao/core/theme.dart';
 import 'package:mimao/novel/home/home_module_config.dart';
 import 'package:mimao/novel/library_api.dart';
 import 'package:mimao/novel/models/novel_models.dart';
+import 'package:mimao/novel/pages/novel_backup_page.dart';
 import 'package:mimao/novel/pages/home/home_module_manager.dart';
 import 'package:mimao/novel/pages/novel_routes.dart';
 import 'package:mimao/novel/pages/novel_widgets.dart';
@@ -34,7 +35,7 @@ class NovelHomePage extends StatefulWidget {
     this.openRoute,
     this.onSelectTab,
     this.prefs,
-    this.backupClient,
+    this.backupService,
   });
 
   /// 当前 tab 是否可见；从别的 tab 切回来时重读本地数据。
@@ -58,8 +59,8 @@ class NovelHomePage extends StatefulWidget {
   /// 模块 kv（存 WebDAV 配置与偏好）；null 时不显示备份卡。
   final NovelPrefsApi? prefs;
 
-  /// WebDAV 客户端缝；null 时用 dio 生产实现。测试可注入 fake。
-  final NovelWebDavClient? backupClient;
+  /// WebDAV 备份服务（装配处构造）；null 时备份卡显示能力边界说明。
+  final NovelWebDavBackupService? backupService;
 
   @override
   State<NovelHomePage> createState() => _NovelHomePageState();
@@ -179,12 +180,18 @@ class _NovelHomePageState extends State<NovelHomePage> with RouteAware {
       }
     }
 
-    NovelWebDavConfig? webDavConfig;
+    var webDavConfigured = false;
+    DateTime? lastBackupAt;
     var modules = const NovelHomeModuleConfig(NovelHomeModuleConfig.defaults);
     final prefs = widget.prefs;
     if (prefs != null) {
       try {
-        webDavConfig = await readWebDavConfig(prefs);
+        // 只读地址键：首页卡片不需要完整配置（完整配置会去碰系统安全存储）。
+        final url = await prefs.read(novelWebDavUrlKey);
+        webDavConfigured = url != null && url.trim().isNotEmpty;
+        lastBackupAt = DateTime.tryParse(
+          await prefs.read(novelWebdavLastBackupAtKey) ?? '',
+        );
       } on Object catch (error) {
         errors.add('WebDAV 配置读取失败：$error');
       }
@@ -203,7 +210,8 @@ class _NovelHomePageState extends State<NovelHomePage> with RouteAware {
       collects: collects,
       stats: stats,
       sources: sources,
-      webDavConfigured: webDavConfig != null,
+      webDavConfigured: webDavConfigured,
+      lastBackupAt: lastBackupAt,
       modules: modules,
       error: errors.isEmpty ? null : errors.join('\n'),
     );
@@ -249,19 +257,7 @@ class _NovelHomePageState extends State<NovelHomePage> with RouteAware {
     ).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  NovelWebDavBackupService? _backupService(NovelPrefsApi prefs) {
-    final importer = widget.sourceImporter;
-    return NovelWebDavBackupService(
-      client: widget.backupClient ?? DioNovelWebDavClient(),
-      collect: widget.collect,
-      history: widget.history,
-      searchHistory: widget.searchHistory,
-      sourceStorage: importer?.store,
-      prefs: prefs,
-    );
-  }
-
-  /// 首页 WebDAV 卡：配置 / 备份 / 恢复 三选一。
+  /// 首页 WebDAV 卡：地址配置在弹层里做，备份/预览/恢复/撤销统一进备份中心。
   Future<void> _openWebDav(NovelPrefsApi prefs) async {
     final current = await readWebDavConfig(prefs);
     if (!mounted) return;
@@ -272,29 +268,23 @@ class _NovelHomePageState extends State<NovelHomePage> with RouteAware {
       builder: (_) => _WebDavSheet(prefs: prefs, config: current),
     );
     if (action == null || !mounted) return;
-    final config = await readWebDavConfig(prefs);
-    if (config == null || !config.isValid) {
-      _toast('请先在备份卡里填好 WebDAV 地址。');
+    if (action == _WebDavAction.openCenter) {
+      final service = widget.backupService;
+      if (service == null) {
+        _toast('备份服务未启用，重启应用后再试。');
+        return;
+      }
+      final changed = await Navigator.of(context).push<bool>(
+        MaterialPageRoute<bool>(
+          settings: const RouteSettings(name: 'novel/backup'),
+          builder: (_) => NovelBackupPage(service: service, prefs: prefs),
+        ),
+      );
+      if (changed == true && mounted) _reload();
       return;
     }
-    final service = _backupService(prefs);
-    if (service == null) return;
-    _toast(action == _WebDavAction.backup ? '正在上传到 WebDAV…' : '正在从 WebDAV 恢复…');
-    try {
-      final result = action == _WebDavAction.backup
-          ? await service.backup(config)
-          : await service.restore(config);
-      if (!mounted) return;
-      _toast(
-        action == _WebDavAction.backup
-            ? '备份完成：${result.collects} 本收藏 · ${result.sources} 个书源'
-            : '恢复完成：${result.collects} 本收藏 · ${result.sources} 个书源',
-      );
-      _reload();
-    } on Object catch (error) {
-      if (mounted) {
-        _toast('${action == _WebDavAction.backup ? '备份' : '恢复'}失败：$error');
-      }
+    if (action == _WebDavAction.configure) {
+      if (mounted) _reload();
     }
   }
 
@@ -445,6 +435,7 @@ class _NovelHomePageState extends State<NovelHomePage> with RouteAware {
             ? const SizedBox.shrink()
             : _WebDavBackupCard(
                 configured: data.webDavConfigured,
+                lastBackupAt: data.lastBackupAt,
                 onOpen: () => _openWebDav(widget.prefs!),
               ),
       NovelHomeModuleKind.customGroup => _CustomGroupCard(
@@ -549,6 +540,7 @@ class _HomeData {
     required this.stats,
     required this.sources,
     this.webDavConfigured = false,
+    this.lastBackupAt,
     this.modules = const NovelHomeModuleConfig(NovelHomeModuleConfig.defaults),
     this.error,
   });
@@ -571,6 +563,7 @@ class _HomeData {
   final NovelStats stats;
   final List<NovelBookSource> sources;
   final bool webDavConfigured;
+  final DateTime? lastBackupAt;
   final NovelHomeModuleConfig modules;
   final String? error;
 
@@ -1247,19 +1240,30 @@ class _ShelfStripItem extends StatelessWidget {
   }
 }
 
-enum _WebDavAction { configure, backup, restore }
+enum _WebDavAction { configure, openCenter }
 
-/// 首页 WebDAV 备份卡：显示是否已配置，提供配置/备份/恢复入口。
+/// 首页 WebDAV 备份卡：显示是否已配置与上次备份时间，点按进备份中心。
 class _WebDavBackupCard extends StatelessWidget {
-  const _WebDavBackupCard({required this.configured, required this.onOpen});
+  const _WebDavBackupCard({
+    required this.configured,
+    required this.onOpen,
+    this.lastBackupAt,
+  });
 
   final bool configured;
+  final DateTime? lastBackupAt;
   final VoidCallback onOpen;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final subtitle = !configured
+        ? '未配置 · 点按填入 WebDAV 地址，备份书架、进度与书源'
+        : lastBackupAt == null
+        ? '已配置 · 还没有备份过'
+        : '已配置 · 上次备份 ${novelRelativeTime(lastBackupAt!)}'
+              ' · 进度同步 / 恢复预览 / 撤销';
     return NovelCard(
       onTap: onOpen,
       padding: const EdgeInsets.fromLTRB(20, 18, 16, 18),
@@ -1274,9 +1278,7 @@ class _WebDavBackupCard extends StatelessWidget {
                 Text('WebDAV 备份', style: theme.textTheme.titleMedium),
                 const SizedBox(height: 4),
                 Text(
-                  configured
-                      ? '已配置 · 书架 / 阅读记录 / 书源 全量备份与恢复'
-                      : '未配置 · 点按填入 WebDAV 地址，备份书架与书源',
+                  subtitle,
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: cs.onSurfaceVariant,
                   ),
@@ -1338,8 +1340,16 @@ class _WebDavSheetState extends State<_WebDavSheet> {
       }
       return;
     }
-    await writeWebDavConfig(widget.prefs, config);
-    if (mounted) Navigator.pop(context, _WebDavAction.configure);
+    final saved = await writeWebDavConfig(widget.prefs, config);
+    if (!mounted) return;
+    if (saved.passwordSource == NovelPasswordSource.legacyKv) {
+      // 不静默失败：安全存储不可用时说清楚，让用户决定要不要留密码。
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('本机安全存储不可用，密码暂时存在模块数据库里；可在备份中心清空密码')),
+      );
+      return;
+    }
+    Navigator.pop(context, _WebDavAction.configure);
   }
 
   @override
@@ -1357,8 +1367,8 @@ class _WebDavSheetState extends State<_WebDavSheet> {
           Text('WebDAV 备份', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 8),
           Text(
-            '书架、阅读记录、搜索历史、书源与偏好会打成一个 JSON 包，'
-            '通过 WebDAV 上传到下面地址；恢复时用同一地址覆盖本地数据。',
+            '书架、阅读记录、进度、书签划线、书源与偏好会打成一个 JSON 包上传到'
+            '下面地址；恢复前会先给你看「新增 / 更新 / 冲突」的预览，不会直接清库。',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
@@ -1402,31 +1412,12 @@ class _WebDavSheetState extends State<_WebDavSheet> {
             label: const Text('保存配置'),
           ),
           const SizedBox(height: 12),
-          if (widget.config != null) ...<Widget>[
-            Row(
-              children: <Widget>[
-                Expanded(
-                  child: OutlinedButton.icon(
-                    key: const Key('novel-webdav-backup'),
-                    onPressed: () =>
-                        Navigator.pop(context, _WebDavAction.backup),
-                    icon: const Icon(Icons.cloud_upload_outlined),
-                    label: const Text('备份上传'),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    key: const Key('novel-webdav-restore'),
-                    onPressed: () =>
-                        Navigator.pop(context, _WebDavAction.restore),
-                    icon: const Icon(Icons.cloud_download_outlined),
-                    label: const Text('恢复下载'),
-                  ),
-                ),
-              ],
-            ),
-          ],
+          OutlinedButton.icon(
+            key: const Key('novel-webdav-open-center'),
+            onPressed: () => Navigator.pop(context, _WebDavAction.openCenter),
+            icon: const Icon(Icons.cloud_sync_outlined),
+            label: const Text('打开备份中心'),
+          ),
         ],
       ),
     );
