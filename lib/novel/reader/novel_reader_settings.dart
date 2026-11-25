@@ -172,6 +172,19 @@ enum NovelTtsTurnPolicy {
   final String label;
 }
 
+/// 阅读页屏幕方向（仅 Android 生效；桌面端与测试环境恒为 [system]）。
+///
+/// [system] 对应「不锁方向」，退出阅读页时也还原成它。
+enum NovelScreenOrientation {
+  system('跟随系统'),
+  portrait('竖屏'),
+  landscape('横屏');
+
+  const NovelScreenOrientation(this.label);
+
+  final String label;
+}
+
 /// 一个背景预设：名称 + ARGB 颜色 + 是否深色底。
 class NovelReaderBackground {
   const NovelReaderBackground(this.name, this.argb, {required this.dark});
@@ -246,6 +259,11 @@ class NovelReaderSettings {
     this.footerRight = NovelFooterRight.pageAndPercent,
     this.eyeProtection = false,
     this.autoBrightness = false,
+    this.screenOrientation = NovelScreenOrientation.system,
+    this.keepAwakeOnAutoPage = true,
+    this.hideStatusBar = true,
+    this.hideNavigationBar = true,
+    this.volumeKeys = false,
     this.textAlignJustify = false,
     this.letterSpacing = 0,
     this.textBold = false,
@@ -426,6 +444,24 @@ class NovelReaderSettings {
 
   /// 自动亮度（仅 Android 有意义；桌面端隐藏该按钮）。
   final bool autoBrightness;
+
+  /// 屏幕方向（仅 Android 有意义；退出阅读页还原成 [system]）。
+  final NovelScreenOrientation screenOrientation;
+
+  /// 自动翻页 / 朗读时保持屏幕常亮（Android：FLAG_KEEP_SCREEN_ON）。
+  final bool keepAwakeOnAutoPage;
+
+  /// 阅读页隐藏状态栏（仅 Android）。
+  ///
+  /// 默认 true 是为了不改观感：改造前 Android 一进阅读页就是 immersiveSticky
+  /// （两根系统栏都隐藏），默认 false 会让升级后突然露出系统栏。
+  final bool hideStatusBar;
+
+  /// 阅读页隐藏导航栏（仅 Android）。默认理由同上。
+  final bool hideNavigationBar;
+
+  /// 音量键翻页（仅 Android：音量上 = 下一页，音量下 = 上一页）。
+  final bool volumeKeys;
 
   // ── 正文排版 ──────────────────────────────────────────────────────────
 
@@ -667,6 +703,11 @@ class NovelReaderSettings {
     NovelFooterRight? footerRight,
     bool? eyeProtection,
     bool? autoBrightness,
+    NovelScreenOrientation? screenOrientation,
+    bool? keepAwakeOnAutoPage,
+    bool? hideStatusBar,
+    bool? hideNavigationBar,
+    bool? volumeKeys,
     bool? textAlignJustify,
     double? letterSpacing,
     bool? textBold,
@@ -777,6 +818,11 @@ class NovelReaderSettings {
       footerRight: legacyRight,
       eyeProtection: eyeProtection ?? this.eyeProtection,
       autoBrightness: autoBrightness ?? this.autoBrightness,
+      screenOrientation: screenOrientation ?? this.screenOrientation,
+      keepAwakeOnAutoPage: keepAwakeOnAutoPage ?? this.keepAwakeOnAutoPage,
+      hideStatusBar: hideStatusBar ?? this.hideStatusBar,
+      hideNavigationBar: hideNavigationBar ?? this.hideNavigationBar,
+      volumeKeys: volumeKeys ?? this.volumeKeys,
       textAlignJustify: textAlignJustify ?? this.textAlignJustify,
       letterSpacing: _clampDouble(
         letterSpacing ?? this.letterSpacing,
@@ -933,6 +979,11 @@ class NovelReaderSettings {
     'footerRight': _toLegacyRight(slotAt(footerSlots, 2)).name,
     'eyeProtection': eyeProtection,
     'autoBrightness': autoBrightness,
+    'screenOrientation': screenOrientation.name,
+    'keepAwakeOnAutoPage': keepAwakeOnAutoPage,
+    'hideStatusBar': hideStatusBar,
+    'hideNavigationBar': hideNavigationBar,
+    'volumeKeys': volumeKeys,
     'textAlignJustify': textAlignJustify,
     'letterSpacing': letterSpacing,
     'textBold': textBold,
@@ -1091,6 +1142,15 @@ class NovelReaderSettings {
       autoBrightness: json['autoBrightness'] is bool
           ? json['autoBrightness']! as bool
           : false,
+      screenOrientation: _enumByName(
+        NovelScreenOrientation.values,
+        json['screenOrientation'],
+        NovelScreenOrientation.system,
+      ),
+      keepAwakeOnAutoPage: _bool(json['keepAwakeOnAutoPage'], true),
+      hideStatusBar: _bool(json['hideStatusBar'], true),
+      hideNavigationBar: _bool(json['hideNavigationBar'], true),
+      volumeKeys: _bool(json['volumeKeys'], false),
       textAlignJustify: _bool(json['textAlignJustify'], false),
       letterSpacing: _clampDouble(
         _double(json['letterSpacing'], 0),

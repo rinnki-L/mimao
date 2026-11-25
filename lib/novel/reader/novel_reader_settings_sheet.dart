@@ -13,6 +13,7 @@ import 'package:flutter/material.dart';
 import '../../core/theme.dart';
 import 'novel_click_actions.dart';
 import 'novel_menu_actions.dart';
+import 'novel_platform.dart';
 import 'novel_reader_chrome.dart';
 import 'novel_reader_fonts.dart';
 import 'novel_reader_settings.dart';
@@ -175,6 +176,36 @@ const List<_SettingsSearchEntry> _settingsSearchIndex = <_SettingsSearchEntry>[
   _SettingsSearchEntry('段距', _SettingsTab.more),
   _SettingsSearchEntry('左右边距', _SettingsTab.more, keywords: <String>['留白']),
   _SettingsSearchEntry('阅读亮度', _SettingsTab.more, keywords: <String>['亮度']),
+  _SettingsSearchEntry(
+    '屏幕方向',
+    _SettingsTab.more,
+    keywords: <String>['横屏', '竖屏', '旋转'],
+  ),
+  _SettingsSearchEntry(
+    '保持常亮',
+    _SettingsTab.more,
+    keywords: <String>['常亮', '息屏', 'wakelock'],
+  ),
+  _SettingsSearchEntry(
+    '隐藏状态栏',
+    _SettingsTab.more,
+    keywords: <String>['沉浸', '全屏'],
+  ),
+  _SettingsSearchEntry(
+    '隐藏导航栏',
+    _SettingsTab.more,
+    keywords: <String>['沉浸', '全屏'],
+  ),
+  _SettingsSearchEntry(
+    '音量键翻页',
+    _SettingsTab.more,
+    keywords: <String>['音量键', '按键'],
+  ),
+  _SettingsSearchEntry(
+    '后台朗读',
+    _SettingsTab.more,
+    keywords: <String>['通知栏', '前台服务'],
+  ),
   _SettingsSearchEntry('恢复默认设置', _SettingsTab.more, keywords: <String>['重置']),
 ];
 
@@ -194,6 +225,7 @@ class NovelReaderSettingsSheet extends StatefulWidget {
     this.onClearTtsCache,
     this.onExportChapterAudio,
     this.onExportBookAudio,
+    this.platform,
   });
 
   final NovelReaderSettings initial;
@@ -227,6 +259,10 @@ class NovelReaderSettingsSheet extends StatefulWidget {
   /// 导出当前章 / 全书朗读音频（由阅读页选目录、跑进度、提示结果）。
   final Future<void> Function()? onExportChapterAudio;
   final Future<void> Function()? onExportBookAudio;
+
+  /// 平台能力；null = 按桌面处理（Android 专属的「屏幕」卡不显示）。
+  /// 阅读页会传自己的实例，测试可注入 fake 验证分端渲染。
+  final NovelPlatform? platform;
 
   @override
   State<NovelReaderSettingsSheet> createState() =>
@@ -396,6 +432,17 @@ class _NovelReaderSettingsSheetState extends State<NovelReaderSettingsSheet> {
     }
     return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
+
+  /// 平台能力：没注入时按桌面处理（Android 专属的「屏幕」卡整块不出现）。
+  NovelPlatform get _platform => widget.platform ?? const NoopNovelPlatform();
+
+  /// 只要有一项平台专属能力可用，就显示「屏幕与设备」卡。
+  bool get _showsScreenSettings =>
+      _platform.supportsScreenBrightness ||
+      _platform.supportsKeepAwake ||
+      _platform.supportsSystemBars ||
+      _platform.supportsOrientation ||
+      _platform.supportsVolumeKeys;
 
   void _apply(NovelReaderSettings next) {
     setState(() => _settings = next);
@@ -2170,6 +2217,8 @@ class _NovelReaderSettingsSheetState extends State<NovelReaderSettingsSheet> {
           ),
         ),
         const SizedBox(height: 8),
+        if (_showsScreenSettings) _card(child: _buildScreenSettings(context)),
+        const SizedBox(height: 8),
         Align(
           alignment: Alignment.centerRight,
           child: TextButton.icon(
@@ -2179,6 +2228,118 @@ class _NovelReaderSettingsSheetState extends State<NovelReaderSettingsSheet> {
             label: const Text('恢复默认设置'),
           ),
         ),
+      ],
+    );
+  }
+
+  /// 屏幕与设备卡（Android 专属；桌面端整块不渲染）。
+  ///
+  /// 这些项都是全局设置（不在每书覆盖白名单里），「只改这本」开着时由控制器
+  /// 落全局，不会被静默丢弃。
+  Widget _buildScreenSettings(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final platform = _platform;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Row(
+          children: <Widget>[
+            Icon(Icons.smartphone, size: 18, color: scheme.primary),
+            const SizedBox(width: 8),
+            Text(
+              '屏幕与设备',
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: MimaoFonts.bold,
+              ),
+            ),
+            const Spacer(),
+            Text(
+              '仅 Android',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+        if (platform.supportsOrientation) ...<Widget>[
+          const SizedBox(height: 6),
+          Text('屏幕方向', style: theme.textTheme.bodyMedium),
+          const SizedBox(height: 2),
+          Text(
+            '退出阅读页会自动还原为跟随系统',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+          DropdownButtonHideUnderline(
+            child: DropdownButton<NovelScreenOrientation>(
+              key: const Key('novel-settings-screen-orientation'),
+              isExpanded: true,
+              value: _settings.screenOrientation,
+              items: <DropdownMenuItem<NovelScreenOrientation>>[
+                for (final option in NovelScreenOrientation.values)
+                  DropdownMenuItem<NovelScreenOrientation>(
+                    value: option,
+                    child: Text(option.label),
+                  ),
+              ],
+              onChanged: (picked) {
+                if (picked != null) {
+                  _apply(_settings.copyWith(screenOrientation: picked));
+                }
+              },
+            ),
+          ),
+        ],
+        if (platform.supportsKeepAwake)
+          SwitchListTile(
+            key: const Key('novel-settings-keep-awake'),
+            contentPadding: EdgeInsets.zero,
+            title: const Text('自动翻页 / 朗读时保持常亮'),
+            subtitle: const Text('只在自动翻页或朗读进行中生效，退出即释放'),
+            value: _settings.keepAwakeOnAutoPage,
+            onChanged: (value) =>
+                _apply(_settings.copyWith(keepAwakeOnAutoPage: value)),
+          ),
+        if (platform.supportsSystemBars)
+          SwitchListTile(
+            key: const Key('novel-settings-hide-status-bar'),
+            contentPadding: EdgeInsets.zero,
+            title: const Text('隐藏状态栏'),
+            value: _settings.hideStatusBar,
+            onChanged: (value) =>
+                _apply(_settings.copyWith(hideStatusBar: value)),
+          ),
+        if (platform.supportsSystemBars)
+          SwitchListTile(
+            key: const Key('novel-settings-hide-navigation-bar'),
+            contentPadding: EdgeInsets.zero,
+            title: const Text('隐藏导航栏'),
+            value: _settings.hideNavigationBar,
+            onChanged: (value) =>
+                _apply(_settings.copyWith(hideNavigationBar: value)),
+          ),
+        if (platform.supportsVolumeKeys)
+          SwitchListTile(
+            key: const Key('novel-settings-volume-keys'),
+            contentPadding: EdgeInsets.zero,
+            title: const Text('音量键翻页'),
+            subtitle: const Text('音量上 = 下一页，音量下 = 上一页'),
+            value: _settings.volumeKeys,
+            onChanged: (value) => _apply(_settings.copyWith(volumeKeys: value)),
+          ),
+        // 后台朗读要接 audio_service（前台服务 + 通知栏 + 媒体按键），当前没有
+        // 实现；先灰显并写清原因，不给「点了没反应」的半成品。
+        if (platform.supportsVolumeKeys && !platform.supportsBackgroundTts)
+          const SwitchListTile(
+            key: Key('novel-settings-background-tts'),
+            contentPadding: EdgeInsets.zero,
+            title: Text('后台朗读 + 通知栏控制'),
+            subtitle: Text('需要原生前台服务，暂未实现（见 LESSON.md §七）'),
+            value: false,
+            onChanged: null,
+          ),
       ],
     );
   }

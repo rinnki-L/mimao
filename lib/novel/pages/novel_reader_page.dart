@@ -21,7 +21,7 @@ import 'dart:io' show File, Platform;
 import 'dart:math' as math;
 
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:flutter/gestures.dart'
     show PointerScrollEvent, TapGestureRecognizer;
 import 'package:flutter/material.dart';
@@ -50,6 +50,7 @@ import 'package:mimao/novel/reader/novel_keyboard_assist.dart';
 import 'package:mimao/novel/reader/novel_keyboard_hint_bar.dart';
 import 'package:mimao/novel/reader/novel_locator.dart';
 import 'package:mimao/novel/reader/novel_menu_actions.dart';
+import 'package:mimao/novel/reader/novel_platform.dart';
 import 'package:mimao/novel/reader/novel_reader_chrome.dart';
 import 'package:mimao/novel/reader/novel_reader_controller.dart';
 import 'package:mimao/novel/reader/novel_reading_clock.dart';
@@ -104,6 +105,9 @@ class NovelReaderPage extends StatefulWidget {
     this.localBooks,
     this.txtRules,
     this.localFileGate,
+    this.initialTtsRate,
+    this.initialTtsSleepTimer,
+    this.platform,
   });
 
   final String bookId;
@@ -119,6 +123,13 @@ class NovelReaderPage extends StatefulWidget {
   /// 本地书文件选择缝；null 时导入页用 file_picker 生产实现。
   final NovelLocalFileGate? localFileGate;
 
+  /// 验收/截图用：打开阅读器即套用的朗读语速与睡眠定时；生产调用不传。
+  final double? initialTtsRate;
+  final Duration? initialTtsSleepTimer;
+
+  /// 平台能力（亮度/常亮/系统栏/方向/音量键）；null = 按运行环境自动解析。
+  /// 测试注入 FakeNovelPlatform 断言调用序列。
+  final NovelPlatform? platform;
   final String? author;
   final String? sourceKey;
   final String? bookUrl;
@@ -195,13 +206,32 @@ class _NovelReaderPageState extends State<NovelReaderPage>
       ? math.max(_footerHeight, _settings.footerFontSize * 1.5 + 16)
       : 0;
 
-  /// 自动亮度需要系统亮度接口（Android 侧后续接入 screen_brightness）；
-  /// 桌面端没有可靠接口，隐藏该按钮，亮度用遮罩滑杆。
-  static bool get _supportsAutoBrightness => !kIsWeb && Platform.isAndroid;
+  /// 自动亮度需要系统亮度接口；桌面端没有可靠接口，隐藏该按钮，亮度用遮罩滑杆。
+  bool get _supportsAutoBrightness => _platform.supportsScreenBrightness;
 
   /// 桌面端才有实体键盘提示浮层的意义（手机一般不看）。
   static bool get _keyboardHintsSupported =>
       !kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
+
+  /// 平台能力：生产按运行环境解析（桌面/测试拿到 no-op），测试可注入 fake。
+  late final NovelPlatform _platform =
+      widget.platform ??
+      resolveNovelPlatform(
+        volumeHooks: NovelVolumeHooks(
+          onTurn: _onVolumeTurn,
+          onInput: _onVolumeInput,
+          onError: _onVolumeError,
+        ),
+      );
+
+  /// 已下发到平台的状态快照，用来只对变化项发调用（每次 notify 都会 sync）。
+  bool _appliedBrightnessKnown = false;
+  double? _appliedBrightness;
+  bool? _appliedKeepAwake;
+  bool? _appliedHideStatusBar;
+  bool? _appliedHideNavigationBar;
+  NovelScreenOrientation? _appliedOrientation;
+  bool? _appliedVolumeKeys;
 
   final ScrollController _scroll = ScrollController();
   final FocusNode _focus = FocusNode(debugLabel: 'novel-reader');
@@ -320,9 +350,29 @@ class _NovelReaderPageState extends State<NovelReaderPage>
     }
     _session.start();
     WidgetsBinding.instance.addObserver(this);
-    unawaited(_controller.init());
+    unawaited(
+      _controller.init().then((_) {
+        if (!mounted) return;
+        final rate = widget.initialTtsRate;
+        if (rate != null) {
+          _controller.applySettings(
+            _controller.settings.copyWith(ttsRate: rate),
+          );
+        }
+        final sleep = widget.initialTtsSleepTimer;
+        if (sleep != null) _controller.setTtsSleepTimer(sleep);
+      }),
+    );
     // 导入字体要在首帧前尽量注册好；失败也不阻塞阅读（回退系统字体）。
     unawaited(NovelFontRegistry.instance.loadAll());
+    // 系统栏先按「两根都隐藏」进（= 改造前的 immersiveSticky 观感），
+    // 设置读盘完成后 _syncPlatformState 再按用户的独立开关纠正；
+    // 不等设置能避免打开阅读页时闪一下系统栏。
+    _appliedHideStatusBar = true;
+    _appliedHideNavigationBar = true;
+    unawaited(
+      _platform.applySystemBars(hideStatusBar: true, hideNavigationBar: true),
+    );
     unawaited(NovelImmersive.enter());
   }
 
@@ -343,6 +393,8 @@ class _NovelReaderPageState extends State<NovelReaderPage>
     _chromeVisible.dispose();
     _focus.dispose();
     unawaited(NovelImmersive.exit());
+    // 还原亮度 / 常亮 / 系统栏 / 方向，并释放音量键租约。
+    unawaited(_platform.dispose());
     super.dispose();
   }
 
@@ -357,10 +409,13 @@ class _NovelReaderPageState extends State<NovelReaderPage>
         _autoTimer = null;
         _flushReadingTime();
         unawaited(_controller.stopTts());
+        // 进后台先放掉常亮，免得在后台还替用户挡休眠。
+        unawaited(_platform.setKeepAwake(false));
       case AppLifecycleState.resumed:
         _appPaused = false;
         _session.start();
         if (_autoReading) _startAutoTimer();
+        _syncPlatformState();
       case AppLifecycleState.inactive:
         // 桌面上切换窗口会频繁出现 inactive，不当作后台。
         break;
@@ -404,6 +459,8 @@ class _NovelReaderPageState extends State<NovelReaderPage>
       _followTtsParagraph(ttsParagraph);
     }
     _lastTtsState = ttsState;
+    // 设置 / 朗读状态一变就重新对账平台状态（只对差异项发调用）。
+    _syncPlatformState();
     if (!_restoreScheduled) {
       _restoreScheduled = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -411,6 +468,79 @@ class _NovelReaderPageState extends State<NovelReaderPage>
         if (mounted) _handleScrollRestore(resetToTop: changed);
       });
     }
+  }
+
+  // ── 平台能力（亮度 / 常亮 / 系统栏 / 方向 / 音量键） ─────────────────────
+  /// 把「设置 + 当前阅读状态」折算成期望的平台状态，只对变化项下发调用。
+  ///
+  /// 由控制器通知（设置落盘 / 朗读状态）、自动翻页开关与回到前台驱动；
+  /// 重复调用是安全的（内部与上次已下发的快照对比）。
+  void _syncPlatformState() {
+    if (!mounted || !_controller.settingsReady) return;
+    final settings = _controller.settings;
+
+    // 亮度：跟随系统（autoBrightness）或滑杆拉满 = 交还系统，其余按百分比真调。
+    final brightness =
+        !_platform.supportsScreenBrightness ||
+            settings.autoBrightness ||
+            settings.dimBrightness >= 100
+        ? null
+        : settings.dimBrightness / 100;
+    if (!_appliedBrightnessKnown || brightness != _appliedBrightness) {
+      _appliedBrightnessKnown = true;
+      _appliedBrightness = brightness;
+      unawaited(_platform.setBrightness(brightness));
+    }
+
+    final keepAwake =
+        _platform.supportsKeepAwake &&
+        settings.keepAwakeOnAutoPage &&
+        (_autoReading || _controller.ttsSpeaking);
+    if (keepAwake != _appliedKeepAwake) {
+      _appliedKeepAwake = keepAwake;
+      unawaited(_platform.setKeepAwake(keepAwake));
+    }
+
+    if (_platform.supportsSystemBars &&
+        (settings.hideStatusBar != _appliedHideStatusBar ||
+            settings.hideNavigationBar != _appliedHideNavigationBar)) {
+      _appliedHideStatusBar = settings.hideStatusBar;
+      _appliedHideNavigationBar = settings.hideNavigationBar;
+      unawaited(
+        _platform.applySystemBars(
+          hideStatusBar: settings.hideStatusBar,
+          hideNavigationBar: settings.hideNavigationBar,
+        ),
+      );
+    }
+
+    if (_platform.supportsOrientation &&
+        settings.screenOrientation != _appliedOrientation) {
+      _appliedOrientation = settings.screenOrientation;
+      unawaited(_platform.setOrientation(settings.screenOrientation));
+    }
+
+    final volumeKeys = _platform.supportsVolumeKeys && settings.volumeKeys;
+    if (volumeKeys != _appliedVolumeKeys) {
+      _appliedVolumeKeys = volumeKeys;
+      unawaited(_platform.setVolumeKeysEnabled(volumeKeys));
+    }
+  }
+
+  /// 音量键：上 = 下一页、下 = 上一页（与点击区 / 方向键同一套语义）。
+  void _onVolumeTurn(int direction) {
+    if (!mounted) return;
+    _turnPage(direction);
+  }
+
+  /// 音量键也重置自动翻页计时：刚手动翻过，别立刻又自动翻一次。
+  void _onVolumeInput(bool forward) {
+    if (_autoReading) _startAutoTimer();
+  }
+
+  void _onVolumeError(Object error, StackTrace stack) {
+    // 音量键失效只影响翻页，不打断阅读；进日志便于排查原生侧。
+    debugPrint('音量键翻页失败：$error');
   }
 
   /// 滚动模式的落位：新章先回顶，再按 locator / 比例 / atEnd 还原。
@@ -1376,6 +1506,7 @@ class _NovelReaderPageState extends State<NovelReaderPage>
     }
     setState(() => _autoReading = true);
     _startAutoTimer();
+    _syncPlatformState();
   }
 
   void _startAutoTimer() {
@@ -1393,6 +1524,7 @@ class _NovelReaderPageState extends State<NovelReaderPage>
     _autoTimer?.cancel();
     _autoTimer = null;
     if (_autoReading && mounted) setState(() => _autoReading = false);
+    _syncPlatformState();
   }
 
   // ── 朗读 ──────────────────────────────────────────────────────────────
@@ -1582,6 +1714,7 @@ class _NovelReaderPageState extends State<NovelReaderPage>
             onClearTtsCache: _controller.clearTtsCache,
             onExportChapterAudio: () => _exportAudio(wholeBook: false),
             onExportBookAudio: () => _exportAudio(wholeBook: true),
+            platform: _platform,
             onClose: () => Navigator.of(sheetContext).pop(),
           ),
         ),
@@ -2267,15 +2400,20 @@ class _NovelReaderPageState extends State<NovelReaderPage>
                             ),
                           ),
                         _buildContent(insets, pages),
-                        Positioned.fill(
-                          child: IgnorePointer(
-                            child: ColoredBox(
-                              color: const Color(0xFF000000).withValues(
-                                alpha: 1 - settings.dimBrightness / 100,
+                        // Android 走真亮度（窗口亮度已经压暗）时不再叠遮罩，
+                        // 否则等于双重压暗，且遮罩会把面板一起变灰。桌面端保留
+                        // 遮罩滑杆（没有可靠的系统亮度接口）。
+                        if (!_platform.usesRealBrightness)
+                          Positioned.fill(
+                            key: const Key('novel-reader-dim-overlay'),
+                            child: IgnorePointer(
+                              child: ColoredBox(
+                                color: const Color(0xFF000000).withValues(
+                                  alpha: 1 - settings.dimBrightness / 100,
+                                ),
                               ),
                             ),
                           ),
-                        ),
                         if (settings.eyeProtection)
                           const Positioned.fill(
                             child: IgnorePointer(
