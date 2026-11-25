@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
+import 'package:mimao/novel/device_id.dart';
 import 'package:mimao/novel/models/novel_models.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -37,10 +38,38 @@ class NovelCollectEntries extends Table {
   /// 管理的"一组多本"对应，足够覆盖筛选场景，不做多标签）。
   TextColumn get groupName => text().nullable()();
 
+  /// 用户手写备注（自由文本，空串 = 无备注）。与"分组/系列"不同，它是
+  /// 给人看的碎碎念，不参与筛选与排序。
+  TextColumn get note => text().withDefault(const Constant(''))();
+
+  /// 自定义封面：本地图片路径（复制进应用支持目录后存的绝对路径）；
+  /// null = 继续用书籍自带的 coverUrl。
+  TextColumn get customCoverPath => text().nullable()();
+
+  /// 所属系列（`novel_series.id`）；null = 不属于任何系列。
+  /// 系列与分组正交：分组是"我把它放哪"，系列是"这本书属于哪个作品集"。
+  IntColumn get seriesId => integer().nullable()();
+
   DateTimeColumn get collectedAt => dateTime()();
 
   @override
   Set<Column> get primaryKey => {id};
+}
+
+/// 书架系列（作品集）：一组同系列的书（如三部曲）在书架上归组显示。
+///
+/// 单独一张表而不是往收藏行写系列名字符串：重命名系列只改一行，
+/// 删除系列只把成员 seriesId 置空，不会把书名/分组连带改坏。
+@DataClassName('NovelSeriesRow')
+class NovelSeriesEntries extends Table {
+  @override
+  String get tableName => 'novel_series';
+
+  IntColumn get id => integer().autoIncrement()();
+
+  TextColumn get name => text()();
+
+  DateTimeColumn get createdAt => dateTime()();
 }
 
 @DataClassName('NovelHistoryRow')
@@ -104,22 +133,48 @@ class NovelPrefs extends Table {
   Set<Column> get primaryKey => {key};
 }
 
-/// 按天聚合的阅读时长（秒）。写入方是阅读页（退出 / 切章时结算）；
-/// 统计卡与今日目标都从这里取数，不估算、不造假。
-@DataClassName('NovelReadingDayRow')
-class NovelReadingDays extends Table {
+/// 阅读记录：**设备 × 书 × 章 × 本地日** 一行（v7 起，取代 `novel_reading_day`）。
+///
+/// 旧表是「一天一行」，没有书/章/设备维度，做不了时间轴、章节维度和区 11 的
+/// 多设备合并。现在每个维度都留一格：
+/// - 日聚合 = 按 [day] 求和（本机聚合视图，首页/我的页继续走）；
+/// - 时间轴 = 按 [day] 分组、再按 [bookId] 聚合；
+/// - 章节维度 = 按 (bookId, chapterIndex) 聚合；
+/// - 多设备 = 写入时带本机 [deviceId]，同步时按设备维度合并，不互相覆盖。
+///
+/// 主键带 [chapterIndex] 而不是只有设备×书×日：同一本书同一天读了两章要能
+/// 分开记，否则章节维度拿不到每章时长。章号 1 起、0 = 未知；旧数据迁移来的行
+/// 没有书/章信息，落在 bookId='' + chapterIndex=0，只进日聚合。
+@DataClassName('NovelReadRecordRow')
+class NovelReadRecords extends Table {
   @override
-  String get tableName => 'novel_reading_day';
+  String get tableName => 'novel_read_record';
+
+  /// 设备 ID（`novel_pref.device_id`；旧数据迁移时填本机）。
+  TextColumn get deviceId => text()();
+
+  /// 书籍主键；空串 = 旧数据/未关联书籍。
+  TextColumn get bookId => text()();
+
+  /// 书名快照：时间轴不必回查收藏/历史表，删书后记录仍可读。
+  TextColumn get bookTitle => text().withDefault(const Constant(''))();
+
+  /// 章号（1 起；0 = 未知），与 `novel_history.chapter_index` 同口径。
+  IntColumn get chapterIndex => integer().withDefault(const Constant(0))();
+
+  TextColumn get chapterName => text().withDefault(const Constant(''))();
 
   /// 本地日期 `yyyy-MM-dd`（阅读时长按用户本地日切分）。
   TextColumn get day => text()();
 
   IntColumn get seconds => integer().withDefault(const Constant(0))();
 
-  DateTimeColumn get updatedAt => dateTime()();
+  DateTimeColumn get firstReadAt => dateTime()();
+
+  DateTimeColumn get lastReadAt => dateTime()();
 
   @override
-  Set<Column> get primaryKey => {day};
+  Set<Column> get primaryKey => {deviceId, bookId, chapterIndex, day};
 }
 
 /// 书签：锚点一律是 (章下标, 段落下标, 段内字符偏移)，不用页码/比例。
@@ -310,18 +365,89 @@ class NovelTtsCacheEntries extends Table {
   Set<Column> get primaryKey => {cacheKey};
 }
 
+/// 本地导入的书（TXT / EPUB / Markdown 第二条通路）。
+///
+/// 文件**不进库**：只记原地路径，阅读时按需读。目录解析结果落 [tocJson]
+/// （TXT/Markdown 是章节的字节区间，EPUB 是 spine 里的 href），这样打开书
+/// 不必每次重扫全文；文件被移动/删除时由服务抛 `NovelLocalFileMissing`，
+/// 页面给「重新定位文件」入口。
+///
+/// 主键与收藏/历史/书签同一个 [id] 口径（`local:…`），进度、书签、划线、
+/// 替换规则、TTS 全部复用现有链路，不需要第二套表。
+@DataClassName('NovelLocalBookRow')
+class NovelLocalBooks extends Table {
+  @override
+  String get tableName => 'novel_local_book';
+
+  TextColumn get id => text()();
+
+  /// 导入时的绝对路径（重新定位后改写这里）。
+  TextColumn get path => text()();
+
+  TextColumn get title => text()();
+
+  TextColumn get author => text().withDefault(const Constant(''))();
+
+  /// `txt` / `epub` / `md`。
+  TextColumn get format => text()();
+
+  /// 嗅探到的编码名（utf-8 / utf-16le / gbk / gb18030 / big5）；EPUB 为空。
+  TextColumn get encoding => text().nullable()();
+
+  IntColumn get byteSize => integer().withDefault(const Constant(0))();
+
+  IntColumn get chapterCount => integer().withDefault(const Constant(0))();
+
+  /// 目录 JSON：`[{"t": 标题, "s": 起始字节, "e": 结束字节, "h": href}]`。
+  TextColumn get tocJson => text().withDefault(const Constant('[]'))();
+
+  DateTimeColumn get addedAt => dateTime()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+/// TXT 目录规则：一行一条正则，按 [sortOrder] 顺序尝试；命中即分章。
+///
+/// 与 legado 的 `TxtTocRule` 同构（name/rule/enable），但只存正则本身：
+/// 预览匹配结果由导入页用真实文件跑，规则表不存示例文本。
+@DataClassName('NovelTxtTocRuleRow')
+class NovelTxtTocRules extends Table {
+  @override
+  String get tableName => 'novel_txt_toc_rule';
+
+  IntColumn get id => integer().autoIncrement()();
+
+  TextColumn get name => text()();
+
+  /// 正则表达式（对每一行整行匹配）。
+  TextColumn get pattern => text()();
+
+  BoolColumn get enabled => boolean().withDefault(const Constant(true))();
+
+  /// 内置规则：可停用、可改，删除后可用「恢复默认」找回。
+  BoolColumn get builtin => boolean().withDefault(const Constant(false))();
+
+  IntColumn get sortOrder => integer().withDefault(const Constant(0))();
+
+  DateTimeColumn get updatedAt => dateTime()();
+}
+
 @DriftDatabase(
   tables: [
     NovelCollectEntries,
+    NovelSeriesEntries,
     NovelHistoryEntries,
     NovelSearchTerms,
     NovelPrefs,
-    NovelReadingDays,
+    NovelReadRecords,
     NovelBookmarkEntries,
     NovelMarkingEntries,
     NovelHighlightRules,
     NovelContentOverrides,
     NovelTtsCacheEntries,
+    NovelLocalBooks,
+    NovelTxtTocRules,
   ],
 )
 class NovelDb extends _$NovelDb {
@@ -344,7 +470,7 @@ class NovelDb extends _$NovelDb {
   });
 
   @override
-  int get schemaVersion => 5;
+  int get schemaVersion => 8;
 
   /// v1 → v2：书架分组列 + 模块 kv + 阅读时长按天表。三者都是增量，旧行无需
   /// 回填（groupName 缺省 null、今日/总时长从 0 起算）。
@@ -354,6 +480,18 @@ class NovelDb extends _$NovelDb {
   /// v3 → v4：高亮规则表 + 单章内容覆盖表；同样纯增量，已有书签/划线不动。
   ///
   /// v4 → v5：朗读音频缓存索引表；旧表一行不动，缓存文件由服务按需重建。
+  ///
+  /// v5 → v6：收藏行加备注 / 自定义封面 / 系列归属三列，另建系列表。
+  /// 旧行三个新列取默认值（备注空串、封面 null、系列 null），无需回填。
+  ///
+  /// v6 → v7：本地书表 + TXT 目录规则表（本地 TXT/EPUB/Markdown 第二条通路）。
+  /// 纯增量；规则表首次读取时由服务补内置规则，迁移不写业务数据。
+  ///
+  /// v7 → v8：阅读记录从「一天一行」的 `novel_reading_day` 换成
+  /// 「设备 × 书 × 章 × 日」的 `novel_read_record`，为时间轴/章节维度/区 11
+  /// 的多设备同步打底。旧表的每一天迁成一行 `deviceId = 本机`、
+  /// `bookId = ''`、`chapterIndex = 0` 的记录（只进日聚合，不进时间轴/章节维度），
+  /// 迁完删旧表。迁移本身幂等：新表主键冲突走覆盖，重复执行不会翻倍。
   @override
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (m) => m.createAll(),
@@ -361,7 +499,9 @@ class NovelDb extends _$NovelDb {
       if (from < 2) {
         await m.addColumn(novelCollectEntries, novelCollectEntries.groupName);
         await m.createTable(novelPrefs);
-        await m.createTable(novelReadingDays);
+        // 老版本在这里建 `novel_reading_day`；v8 已把它换成 `novel_read_record`，
+        // 表类也删了。v1 用户升上来时这张表本来就是空的，直接不建，v8 的
+        // 迁移对「旧表不存在」是安全的。
       }
       if (from < 3) {
         await m.createTable(novelBookmarkEntries);
@@ -374,8 +514,96 @@ class NovelDb extends _$NovelDb {
       if (from < 5) {
         await m.createTable(novelTtsCacheEntries);
       }
+      if (from < 6) {
+        await m.createTable(novelSeriesEntries);
+        await m.addColumn(novelCollectEntries, novelCollectEntries.note);
+        await m.addColumn(
+          novelCollectEntries,
+          novelCollectEntries.customCoverPath,
+        );
+        await m.addColumn(novelCollectEntries, novelCollectEntries.seriesId);
+      }
+      if (from < 7) {
+        await m.createTable(novelLocalBooks);
+        await m.createTable(novelTxtTocRules);
+      }
+      if (from < 8) {
+        await _migrateReadingRecords(m);
+      }
     },
   );
+
+  /// v7 → v8 的阅读记录迁移。拆成独立方法便于单测直接驱动（不依赖 drift 的
+  /// 版本门），也便于 `onUpgrade` 之外的重跑。
+  ///
+  /// 幂等要点：
+  /// - 建表用 `createTable`（drift 会先 `CREATE TABLE IF NOT EXISTS`）；
+  /// - 旧表不存在（新装用户走 onCreate / 已迁移过）直接跳过；
+  /// - 写入用主键冲突覆盖，同一天迁两次仍是同一行；
+  /// - 旧表迁完即删，再跑时 `hasTable` 为 false，天然短路。
+  Future<void> _migrateReadingRecords(Migrator m) async {
+    await m.createTable(novelReadRecords);
+    if (!await _tableExists('novel_reading_day')) return;
+    final deviceId = await ensureDeviceId();
+    final legacy = await customSelect(
+      'SELECT day, seconds FROM novel_reading_day',
+      readsFrom: <ResultSetImplementation<dynamic, dynamic>>{},
+    ).get();
+    final now = DateTime.now();
+    for (final row in legacy) {
+      final day = row.read<String>('day');
+      final seconds = row.read<int>('seconds');
+      if (day.isEmpty || seconds <= 0) continue;
+      await into(novelReadRecords).insert(
+        NovelReadRecordsCompanion.insert(
+          deviceId: deviceId,
+          bookId: '',
+          day: day,
+          seconds: Value<int>(seconds),
+          firstReadAt: _dayStartFor(day, fallback: now),
+          lastReadAt: _dayStartFor(day, fallback: now),
+        ),
+        mode: InsertMode.insertOrReplace,
+      );
+    }
+    await customStatement('DROP TABLE IF EXISTS novel_reading_day');
+  }
+
+  /// 旧表是否存在（`sqlite_master` 查询，drift 的 Migrator 没有公开探测）。
+  Future<bool> _tableExists(String name) async {
+    final rows = await customSelect(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+      variables: <Variable<Object>>[Variable<String>(name)],
+    ).get();
+    return rows.isNotEmpty;
+  }
+
+  /// 日键 → 当天零点；坏数据回落到 [fallback]（迁移不能因为一行坏日期中断）。
+  static DateTime _dayStartFor(String day, {required DateTime fallback}) {
+    final parts = day.split('-');
+    if (parts.length != 3) return fallback;
+    final year = int.tryParse(parts[0]);
+    final month = int.tryParse(parts[1]);
+    final date = int.tryParse(parts[2]);
+    if (year == null || month == null || date == null) return fallback;
+    return DateTime(year, month, date);
+  }
+
+  /// 本机设备 ID：首次读取时生成 UUID 并落模块 kv，之后恒定返回同一个值。
+  ///
+  /// 生成/写回在同一事务里，避免两个并发首读各生成一个 ID（后者覆盖前者
+  /// 会让先写入的阅读记录变成「别的设备」）。
+  Future<String> ensureDeviceId() async {
+    final existing = await readPref(novelPrefDeviceId);
+    if (existing != null && existing.isNotEmpty) return existing;
+    return transaction(() async {
+      final raced = await readPref(novelPrefDeviceId);
+      if (raced != null && raced.isNotEmpty) return raced;
+      final generated = generateNovelDeviceId();
+      await writePref(novelPrefDeviceId, generated);
+      return generated;
+    });
+  }
 
   /// 单行读取辅助（收藏）；null 表示无行。
   Future<NovelCollectRow?> collectRow(NovelRef ref) => (select(

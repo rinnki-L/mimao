@@ -164,6 +164,111 @@ class NovelCollectService extends ChangeNotifier implements NovelCollectApi {
   @override
   Future<void> deleteGroup(String name) => renameGroup(name, '');
 
+  @override
+  Future<void> setNote(String bookId, String note) async {
+    final existing = await db.collectRow(NovelRef(id: bookId));
+    if (existing == null) return;
+    await (db.update(db.novelCollectEntries)..where((t) => t.id.equals(bookId)))
+        .write(NovelCollectEntriesCompanion(note: Value(note.trim())));
+    notifyListeners();
+  }
+
+  @override
+  Future<void> setCustomCover(String bookId, String? path) async {
+    final existing = await db.collectRow(NovelRef(id: bookId));
+    if (existing == null) return;
+    final normalized = _normalizeGroup(path);
+    await (db.update(db.novelCollectEntries)..where((t) => t.id.equals(bookId)))
+        .write(
+          NovelCollectEntriesCompanion(customCoverPath: Value(normalized)),
+        );
+    notifyListeners();
+  }
+
+  /// 系列列表，按名称排序（同名理论上不会出现，[createSeries] 会复用）。
+  @override
+  Future<List<NovelSeriesItem>> series() async {
+    final rows = await (db.select(
+      db.novelSeriesEntries,
+    )..orderBy([(t) => OrderingTerm.asc(t.name)])).get();
+    return <NovelSeriesItem>[
+      for (final row in rows)
+        NovelSeriesItem(id: row.id, name: row.name, createdAt: row.createdAt),
+    ];
+  }
+
+  /// 按名字取系列 id，没有就新建（大小写与空白都归一后再比）。
+  @override
+  Future<int> createSeries(String name) async {
+    final normalized = name.trim();
+    if (normalized.isEmpty) {
+      throw ArgumentError.value(name, 'name', '系列名不能为空');
+    }
+    final rows = await db.select(db.novelSeriesEntries).get();
+    for (final row in rows) {
+      if (row.name.trim() == normalized) return row.id;
+    }
+    return db
+        .into(db.novelSeriesEntries)
+        .insert(
+          NovelSeriesEntriesCompanion.insert(
+            name: normalized,
+            createdAt: DateTime.now(),
+          ),
+        );
+  }
+
+  @override
+  Future<void> renameSeries(int id, String name) async {
+    final normalized = name.trim();
+    if (normalized.isEmpty) {
+      throw ArgumentError.value(name, 'name', '系列名不能为空');
+    }
+    await (db.update(
+      db.novelSeriesEntries,
+    )..where((t) => t.id.equals(id))).write(
+      NovelSeriesEntriesCompanion(name: Value(normalized)),
+    );
+    notifyListeners();
+  }
+
+  @override
+  Future<void> deleteSeries(int id) async {
+    await db.transaction(() async {
+      await (db.update(
+        db.novelCollectEntries,
+      )..where((t) => t.seriesId.equals(id))).write(
+        const NovelCollectEntriesCompanion(seriesId: Value(null)),
+      );
+      await (db.delete(
+        db.novelSeriesEntries,
+      )..where((t) => t.id.equals(id))).go();
+    });
+    notifyListeners();
+  }
+
+  @override
+  Future<void> setSeriesFor(Iterable<String> bookIds, int? seriesId) async {
+    final ids = bookIds.toSet().toList();
+    if (ids.isEmpty) return;
+    // 系列不存在时不写悬挂外键（系列可能刚被另一处删掉）。
+    if (seriesId != null) {
+      final row = await (db.select(
+        db.novelSeriesEntries,
+      )..where((t) => t.id.equals(seriesId))).getSingleOrNull();
+      if (row == null) return;
+    }
+    await db.transaction(() async {
+      for (final id in ids) {
+        final existing = await db.collectRow(NovelRef(id: id));
+        if (existing == null) continue;
+        await (db.update(db.novelCollectEntries)..where((t) => t.id.equals(id)))
+            .write(NovelCollectEntriesCompanion(seriesId: Value(seriesId)));
+      }
+    });
+    notifyListeners();
+  }
+
   String? _normalizeGroup(String? value) {
     final trimmed = value?.trim();
     return trimmed == null || trimmed.isEmpty ? null : trimmed;
@@ -175,6 +280,9 @@ class NovelCollectService extends ChangeNotifier implements NovelCollectApi {
     coverUrl: row.coverUrl,
     book: novelSummaryFromPayload(row.payload),
     groupName: row.groupName,
+    note: row.note,
+    customCoverPath: row.customCoverPath,
+    seriesId: row.seriesId,
     collectedAt: row.collectedAt,
   );
 }

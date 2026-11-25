@@ -61,6 +61,38 @@ class $NovelCollectEntriesTable extends NovelCollectEntries
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _noteMeta = const VerificationMeta('note');
+  @override
+  late final GeneratedColumn<String> note = GeneratedColumn<String>(
+    'note',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _customCoverPathMeta = const VerificationMeta(
+    'customCoverPath',
+  );
+  @override
+  late final GeneratedColumn<String> customCoverPath = GeneratedColumn<String>(
+    'custom_cover_path',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _seriesIdMeta = const VerificationMeta(
+    'seriesId',
+  );
+  @override
+  late final GeneratedColumn<int> seriesId = GeneratedColumn<int>(
+    'series_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _collectedAtMeta = const VerificationMeta(
     'collectedAt',
   );
@@ -79,6 +111,9 @@ class $NovelCollectEntriesTable extends NovelCollectEntries
     coverUrl,
     payload,
     groupName,
+    note,
+    customCoverPath,
+    seriesId,
     collectedAt,
   ];
   @override
@@ -124,6 +159,27 @@ class $NovelCollectEntriesTable extends NovelCollectEntries
         groupName.isAcceptableOrUnknown(data['group_name']!, _groupNameMeta),
       );
     }
+    if (data.containsKey('note')) {
+      context.handle(
+        _noteMeta,
+        note.isAcceptableOrUnknown(data['note']!, _noteMeta),
+      );
+    }
+    if (data.containsKey('custom_cover_path')) {
+      context.handle(
+        _customCoverPathMeta,
+        customCoverPath.isAcceptableOrUnknown(
+          data['custom_cover_path']!,
+          _customCoverPathMeta,
+        ),
+      );
+    }
+    if (data.containsKey('series_id')) {
+      context.handle(
+        _seriesIdMeta,
+        seriesId.isAcceptableOrUnknown(data['series_id']!, _seriesIdMeta),
+      );
+    }
     if (data.containsKey('collected_at')) {
       context.handle(
         _collectedAtMeta,
@@ -164,6 +220,18 @@ class $NovelCollectEntriesTable extends NovelCollectEntries
         DriftSqlType.string,
         data['${effectivePrefix}group_name'],
       ),
+      note: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}note'],
+      )!,
+      customCoverPath: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}custom_cover_path'],
+      ),
+      seriesId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}series_id'],
+      ),
       collectedAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}collected_at'],
@@ -190,6 +258,18 @@ class NovelCollectRow extends DataClass implements Insertable<NovelCollectRow> {
   /// 书架自定义分组名；null = 未分组。单本书只属于一个分组（与书架分组
   /// 管理的"一组多本"对应，足够覆盖筛选场景，不做多标签）。
   final String? groupName;
+
+  /// 用户手写备注（自由文本，空串 = 无备注）。与"分组/系列"不同，它是
+  /// 给人看的碎碎念，不参与筛选与排序。
+  final String note;
+
+  /// 自定义封面：本地图片路径（复制进应用支持目录后存的绝对路径）；
+  /// null = 继续用书籍自带的 coverUrl。
+  final String? customCoverPath;
+
+  /// 所属系列（`novel_series.id`）；null = 不属于任何系列。
+  /// 系列与分组正交：分组是"我把它放哪"，系列是"这本书属于哪个作品集"。
+  final int? seriesId;
   final DateTime collectedAt;
   const NovelCollectRow({
     required this.id,
@@ -197,6 +277,9 @@ class NovelCollectRow extends DataClass implements Insertable<NovelCollectRow> {
     this.coverUrl,
     required this.payload,
     this.groupName,
+    required this.note,
+    this.customCoverPath,
+    this.seriesId,
     required this.collectedAt,
   });
   @override
@@ -210,6 +293,13 @@ class NovelCollectRow extends DataClass implements Insertable<NovelCollectRow> {
     map['payload'] = Variable<String>(payload);
     if (!nullToAbsent || groupName != null) {
       map['group_name'] = Variable<String>(groupName);
+    }
+    map['note'] = Variable<String>(note);
+    if (!nullToAbsent || customCoverPath != null) {
+      map['custom_cover_path'] = Variable<String>(customCoverPath);
+    }
+    if (!nullToAbsent || seriesId != null) {
+      map['series_id'] = Variable<int>(seriesId);
     }
     map['collected_at'] = Variable<DateTime>(collectedAt);
     return map;
@@ -226,6 +316,13 @@ class NovelCollectRow extends DataClass implements Insertable<NovelCollectRow> {
       groupName: groupName == null && nullToAbsent
           ? const Value.absent()
           : Value(groupName),
+      note: Value(note),
+      customCoverPath: customCoverPath == null && nullToAbsent
+          ? const Value.absent()
+          : Value(customCoverPath),
+      seriesId: seriesId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(seriesId),
       collectedAt: Value(collectedAt),
     );
   }
@@ -241,6 +338,9 @@ class NovelCollectRow extends DataClass implements Insertable<NovelCollectRow> {
       coverUrl: serializer.fromJson<String?>(json['coverUrl']),
       payload: serializer.fromJson<String>(json['payload']),
       groupName: serializer.fromJson<String?>(json['groupName']),
+      note: serializer.fromJson<String>(json['note']),
+      customCoverPath: serializer.fromJson<String?>(json['customCoverPath']),
+      seriesId: serializer.fromJson<int?>(json['seriesId']),
       collectedAt: serializer.fromJson<DateTime>(json['collectedAt']),
     );
   }
@@ -253,6 +353,9 @@ class NovelCollectRow extends DataClass implements Insertable<NovelCollectRow> {
       'coverUrl': serializer.toJson<String?>(coverUrl),
       'payload': serializer.toJson<String>(payload),
       'groupName': serializer.toJson<String?>(groupName),
+      'note': serializer.toJson<String>(note),
+      'customCoverPath': serializer.toJson<String?>(customCoverPath),
+      'seriesId': serializer.toJson<int?>(seriesId),
       'collectedAt': serializer.toJson<DateTime>(collectedAt),
     };
   }
@@ -263,6 +366,9 @@ class NovelCollectRow extends DataClass implements Insertable<NovelCollectRow> {
     Value<String?> coverUrl = const Value.absent(),
     String? payload,
     Value<String?> groupName = const Value.absent(),
+    String? note,
+    Value<String?> customCoverPath = const Value.absent(),
+    Value<int?> seriesId = const Value.absent(),
     DateTime? collectedAt,
   }) => NovelCollectRow(
     id: id ?? this.id,
@@ -270,6 +376,11 @@ class NovelCollectRow extends DataClass implements Insertable<NovelCollectRow> {
     coverUrl: coverUrl.present ? coverUrl.value : this.coverUrl,
     payload: payload ?? this.payload,
     groupName: groupName.present ? groupName.value : this.groupName,
+    note: note ?? this.note,
+    customCoverPath: customCoverPath.present
+        ? customCoverPath.value
+        : this.customCoverPath,
+    seriesId: seriesId.present ? seriesId.value : this.seriesId,
     collectedAt: collectedAt ?? this.collectedAt,
   );
   NovelCollectRow copyWithCompanion(NovelCollectEntriesCompanion data) {
@@ -279,6 +390,11 @@ class NovelCollectRow extends DataClass implements Insertable<NovelCollectRow> {
       coverUrl: data.coverUrl.present ? data.coverUrl.value : this.coverUrl,
       payload: data.payload.present ? data.payload.value : this.payload,
       groupName: data.groupName.present ? data.groupName.value : this.groupName,
+      note: data.note.present ? data.note.value : this.note,
+      customCoverPath: data.customCoverPath.present
+          ? data.customCoverPath.value
+          : this.customCoverPath,
+      seriesId: data.seriesId.present ? data.seriesId.value : this.seriesId,
       collectedAt: data.collectedAt.present
           ? data.collectedAt.value
           : this.collectedAt,
@@ -293,14 +409,26 @@ class NovelCollectRow extends DataClass implements Insertable<NovelCollectRow> {
           ..write('coverUrl: $coverUrl, ')
           ..write('payload: $payload, ')
           ..write('groupName: $groupName, ')
+          ..write('note: $note, ')
+          ..write('customCoverPath: $customCoverPath, ')
+          ..write('seriesId: $seriesId, ')
           ..write('collectedAt: $collectedAt')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode =>
-      Object.hash(id, title, coverUrl, payload, groupName, collectedAt);
+  int get hashCode => Object.hash(
+    id,
+    title,
+    coverUrl,
+    payload,
+    groupName,
+    note,
+    customCoverPath,
+    seriesId,
+    collectedAt,
+  );
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -310,6 +438,9 @@ class NovelCollectRow extends DataClass implements Insertable<NovelCollectRow> {
           other.coverUrl == this.coverUrl &&
           other.payload == this.payload &&
           other.groupName == this.groupName &&
+          other.note == this.note &&
+          other.customCoverPath == this.customCoverPath &&
+          other.seriesId == this.seriesId &&
           other.collectedAt == this.collectedAt);
 }
 
@@ -319,6 +450,9 @@ class NovelCollectEntriesCompanion extends UpdateCompanion<NovelCollectRow> {
   final Value<String?> coverUrl;
   final Value<String> payload;
   final Value<String?> groupName;
+  final Value<String> note;
+  final Value<String?> customCoverPath;
+  final Value<int?> seriesId;
   final Value<DateTime> collectedAt;
   final Value<int> rowid;
   const NovelCollectEntriesCompanion({
@@ -327,6 +461,9 @@ class NovelCollectEntriesCompanion extends UpdateCompanion<NovelCollectRow> {
     this.coverUrl = const Value.absent(),
     this.payload = const Value.absent(),
     this.groupName = const Value.absent(),
+    this.note = const Value.absent(),
+    this.customCoverPath = const Value.absent(),
+    this.seriesId = const Value.absent(),
     this.collectedAt = const Value.absent(),
     this.rowid = const Value.absent(),
   });
@@ -336,6 +473,9 @@ class NovelCollectEntriesCompanion extends UpdateCompanion<NovelCollectRow> {
     this.coverUrl = const Value.absent(),
     this.payload = const Value.absent(),
     this.groupName = const Value.absent(),
+    this.note = const Value.absent(),
+    this.customCoverPath = const Value.absent(),
+    this.seriesId = const Value.absent(),
     required DateTime collectedAt,
     this.rowid = const Value.absent(),
   }) : id = Value(id),
@@ -347,6 +487,9 @@ class NovelCollectEntriesCompanion extends UpdateCompanion<NovelCollectRow> {
     Expression<String>? coverUrl,
     Expression<String>? payload,
     Expression<String>? groupName,
+    Expression<String>? note,
+    Expression<String>? customCoverPath,
+    Expression<int>? seriesId,
     Expression<DateTime>? collectedAt,
     Expression<int>? rowid,
   }) {
@@ -356,6 +499,9 @@ class NovelCollectEntriesCompanion extends UpdateCompanion<NovelCollectRow> {
       if (coverUrl != null) 'cover_url': coverUrl,
       if (payload != null) 'payload': payload,
       if (groupName != null) 'group_name': groupName,
+      if (note != null) 'note': note,
+      if (customCoverPath != null) 'custom_cover_path': customCoverPath,
+      if (seriesId != null) 'series_id': seriesId,
       if (collectedAt != null) 'collected_at': collectedAt,
       if (rowid != null) 'rowid': rowid,
     });
@@ -367,6 +513,9 @@ class NovelCollectEntriesCompanion extends UpdateCompanion<NovelCollectRow> {
     Value<String?>? coverUrl,
     Value<String>? payload,
     Value<String?>? groupName,
+    Value<String>? note,
+    Value<String?>? customCoverPath,
+    Value<int?>? seriesId,
     Value<DateTime>? collectedAt,
     Value<int>? rowid,
   }) {
@@ -376,6 +525,9 @@ class NovelCollectEntriesCompanion extends UpdateCompanion<NovelCollectRow> {
       coverUrl: coverUrl ?? this.coverUrl,
       payload: payload ?? this.payload,
       groupName: groupName ?? this.groupName,
+      note: note ?? this.note,
+      customCoverPath: customCoverPath ?? this.customCoverPath,
+      seriesId: seriesId ?? this.seriesId,
       collectedAt: collectedAt ?? this.collectedAt,
       rowid: rowid ?? this.rowid,
     );
@@ -399,6 +551,15 @@ class NovelCollectEntriesCompanion extends UpdateCompanion<NovelCollectRow> {
     if (groupName.present) {
       map['group_name'] = Variable<String>(groupName.value);
     }
+    if (note.present) {
+      map['note'] = Variable<String>(note.value);
+    }
+    if (customCoverPath.present) {
+      map['custom_cover_path'] = Variable<String>(customCoverPath.value);
+    }
+    if (seriesId.present) {
+      map['series_id'] = Variable<int>(seriesId.value);
+    }
     if (collectedAt.present) {
       map['collected_at'] = Variable<DateTime>(collectedAt.value);
     }
@@ -416,8 +577,260 @@ class NovelCollectEntriesCompanion extends UpdateCompanion<NovelCollectRow> {
           ..write('coverUrl: $coverUrl, ')
           ..write('payload: $payload, ')
           ..write('groupName: $groupName, ')
+          ..write('note: $note, ')
+          ..write('customCoverPath: $customCoverPath, ')
+          ..write('seriesId: $seriesId, ')
           ..write('collectedAt: $collectedAt, ')
           ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $NovelSeriesEntriesTable extends NovelSeriesEntries
+    with TableInfo<$NovelSeriesEntriesTable, NovelSeriesRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $NovelSeriesEntriesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+    'id',
+    aliasedName,
+    false,
+    hasAutoIncrement: true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'PRIMARY KEY AUTOINCREMENT',
+    ),
+  );
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+    'name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [id, name, createdAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'novel_series';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<NovelSeriesRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+        _nameMeta,
+        name.isAcceptableOrUnknown(data['name']!, _nameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  NovelSeriesRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return NovelSeriesRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      name: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+    );
+  }
+
+  @override
+  $NovelSeriesEntriesTable createAlias(String alias) {
+    return $NovelSeriesEntriesTable(attachedDatabase, alias);
+  }
+}
+
+class NovelSeriesRow extends DataClass implements Insertable<NovelSeriesRow> {
+  final int id;
+  final String name;
+  final DateTime createdAt;
+  const NovelSeriesRow({
+    required this.id,
+    required this.name,
+    required this.createdAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['name'] = Variable<String>(name);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    return map;
+  }
+
+  NovelSeriesEntriesCompanion toCompanion(bool nullToAbsent) {
+    return NovelSeriesEntriesCompanion(
+      id: Value(id),
+      name: Value(name),
+      createdAt: Value(createdAt),
+    );
+  }
+
+  factory NovelSeriesRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return NovelSeriesRow(
+      id: serializer.fromJson<int>(json['id']),
+      name: serializer.fromJson<String>(json['name']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'name': serializer.toJson<String>(name),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+    };
+  }
+
+  NovelSeriesRow copyWith({int? id, String? name, DateTime? createdAt}) =>
+      NovelSeriesRow(
+        id: id ?? this.id,
+        name: name ?? this.name,
+        createdAt: createdAt ?? this.createdAt,
+      );
+  NovelSeriesRow copyWithCompanion(NovelSeriesEntriesCompanion data) {
+    return NovelSeriesRow(
+      id: data.id.present ? data.id.value : this.id,
+      name: data.name.present ? data.name.value : this.name,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('NovelSeriesRow(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, name, createdAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is NovelSeriesRow &&
+          other.id == this.id &&
+          other.name == this.name &&
+          other.createdAt == this.createdAt);
+}
+
+class NovelSeriesEntriesCompanion extends UpdateCompanion<NovelSeriesRow> {
+  final Value<int> id;
+  final Value<String> name;
+  final Value<DateTime> createdAt;
+  const NovelSeriesEntriesCompanion({
+    this.id = const Value.absent(),
+    this.name = const Value.absent(),
+    this.createdAt = const Value.absent(),
+  });
+  NovelSeriesEntriesCompanion.insert({
+    this.id = const Value.absent(),
+    required String name,
+    required DateTime createdAt,
+  }) : name = Value(name),
+       createdAt = Value(createdAt);
+  static Insertable<NovelSeriesRow> custom({
+    Expression<int>? id,
+    Expression<String>? name,
+    Expression<DateTime>? createdAt,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (name != null) 'name': name,
+      if (createdAt != null) 'created_at': createdAt,
+    });
+  }
+
+  NovelSeriesEntriesCompanion copyWith({
+    Value<int>? id,
+    Value<String>? name,
+    Value<DateTime>? createdAt,
+  }) {
+    return NovelSeriesEntriesCompanion(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      createdAt: createdAt ?? this.createdAt,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('NovelSeriesEntriesCompanion(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('createdAt: $createdAt')
           ..write(')'))
         .toString();
   }
@@ -1421,12 +1834,68 @@ class NovelPrefsCompanion extends UpdateCompanion<NovelPrefRow> {
   }
 }
 
-class $NovelReadingDaysTable extends NovelReadingDays
-    with TableInfo<$NovelReadingDaysTable, NovelReadingDayRow> {
+class $NovelReadRecordsTable extends NovelReadRecords
+    with TableInfo<$NovelReadRecordsTable, NovelReadRecordRow> {
   @override
   final GeneratedDatabase attachedDatabase;
   final String? _alias;
-  $NovelReadingDaysTable(this.attachedDatabase, [this._alias]);
+  $NovelReadRecordsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _deviceIdMeta = const VerificationMeta(
+    'deviceId',
+  );
+  @override
+  late final GeneratedColumn<String> deviceId = GeneratedColumn<String>(
+    'device_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _bookIdMeta = const VerificationMeta('bookId');
+  @override
+  late final GeneratedColumn<String> bookId = GeneratedColumn<String>(
+    'book_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _bookTitleMeta = const VerificationMeta(
+    'bookTitle',
+  );
+  @override
+  late final GeneratedColumn<String> bookTitle = GeneratedColumn<String>(
+    'book_title',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _chapterIndexMeta = const VerificationMeta(
+    'chapterIndex',
+  );
+  @override
+  late final GeneratedColumn<int> chapterIndex = GeneratedColumn<int>(
+    'chapter_index',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _chapterNameMeta = const VerificationMeta(
+    'chapterName',
+  );
+  @override
+  late final GeneratedColumn<String> chapterName = GeneratedColumn<String>(
+    'chapter_name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
   static const VerificationMeta _dayMeta = const VerificationMeta('day');
   @override
   late final GeneratedColumn<String> day = GeneratedColumn<String>(
@@ -1448,31 +1917,92 @@ class $NovelReadingDaysTable extends NovelReadingDays
     requiredDuringInsert: false,
     defaultValue: const Constant(0),
   );
-  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
-    'updatedAt',
+  static const VerificationMeta _firstReadAtMeta = const VerificationMeta(
+    'firstReadAt',
   );
   @override
-  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
-    'updated_at',
+  late final GeneratedColumn<DateTime> firstReadAt = GeneratedColumn<DateTime>(
+    'first_read_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _lastReadAtMeta = const VerificationMeta(
+    'lastReadAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> lastReadAt = GeneratedColumn<DateTime>(
+    'last_read_at',
     aliasedName,
     false,
     type: DriftSqlType.dateTime,
     requiredDuringInsert: true,
   );
   @override
-  List<GeneratedColumn> get $columns => [day, seconds, updatedAt];
+  List<GeneratedColumn> get $columns => [
+    deviceId,
+    bookId,
+    bookTitle,
+    chapterIndex,
+    chapterName,
+    day,
+    seconds,
+    firstReadAt,
+    lastReadAt,
+  ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
   String get actualTableName => $name;
-  static const String $name = 'novel_reading_day';
+  static const String $name = 'novel_read_record';
   @override
   VerificationContext validateIntegrity(
-    Insertable<NovelReadingDayRow> instance, {
+    Insertable<NovelReadRecordRow> instance, {
     bool isInserting = false,
   }) {
     final context = VerificationContext();
     final data = instance.toColumns(true);
+    if (data.containsKey('device_id')) {
+      context.handle(
+        _deviceIdMeta,
+        deviceId.isAcceptableOrUnknown(data['device_id']!, _deviceIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_deviceIdMeta);
+    }
+    if (data.containsKey('book_id')) {
+      context.handle(
+        _bookIdMeta,
+        bookId.isAcceptableOrUnknown(data['book_id']!, _bookIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_bookIdMeta);
+    }
+    if (data.containsKey('book_title')) {
+      context.handle(
+        _bookTitleMeta,
+        bookTitle.isAcceptableOrUnknown(data['book_title']!, _bookTitleMeta),
+      );
+    }
+    if (data.containsKey('chapter_index')) {
+      context.handle(
+        _chapterIndexMeta,
+        chapterIndex.isAcceptableOrUnknown(
+          data['chapter_index']!,
+          _chapterIndexMeta,
+        ),
+      );
+    }
+    if (data.containsKey('chapter_name')) {
+      context.handle(
+        _chapterNameMeta,
+        chapterName.isAcceptableOrUnknown(
+          data['chapter_name']!,
+          _chapterNameMeta,
+        ),
+      );
+    }
     if (data.containsKey('day')) {
       context.handle(
         _dayMeta,
@@ -1487,23 +2017,57 @@ class $NovelReadingDaysTable extends NovelReadingDays
         seconds.isAcceptableOrUnknown(data['seconds']!, _secondsMeta),
       );
     }
-    if (data.containsKey('updated_at')) {
+    if (data.containsKey('first_read_at')) {
       context.handle(
-        _updatedAtMeta,
-        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+        _firstReadAtMeta,
+        firstReadAt.isAcceptableOrUnknown(
+          data['first_read_at']!,
+          _firstReadAtMeta,
+        ),
       );
     } else if (isInserting) {
-      context.missing(_updatedAtMeta);
+      context.missing(_firstReadAtMeta);
+    }
+    if (data.containsKey('last_read_at')) {
+      context.handle(
+        _lastReadAtMeta,
+        lastReadAt.isAcceptableOrUnknown(
+          data['last_read_at']!,
+          _lastReadAtMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_lastReadAtMeta);
     }
     return context;
   }
 
   @override
-  Set<GeneratedColumn> get $primaryKey => {day};
+  Set<GeneratedColumn> get $primaryKey => {deviceId, bookId, chapterIndex, day};
   @override
-  NovelReadingDayRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+  NovelReadRecordRow map(Map<String, dynamic> data, {String? tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
-    return NovelReadingDayRow(
+    return NovelReadRecordRow(
+      deviceId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}device_id'],
+      )!,
+      bookId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}book_id'],
+      )!,
+      bookTitle: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}book_title'],
+      )!,
+      chapterIndex: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}chapter_index'],
+      )!,
+      chapterName: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}chapter_name'],
+      )!,
       day: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}day'],
@@ -1512,148 +2076,289 @@ class $NovelReadingDaysTable extends NovelReadingDays
         DriftSqlType.int,
         data['${effectivePrefix}seconds'],
       )!,
-      updatedAt: attachedDatabase.typeMapping.read(
+      firstReadAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
-        data['${effectivePrefix}updated_at'],
+        data['${effectivePrefix}first_read_at'],
+      )!,
+      lastReadAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}last_read_at'],
       )!,
     );
   }
 
   @override
-  $NovelReadingDaysTable createAlias(String alias) {
-    return $NovelReadingDaysTable(attachedDatabase, alias);
+  $NovelReadRecordsTable createAlias(String alias) {
+    return $NovelReadRecordsTable(attachedDatabase, alias);
   }
 }
 
-class NovelReadingDayRow extends DataClass
-    implements Insertable<NovelReadingDayRow> {
+class NovelReadRecordRow extends DataClass
+    implements Insertable<NovelReadRecordRow> {
+  /// 设备 ID（`novel_pref.device_id`；旧数据迁移时填本机）。
+  final String deviceId;
+
+  /// 书籍主键；空串 = 旧数据/未关联书籍。
+  final String bookId;
+
+  /// 书名快照：时间轴不必回查收藏/历史表，删书后记录仍可读。
+  final String bookTitle;
+
+  /// 章号（1 起；0 = 未知），与 `novel_history.chapter_index` 同口径。
+  final int chapterIndex;
+  final String chapterName;
+
   /// 本地日期 `yyyy-MM-dd`（阅读时长按用户本地日切分）。
   final String day;
   final int seconds;
-  final DateTime updatedAt;
-  const NovelReadingDayRow({
+  final DateTime firstReadAt;
+  final DateTime lastReadAt;
+  const NovelReadRecordRow({
+    required this.deviceId,
+    required this.bookId,
+    required this.bookTitle,
+    required this.chapterIndex,
+    required this.chapterName,
     required this.day,
     required this.seconds,
-    required this.updatedAt,
+    required this.firstReadAt,
+    required this.lastReadAt,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
+    map['device_id'] = Variable<String>(deviceId);
+    map['book_id'] = Variable<String>(bookId);
+    map['book_title'] = Variable<String>(bookTitle);
+    map['chapter_index'] = Variable<int>(chapterIndex);
+    map['chapter_name'] = Variable<String>(chapterName);
     map['day'] = Variable<String>(day);
     map['seconds'] = Variable<int>(seconds);
-    map['updated_at'] = Variable<DateTime>(updatedAt);
+    map['first_read_at'] = Variable<DateTime>(firstReadAt);
+    map['last_read_at'] = Variable<DateTime>(lastReadAt);
     return map;
   }
 
-  NovelReadingDaysCompanion toCompanion(bool nullToAbsent) {
-    return NovelReadingDaysCompanion(
+  NovelReadRecordsCompanion toCompanion(bool nullToAbsent) {
+    return NovelReadRecordsCompanion(
+      deviceId: Value(deviceId),
+      bookId: Value(bookId),
+      bookTitle: Value(bookTitle),
+      chapterIndex: Value(chapterIndex),
+      chapterName: Value(chapterName),
       day: Value(day),
       seconds: Value(seconds),
-      updatedAt: Value(updatedAt),
+      firstReadAt: Value(firstReadAt),
+      lastReadAt: Value(lastReadAt),
     );
   }
 
-  factory NovelReadingDayRow.fromJson(
+  factory NovelReadRecordRow.fromJson(
     Map<String, dynamic> json, {
     ValueSerializer? serializer,
   }) {
     serializer ??= driftRuntimeOptions.defaultSerializer;
-    return NovelReadingDayRow(
+    return NovelReadRecordRow(
+      deviceId: serializer.fromJson<String>(json['deviceId']),
+      bookId: serializer.fromJson<String>(json['bookId']),
+      bookTitle: serializer.fromJson<String>(json['bookTitle']),
+      chapterIndex: serializer.fromJson<int>(json['chapterIndex']),
+      chapterName: serializer.fromJson<String>(json['chapterName']),
       day: serializer.fromJson<String>(json['day']),
       seconds: serializer.fromJson<int>(json['seconds']),
-      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+      firstReadAt: serializer.fromJson<DateTime>(json['firstReadAt']),
+      lastReadAt: serializer.fromJson<DateTime>(json['lastReadAt']),
     );
   }
   @override
   Map<String, dynamic> toJson({ValueSerializer? serializer}) {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return <String, dynamic>{
+      'deviceId': serializer.toJson<String>(deviceId),
+      'bookId': serializer.toJson<String>(bookId),
+      'bookTitle': serializer.toJson<String>(bookTitle),
+      'chapterIndex': serializer.toJson<int>(chapterIndex),
+      'chapterName': serializer.toJson<String>(chapterName),
       'day': serializer.toJson<String>(day),
       'seconds': serializer.toJson<int>(seconds),
-      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+      'firstReadAt': serializer.toJson<DateTime>(firstReadAt),
+      'lastReadAt': serializer.toJson<DateTime>(lastReadAt),
     };
   }
 
-  NovelReadingDayRow copyWith({
+  NovelReadRecordRow copyWith({
+    String? deviceId,
+    String? bookId,
+    String? bookTitle,
+    int? chapterIndex,
+    String? chapterName,
     String? day,
     int? seconds,
-    DateTime? updatedAt,
-  }) => NovelReadingDayRow(
+    DateTime? firstReadAt,
+    DateTime? lastReadAt,
+  }) => NovelReadRecordRow(
+    deviceId: deviceId ?? this.deviceId,
+    bookId: bookId ?? this.bookId,
+    bookTitle: bookTitle ?? this.bookTitle,
+    chapterIndex: chapterIndex ?? this.chapterIndex,
+    chapterName: chapterName ?? this.chapterName,
     day: day ?? this.day,
     seconds: seconds ?? this.seconds,
-    updatedAt: updatedAt ?? this.updatedAt,
+    firstReadAt: firstReadAt ?? this.firstReadAt,
+    lastReadAt: lastReadAt ?? this.lastReadAt,
   );
-  NovelReadingDayRow copyWithCompanion(NovelReadingDaysCompanion data) {
-    return NovelReadingDayRow(
+  NovelReadRecordRow copyWithCompanion(NovelReadRecordsCompanion data) {
+    return NovelReadRecordRow(
+      deviceId: data.deviceId.present ? data.deviceId.value : this.deviceId,
+      bookId: data.bookId.present ? data.bookId.value : this.bookId,
+      bookTitle: data.bookTitle.present ? data.bookTitle.value : this.bookTitle,
+      chapterIndex: data.chapterIndex.present
+          ? data.chapterIndex.value
+          : this.chapterIndex,
+      chapterName: data.chapterName.present
+          ? data.chapterName.value
+          : this.chapterName,
       day: data.day.present ? data.day.value : this.day,
       seconds: data.seconds.present ? data.seconds.value : this.seconds,
-      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      firstReadAt: data.firstReadAt.present
+          ? data.firstReadAt.value
+          : this.firstReadAt,
+      lastReadAt: data.lastReadAt.present
+          ? data.lastReadAt.value
+          : this.lastReadAt,
     );
   }
 
   @override
   String toString() {
-    return (StringBuffer('NovelReadingDayRow(')
+    return (StringBuffer('NovelReadRecordRow(')
+          ..write('deviceId: $deviceId, ')
+          ..write('bookId: $bookId, ')
+          ..write('bookTitle: $bookTitle, ')
+          ..write('chapterIndex: $chapterIndex, ')
+          ..write('chapterName: $chapterName, ')
           ..write('day: $day, ')
           ..write('seconds: $seconds, ')
-          ..write('updatedAt: $updatedAt')
+          ..write('firstReadAt: $firstReadAt, ')
+          ..write('lastReadAt: $lastReadAt')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(day, seconds, updatedAt);
+  int get hashCode => Object.hash(
+    deviceId,
+    bookId,
+    bookTitle,
+    chapterIndex,
+    chapterName,
+    day,
+    seconds,
+    firstReadAt,
+    lastReadAt,
+  );
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      (other is NovelReadingDayRow &&
+      (other is NovelReadRecordRow &&
+          other.deviceId == this.deviceId &&
+          other.bookId == this.bookId &&
+          other.bookTitle == this.bookTitle &&
+          other.chapterIndex == this.chapterIndex &&
+          other.chapterName == this.chapterName &&
           other.day == this.day &&
           other.seconds == this.seconds &&
-          other.updatedAt == this.updatedAt);
+          other.firstReadAt == this.firstReadAt &&
+          other.lastReadAt == this.lastReadAt);
 }
 
-class NovelReadingDaysCompanion extends UpdateCompanion<NovelReadingDayRow> {
+class NovelReadRecordsCompanion extends UpdateCompanion<NovelReadRecordRow> {
+  final Value<String> deviceId;
+  final Value<String> bookId;
+  final Value<String> bookTitle;
+  final Value<int> chapterIndex;
+  final Value<String> chapterName;
   final Value<String> day;
   final Value<int> seconds;
-  final Value<DateTime> updatedAt;
+  final Value<DateTime> firstReadAt;
+  final Value<DateTime> lastReadAt;
   final Value<int> rowid;
-  const NovelReadingDaysCompanion({
+  const NovelReadRecordsCompanion({
+    this.deviceId = const Value.absent(),
+    this.bookId = const Value.absent(),
+    this.bookTitle = const Value.absent(),
+    this.chapterIndex = const Value.absent(),
+    this.chapterName = const Value.absent(),
     this.day = const Value.absent(),
     this.seconds = const Value.absent(),
-    this.updatedAt = const Value.absent(),
+    this.firstReadAt = const Value.absent(),
+    this.lastReadAt = const Value.absent(),
     this.rowid = const Value.absent(),
   });
-  NovelReadingDaysCompanion.insert({
+  NovelReadRecordsCompanion.insert({
+    required String deviceId,
+    required String bookId,
+    this.bookTitle = const Value.absent(),
+    this.chapterIndex = const Value.absent(),
+    this.chapterName = const Value.absent(),
     required String day,
     this.seconds = const Value.absent(),
-    required DateTime updatedAt,
+    required DateTime firstReadAt,
+    required DateTime lastReadAt,
     this.rowid = const Value.absent(),
-  }) : day = Value(day),
-       updatedAt = Value(updatedAt);
-  static Insertable<NovelReadingDayRow> custom({
+  }) : deviceId = Value(deviceId),
+       bookId = Value(bookId),
+       day = Value(day),
+       firstReadAt = Value(firstReadAt),
+       lastReadAt = Value(lastReadAt);
+  static Insertable<NovelReadRecordRow> custom({
+    Expression<String>? deviceId,
+    Expression<String>? bookId,
+    Expression<String>? bookTitle,
+    Expression<int>? chapterIndex,
+    Expression<String>? chapterName,
     Expression<String>? day,
     Expression<int>? seconds,
-    Expression<DateTime>? updatedAt,
+    Expression<DateTime>? firstReadAt,
+    Expression<DateTime>? lastReadAt,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
+      if (deviceId != null) 'device_id': deviceId,
+      if (bookId != null) 'book_id': bookId,
+      if (bookTitle != null) 'book_title': bookTitle,
+      if (chapterIndex != null) 'chapter_index': chapterIndex,
+      if (chapterName != null) 'chapter_name': chapterName,
       if (day != null) 'day': day,
       if (seconds != null) 'seconds': seconds,
-      if (updatedAt != null) 'updated_at': updatedAt,
+      if (firstReadAt != null) 'first_read_at': firstReadAt,
+      if (lastReadAt != null) 'last_read_at': lastReadAt,
       if (rowid != null) 'rowid': rowid,
     });
   }
 
-  NovelReadingDaysCompanion copyWith({
+  NovelReadRecordsCompanion copyWith({
+    Value<String>? deviceId,
+    Value<String>? bookId,
+    Value<String>? bookTitle,
+    Value<int>? chapterIndex,
+    Value<String>? chapterName,
     Value<String>? day,
     Value<int>? seconds,
-    Value<DateTime>? updatedAt,
+    Value<DateTime>? firstReadAt,
+    Value<DateTime>? lastReadAt,
     Value<int>? rowid,
   }) {
-    return NovelReadingDaysCompanion(
+    return NovelReadRecordsCompanion(
+      deviceId: deviceId ?? this.deviceId,
+      bookId: bookId ?? this.bookId,
+      bookTitle: bookTitle ?? this.bookTitle,
+      chapterIndex: chapterIndex ?? this.chapterIndex,
+      chapterName: chapterName ?? this.chapterName,
       day: day ?? this.day,
       seconds: seconds ?? this.seconds,
-      updatedAt: updatedAt ?? this.updatedAt,
+      firstReadAt: firstReadAt ?? this.firstReadAt,
+      lastReadAt: lastReadAt ?? this.lastReadAt,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -1661,14 +2366,32 @@ class NovelReadingDaysCompanion extends UpdateCompanion<NovelReadingDayRow> {
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
+    if (deviceId.present) {
+      map['device_id'] = Variable<String>(deviceId.value);
+    }
+    if (bookId.present) {
+      map['book_id'] = Variable<String>(bookId.value);
+    }
+    if (bookTitle.present) {
+      map['book_title'] = Variable<String>(bookTitle.value);
+    }
+    if (chapterIndex.present) {
+      map['chapter_index'] = Variable<int>(chapterIndex.value);
+    }
+    if (chapterName.present) {
+      map['chapter_name'] = Variable<String>(chapterName.value);
+    }
     if (day.present) {
       map['day'] = Variable<String>(day.value);
     }
     if (seconds.present) {
       map['seconds'] = Variable<int>(seconds.value);
     }
-    if (updatedAt.present) {
-      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    if (firstReadAt.present) {
+      map['first_read_at'] = Variable<DateTime>(firstReadAt.value);
+    }
+    if (lastReadAt.present) {
+      map['last_read_at'] = Variable<DateTime>(lastReadAt.value);
     }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
@@ -1678,10 +2401,16 @@ class NovelReadingDaysCompanion extends UpdateCompanion<NovelReadingDayRow> {
 
   @override
   String toString() {
-    return (StringBuffer('NovelReadingDaysCompanion(')
+    return (StringBuffer('NovelReadRecordsCompanion(')
+          ..write('deviceId: $deviceId, ')
+          ..write('bookId: $bookId, ')
+          ..write('bookTitle: $bookTitle, ')
+          ..write('chapterIndex: $chapterIndex, ')
+          ..write('chapterName: $chapterName, ')
           ..write('day: $day, ')
           ..write('seconds: $seconds, ')
-          ..write('updatedAt: $updatedAt, ')
+          ..write('firstReadAt: $firstReadAt, ')
+          ..write('lastReadAt: $lastReadAt, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -5044,18 +5773,1077 @@ class NovelTtsCacheEntriesCompanion extends UpdateCompanion<NovelTtsCacheRow> {
   }
 }
 
+class $NovelLocalBooksTable extends NovelLocalBooks
+    with TableInfo<$NovelLocalBooksTable, NovelLocalBookRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $NovelLocalBooksTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _pathMeta = const VerificationMeta('path');
+  @override
+  late final GeneratedColumn<String> path = GeneratedColumn<String>(
+    'path',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _titleMeta = const VerificationMeta('title');
+  @override
+  late final GeneratedColumn<String> title = GeneratedColumn<String>(
+    'title',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _authorMeta = const VerificationMeta('author');
+  @override
+  late final GeneratedColumn<String> author = GeneratedColumn<String>(
+    'author',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _formatMeta = const VerificationMeta('format');
+  @override
+  late final GeneratedColumn<String> format = GeneratedColumn<String>(
+    'format',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _encodingMeta = const VerificationMeta(
+    'encoding',
+  );
+  @override
+  late final GeneratedColumn<String> encoding = GeneratedColumn<String>(
+    'encoding',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _byteSizeMeta = const VerificationMeta(
+    'byteSize',
+  );
+  @override
+  late final GeneratedColumn<int> byteSize = GeneratedColumn<int>(
+    'byte_size',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _chapterCountMeta = const VerificationMeta(
+    'chapterCount',
+  );
+  @override
+  late final GeneratedColumn<int> chapterCount = GeneratedColumn<int>(
+    'chapter_count',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _tocJsonMeta = const VerificationMeta(
+    'tocJson',
+  );
+  @override
+  late final GeneratedColumn<String> tocJson = GeneratedColumn<String>(
+    'toc_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('[]'),
+  );
+  static const VerificationMeta _addedAtMeta = const VerificationMeta(
+    'addedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> addedAt = GeneratedColumn<DateTime>(
+    'added_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    path,
+    title,
+    author,
+    format,
+    encoding,
+    byteSize,
+    chapterCount,
+    tocJson,
+    addedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'novel_local_book';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<NovelLocalBookRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('path')) {
+      context.handle(
+        _pathMeta,
+        path.isAcceptableOrUnknown(data['path']!, _pathMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_pathMeta);
+    }
+    if (data.containsKey('title')) {
+      context.handle(
+        _titleMeta,
+        title.isAcceptableOrUnknown(data['title']!, _titleMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_titleMeta);
+    }
+    if (data.containsKey('author')) {
+      context.handle(
+        _authorMeta,
+        author.isAcceptableOrUnknown(data['author']!, _authorMeta),
+      );
+    }
+    if (data.containsKey('format')) {
+      context.handle(
+        _formatMeta,
+        format.isAcceptableOrUnknown(data['format']!, _formatMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_formatMeta);
+    }
+    if (data.containsKey('encoding')) {
+      context.handle(
+        _encodingMeta,
+        encoding.isAcceptableOrUnknown(data['encoding']!, _encodingMeta),
+      );
+    }
+    if (data.containsKey('byte_size')) {
+      context.handle(
+        _byteSizeMeta,
+        byteSize.isAcceptableOrUnknown(data['byte_size']!, _byteSizeMeta),
+      );
+    }
+    if (data.containsKey('chapter_count')) {
+      context.handle(
+        _chapterCountMeta,
+        chapterCount.isAcceptableOrUnknown(
+          data['chapter_count']!,
+          _chapterCountMeta,
+        ),
+      );
+    }
+    if (data.containsKey('toc_json')) {
+      context.handle(
+        _tocJsonMeta,
+        tocJson.isAcceptableOrUnknown(data['toc_json']!, _tocJsonMeta),
+      );
+    }
+    if (data.containsKey('added_at')) {
+      context.handle(
+        _addedAtMeta,
+        addedAt.isAcceptableOrUnknown(data['added_at']!, _addedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_addedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  NovelLocalBookRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return NovelLocalBookRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      path: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}path'],
+      )!,
+      title: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}title'],
+      )!,
+      author: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}author'],
+      )!,
+      format: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}format'],
+      )!,
+      encoding: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}encoding'],
+      ),
+      byteSize: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}byte_size'],
+      )!,
+      chapterCount: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}chapter_count'],
+      )!,
+      tocJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}toc_json'],
+      )!,
+      addedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}added_at'],
+      )!,
+    );
+  }
+
+  @override
+  $NovelLocalBooksTable createAlias(String alias) {
+    return $NovelLocalBooksTable(attachedDatabase, alias);
+  }
+}
+
+class NovelLocalBookRow extends DataClass
+    implements Insertable<NovelLocalBookRow> {
+  final String id;
+
+  /// 导入时的绝对路径（重新定位后改写这里）。
+  final String path;
+  final String title;
+  final String author;
+
+  /// `txt` / `epub` / `md`。
+  final String format;
+
+  /// 嗅探到的编码名（utf-8 / utf-16le / gbk / gb18030 / big5）；EPUB 为空。
+  final String? encoding;
+  final int byteSize;
+  final int chapterCount;
+
+  /// 目录 JSON：`[{"t": 标题, "s": 起始字节, "e": 结束字节, "h": href}]`。
+  final String tocJson;
+  final DateTime addedAt;
+  const NovelLocalBookRow({
+    required this.id,
+    required this.path,
+    required this.title,
+    required this.author,
+    required this.format,
+    this.encoding,
+    required this.byteSize,
+    required this.chapterCount,
+    required this.tocJson,
+    required this.addedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['path'] = Variable<String>(path);
+    map['title'] = Variable<String>(title);
+    map['author'] = Variable<String>(author);
+    map['format'] = Variable<String>(format);
+    if (!nullToAbsent || encoding != null) {
+      map['encoding'] = Variable<String>(encoding);
+    }
+    map['byte_size'] = Variable<int>(byteSize);
+    map['chapter_count'] = Variable<int>(chapterCount);
+    map['toc_json'] = Variable<String>(tocJson);
+    map['added_at'] = Variable<DateTime>(addedAt);
+    return map;
+  }
+
+  NovelLocalBooksCompanion toCompanion(bool nullToAbsent) {
+    return NovelLocalBooksCompanion(
+      id: Value(id),
+      path: Value(path),
+      title: Value(title),
+      author: Value(author),
+      format: Value(format),
+      encoding: encoding == null && nullToAbsent
+          ? const Value.absent()
+          : Value(encoding),
+      byteSize: Value(byteSize),
+      chapterCount: Value(chapterCount),
+      tocJson: Value(tocJson),
+      addedAt: Value(addedAt),
+    );
+  }
+
+  factory NovelLocalBookRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return NovelLocalBookRow(
+      id: serializer.fromJson<String>(json['id']),
+      path: serializer.fromJson<String>(json['path']),
+      title: serializer.fromJson<String>(json['title']),
+      author: serializer.fromJson<String>(json['author']),
+      format: serializer.fromJson<String>(json['format']),
+      encoding: serializer.fromJson<String?>(json['encoding']),
+      byteSize: serializer.fromJson<int>(json['byteSize']),
+      chapterCount: serializer.fromJson<int>(json['chapterCount']),
+      tocJson: serializer.fromJson<String>(json['tocJson']),
+      addedAt: serializer.fromJson<DateTime>(json['addedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'path': serializer.toJson<String>(path),
+      'title': serializer.toJson<String>(title),
+      'author': serializer.toJson<String>(author),
+      'format': serializer.toJson<String>(format),
+      'encoding': serializer.toJson<String?>(encoding),
+      'byteSize': serializer.toJson<int>(byteSize),
+      'chapterCount': serializer.toJson<int>(chapterCount),
+      'tocJson': serializer.toJson<String>(tocJson),
+      'addedAt': serializer.toJson<DateTime>(addedAt),
+    };
+  }
+
+  NovelLocalBookRow copyWith({
+    String? id,
+    String? path,
+    String? title,
+    String? author,
+    String? format,
+    Value<String?> encoding = const Value.absent(),
+    int? byteSize,
+    int? chapterCount,
+    String? tocJson,
+    DateTime? addedAt,
+  }) => NovelLocalBookRow(
+    id: id ?? this.id,
+    path: path ?? this.path,
+    title: title ?? this.title,
+    author: author ?? this.author,
+    format: format ?? this.format,
+    encoding: encoding.present ? encoding.value : this.encoding,
+    byteSize: byteSize ?? this.byteSize,
+    chapterCount: chapterCount ?? this.chapterCount,
+    tocJson: tocJson ?? this.tocJson,
+    addedAt: addedAt ?? this.addedAt,
+  );
+  NovelLocalBookRow copyWithCompanion(NovelLocalBooksCompanion data) {
+    return NovelLocalBookRow(
+      id: data.id.present ? data.id.value : this.id,
+      path: data.path.present ? data.path.value : this.path,
+      title: data.title.present ? data.title.value : this.title,
+      author: data.author.present ? data.author.value : this.author,
+      format: data.format.present ? data.format.value : this.format,
+      encoding: data.encoding.present ? data.encoding.value : this.encoding,
+      byteSize: data.byteSize.present ? data.byteSize.value : this.byteSize,
+      chapterCount: data.chapterCount.present
+          ? data.chapterCount.value
+          : this.chapterCount,
+      tocJson: data.tocJson.present ? data.tocJson.value : this.tocJson,
+      addedAt: data.addedAt.present ? data.addedAt.value : this.addedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('NovelLocalBookRow(')
+          ..write('id: $id, ')
+          ..write('path: $path, ')
+          ..write('title: $title, ')
+          ..write('author: $author, ')
+          ..write('format: $format, ')
+          ..write('encoding: $encoding, ')
+          ..write('byteSize: $byteSize, ')
+          ..write('chapterCount: $chapterCount, ')
+          ..write('tocJson: $tocJson, ')
+          ..write('addedAt: $addedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    path,
+    title,
+    author,
+    format,
+    encoding,
+    byteSize,
+    chapterCount,
+    tocJson,
+    addedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is NovelLocalBookRow &&
+          other.id == this.id &&
+          other.path == this.path &&
+          other.title == this.title &&
+          other.author == this.author &&
+          other.format == this.format &&
+          other.encoding == this.encoding &&
+          other.byteSize == this.byteSize &&
+          other.chapterCount == this.chapterCount &&
+          other.tocJson == this.tocJson &&
+          other.addedAt == this.addedAt);
+}
+
+class NovelLocalBooksCompanion extends UpdateCompanion<NovelLocalBookRow> {
+  final Value<String> id;
+  final Value<String> path;
+  final Value<String> title;
+  final Value<String> author;
+  final Value<String> format;
+  final Value<String?> encoding;
+  final Value<int> byteSize;
+  final Value<int> chapterCount;
+  final Value<String> tocJson;
+  final Value<DateTime> addedAt;
+  final Value<int> rowid;
+  const NovelLocalBooksCompanion({
+    this.id = const Value.absent(),
+    this.path = const Value.absent(),
+    this.title = const Value.absent(),
+    this.author = const Value.absent(),
+    this.format = const Value.absent(),
+    this.encoding = const Value.absent(),
+    this.byteSize = const Value.absent(),
+    this.chapterCount = const Value.absent(),
+    this.tocJson = const Value.absent(),
+    this.addedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  NovelLocalBooksCompanion.insert({
+    required String id,
+    required String path,
+    required String title,
+    this.author = const Value.absent(),
+    required String format,
+    this.encoding = const Value.absent(),
+    this.byteSize = const Value.absent(),
+    this.chapterCount = const Value.absent(),
+    this.tocJson = const Value.absent(),
+    required DateTime addedAt,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       path = Value(path),
+       title = Value(title),
+       format = Value(format),
+       addedAt = Value(addedAt);
+  static Insertable<NovelLocalBookRow> custom({
+    Expression<String>? id,
+    Expression<String>? path,
+    Expression<String>? title,
+    Expression<String>? author,
+    Expression<String>? format,
+    Expression<String>? encoding,
+    Expression<int>? byteSize,
+    Expression<int>? chapterCount,
+    Expression<String>? tocJson,
+    Expression<DateTime>? addedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (path != null) 'path': path,
+      if (title != null) 'title': title,
+      if (author != null) 'author': author,
+      if (format != null) 'format': format,
+      if (encoding != null) 'encoding': encoding,
+      if (byteSize != null) 'byte_size': byteSize,
+      if (chapterCount != null) 'chapter_count': chapterCount,
+      if (tocJson != null) 'toc_json': tocJson,
+      if (addedAt != null) 'added_at': addedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  NovelLocalBooksCompanion copyWith({
+    Value<String>? id,
+    Value<String>? path,
+    Value<String>? title,
+    Value<String>? author,
+    Value<String>? format,
+    Value<String?>? encoding,
+    Value<int>? byteSize,
+    Value<int>? chapterCount,
+    Value<String>? tocJson,
+    Value<DateTime>? addedAt,
+    Value<int>? rowid,
+  }) {
+    return NovelLocalBooksCompanion(
+      id: id ?? this.id,
+      path: path ?? this.path,
+      title: title ?? this.title,
+      author: author ?? this.author,
+      format: format ?? this.format,
+      encoding: encoding ?? this.encoding,
+      byteSize: byteSize ?? this.byteSize,
+      chapterCount: chapterCount ?? this.chapterCount,
+      tocJson: tocJson ?? this.tocJson,
+      addedAt: addedAt ?? this.addedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (path.present) {
+      map['path'] = Variable<String>(path.value);
+    }
+    if (title.present) {
+      map['title'] = Variable<String>(title.value);
+    }
+    if (author.present) {
+      map['author'] = Variable<String>(author.value);
+    }
+    if (format.present) {
+      map['format'] = Variable<String>(format.value);
+    }
+    if (encoding.present) {
+      map['encoding'] = Variable<String>(encoding.value);
+    }
+    if (byteSize.present) {
+      map['byte_size'] = Variable<int>(byteSize.value);
+    }
+    if (chapterCount.present) {
+      map['chapter_count'] = Variable<int>(chapterCount.value);
+    }
+    if (tocJson.present) {
+      map['toc_json'] = Variable<String>(tocJson.value);
+    }
+    if (addedAt.present) {
+      map['added_at'] = Variable<DateTime>(addedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('NovelLocalBooksCompanion(')
+          ..write('id: $id, ')
+          ..write('path: $path, ')
+          ..write('title: $title, ')
+          ..write('author: $author, ')
+          ..write('format: $format, ')
+          ..write('encoding: $encoding, ')
+          ..write('byteSize: $byteSize, ')
+          ..write('chapterCount: $chapterCount, ')
+          ..write('tocJson: $tocJson, ')
+          ..write('addedAt: $addedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $NovelTxtTocRulesTable extends NovelTxtTocRules
+    with TableInfo<$NovelTxtTocRulesTable, NovelTxtTocRuleRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $NovelTxtTocRulesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+    'id',
+    aliasedName,
+    false,
+    hasAutoIncrement: true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'PRIMARY KEY AUTOINCREMENT',
+    ),
+  );
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+    'name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _patternMeta = const VerificationMeta(
+    'pattern',
+  );
+  @override
+  late final GeneratedColumn<String> pattern = GeneratedColumn<String>(
+    'pattern',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _enabledMeta = const VerificationMeta(
+    'enabled',
+  );
+  @override
+  late final GeneratedColumn<bool> enabled = GeneratedColumn<bool>(
+    'enabled',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("enabled" IN (0, 1))',
+    ),
+    defaultValue: const Constant(true),
+  );
+  static const VerificationMeta _builtinMeta = const VerificationMeta(
+    'builtin',
+  );
+  @override
+  late final GeneratedColumn<bool> builtin = GeneratedColumn<bool>(
+    'builtin',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("builtin" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _sortOrderMeta = const VerificationMeta(
+    'sortOrder',
+  );
+  @override
+  late final GeneratedColumn<int> sortOrder = GeneratedColumn<int>(
+    'sort_order',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    name,
+    pattern,
+    enabled,
+    builtin,
+    sortOrder,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'novel_txt_toc_rule';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<NovelTxtTocRuleRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+        _nameMeta,
+        name.isAcceptableOrUnknown(data['name']!, _nameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('pattern')) {
+      context.handle(
+        _patternMeta,
+        pattern.isAcceptableOrUnknown(data['pattern']!, _patternMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_patternMeta);
+    }
+    if (data.containsKey('enabled')) {
+      context.handle(
+        _enabledMeta,
+        enabled.isAcceptableOrUnknown(data['enabled']!, _enabledMeta),
+      );
+    }
+    if (data.containsKey('builtin')) {
+      context.handle(
+        _builtinMeta,
+        builtin.isAcceptableOrUnknown(data['builtin']!, _builtinMeta),
+      );
+    }
+    if (data.containsKey('sort_order')) {
+      context.handle(
+        _sortOrderMeta,
+        sortOrder.isAcceptableOrUnknown(data['sort_order']!, _sortOrderMeta),
+      );
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  NovelTxtTocRuleRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return NovelTxtTocRuleRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      name: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name'],
+      )!,
+      pattern: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}pattern'],
+      )!,
+      enabled: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}enabled'],
+      )!,
+      builtin: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}builtin'],
+      )!,
+      sortOrder: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}sort_order'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $NovelTxtTocRulesTable createAlias(String alias) {
+    return $NovelTxtTocRulesTable(attachedDatabase, alias);
+  }
+}
+
+class NovelTxtTocRuleRow extends DataClass
+    implements Insertable<NovelTxtTocRuleRow> {
+  final int id;
+  final String name;
+
+  /// 正则表达式（对每一行整行匹配）。
+  final String pattern;
+  final bool enabled;
+
+  /// 内置规则：可停用、可改，删除后可用「恢复默认」找回。
+  final bool builtin;
+  final int sortOrder;
+  final DateTime updatedAt;
+  const NovelTxtTocRuleRow({
+    required this.id,
+    required this.name,
+    required this.pattern,
+    required this.enabled,
+    required this.builtin,
+    required this.sortOrder,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['name'] = Variable<String>(name);
+    map['pattern'] = Variable<String>(pattern);
+    map['enabled'] = Variable<bool>(enabled);
+    map['builtin'] = Variable<bool>(builtin);
+    map['sort_order'] = Variable<int>(sortOrder);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    return map;
+  }
+
+  NovelTxtTocRulesCompanion toCompanion(bool nullToAbsent) {
+    return NovelTxtTocRulesCompanion(
+      id: Value(id),
+      name: Value(name),
+      pattern: Value(pattern),
+      enabled: Value(enabled),
+      builtin: Value(builtin),
+      sortOrder: Value(sortOrder),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory NovelTxtTocRuleRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return NovelTxtTocRuleRow(
+      id: serializer.fromJson<int>(json['id']),
+      name: serializer.fromJson<String>(json['name']),
+      pattern: serializer.fromJson<String>(json['pattern']),
+      enabled: serializer.fromJson<bool>(json['enabled']),
+      builtin: serializer.fromJson<bool>(json['builtin']),
+      sortOrder: serializer.fromJson<int>(json['sortOrder']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'name': serializer.toJson<String>(name),
+      'pattern': serializer.toJson<String>(pattern),
+      'enabled': serializer.toJson<bool>(enabled),
+      'builtin': serializer.toJson<bool>(builtin),
+      'sortOrder': serializer.toJson<int>(sortOrder),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+    };
+  }
+
+  NovelTxtTocRuleRow copyWith({
+    int? id,
+    String? name,
+    String? pattern,
+    bool? enabled,
+    bool? builtin,
+    int? sortOrder,
+    DateTime? updatedAt,
+  }) => NovelTxtTocRuleRow(
+    id: id ?? this.id,
+    name: name ?? this.name,
+    pattern: pattern ?? this.pattern,
+    enabled: enabled ?? this.enabled,
+    builtin: builtin ?? this.builtin,
+    sortOrder: sortOrder ?? this.sortOrder,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  NovelTxtTocRuleRow copyWithCompanion(NovelTxtTocRulesCompanion data) {
+    return NovelTxtTocRuleRow(
+      id: data.id.present ? data.id.value : this.id,
+      name: data.name.present ? data.name.value : this.name,
+      pattern: data.pattern.present ? data.pattern.value : this.pattern,
+      enabled: data.enabled.present ? data.enabled.value : this.enabled,
+      builtin: data.builtin.present ? data.builtin.value : this.builtin,
+      sortOrder: data.sortOrder.present ? data.sortOrder.value : this.sortOrder,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('NovelTxtTocRuleRow(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('pattern: $pattern, ')
+          ..write('enabled: $enabled, ')
+          ..write('builtin: $builtin, ')
+          ..write('sortOrder: $sortOrder, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(id, name, pattern, enabled, builtin, sortOrder, updatedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is NovelTxtTocRuleRow &&
+          other.id == this.id &&
+          other.name == this.name &&
+          other.pattern == this.pattern &&
+          other.enabled == this.enabled &&
+          other.builtin == this.builtin &&
+          other.sortOrder == this.sortOrder &&
+          other.updatedAt == this.updatedAt);
+}
+
+class NovelTxtTocRulesCompanion extends UpdateCompanion<NovelTxtTocRuleRow> {
+  final Value<int> id;
+  final Value<String> name;
+  final Value<String> pattern;
+  final Value<bool> enabled;
+  final Value<bool> builtin;
+  final Value<int> sortOrder;
+  final Value<DateTime> updatedAt;
+  const NovelTxtTocRulesCompanion({
+    this.id = const Value.absent(),
+    this.name = const Value.absent(),
+    this.pattern = const Value.absent(),
+    this.enabled = const Value.absent(),
+    this.builtin = const Value.absent(),
+    this.sortOrder = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+  });
+  NovelTxtTocRulesCompanion.insert({
+    this.id = const Value.absent(),
+    required String name,
+    required String pattern,
+    this.enabled = const Value.absent(),
+    this.builtin = const Value.absent(),
+    this.sortOrder = const Value.absent(),
+    required DateTime updatedAt,
+  }) : name = Value(name),
+       pattern = Value(pattern),
+       updatedAt = Value(updatedAt);
+  static Insertable<NovelTxtTocRuleRow> custom({
+    Expression<int>? id,
+    Expression<String>? name,
+    Expression<String>? pattern,
+    Expression<bool>? enabled,
+    Expression<bool>? builtin,
+    Expression<int>? sortOrder,
+    Expression<DateTime>? updatedAt,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (name != null) 'name': name,
+      if (pattern != null) 'pattern': pattern,
+      if (enabled != null) 'enabled': enabled,
+      if (builtin != null) 'builtin': builtin,
+      if (sortOrder != null) 'sort_order': sortOrder,
+      if (updatedAt != null) 'updated_at': updatedAt,
+    });
+  }
+
+  NovelTxtTocRulesCompanion copyWith({
+    Value<int>? id,
+    Value<String>? name,
+    Value<String>? pattern,
+    Value<bool>? enabled,
+    Value<bool>? builtin,
+    Value<int>? sortOrder,
+    Value<DateTime>? updatedAt,
+  }) {
+    return NovelTxtTocRulesCompanion(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      pattern: pattern ?? this.pattern,
+      enabled: enabled ?? this.enabled,
+      builtin: builtin ?? this.builtin,
+      sortOrder: sortOrder ?? this.sortOrder,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (pattern.present) {
+      map['pattern'] = Variable<String>(pattern.value);
+    }
+    if (enabled.present) {
+      map['enabled'] = Variable<bool>(enabled.value);
+    }
+    if (builtin.present) {
+      map['builtin'] = Variable<bool>(builtin.value);
+    }
+    if (sortOrder.present) {
+      map['sort_order'] = Variable<int>(sortOrder.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('NovelTxtTocRulesCompanion(')
+          ..write('id: $id, ')
+          ..write('name: $name, ')
+          ..write('pattern: $pattern, ')
+          ..write('enabled: $enabled, ')
+          ..write('builtin: $builtin, ')
+          ..write('sortOrder: $sortOrder, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$NovelDb extends GeneratedDatabase {
   _$NovelDb(QueryExecutor e) : super(e);
   $NovelDbManager get managers => $NovelDbManager(this);
   late final $NovelCollectEntriesTable novelCollectEntries =
       $NovelCollectEntriesTable(this);
+  late final $NovelSeriesEntriesTable novelSeriesEntries =
+      $NovelSeriesEntriesTable(this);
   late final $NovelHistoryEntriesTable novelHistoryEntries =
       $NovelHistoryEntriesTable(this);
   late final $NovelSearchTermsTable novelSearchTerms = $NovelSearchTermsTable(
     this,
   );
   late final $NovelPrefsTable novelPrefs = $NovelPrefsTable(this);
-  late final $NovelReadingDaysTable novelReadingDays = $NovelReadingDaysTable(
+  late final $NovelReadRecordsTable novelReadRecords = $NovelReadRecordsTable(
     this,
   );
   late final $NovelBookmarkEntriesTable novelBookmarkEntries =
@@ -5068,21 +6856,30 @@ abstract class _$NovelDb extends GeneratedDatabase {
       $NovelContentOverridesTable(this);
   late final $NovelTtsCacheEntriesTable novelTtsCacheEntries =
       $NovelTtsCacheEntriesTable(this);
+  late final $NovelLocalBooksTable novelLocalBooks = $NovelLocalBooksTable(
+    this,
+  );
+  late final $NovelTxtTocRulesTable novelTxtTocRules = $NovelTxtTocRulesTable(
+    this,
+  );
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
   @override
   List<DatabaseSchemaEntity> get allSchemaEntities => [
     novelCollectEntries,
+    novelSeriesEntries,
     novelHistoryEntries,
     novelSearchTerms,
     novelPrefs,
-    novelReadingDays,
+    novelReadRecords,
     novelBookmarkEntries,
     novelMarkingEntries,
     novelHighlightRules,
     novelContentOverrides,
     novelTtsCacheEntries,
+    novelLocalBooks,
+    novelTxtTocRules,
   ];
 }
 
@@ -5093,6 +6890,9 @@ typedef $$NovelCollectEntriesTableCreateCompanionBuilder =
       Value<String?> coverUrl,
       Value<String> payload,
       Value<String?> groupName,
+      Value<String> note,
+      Value<String?> customCoverPath,
+      Value<int?> seriesId,
       required DateTime collectedAt,
       Value<int> rowid,
     });
@@ -5103,6 +6903,9 @@ typedef $$NovelCollectEntriesTableUpdateCompanionBuilder =
       Value<String?> coverUrl,
       Value<String> payload,
       Value<String?> groupName,
+      Value<String> note,
+      Value<String?> customCoverPath,
+      Value<int?> seriesId,
       Value<DateTime> collectedAt,
       Value<int> rowid,
     });
@@ -5138,6 +6941,21 @@ class $$NovelCollectEntriesTableFilterComposer
 
   ColumnFilters<String> get groupName => $composableBuilder(
     column: $table.groupName,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get note => $composableBuilder(
+    column: $table.note,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get customCoverPath => $composableBuilder(
+    column: $table.customCoverPath,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get seriesId => $composableBuilder(
+    column: $table.seriesId,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -5181,6 +6999,21 @@ class $$NovelCollectEntriesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get note => $composableBuilder(
+    column: $table.note,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get customCoverPath => $composableBuilder(
+    column: $table.customCoverPath,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get seriesId => $composableBuilder(
+    column: $table.seriesId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get collectedAt => $composableBuilder(
     column: $table.collectedAt,
     builder: (column) => ColumnOrderings(column),
@@ -5210,6 +7043,17 @@ class $$NovelCollectEntriesTableAnnotationComposer
 
   GeneratedColumn<String> get groupName =>
       $composableBuilder(column: $table.groupName, builder: (column) => column);
+
+  GeneratedColumn<String> get note =>
+      $composableBuilder(column: $table.note, builder: (column) => column);
+
+  GeneratedColumn<String> get customCoverPath => $composableBuilder(
+    column: $table.customCoverPath,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get seriesId =>
+      $composableBuilder(column: $table.seriesId, builder: (column) => column);
 
   GeneratedColumn<DateTime> get collectedAt => $composableBuilder(
     column: $table.collectedAt,
@@ -5265,6 +7109,9 @@ class $$NovelCollectEntriesTableTableManager
                 Value<String?> coverUrl = const Value.absent(),
                 Value<String> payload = const Value.absent(),
                 Value<String?> groupName = const Value.absent(),
+                Value<String> note = const Value.absent(),
+                Value<String?> customCoverPath = const Value.absent(),
+                Value<int?> seriesId = const Value.absent(),
                 Value<DateTime> collectedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => NovelCollectEntriesCompanion(
@@ -5273,6 +7120,9 @@ class $$NovelCollectEntriesTableTableManager
                 coverUrl: coverUrl,
                 payload: payload,
                 groupName: groupName,
+                note: note,
+                customCoverPath: customCoverPath,
+                seriesId: seriesId,
                 collectedAt: collectedAt,
                 rowid: rowid,
               ),
@@ -5283,6 +7133,9 @@ class $$NovelCollectEntriesTableTableManager
                 Value<String?> coverUrl = const Value.absent(),
                 Value<String> payload = const Value.absent(),
                 Value<String?> groupName = const Value.absent(),
+                Value<String> note = const Value.absent(),
+                Value<String?> customCoverPath = const Value.absent(),
+                Value<int?> seriesId = const Value.absent(),
                 required DateTime collectedAt,
                 Value<int> rowid = const Value.absent(),
               }) => NovelCollectEntriesCompanion.insert(
@@ -5291,6 +7144,9 @@ class $$NovelCollectEntriesTableTableManager
                 coverUrl: coverUrl,
                 payload: payload,
                 groupName: groupName,
+                note: note,
+                customCoverPath: customCoverPath,
+                seriesId: seriesId,
                 collectedAt: collectedAt,
                 rowid: rowid,
               ),
@@ -5317,6 +7173,167 @@ typedef $$NovelCollectEntriesTableProcessedTableManager =
         BaseReferences<_$NovelDb, $NovelCollectEntriesTable, NovelCollectRow>,
       ),
       NovelCollectRow,
+      PrefetchHooks Function()
+    >;
+typedef $$NovelSeriesEntriesTableCreateCompanionBuilder =
+    NovelSeriesEntriesCompanion Function({
+      Value<int> id,
+      required String name,
+      required DateTime createdAt,
+    });
+typedef $$NovelSeriesEntriesTableUpdateCompanionBuilder =
+    NovelSeriesEntriesCompanion Function({
+      Value<int> id,
+      Value<String> name,
+      Value<DateTime> createdAt,
+    });
+
+class $$NovelSeriesEntriesTableFilterComposer
+    extends Composer<_$NovelDb, $NovelSeriesEntriesTable> {
+  $$NovelSeriesEntriesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$NovelSeriesEntriesTableOrderingComposer
+    extends Composer<_$NovelDb, $NovelSeriesEntriesTable> {
+  $$NovelSeriesEntriesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$NovelSeriesEntriesTableAnnotationComposer
+    extends Composer<_$NovelDb, $NovelSeriesEntriesTable> {
+  $$NovelSeriesEntriesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+}
+
+class $$NovelSeriesEntriesTableTableManager
+    extends
+        RootTableManager<
+          _$NovelDb,
+          $NovelSeriesEntriesTable,
+          NovelSeriesRow,
+          $$NovelSeriesEntriesTableFilterComposer,
+          $$NovelSeriesEntriesTableOrderingComposer,
+          $$NovelSeriesEntriesTableAnnotationComposer,
+          $$NovelSeriesEntriesTableCreateCompanionBuilder,
+          $$NovelSeriesEntriesTableUpdateCompanionBuilder,
+          (
+            NovelSeriesRow,
+            BaseReferences<_$NovelDb, $NovelSeriesEntriesTable, NovelSeriesRow>,
+          ),
+          NovelSeriesRow,
+          PrefetchHooks Function()
+        > {
+  $$NovelSeriesEntriesTableTableManager(
+    _$NovelDb db,
+    $NovelSeriesEntriesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$NovelSeriesEntriesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$NovelSeriesEntriesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$NovelSeriesEntriesTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<String> name = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+              }) => NovelSeriesEntriesCompanion(
+                id: id,
+                name: name,
+                createdAt: createdAt,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                required String name,
+                required DateTime createdAt,
+              }) => NovelSeriesEntriesCompanion.insert(
+                id: id,
+                name: name,
+                createdAt: createdAt,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$NovelSeriesEntriesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$NovelDb,
+      $NovelSeriesEntriesTable,
+      NovelSeriesRow,
+      $$NovelSeriesEntriesTableFilterComposer,
+      $$NovelSeriesEntriesTableOrderingComposer,
+      $$NovelSeriesEntriesTableAnnotationComposer,
+      $$NovelSeriesEntriesTableCreateCompanionBuilder,
+      $$NovelSeriesEntriesTableUpdateCompanionBuilder,
+      (
+        NovelSeriesRow,
+        BaseReferences<_$NovelDb, $NovelSeriesEntriesTable, NovelSeriesRow>,
+      ),
+      NovelSeriesRow,
       PrefetchHooks Function()
     >;
 typedef $$NovelHistoryEntriesTableCreateCompanionBuilder =
@@ -5898,30 +7915,67 @@ typedef $$NovelPrefsTableProcessedTableManager =
       NovelPrefRow,
       PrefetchHooks Function()
     >;
-typedef $$NovelReadingDaysTableCreateCompanionBuilder =
-    NovelReadingDaysCompanion Function({
+typedef $$NovelReadRecordsTableCreateCompanionBuilder =
+    NovelReadRecordsCompanion Function({
+      required String deviceId,
+      required String bookId,
+      Value<String> bookTitle,
+      Value<int> chapterIndex,
+      Value<String> chapterName,
       required String day,
       Value<int> seconds,
-      required DateTime updatedAt,
+      required DateTime firstReadAt,
+      required DateTime lastReadAt,
       Value<int> rowid,
     });
-typedef $$NovelReadingDaysTableUpdateCompanionBuilder =
-    NovelReadingDaysCompanion Function({
+typedef $$NovelReadRecordsTableUpdateCompanionBuilder =
+    NovelReadRecordsCompanion Function({
+      Value<String> deviceId,
+      Value<String> bookId,
+      Value<String> bookTitle,
+      Value<int> chapterIndex,
+      Value<String> chapterName,
       Value<String> day,
       Value<int> seconds,
-      Value<DateTime> updatedAt,
+      Value<DateTime> firstReadAt,
+      Value<DateTime> lastReadAt,
       Value<int> rowid,
     });
 
-class $$NovelReadingDaysTableFilterComposer
-    extends Composer<_$NovelDb, $NovelReadingDaysTable> {
-  $$NovelReadingDaysTableFilterComposer({
+class $$NovelReadRecordsTableFilterComposer
+    extends Composer<_$NovelDb, $NovelReadRecordsTable> {
+  $$NovelReadRecordsTableFilterComposer({
     required super.$db,
     required super.$table,
     super.joinBuilder,
     super.$addJoinBuilderToRootComposer,
     super.$removeJoinBuilderFromRootComposer,
   });
+  ColumnFilters<String> get deviceId => $composableBuilder(
+    column: $table.deviceId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get bookId => $composableBuilder(
+    column: $table.bookId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get bookTitle => $composableBuilder(
+    column: $table.bookTitle,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get chapterIndex => $composableBuilder(
+    column: $table.chapterIndex,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get chapterName => $composableBuilder(
+    column: $table.chapterName,
+    builder: (column) => ColumnFilters(column),
+  );
+
   ColumnFilters<String> get day => $composableBuilder(
     column: $table.day,
     builder: (column) => ColumnFilters(column),
@@ -5932,21 +7986,51 @@ class $$NovelReadingDaysTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
-  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
-    column: $table.updatedAt,
+  ColumnFilters<DateTime> get firstReadAt => $composableBuilder(
+    column: $table.firstReadAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get lastReadAt => $composableBuilder(
+    column: $table.lastReadAt,
     builder: (column) => ColumnFilters(column),
   );
 }
 
-class $$NovelReadingDaysTableOrderingComposer
-    extends Composer<_$NovelDb, $NovelReadingDaysTable> {
-  $$NovelReadingDaysTableOrderingComposer({
+class $$NovelReadRecordsTableOrderingComposer
+    extends Composer<_$NovelDb, $NovelReadRecordsTable> {
+  $$NovelReadRecordsTableOrderingComposer({
     required super.$db,
     required super.$table,
     super.joinBuilder,
     super.$addJoinBuilderToRootComposer,
     super.$removeJoinBuilderFromRootComposer,
   });
+  ColumnOrderings<String> get deviceId => $composableBuilder(
+    column: $table.deviceId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get bookId => $composableBuilder(
+    column: $table.bookId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get bookTitle => $composableBuilder(
+    column: $table.bookTitle,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get chapterIndex => $composableBuilder(
+    column: $table.chapterIndex,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get chapterName => $composableBuilder(
+    column: $table.chapterName,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get day => $composableBuilder(
     column: $table.day,
     builder: (column) => ColumnOrderings(column),
@@ -5957,88 +8041,143 @@ class $$NovelReadingDaysTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
-  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
-    column: $table.updatedAt,
+  ColumnOrderings<DateTime> get firstReadAt => $composableBuilder(
+    column: $table.firstReadAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get lastReadAt => $composableBuilder(
+    column: $table.lastReadAt,
     builder: (column) => ColumnOrderings(column),
   );
 }
 
-class $$NovelReadingDaysTableAnnotationComposer
-    extends Composer<_$NovelDb, $NovelReadingDaysTable> {
-  $$NovelReadingDaysTableAnnotationComposer({
+class $$NovelReadRecordsTableAnnotationComposer
+    extends Composer<_$NovelDb, $NovelReadRecordsTable> {
+  $$NovelReadRecordsTableAnnotationComposer({
     required super.$db,
     required super.$table,
     super.joinBuilder,
     super.$addJoinBuilderToRootComposer,
     super.$removeJoinBuilderFromRootComposer,
   });
+  GeneratedColumn<String> get deviceId =>
+      $composableBuilder(column: $table.deviceId, builder: (column) => column);
+
+  GeneratedColumn<String> get bookId =>
+      $composableBuilder(column: $table.bookId, builder: (column) => column);
+
+  GeneratedColumn<String> get bookTitle =>
+      $composableBuilder(column: $table.bookTitle, builder: (column) => column);
+
+  GeneratedColumn<int> get chapterIndex => $composableBuilder(
+    column: $table.chapterIndex,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get chapterName => $composableBuilder(
+    column: $table.chapterName,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<String> get day =>
       $composableBuilder(column: $table.day, builder: (column) => column);
 
   GeneratedColumn<int> get seconds =>
       $composableBuilder(column: $table.seconds, builder: (column) => column);
 
-  GeneratedColumn<DateTime> get updatedAt =>
-      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+  GeneratedColumn<DateTime> get firstReadAt => $composableBuilder(
+    column: $table.firstReadAt,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get lastReadAt => $composableBuilder(
+    column: $table.lastReadAt,
+    builder: (column) => column,
+  );
 }
 
-class $$NovelReadingDaysTableTableManager
+class $$NovelReadRecordsTableTableManager
     extends
         RootTableManager<
           _$NovelDb,
-          $NovelReadingDaysTable,
-          NovelReadingDayRow,
-          $$NovelReadingDaysTableFilterComposer,
-          $$NovelReadingDaysTableOrderingComposer,
-          $$NovelReadingDaysTableAnnotationComposer,
-          $$NovelReadingDaysTableCreateCompanionBuilder,
-          $$NovelReadingDaysTableUpdateCompanionBuilder,
+          $NovelReadRecordsTable,
+          NovelReadRecordRow,
+          $$NovelReadRecordsTableFilterComposer,
+          $$NovelReadRecordsTableOrderingComposer,
+          $$NovelReadRecordsTableAnnotationComposer,
+          $$NovelReadRecordsTableCreateCompanionBuilder,
+          $$NovelReadRecordsTableUpdateCompanionBuilder,
           (
-            NovelReadingDayRow,
+            NovelReadRecordRow,
             BaseReferences<
               _$NovelDb,
-              $NovelReadingDaysTable,
-              NovelReadingDayRow
+              $NovelReadRecordsTable,
+              NovelReadRecordRow
             >,
           ),
-          NovelReadingDayRow,
+          NovelReadRecordRow,
           PrefetchHooks Function()
         > {
-  $$NovelReadingDaysTableTableManager(
+  $$NovelReadRecordsTableTableManager(
     _$NovelDb db,
-    $NovelReadingDaysTable table,
+    $NovelReadRecordsTable table,
   ) : super(
         TableManagerState(
           db: db,
           table: table,
           createFilteringComposer: () =>
-              $$NovelReadingDaysTableFilterComposer($db: db, $table: table),
+              $$NovelReadRecordsTableFilterComposer($db: db, $table: table),
           createOrderingComposer: () =>
-              $$NovelReadingDaysTableOrderingComposer($db: db, $table: table),
+              $$NovelReadRecordsTableOrderingComposer($db: db, $table: table),
           createComputedFieldComposer: () =>
-              $$NovelReadingDaysTableAnnotationComposer($db: db, $table: table),
+              $$NovelReadRecordsTableAnnotationComposer($db: db, $table: table),
           updateCompanionCallback:
               ({
+                Value<String> deviceId = const Value.absent(),
+                Value<String> bookId = const Value.absent(),
+                Value<String> bookTitle = const Value.absent(),
+                Value<int> chapterIndex = const Value.absent(),
+                Value<String> chapterName = const Value.absent(),
                 Value<String> day = const Value.absent(),
                 Value<int> seconds = const Value.absent(),
-                Value<DateTime> updatedAt = const Value.absent(),
+                Value<DateTime> firstReadAt = const Value.absent(),
+                Value<DateTime> lastReadAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
-              }) => NovelReadingDaysCompanion(
+              }) => NovelReadRecordsCompanion(
+                deviceId: deviceId,
+                bookId: bookId,
+                bookTitle: bookTitle,
+                chapterIndex: chapterIndex,
+                chapterName: chapterName,
                 day: day,
                 seconds: seconds,
-                updatedAt: updatedAt,
+                firstReadAt: firstReadAt,
+                lastReadAt: lastReadAt,
                 rowid: rowid,
               ),
           createCompanionCallback:
               ({
+                required String deviceId,
+                required String bookId,
+                Value<String> bookTitle = const Value.absent(),
+                Value<int> chapterIndex = const Value.absent(),
+                Value<String> chapterName = const Value.absent(),
                 required String day,
                 Value<int> seconds = const Value.absent(),
-                required DateTime updatedAt,
+                required DateTime firstReadAt,
+                required DateTime lastReadAt,
                 Value<int> rowid = const Value.absent(),
-              }) => NovelReadingDaysCompanion.insert(
+              }) => NovelReadRecordsCompanion.insert(
+                deviceId: deviceId,
+                bookId: bookId,
+                bookTitle: bookTitle,
+                chapterIndex: chapterIndex,
+                chapterName: chapterName,
                 day: day,
                 seconds: seconds,
-                updatedAt: updatedAt,
+                firstReadAt: firstReadAt,
+                lastReadAt: lastReadAt,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -6049,21 +8188,21 @@ class $$NovelReadingDaysTableTableManager
       );
 }
 
-typedef $$NovelReadingDaysTableProcessedTableManager =
+typedef $$NovelReadRecordsTableProcessedTableManager =
     ProcessedTableManager<
       _$NovelDb,
-      $NovelReadingDaysTable,
-      NovelReadingDayRow,
-      $$NovelReadingDaysTableFilterComposer,
-      $$NovelReadingDaysTableOrderingComposer,
-      $$NovelReadingDaysTableAnnotationComposer,
-      $$NovelReadingDaysTableCreateCompanionBuilder,
-      $$NovelReadingDaysTableUpdateCompanionBuilder,
+      $NovelReadRecordsTable,
+      NovelReadRecordRow,
+      $$NovelReadRecordsTableFilterComposer,
+      $$NovelReadRecordsTableOrderingComposer,
+      $$NovelReadRecordsTableAnnotationComposer,
+      $$NovelReadRecordsTableCreateCompanionBuilder,
+      $$NovelReadRecordsTableUpdateCompanionBuilder,
       (
-        NovelReadingDayRow,
-        BaseReferences<_$NovelDb, $NovelReadingDaysTable, NovelReadingDayRow>,
+        NovelReadRecordRow,
+        BaseReferences<_$NovelDb, $NovelReadRecordsTable, NovelReadRecordRow>,
       ),
-      NovelReadingDayRow,
+      NovelReadRecordRow,
       PrefetchHooks Function()
     >;
 typedef $$NovelBookmarkEntriesTableCreateCompanionBuilder =
@@ -7746,20 +9885,557 @@ typedef $$NovelTtsCacheEntriesTableProcessedTableManager =
       NovelTtsCacheRow,
       PrefetchHooks Function()
     >;
+typedef $$NovelLocalBooksTableCreateCompanionBuilder =
+    NovelLocalBooksCompanion Function({
+      required String id,
+      required String path,
+      required String title,
+      Value<String> author,
+      required String format,
+      Value<String?> encoding,
+      Value<int> byteSize,
+      Value<int> chapterCount,
+      Value<String> tocJson,
+      required DateTime addedAt,
+      Value<int> rowid,
+    });
+typedef $$NovelLocalBooksTableUpdateCompanionBuilder =
+    NovelLocalBooksCompanion Function({
+      Value<String> id,
+      Value<String> path,
+      Value<String> title,
+      Value<String> author,
+      Value<String> format,
+      Value<String?> encoding,
+      Value<int> byteSize,
+      Value<int> chapterCount,
+      Value<String> tocJson,
+      Value<DateTime> addedAt,
+      Value<int> rowid,
+    });
+
+class $$NovelLocalBooksTableFilterComposer
+    extends Composer<_$NovelDb, $NovelLocalBooksTable> {
+  $$NovelLocalBooksTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get path => $composableBuilder(
+    column: $table.path,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get title => $composableBuilder(
+    column: $table.title,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get author => $composableBuilder(
+    column: $table.author,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get format => $composableBuilder(
+    column: $table.format,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get encoding => $composableBuilder(
+    column: $table.encoding,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get byteSize => $composableBuilder(
+    column: $table.byteSize,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get chapterCount => $composableBuilder(
+    column: $table.chapterCount,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get tocJson => $composableBuilder(
+    column: $table.tocJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get addedAt => $composableBuilder(
+    column: $table.addedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$NovelLocalBooksTableOrderingComposer
+    extends Composer<_$NovelDb, $NovelLocalBooksTable> {
+  $$NovelLocalBooksTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get path => $composableBuilder(
+    column: $table.path,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get title => $composableBuilder(
+    column: $table.title,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get author => $composableBuilder(
+    column: $table.author,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get format => $composableBuilder(
+    column: $table.format,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get encoding => $composableBuilder(
+    column: $table.encoding,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get byteSize => $composableBuilder(
+    column: $table.byteSize,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get chapterCount => $composableBuilder(
+    column: $table.chapterCount,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get tocJson => $composableBuilder(
+    column: $table.tocJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get addedAt => $composableBuilder(
+    column: $table.addedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$NovelLocalBooksTableAnnotationComposer
+    extends Composer<_$NovelDb, $NovelLocalBooksTable> {
+  $$NovelLocalBooksTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get path =>
+      $composableBuilder(column: $table.path, builder: (column) => column);
+
+  GeneratedColumn<String> get title =>
+      $composableBuilder(column: $table.title, builder: (column) => column);
+
+  GeneratedColumn<String> get author =>
+      $composableBuilder(column: $table.author, builder: (column) => column);
+
+  GeneratedColumn<String> get format =>
+      $composableBuilder(column: $table.format, builder: (column) => column);
+
+  GeneratedColumn<String> get encoding =>
+      $composableBuilder(column: $table.encoding, builder: (column) => column);
+
+  GeneratedColumn<int> get byteSize =>
+      $composableBuilder(column: $table.byteSize, builder: (column) => column);
+
+  GeneratedColumn<int> get chapterCount => $composableBuilder(
+    column: $table.chapterCount,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get tocJson =>
+      $composableBuilder(column: $table.tocJson, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get addedAt =>
+      $composableBuilder(column: $table.addedAt, builder: (column) => column);
+}
+
+class $$NovelLocalBooksTableTableManager
+    extends
+        RootTableManager<
+          _$NovelDb,
+          $NovelLocalBooksTable,
+          NovelLocalBookRow,
+          $$NovelLocalBooksTableFilterComposer,
+          $$NovelLocalBooksTableOrderingComposer,
+          $$NovelLocalBooksTableAnnotationComposer,
+          $$NovelLocalBooksTableCreateCompanionBuilder,
+          $$NovelLocalBooksTableUpdateCompanionBuilder,
+          (
+            NovelLocalBookRow,
+            BaseReferences<_$NovelDb, $NovelLocalBooksTable, NovelLocalBookRow>,
+          ),
+          NovelLocalBookRow,
+          PrefetchHooks Function()
+        > {
+  $$NovelLocalBooksTableTableManager(_$NovelDb db, $NovelLocalBooksTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$NovelLocalBooksTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$NovelLocalBooksTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$NovelLocalBooksTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> path = const Value.absent(),
+                Value<String> title = const Value.absent(),
+                Value<String> author = const Value.absent(),
+                Value<String> format = const Value.absent(),
+                Value<String?> encoding = const Value.absent(),
+                Value<int> byteSize = const Value.absent(),
+                Value<int> chapterCount = const Value.absent(),
+                Value<String> tocJson = const Value.absent(),
+                Value<DateTime> addedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => NovelLocalBooksCompanion(
+                id: id,
+                path: path,
+                title: title,
+                author: author,
+                format: format,
+                encoding: encoding,
+                byteSize: byteSize,
+                chapterCount: chapterCount,
+                tocJson: tocJson,
+                addedAt: addedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String path,
+                required String title,
+                Value<String> author = const Value.absent(),
+                required String format,
+                Value<String?> encoding = const Value.absent(),
+                Value<int> byteSize = const Value.absent(),
+                Value<int> chapterCount = const Value.absent(),
+                Value<String> tocJson = const Value.absent(),
+                required DateTime addedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => NovelLocalBooksCompanion.insert(
+                id: id,
+                path: path,
+                title: title,
+                author: author,
+                format: format,
+                encoding: encoding,
+                byteSize: byteSize,
+                chapterCount: chapterCount,
+                tocJson: tocJson,
+                addedAt: addedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$NovelLocalBooksTableProcessedTableManager =
+    ProcessedTableManager<
+      _$NovelDb,
+      $NovelLocalBooksTable,
+      NovelLocalBookRow,
+      $$NovelLocalBooksTableFilterComposer,
+      $$NovelLocalBooksTableOrderingComposer,
+      $$NovelLocalBooksTableAnnotationComposer,
+      $$NovelLocalBooksTableCreateCompanionBuilder,
+      $$NovelLocalBooksTableUpdateCompanionBuilder,
+      (
+        NovelLocalBookRow,
+        BaseReferences<_$NovelDb, $NovelLocalBooksTable, NovelLocalBookRow>,
+      ),
+      NovelLocalBookRow,
+      PrefetchHooks Function()
+    >;
+typedef $$NovelTxtTocRulesTableCreateCompanionBuilder =
+    NovelTxtTocRulesCompanion Function({
+      Value<int> id,
+      required String name,
+      required String pattern,
+      Value<bool> enabled,
+      Value<bool> builtin,
+      Value<int> sortOrder,
+      required DateTime updatedAt,
+    });
+typedef $$NovelTxtTocRulesTableUpdateCompanionBuilder =
+    NovelTxtTocRulesCompanion Function({
+      Value<int> id,
+      Value<String> name,
+      Value<String> pattern,
+      Value<bool> enabled,
+      Value<bool> builtin,
+      Value<int> sortOrder,
+      Value<DateTime> updatedAt,
+    });
+
+class $$NovelTxtTocRulesTableFilterComposer
+    extends Composer<_$NovelDb, $NovelTxtTocRulesTable> {
+  $$NovelTxtTocRulesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get pattern => $composableBuilder(
+    column: $table.pattern,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get enabled => $composableBuilder(
+    column: $table.enabled,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get builtin => $composableBuilder(
+    column: $table.builtin,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$NovelTxtTocRulesTableOrderingComposer
+    extends Composer<_$NovelDb, $NovelTxtTocRulesTable> {
+  $$NovelTxtTocRulesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get pattern => $composableBuilder(
+    column: $table.pattern,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get enabled => $composableBuilder(
+    column: $table.enabled,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get builtin => $composableBuilder(
+    column: $table.builtin,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$NovelTxtTocRulesTableAnnotationComposer
+    extends Composer<_$NovelDb, $NovelTxtTocRulesTable> {
+  $$NovelTxtTocRulesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<String> get pattern =>
+      $composableBuilder(column: $table.pattern, builder: (column) => column);
+
+  GeneratedColumn<bool> get enabled =>
+      $composableBuilder(column: $table.enabled, builder: (column) => column);
+
+  GeneratedColumn<bool> get builtin =>
+      $composableBuilder(column: $table.builtin, builder: (column) => column);
+
+  GeneratedColumn<int> get sortOrder =>
+      $composableBuilder(column: $table.sortOrder, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$NovelTxtTocRulesTableTableManager
+    extends
+        RootTableManager<
+          _$NovelDb,
+          $NovelTxtTocRulesTable,
+          NovelTxtTocRuleRow,
+          $$NovelTxtTocRulesTableFilterComposer,
+          $$NovelTxtTocRulesTableOrderingComposer,
+          $$NovelTxtTocRulesTableAnnotationComposer,
+          $$NovelTxtTocRulesTableCreateCompanionBuilder,
+          $$NovelTxtTocRulesTableUpdateCompanionBuilder,
+          (
+            NovelTxtTocRuleRow,
+            BaseReferences<
+              _$NovelDb,
+              $NovelTxtTocRulesTable,
+              NovelTxtTocRuleRow
+            >,
+          ),
+          NovelTxtTocRuleRow,
+          PrefetchHooks Function()
+        > {
+  $$NovelTxtTocRulesTableTableManager(
+    _$NovelDb db,
+    $NovelTxtTocRulesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$NovelTxtTocRulesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$NovelTxtTocRulesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$NovelTxtTocRulesTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<String> name = const Value.absent(),
+                Value<String> pattern = const Value.absent(),
+                Value<bool> enabled = const Value.absent(),
+                Value<bool> builtin = const Value.absent(),
+                Value<int> sortOrder = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+              }) => NovelTxtTocRulesCompanion(
+                id: id,
+                name: name,
+                pattern: pattern,
+                enabled: enabled,
+                builtin: builtin,
+                sortOrder: sortOrder,
+                updatedAt: updatedAt,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                required String name,
+                required String pattern,
+                Value<bool> enabled = const Value.absent(),
+                Value<bool> builtin = const Value.absent(),
+                Value<int> sortOrder = const Value.absent(),
+                required DateTime updatedAt,
+              }) => NovelTxtTocRulesCompanion.insert(
+                id: id,
+                name: name,
+                pattern: pattern,
+                enabled: enabled,
+                builtin: builtin,
+                sortOrder: sortOrder,
+                updatedAt: updatedAt,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$NovelTxtTocRulesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$NovelDb,
+      $NovelTxtTocRulesTable,
+      NovelTxtTocRuleRow,
+      $$NovelTxtTocRulesTableFilterComposer,
+      $$NovelTxtTocRulesTableOrderingComposer,
+      $$NovelTxtTocRulesTableAnnotationComposer,
+      $$NovelTxtTocRulesTableCreateCompanionBuilder,
+      $$NovelTxtTocRulesTableUpdateCompanionBuilder,
+      (
+        NovelTxtTocRuleRow,
+        BaseReferences<_$NovelDb, $NovelTxtTocRulesTable, NovelTxtTocRuleRow>,
+      ),
+      NovelTxtTocRuleRow,
+      PrefetchHooks Function()
+    >;
 
 class $NovelDbManager {
   final _$NovelDb _db;
   $NovelDbManager(this._db);
   $$NovelCollectEntriesTableTableManager get novelCollectEntries =>
       $$NovelCollectEntriesTableTableManager(_db, _db.novelCollectEntries);
+  $$NovelSeriesEntriesTableTableManager get novelSeriesEntries =>
+      $$NovelSeriesEntriesTableTableManager(_db, _db.novelSeriesEntries);
   $$NovelHistoryEntriesTableTableManager get novelHistoryEntries =>
       $$NovelHistoryEntriesTableTableManager(_db, _db.novelHistoryEntries);
   $$NovelSearchTermsTableTableManager get novelSearchTerms =>
       $$NovelSearchTermsTableTableManager(_db, _db.novelSearchTerms);
   $$NovelPrefsTableTableManager get novelPrefs =>
       $$NovelPrefsTableTableManager(_db, _db.novelPrefs);
-  $$NovelReadingDaysTableTableManager get novelReadingDays =>
-      $$NovelReadingDaysTableTableManager(_db, _db.novelReadingDays);
+  $$NovelReadRecordsTableTableManager get novelReadRecords =>
+      $$NovelReadRecordsTableTableManager(_db, _db.novelReadRecords);
   $$NovelBookmarkEntriesTableTableManager get novelBookmarkEntries =>
       $$NovelBookmarkEntriesTableTableManager(_db, _db.novelBookmarkEntries);
   $$NovelMarkingEntriesTableTableManager get novelMarkingEntries =>
@@ -7770,4 +10446,8 @@ class $NovelDbManager {
       $$NovelContentOverridesTableTableManager(_db, _db.novelContentOverrides);
   $$NovelTtsCacheEntriesTableTableManager get novelTtsCacheEntries =>
       $$NovelTtsCacheEntriesTableTableManager(_db, _db.novelTtsCacheEntries);
+  $$NovelLocalBooksTableTableManager get novelLocalBooks =>
+      $$NovelLocalBooksTableTableManager(_db, _db.novelLocalBooks);
+  $$NovelTxtTocRulesTableTableManager get novelTxtTocRules =>
+      $$NovelTxtTocRulesTableTableManager(_db, _db.novelTxtTocRules);
 }

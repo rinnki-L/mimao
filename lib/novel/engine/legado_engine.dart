@@ -186,20 +186,37 @@ class LegadoNovelEngine
     final rules = source.ruleSet;
     await _loadLibrary(source);
     try {
-      final fetched = await _fetch(source, ruleUrl: kind.url, page: page);
+      // `ruleExplore.pageParam` 解析了必须真的用上：地址本身没有翻页占位时，
+      // 按它追加 `?<pageParam>=N`（留空按 page）。占位由 AnalyzeUrl 处理。
+      final ruleUrl = applyExplorePageParam(
+        kind.url,
+        pageParam: rules.explorePageParam,
+        page: page,
+      );
+      final fetched = await _fetch(source, ruleUrl: ruleUrl, page: page);
       final analyzer = _analyzer(
         source,
         content: fetched.response.body,
         baseUrl: fetched.response.url,
         redirectUrl: fetched.response.url,
       )..page = page;
-      return await _parseBookList(
+      final books = await _parseBookList(
         source,
         analyzer,
         rules,
         baseUrl: fetched.response.url,
         isSearch: false,
       );
+      // 与搜索页对齐：只要文字书。音频/图片/文件源在发现页列出后点进去也
+      // 读不了正文，过滤掉比让用户白点一次更诚实。
+      final textBooks = <NovelSummary>[
+        for (final book in books)
+          if (book.type == 0) book,
+      ];
+      if (textBooks.length != books.length) {
+        _warn(source, '发现结果里有非文字书（音频/图片等），已按文字书过滤');
+      }
+      return textBooks;
     } on NovelEngineException {
       rethrow;
     } on Object catch (error) {

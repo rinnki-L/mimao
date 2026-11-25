@@ -119,30 +119,95 @@ class _NovelExploreSheetState extends State<NovelExploreSheet> {
             ],
           ),
         ),
-        if (_kinds.isNotEmpty)
-          SizedBox(
-            height: 40,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              children: <Widget>[
-                for (final kind in _kinds)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: ChoiceChip(
-                      label: Text(kind.name),
-                      selected: _kind?.name == kind.name,
-                      onSelected: (_) => _load(kind, page: 1),
-                    ),
-                  ),
-              ],
-            ),
-          ),
+        if (_kinds.isNotEmpty) _buildKindBar(),
         const SizedBox(height: 8),
         Expanded(child: _buildBody(theme)),
       ],
     );
   }
+
+  /// 分类入口条：书源给了 `layout_flexBasisPercent` / `layout_flexGrow` 就按
+  /// 权重排（占父宽度的百分比、行内拉伸），没给就用横向滚动的普通 chip。
+  ///
+  /// 解析出来的样式一定要落到布局上——上游 ExploreKindLayout 的语义就是
+  /// 「按百分比占宽、按 grow 瓜分剩余宽度」，这里照做。
+  Widget _buildKindBar() {
+    final rows = layoutExploreKindRows(_kinds);
+    final styled = rows.any(
+      (row) => row.any((slot) => slot.factor != null || slot.grow > 0),
+    );
+    if (!styled) {
+      return SizedBox(
+        height: 40,
+        child: ListView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          children: <Widget>[
+            for (final kind in _kinds)
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: _kindChip(kind),
+              ),
+          ],
+        ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          for (final row in rows)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final available = constraints.maxWidth;
+                  final fixed = row
+                      .where((slot) => slot.factor != null)
+                      .fold<double>(0, (sum, slot) => sum + slot.factor!);
+                  final growTotal = row
+                      .where((slot) => slot.factor == null)
+                      .fold<double>(0, (sum, slot) => sum + slot.grow);
+                  final free = (1 - fixed).clamp(0.0, 1.0);
+                  return Row(
+                    children: <Widget>[
+                      for (final slot in row) ...<Widget>[
+                        SizedBox(
+                          width: slot.factor != null
+                              ? available * slot.factor!
+                              : growTotal > 0
+                              ? available * free * (slot.grow / growTotal)
+                              : null,
+                          child: slot.factor == null && growTotal <= 0
+                              ? _kindChip(_kinds[slot.index])
+                              : SizedBox(
+                                  width: double.infinity,
+                                  child: _kindChip(_kinds[slot.index]),
+                                ),
+                        ),
+                        if (slot != row.last) const SizedBox(width: 8),
+                      ],
+                    ],
+                  );
+                },
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _kindChip(NovelExploreKind kind) => ChoiceChip(
+    label: Text(
+      kind.name,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+    ),
+    labelPadding: const EdgeInsets.symmetric(horizontal: 2),
+    selected: _kind?.name == kind.name,
+    onSelected: (_) => _load(kind, page: 1),
+  );
 
   Widget _buildBody(ThemeData theme) {
     if (_loading) return const NovelLoadingState(label: '正在抓取发现页…');
