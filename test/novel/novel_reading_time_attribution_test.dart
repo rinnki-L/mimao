@@ -9,7 +9,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mimao/novel/engine/explore_kinds.dart';
 import 'package:mimao/novel/engine/online_engine.dart';
-import 'package:mimao/novel/library_api.dart';
 import 'package:mimao/novel/models/novel_models.dart';
 import 'package:mimao/novel/novel_db.dart';
 import 'package:mimao/novel/pages/novel_reader_page.dart';
@@ -102,6 +101,7 @@ class _Store implements NovelSourceStorage {
 
 /// 可控计时器：测试手动决定「这一段读了多久」。
 class _FakeClock implements NovelReadingClock {
+  @override
   Duration elapsed = Duration.zero;
   bool running = false;
 
