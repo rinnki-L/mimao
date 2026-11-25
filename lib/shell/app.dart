@@ -5,6 +5,7 @@ import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:mimao/core/navigation.dart';
 import 'package:mimao/core/theme.dart';
 import 'package:mimao/shell/home.dart';
+import 'package:mimao/shell/lifecycle.dart' show AppLifecycleGuard;
 import 'package:mimao/shell/shell_store.dart';
 
 /// MaterialApp + MD3 主题（种子色沿用 demo 01 的做法，可由设置切换）。
@@ -73,25 +74,27 @@ class MimaoApp extends StatelessWidget {
         final accentEpoch = shellStore.systemAccentEpoch;
         final seedColor = seed(shellStore.themeSeed);
         assert(accentEpoch >= 0); // 仅用于消费局部变量，表明“读一次即订阅”的意图。
-        return MaterialApp(
-          title: 'mimao',
-          navigatorKey: navigatorKey,
-          debugShowCheckedModeBanner: false,
-          theme: buildMimaoTheme(
-            seedColor: seedColor,
-            brightness: Brightness.light,
+        return AppLifecycleGuard(
+          child: MaterialApp(
+            title: 'mimao',
+            navigatorKey: navigatorKey,
+            debugShowCheckedModeBanner: false,
+            theme: buildMimaoTheme(
+              seedColor: seedColor,
+              brightness: Brightness.light,
+            ),
+            darkTheme: buildMimaoTheme(
+              seedColor: seedColor,
+              brightness: Brightness.dark,
+            ),
+            themeMode: shellStore.themeMode,
+            scrollBehavior: const MimaoScrollBehavior(),
+            navigatorObservers: <NavigatorObserver>[
+              ...?navigatorObserversProvider?.call(),
+              mimaoRouteObserver,
+            ],
+            home: const HomeShell(),
           ),
-          darkTheme: buildMimaoTheme(
-            seedColor: seedColor,
-            brightness: Brightness.dark,
-          ),
-          themeMode: shellStore.themeMode,
-          scrollBehavior: const MimaoScrollBehavior(),
-          navigatorObservers: <NavigatorObserver>[
-            ...?navigatorObserversProvider?.call(),
-            mimaoRouteObserver,
-          ],
-          home: const HomeShell(),
         );
       },
     );
