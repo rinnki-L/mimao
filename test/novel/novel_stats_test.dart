@@ -10,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mimao/novel/device_id.dart';
 import 'package:mimao/novel/library_api.dart';
 import 'package:mimao/novel/novel_db.dart';
+import 'package:mimao/novel/pages/novel_widgets.dart' show novelChapterLabel;
 import 'package:mimao/novel/stats_service.dart';
 
 /// 最小 QueryExecutorUser：让手造旧表的 executor 通过 ensureOpen 检查。
@@ -428,6 +429,32 @@ void main() {
       expect(novelDayStart('2026-11-25'), DateTime(2026, 11, 25));
       expect(() => novelDayStart('bad'), throwsFormatException);
       expect(novelDayKey(DateTime(2026, 1, 5)), '2026-01-05');
+    });
+  });
+
+  group('章节显示名', () {
+    test('章名不带章号时拼上阿拉伯数字章号', () {
+      expect(
+        novelChapterLabel(chapterIndex: 7, chapterName: '红岸之三'),
+        '第 7 章 · 红岸之三',
+      );
+      expect(novelChapterLabel(chapterIndex: 3, chapterName: ''), '第 3 章');
+    });
+
+    test('章名自带章号（阿拉伯/中文/英文）时不重复拼', () {
+      expect(novelChapterLabel(chapterIndex: 3, chapterName: '第 3 章'), '第 3 章');
+      expect(
+        novelChapterLabel(chapterIndex: 5, chapterName: '第五章 夜航'),
+        '第五章 夜航',
+      );
+      expect(
+        novelChapterLabel(chapterIndex: 2, chapterName: 'Chapter 2 The End'),
+        'Chapter 2 The End',
+      );
+    });
+
+    test('章号 0（未知）走哨兵文案，不编章号', () {
+      expect(novelChapterLabel(chapterIndex: 0, chapterName: '序章'), '章号未知');
     });
   });
 }

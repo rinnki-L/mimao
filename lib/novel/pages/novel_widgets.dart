@@ -996,6 +996,29 @@ String novelRelativeTime(DateTime at, {DateTime? now}) {
       '${local.day.toString().padLeft(2, '0')}';
 }
 
+/// 章节显示名：章名已自带章号（「第 3 章」「第五章」「Chapter 5」）时只显示
+/// 章名，避免拼成「第 3 章 · 第 3 章」「第 5 章 · 第五章 夜航」。
+///
+/// 书源目录的章名原文千奇百怪，这里只认最常见的几种「章号前缀」；认不出来
+/// 就老老实实拼上阿拉伯数字章号（[chapterIndex] 是 1 起，0 = 未知）。
+String novelChapterLabel({
+  required int chapterIndex,
+  required String chapterName,
+  String unknown = '章号未知',
+}) {
+  if (chapterIndex <= 0) return unknown;
+  final numbered = '第 $chapterIndex 章';
+  final name = chapterName.trim();
+  if (name.isEmpty) return numbered;
+  if (name.contains(numbered)) return name;
+  // 中文数字 / 英文 Chapter 前缀：任何「第…章」或「Chapter N」开头都算自带章号。
+  if (RegExp(r'^第\s*[0-9一二三四五六七八九十百千零〇两]+\s*[章节回]').hasMatch(name) ||
+      RegExp(r'^chapter\s*\d+', caseSensitive: false).hasMatch(name)) {
+    return name;
+  }
+  return '$numbered · $name';
+}
+
 /// 日键（`yyyy-MM-dd`）→ 时间轴分组标题：今天 / 昨天 / `M 月 d 日 · 周X`。
 String novelDayLabel(String dayKey, {DateTime? now}) {
   final parts = dayKey.split('-');

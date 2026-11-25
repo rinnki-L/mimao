@@ -384,11 +384,10 @@ class _TimelineBook extends StatelessWidget {
     final cs = theme.colorScheme;
     final (value, unit) = novelDurationParts(book.seconds);
     final title = book.title.isEmpty ? '未知书籍' : book.title;
-    final chapter = book.chapterIndex <= 0
-        ? '章号未知'
-        : (book.chapterName.isEmpty
-              ? '读到第 ${book.chapterIndex} 章'
-              : '第 ${book.chapterIndex} 章 · ${book.chapterName}');
+    final chapter = novelChapterLabel(
+      chapterIndex: book.chapterIndex,
+      chapterName: book.chapterName,
+    );
     return NovelCard(
       onTap: book.bookId.isEmpty ? null : onTap,
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),

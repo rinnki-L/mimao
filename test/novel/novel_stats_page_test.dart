@@ -138,7 +138,7 @@ void main() {
       bookId: 'b2',
       title: '球状闪电',
       chapterIndex: 5,
-      chapterName: '第五章',
+      chapterName: '夜航',
       seconds: 60,
       at: now,
     );
@@ -201,6 +201,47 @@ void main() {
     expect(find.text('球状闪电'), findsWidgets);
     expect(find.textContaining('第 7 章'), findsWidgets);
     expect(find.textContaining('红岸之三'), findsWidgets);
+    // 章名不带章号时，前缀只出现一次。
+    expect(find.text('第 7 章 · 红岸之三'), findsOneWidget);
+    expect(find.textContaining('第 7 章 · 第 7 章'), findsNothing);
+  });
+
+  testWidgets('章名本身以「第 N 章」开头时不重复拼前缀', (tester) async {
+    useTallViewport(tester);
+    final now = DateTime.now();
+    // 书源目录原文就是「第 3 章」，旧实现会渲染成「第 3 章 · 第 3 章」。
+    await read(
+      bookId: 'b1',
+      title: '诡秘之主',
+      chapterIndex: 3,
+      chapterName: '第 3 章',
+      seconds: 600,
+      at: now,
+    );
+    // 中文数字章名同样不该被拼成「第 5 章 · 第五章 夜航」。
+    await read(
+      bookId: 'b2',
+      title: '长夜余火',
+      chapterIndex: 5,
+      chapterName: '第五章 夜航',
+      seconds: 300,
+      at: now,
+    );
+
+    await tester.pumpWidget(wrap(NovelStatsPage(stats: stats)));
+    await tester.pumpAndSettle();
+    // 章节维度与时间轴都不该出现重复前缀。
+    expect(find.textContaining('第 3 章 · 第 3 章'), findsNothing);
+    expect(find.textContaining('第 5 章 · 第五章'), findsNothing);
+    expect(find.text('第 3 章'), findsWidgets);
+
+    await tester.pumpWidget(
+      wrap(NovelHistoryPage(history: history, stats: stats)),
+    );
+    await tester.pumpAndSettle();
+    expect(find.textContaining('第 3 章 · 第 3 章'), findsNothing);
+    expect(find.textContaining('第 5 章 · 第五章'), findsNothing);
+    expect(find.text('第五章 夜航'), findsWidgets);
   });
 
   testWidgets('阅读记录：时间轴空态与书目空态都给出下一步', (tester) async {

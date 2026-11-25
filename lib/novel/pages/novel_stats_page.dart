@@ -731,9 +731,12 @@ class _ChapterRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final name = chapter.chapterName.isEmpty
-        ? '第 ${chapter.chapterIndex} 章'
-        : '第 ${chapter.chapterIndex} 章 · ${chapter.chapterName}';
+    // 章节名经常本身就以「第 N 章」开头（书源目录原文），再拼一次前缀会变成
+    // 「第 3 章 · 第 3 章」；[novelChapterLabel] 统一处理这个去重。
+    final name = novelChapterLabel(
+      chapterIndex: chapter.chapterIndex,
+      chapterName: chapter.chapterName,
+    );
     final last = chapter.lastReadAt;
     final (value, unit) = novelDurationParts(chapter.seconds);
     return Padding(
