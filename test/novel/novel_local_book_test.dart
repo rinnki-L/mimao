@@ -10,6 +10,7 @@ import 'dart:typed_data';
 import 'package:archive/archive.dart';
 import 'package:chinese_codec/chinese_codec.dart' as cc;
 import 'package:drift/native.dart';
+import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mimao/novel/local/local_book_service.dart';
 import 'package:mimao/novel/local/local_encoding.dart';
@@ -21,6 +22,7 @@ import 'package:mimao/novel/local/local_txt.dart';
 import 'package:mimao/novel/models/novel_models.dart';
 import 'package:mimao/novel/novel_db.dart';
 import 'package:mimao/novel/reader/novel_reader_controller.dart';
+import 'package:mimao/novel/reader/novel_text_pagination.dart';
 import 'package:mimao/novel/reader/novel_reader_settings.dart';
 import 'package:mimao/novel/source/novel_source_model.dart';
 import 'package:mimao/novel/source/novel_source_store.dart';
@@ -745,6 +747,45 @@ void main() {
       await controller.openChapter(controller.detail!.chapters[1]);
       expect(controller.localFileMissingPath, '/books/a.txt');
       expect(controller.loadError, contains('本地文件已不可读'));
+    });
+
+    test('超长单章：整本一章时按区 1 分页器切成多页（不整章一页）', () async {
+      // 没有任何章节标题 → 分章按整本一章；正文极长 → 分页器必须切多页。
+      final buffer = StringBuffer('这是一本没有任何章节标题的长文本。\n\n');
+      for (var i = 1; i <= 200; i++) {
+        buffer
+          ..write('　　')
+          ..writeln('第$i段。${'这一段文字用来把单章撑到足够长，验证分页器在超长单章上仍然按段落切页。' * 3}')
+          ..writeln();
+      }
+      final text = buffer.toString();
+      files['/books/long.txt'] = Uint8List.fromList(utf8.encode(text));
+      final book = await service.importBook(
+        NovelMemoryFile('/books/long.txt', files['/books/long.txt']!),
+      );
+      expect(book.chapterCount, 1);
+      expect(book.chapters.single.title, '全文');
+
+      final paragraphs = await service.readChapter(book, 0);
+      expect(paragraphs.length, greaterThan(150));
+
+      // 沿用区 1 的分页策略：小视口下页数明显大于 1，且切片完整覆盖正文。
+      final pages = NovelPaginator(
+        title: book.chapters.single.title,
+        paragraphs: paragraphs,
+        bodyStyle: const TextStyle(fontSize: 16, height: 1.5),
+        titleStyle: const TextStyle(fontSize: 22, height: 1.4),
+        maxWidth: 320,
+        maxHeight: 600,
+      ).paginate();
+      expect(pages.length, greaterThan(10));
+      for (var i = 0; i < paragraphs.length; i++) {
+        final covered = pages
+            .expand((page) => page.slices)
+            .where((slice) => slice.paragraph == i)
+            .fold<int>(0, (sum, slice) => sum + slice.length);
+        expect(covered, '　　${paragraphs[i]}'.length, reason: '第 $i 段未被完整分页');
+      }
     });
 
     test('不支持的文件类型直接拒绝，给出支持列表', () async {
