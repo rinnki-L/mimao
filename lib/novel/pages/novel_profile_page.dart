@@ -2,8 +2,8 @@
 // 与其他模块页面同款说明。
 /// 小说「我的」：书源/阅读数据总览 + 规则入口 + 其它（设置/记录/缓存/文件/关于）。
 ///
-/// 能被真实执行的入口全部接本地服务；字典/标签规则这类尚未实现的入口保留
-/// 在列表里并标注「暂未提供」，点击给出说明，不做假跳转。
+/// 入口全部接真实页面：规则管理/替换规则/TXT 目录规则/字典规则/标签规则，
+/// 以及阅读主题包与键盘辅助；没有可跳的入口不再伪装成「暂未提供」。
 library;
 
 import 'dart:io';
@@ -336,10 +336,6 @@ class _NovelProfilePageState extends State<NovelProfilePage> {
     );
   }
 
-  void _showUnavailable(String feature) {
-    _toast('$feature尚未实现。');
-  }
-
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<_ProfileData>(
@@ -412,14 +408,20 @@ class _NovelProfilePageState extends State<NovelProfilePage> {
                   _ProfileRow(
                     icon: Icons.translate,
                     title: '字典规则',
-                    subtitle: '暂未提供',
-                    onTap: () => _showUnavailable('字典规则'),
+                    subtitle: '选词查词典 · 规则导入/编辑 · 可离线示例',
+                    onTap: () => _openRoute(NovelRoute.dictRules),
                   ),
                   _ProfileRow(
                     icon: Icons.sell_outlined,
                     title: '标签规则',
-                    subtitle: '暂未提供',
-                    onTap: () => _showUnavailable('标签规则'),
+                    subtitle: '正则命中分类标签/书名 → 给书打彩色标签 · 只加不减',
+                    onTap: () => _openRoute(NovelRoute.tagRules),
+                  ),
+                  _ProfileRow(
+                    icon: Icons.palette_outlined,
+                    title: '阅读主题包',
+                    subtitle: '阅读设置导出为 JSON 包 · 带版本与预览图 · 可分享',
+                    onTap: () => _openRoute(NovelRoute.themeImport),
                   ),
                 ],
               ),
@@ -427,6 +429,12 @@ class _NovelProfilePageState extends State<NovelProfilePage> {
               const _SectionLabel('其它'),
               _ProfileSection(
                 children: <Widget>[
+                  _ProfileRow(
+                    icon: Icons.keyboard_outlined,
+                    title: '键盘辅助',
+                    subtitle: '按键 → 阅读动作 · 桌面端按键提示浮层',
+                    onTap: () => _openRoute(NovelRoute.keyboardAssist),
+                  ),
                   _ProfileRow(
                     icon: Icons.settings_outlined,
                     title: '设置',

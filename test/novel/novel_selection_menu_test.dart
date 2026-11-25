@@ -14,6 +14,7 @@ import 'package:mimao/novel/novel_db.dart';
 import 'package:mimao/novel/pages/novel_reader_page.dart';
 import 'package:mimao/novel/reader/novel_bookmark_service.dart';
 import 'package:mimao/novel/reader/novel_reader_settings.dart';
+import 'package:mimao/novel/reader/novel_selection_menu.dart';
 import 'package:mimao/novel/source/novel_source_model.dart';
 import 'package:mimao/novel/source/novel_source_store.dart';
 
@@ -265,5 +266,34 @@ void main() {
     await tester.tap(find.byKey(const Key('novel-marking-delete')));
     await tester.pumpAndSettle();
     expect(await service.markingsForChapter('book1', 0), isEmpty);
+  });
+
+  testWidgets('选区菜单：注入词典回调时多出「词典」，不注入时不出现', (tester) async {
+    Widget menu({VoidCallback? onDict}) => MaterialApp(
+      home: Builder(
+        builder: (context) => buildNovelSelectionMenu(
+          context: context,
+          anchors: const TextSelectionToolbarAnchors(
+            primaryAnchor: Offset.zero,
+          ),
+          actions: NovelSelectionActions(
+            onCopy: () {},
+            onMark: () {},
+            onNote: () {},
+            onSearch: () {},
+            onDict: onDict,
+          ),
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(menu());
+    await tester.pumpAndSettle();
+    expect(find.text('词典'), findsNothing);
+
+    await tester.pumpWidget(menu(onDict: () {}));
+    await tester.pumpAndSettle();
+    expect(find.text('词典'), findsOneWidget);
+    expect(find.byKey(const Key('novel-selection-dict')), findsOneWidget);
   });
 }

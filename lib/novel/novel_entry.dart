@@ -11,20 +11,25 @@ import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:mimao/core/contract.dart';
 import 'package:mimao/novel/booklist_io.dart' show NovelBooklistFileGate;
+import 'package:mimao/novel/dict/novel_dict_service.dart'
+    show NovelDictLookup, NovelDictRuleStorage;
 import 'package:mimao/novel/engine/engine.dart';
 import 'package:mimao/novel/engine/online_engine.dart';
+import 'package:mimao/novel/file_gate.dart' show FilePickerJsonFileGate;
 import 'package:mimao/novel/library_api.dart';
 import 'package:mimao/novel/local/local_book_service.dart';
 import 'package:mimao/novel/engine/local_engine.dart';
 import 'package:mimao/novel/models/novel_models.dart';
 import 'package:mimao/novel/pages/novel_book_detail_page.dart';
 import 'package:mimao/novel/pages/novel_bookmarks_page.dart';
+import 'package:mimao/novel/pages/novel_dict_page.dart';
 import 'package:mimao/novel/pages/novel_history_page.dart';
 import 'package:mimao/novel/pages/novel_import_book_page.dart';
+import 'package:mimao/novel/pages/novel_keyboard_page.dart';
 import 'package:mimao/novel/pages/novel_module_page.dart' show NovelModulePage;
 import 'package:mimao/novel/pages/novel_reader_page.dart';
 import 'package:mimao/novel/pages/novel_routes.dart'
-    show NovelRoute, pushNovelRoute, registerNovelRoutePage;
+    show NovelRoute, NovelRoutePage, pushNovelRoute, registerNovelRoutePage;
 import 'package:mimao/novel/pages/novel_search_page.dart';
 import 'package:mimao/novel/pages/novel_settings_page.dart';
 import 'package:mimao/novel/pages/novel_stats_page.dart';
@@ -37,10 +42,15 @@ import 'package:mimao/novel/pages/novel_source_manage_page.dart'
 import 'package:mimao/novel/source/novel_source_model.dart'
     show NovelBookSource;
 import 'package:mimao/novel/pages/novel_txt_rules_page.dart';
+import 'package:mimao/novel/pages/novel_tag_rules_page.dart';
+import 'package:mimao/novel/pages/novel_theme_import_page.dart';
 import 'package:mimao/novel/reader/novel_bookmark_service.dart';
 import 'package:mimao/novel/reader/novel_content_override_service.dart';
 import 'package:mimao/novel/reader/novel_highlight_rule_service.dart';
+import 'package:mimao/novel/reader/novel_keyboard_assist.dart';
 import 'package:mimao/novel/reader/novel_locator.dart';
+import 'package:mimao/novel/reader/novel_reader_settings.dart'
+    show PrefsNovelReaderSettingsStore;
 import 'package:mimao/novel/reader/novel_tts_cache.dart';
 import 'package:mimao/novel/source/novel_rule_model.dart' show NovelRuleKind;
 import 'package:mimao/novel/source/novel_rule_store.dart'
@@ -51,6 +61,10 @@ import 'package:mimao/novel/source/novel_source_store.dart'
     show NovelSourceStorage;
 import 'package:mimao/novel/source/novel_subscription.dart'
     show NovelSubscriptionStore;
+import 'package:mimao/novel/tags/novel_tag_rule_service.dart'
+    show NovelTagRuleStorage;
+import 'package:mimao/novel/theme/novel_theme_package_service.dart'
+    show NovelThemePackageStorage;
 import 'package:mimao/novel/webdav_backup.dart' show NovelWebDavClient;
 
 class NovelModule implements AppModule {
@@ -76,6 +90,10 @@ class NovelModule implements AppModule {
     this.localBooks,
     this.txtRules,
     this.localFileGate,
+    this.dictRules,
+    this.dictLookup,
+    this.tagRules,
+    this.themePackages,
   });
 
   final NovelEngine? engine;
@@ -91,6 +109,16 @@ class NovelModule implements AppModule {
   final NovelBookmarkApi? bookmarks;
   final Object? sourceStore; // 书源仓库缝（保留旧注入点）
   final NovelSourceImporter? sourceImporter;
+
+  /// 词典规则仓库 + 查询服务（「我的 → 字典规则」与阅读页选词「词典」共用）。
+  final NovelDictRuleStorage? dictRules;
+  final NovelDictLookup? dictLookup;
+
+  /// 标签分组规则仓库（「我的 → 标签规则」与书架标签配色共用）。
+  final NovelTagRuleStorage? tagRules;
+
+  /// 已保存的阅读主题包（「我的 → 阅读主题包」）。
+  final NovelThemePackageStorage? themePackages;
 
   /// 本地书门面（TXT / EPUB / Markdown 第二条通路）：导入页与书架入口共用。
   final NovelLocalBookStorage? localBooks;
@@ -256,6 +284,8 @@ class NovelModule implements AppModule {
         highlightRules: highlightStore,
         contentOverrides: contentOverrides,
         bookmarks: bookmarks,
+        dictRules: dictRules,
+        dictLookup: dictLookup,
         ttsCache: ttsCache,
         localBooks: localBooks,
         txtRules: txtRules,
@@ -319,6 +349,41 @@ class NovelModule implements AppModule {
       NovelRoute.txtRules,
       (_) => NovelTxtRulesPage(rules: txtRules),
     );
+    registerNovelRoutePage(
+      NovelRoute.dictRules,
+      (args) => dictRules == null || dictLookup == null
+          ? const NovelRoutePage(route: NovelRoute.dictRules)
+          : NovelDictPage(
+              store: dictRules!,
+              lookup: dictLookup!,
+              fileGate: const FilePickerJsonFileGate(),
+              initialWord: args['word']?.toString(),
+            ),
+    );
+    registerNovelRoutePage(
+      NovelRoute.tagRules,
+      (_) => tagRules == null
+          ? const NovelRoutePage(route: NovelRoute.tagRules)
+          : NovelTagRulesPage(
+              store: tagRules!,
+              fileGate: const FilePickerJsonFileGate(),
+            ),
+    );
+    registerNovelRoutePage(
+      NovelRoute.themeImport,
+      (_) => themePackages == null
+          ? const NovelRoutePage(route: NovelRoute.themeImport)
+          : NovelThemeImportPage(
+              store: themePackages!,
+              settingsStore: PrefsNovelReaderSettingsStore(prefsApi),
+              keyboardStore: NovelKeyboardAssistStore(prefsApi),
+              fileGate: const FilePickerJsonFileGate(),
+            ),
+    );
+    registerNovelRoutePage(
+      NovelRoute.keyboardAssist,
+      (_) => NovelKeyboardPage(store: NovelKeyboardAssistStore(prefsApi)),
+    );
 
     return NovelModulePage(
       embedded: true,
@@ -334,6 +399,7 @@ class NovelModule implements AppModule {
       subscriptionStore: subscriptionStore,
       backupClient: backupClient,
       localBooks: localBooks,
+      tagRules: tagRules,
       // 侧栏底部「设置」项弹这张面板（与漫画/音乐同款），不是独立 tab。
       settingsTab: NovelSettingsPage(
         stats: statsApi,

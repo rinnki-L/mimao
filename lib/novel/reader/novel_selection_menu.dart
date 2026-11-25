@@ -71,13 +71,14 @@ class NovelTextSelectionRange {
   }
 }
 
-/// 选区菜单的四个动作。null 表示当前选区不支持该动作（跨段划线）。
+/// 选区菜单的动作。null 表示当前选区不支持该动作（跨段划线）。
 class NovelSelectionActions {
   const NovelSelectionActions({
     required this.onCopy,
     required this.onMark,
     required this.onNote,
     required this.onSearch,
+    this.onDict,
     this.canMark = true,
   });
 
@@ -85,6 +86,9 @@ class NovelSelectionActions {
   final VoidCallback onMark;
   final VoidCallback onNote;
   final VoidCallback onSearch;
+
+  /// 查词典；null = 当前没接词典（不显示这一项）。
+  final VoidCallback? onDict;
   final bool canMark;
 }
 
@@ -162,6 +166,13 @@ Widget buildNovelSelectionMenu({
         label: '搜索',
         onPressed: actions.onSearch,
       ),
+      if (actions.onDict != null)
+        item(
+          key: const Key('novel-selection-dict'),
+          icon: Icons.translate,
+          label: '词典',
+          onPressed: actions.onDict,
+        ),
     ],
   );
 }

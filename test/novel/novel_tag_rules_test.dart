@@ -147,7 +147,7 @@ void main() {
       final a = await service.save(_rule('甲', '甲'));
       final b = await service.save(_rule('乙', '乙'));
       expect((await service.loadAll()).map((r) => r.name), <String>['甲', '乙']);
-      expect(b.sortOrder, greaterThan(a.sortOrder!));
+      expect(b.sortOrder, greaterThan(a.sortOrder));
 
       await service.setEnabled(a.id!, false);
       expect((await service.loadAll()).first.enabled, isFalse);

@@ -33,7 +33,19 @@ enum NovelRoute {
   importBook('novel/import-book', '添加本地书', Icons.file_open_outlined),
 
   /// TXT 目录规则管理（导入本地 TXT 时按这些规则分章）。
-  txtRules('novel/txt-rules', 'TXT 目录规则', Icons.format_list_numbered);
+  txtRules('novel/txt-rules', 'TXT 目录规则', Icons.format_list_numbered),
+
+  /// 词典规则管理 + 直接查词。
+  dictRules('novel/dict-rules', '字典规则', Icons.translate),
+
+  /// 标签分组规则（正则 → 标签，配色 + 应用到书架）。
+  tagRules('novel/tag-rules', '标签规则', Icons.sell_outlined),
+
+  /// 阅读主题包：导出/导入阅读设置 JSON（带版本与预览图）。
+  themeImport('novel/theme-import', '阅读主题包', Icons.palette_outlined),
+
+  /// 键盘辅助：按键 → 阅读动作映射。
+  keyboardAssist('novel/keyboard-assist', '键盘辅助', Icons.keyboard_outlined);
 
   const NovelRoute(this.routeName, this.label, this.icon);
 

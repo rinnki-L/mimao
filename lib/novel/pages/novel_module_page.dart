@@ -24,6 +24,7 @@ import 'package:mimao/novel/pages/novel_subscribe_page.dart';
 import 'package:mimao/novel/reader/novel_bookmark_service.dart';
 import 'package:mimao/novel/source/novel_source_importer.dart';
 import 'package:mimao/novel/source/novel_subscription.dart';
+import 'package:mimao/novel/tags/novel_tag_rule_service.dart';
 import 'package:mimao/novel/webdav_backup.dart';
 
 class NovelModulePage extends StatefulWidget {
@@ -44,6 +45,7 @@ class NovelModulePage extends StatefulWidget {
     this.subscriptionStore,
     this.backupClient,
     this.localBooks,
+    this.tagRules,
   });
 
   /// true 时由壳提供顶部「返回 + 标题」，本页不画自己的 AppBar。
@@ -87,6 +89,9 @@ class NovelModulePage extends StatefulWidget {
 
   /// 本地书门面（TXT / EPUB / Markdown）；null 时书架「添加本地书」置灰。
   final NovelLocalBookStorage? localBooks;
+
+  /// 标签分组规则仓库：书架用它取标签配色。
+  final NovelTagRuleStorage? tagRules;
 
   @override
   State<NovelModulePage> createState() => _NovelModulePageState();
@@ -160,6 +165,7 @@ class _NovelModulePageState extends State<NovelModulePage> {
         prefs: widget.prefs,
         booklistGate: widget.booklistGate,
         localBooks: widget.localBooks,
+        tagRules: widget.tagRules,
         openRoute: _openRoute,
         onSelectTab: _selectTab,
       ),

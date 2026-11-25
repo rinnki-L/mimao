@@ -7,6 +7,9 @@ import 'package:mimao/novel/reader/novel_click_actions.dart';
 import 'package:mimao/novel/reader/novel_keyboard_assist.dart';
 import 'package:mimao/novel/reader/novel_reader_settings.dart';
 import 'package:mimao/novel/theme/novel_theme_package.dart';
+import 'package:mimao/novel/theme/novel_theme_package_service.dart';
+import 'package:drift/native.dart';
+import 'package:mimao/novel/novel_db.dart';
 
 const _settings = NovelReaderSettings(
   fontSize: 24,
@@ -181,5 +184,63 @@ void main() {
     expect(pack.settings.fontSize, 18);
     expect(pack.settings.pageMode, NovelPageMode.scroll);
     expect(pack.keyBindings, isEmpty);
+  });
+
+  group('存储', () {
+    late NovelDb db;
+    late NovelThemePackageService service;
+
+    setUp(() {
+      db = NovelDb.forTesting(NativeDatabase.memory());
+      service = NovelThemePackageService(db);
+    });
+
+    tearDown(() => db.close());
+
+    test('保存 / 同名覆盖 / 应用标记 / 删除', () async {
+      await service.save(
+        NovelThemePackage(
+          name: '羊皮纸',
+          settings: const NovelReaderSettings(fontSize: 22),
+          previewPng: Uint8List.fromList(<int>[1, 2, 3]),
+        ),
+      );
+      var records = await service.loadAll();
+      expect(records.single.name, '羊皮纸');
+      expect(records.single.previewPng, isNotNull);
+      expect(records.single.decode()!.settings.fontSize, 22);
+
+      await service.save(
+        NovelThemePackage(
+          name: '羊皮纸',
+          settings: const NovelReaderSettings(fontSize: 26),
+        ),
+      );
+      records = await service.loadAll();
+      expect(records.length, 1, reason: '同名覆盖，不产生第二条');
+      expect(records.single.decode()!.settings.fontSize, 26);
+      expect(records.single.previewPng, isNull);
+
+      await service.markApplied(records.single.id);
+      expect((await service.loadAll()).single.appliedAt, isNotNull);
+
+      expect(await service.delete(records.single.id), isTrue);
+      expect(await service.loadAll(), isEmpty);
+    });
+
+    test('坏 JSON 的记录 decode 返回 null（列表可提示包已损坏）', () async {
+      await db
+          .into(db.novelThemePackages)
+          .insert(
+            NovelThemePackagesCompanion.insert(
+              name: '坏包',
+              packageJson: '{not json',
+              importedAt: DateTime(2026, 11, 25),
+            ),
+          );
+      final record = (await service.loadAll()).single;
+      expect(record.decode(), isNull);
+      expect(record.previewPng, isNull);
+    });
   });
 }

@@ -156,23 +156,22 @@ String encodeNovelDictRules(Iterable<NovelDictRule> rules) =>
 
 /// 内置词典规则。
 ///
-/// 前两条对齐上游 `dictRules.json`（汉典 / dict.cn），只把汉典那条的 `@js:`
-/// 展示规则换成纯选择器——本机即使没有 JS 运行库也能解析出正文。第三条是
-/// 离线示例：用 `data:` 地址演示「选词 → 查词 → 解析」整条链路，不联网也能
-/// 出结果，方便验证与截图。
+/// 只留能长期工作的两条：
+/// - `dict.cn` 的轻量接口（上游 `dictRules.json` 里也用它），返回纯 HTML，
+///   用 `tag.body@all` 就能取到干净的释义；
+/// - 离线示例：用 `data:` 地址演示「选词 → 查词 → 解析」整条链路，不联网
+///   也能出结果，方便验证与截图。
+///
+/// 上游默认里的汉典（`www.zdic.net/hans/{{key}}`）不在内置之列：2026-11-25
+/// 实测它对 Dart HttpClient / dio 一律返回 404（浏览器与 .NET 均正常，像是按
+/// TLS 指纹挡非浏览器客户端），留着只会让第一条结果永远报错。需要它的用户
+/// 仍可从 Legado 的 dictRules.json 自行导入。
 const List<NovelDictRule> novelDefaultDictRules = <NovelDictRule>[
-  NovelDictRule(
-    name: '汉典',
-    urlRule: 'https://www.zdic.net/hans/{{key}}',
-    showRule: '#jbjs@html',
-    sortOrder: 0,
-    builtin: true,
-  ),
   NovelDictRule(
     name: 'dict.cn',
     urlRule: 'https://apii.dict.cn/mini.php?q={{key}}',
     showRule: 'tag.body@all',
-    sortOrder: 1,
+    sortOrder: 0,
     builtin: true,
   ),
   NovelDictRule(
@@ -180,10 +179,10 @@ const List<NovelDictRule> novelDefaultDictRules = <NovelDictRule>[
     urlRule:
         'data:text/html,<html><body><h2>词条：{{key}}</h2>'
         '<p>这是 mimao 内置的离线示例词典：不联网也能验证「选词 → 查询 → 解析」'
-        '整条链路。真实词典请用「汉典」或导入 Legado 的 dictRules.json。</p>'
+        '整条链路。真实词典请导入 Legado 的 dictRules.json。</p>'
         '</body></html>',
     showRule: 'tag.body@html',
-    sortOrder: 2,
+    sortOrder: 1,
     builtin: true,
   ),
 ];

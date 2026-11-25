@@ -1,7 +1,6 @@
 // 词典规则：URL 展开 / 导入导出 / 查询链路（含离线 data: 规则）/ 存储服务。
 //
 // 全程离线：查询用假传输 + `data:` URL，不碰插件与网络；存储用内存 drift。
-import 'package:drift/drift.dart' hide isNotNull, isNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mimao/novel/dict/novel_dict_rule.dart';

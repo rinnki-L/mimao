@@ -29,6 +29,7 @@ import 'package:mimao/novel/pages/shelf/shelf_cards.dart';
 import 'package:mimao/novel/pages/shelf/shelf_layout_dialog.dart';
 import 'package:mimao/novel/shelf/novel_cover_picker.dart';
 import 'package:mimao/novel/shelf/shelf_view_config.dart';
+import 'package:mimao/novel/tags/novel_tag_rule_service.dart';
 
 /// 书架筛选页签。
 enum NovelShelfFilter { reading, unread, finished, all }
@@ -68,6 +69,7 @@ class NovelShelfPage extends StatefulWidget {
     this.onSelectTab,
     this.coverPicker,
     this.localBooks,
+    this.tagRules,
   });
 
   final bool active;
@@ -85,6 +87,9 @@ class NovelShelfPage extends StatefulWidget {
 
   /// 本地书门面；null 时「添加本地书」入口给能力边界说明。
   final NovelLocalBookStorage? localBooks;
+
+  /// 标签分组规则仓库：只用来取标签配色（标签本身写在 groupName 上）。
+  final NovelTagRuleStorage? tagRules;
 
   @override
   State<NovelShelfPage> createState() => _NovelShelfPageState();
@@ -177,6 +182,20 @@ class _NovelShelfPageState extends State<NovelShelfPage> with RouteAware {
   Future<_ShelfData> _load() async {
     final errors = <String>[];
 
+    // 标签配色（规则表可能没接；读不到不影响书架）。
+    final tagColors = <String, int>{};
+    final tagRules = widget.tagRules;
+    if (tagRules != null) {
+      try {
+        for (final rule in await tagRules.loadAll()) {
+          final color = rule.colorArgb;
+          if (color != null) tagColors[rule.name] = color;
+        }
+      } on Object catch (error) {
+        debugPrint('novel: 书架读取标签规则失败: $error');
+      }
+    }
+
     var collects = const <NovelCollectItem>[];
     final collect = widget.collect;
     if (collect != null) {
@@ -250,6 +269,7 @@ class _NovelShelfPageState extends State<NovelShelfPage> with RouteAware {
       collects: collects,
       recent: recent,
       seriesNames: seriesNames,
+      tagColors: tagColors,
     );
     final groups = <String>{};
     for (final item in collects) {
@@ -270,6 +290,7 @@ class _NovelShelfPageState extends State<NovelShelfPage> with RouteAware {
     required List<NovelCollectItem> collects,
     required List<NovelHistoryItem> recent,
     required Map<int, String> seriesNames,
+    Map<String, int> tagColors = const <String, int>{},
   }) {
     final historyById = <String, NovelHistoryItem>{
       for (final item in recent) item.book.id: item,
@@ -294,6 +315,7 @@ class _NovelShelfPageState extends State<NovelShelfPage> with RouteAware {
           collect: item,
           history: historyItem,
           seriesName: seriesId == null ? null : seriesNames[seriesId],
+          groupColorArgb: tagColors[item.groupName],
         ),
       );
     }
@@ -1001,7 +1023,7 @@ class _NovelShelfPageState extends State<NovelShelfPage> with RouteAware {
         ),
       if (data.groups.isNotEmpty)
         PopupMenuButton<String>(
-          tooltip: '按分组筛选',
+          tooltip: '按分组 / 标签筛选',
           onSelected: (value) => setState(() {
             _group = value.isEmpty ? null : value;
           }),

@@ -59,6 +59,7 @@ import 'package:mimao/music/player/song_collection.dart';
 import 'package:mimao/music/search_history_service.dart';
 import 'package:mimao/novel/collect_service.dart';
 import 'package:mimao/novel/debug/novel_source_debugger.dart';
+import 'package:mimao/novel/dict/novel_dict_service.dart';
 import 'package:mimao/novel/history_service.dart';
 import 'package:mimao/novel/library_api.dart';
 import 'package:mimao/novel/cache/file_novel_cache.dart';
@@ -83,6 +84,8 @@ import 'package:mimao/novel/source/novel_source_repository.dart';
 import 'package:mimao/novel/source/novel_source_store.dart';
 import 'package:mimao/novel/source/novel_subscription.dart';
 import 'package:mimao/novel/stats_service.dart';
+import 'package:mimao/novel/tags/novel_tag_rule_service.dart';
+import 'package:mimao/novel/theme/novel_theme_package_service.dart';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -109,6 +112,9 @@ String? appModulesError;
 ComicDb? _ownedComicDb;
 MusicDb? _ownedMusicDb;
 NovelDb? _ownedNovelDb;
+
+/// registry 自己创建的词典查询服务（内含一个 dio 传输）；reset 时关闭。
+NovelDictLookup? _ownedNovelDictLookup;
 
 /// 测试可见：registry 自建、reset 时会关闭的 ComicDb（生产路径才有值）。
 /// CI 没有 path_provider 插件，用这条缝验证 owned-DB 的关闭语义（closure-02
@@ -210,6 +216,9 @@ Future<void> initAppModules({
 
   /// 在线书源引擎注入缝；生产构造 LegadoNovelEngine（懒加载正文缓存）。
   NovelOnlineEngine? novelOnlineEngine,
+
+  /// 词典查询服务注入缝；生产构造 NovelDictService，测试注入 fake 不碰网络。
+  NovelDictLookup? novelDictLookup,
 }) async {
   // 每次装配都是一次干净开始；避免旧的已关闭 DB 残留在表里。
   await _resetOwnedDb();
@@ -218,6 +227,7 @@ Future<void> initAppModules({
   _ownedComicDb = null;
   _ownedMusicDb = null;
   _ownedNovelDb = null;
+  _ownedNovelDictLookup = null;
 
   final errors = <String>[];
 
@@ -541,6 +551,12 @@ Future<void> initAppModules({
       // 高亮规则与单章正文覆盖：同库不同表，阅读器与编辑页共用。
       final highlightRuleApi = NovelHighlightRuleService(db);
       final contentOverrideApi = NovelContentOverrideService(db);
+      // 词典 / 标签 / 主题包：同库不同表；查询服务带自己的 dio 传输（reset 时关）。
+      final dictRuleApi = NovelDictRuleService(db);
+      final dictLookupApi = novelDictLookup ?? NovelDictService();
+      if (novelDictLookup == null) _ownedNovelDictLookup = dictLookupApi;
+      final tagRuleApi = NovelTagRuleService(db);
+      final themePackageApi = NovelThemePackageService(db);
       // 朗读音频缓存：同库不同表，文件落应用支持目录（惰性解析，装配期零 I/O）。
       final ttsCache = NovelTtsCache.app(db);
       NovelPrefsApi? prefsApi = novelPrefs;
@@ -599,11 +615,24 @@ Future<void> initAppModules({
         contentOverrides: contentOverrideApi,
         ttsCache: ttsCache,
         subscriptionStore: NovelSubscriptionFileStore.lazy(),
+        dictRules: dictRuleApi,
+        dictLookup: dictLookupApi,
+        tagRules: tagRuleApi,
+        themePackages: themePackageApi,
       );
     }
   } catch (error) {
     errors.add('小说模块初始化失败：$error');
     appModules.remove(MediaType.novel);
+    final ownedLookup = _ownedNovelDictLookup;
+    _ownedNovelDictLookup = null;
+    if (ownedLookup != null) {
+      try {
+        ownedLookup.close();
+      } catch (_) {
+        // 与 DB 收尾同款：关不掉也不影响后续重试。
+      }
+    }
     final owned = _ownedNovelDb;
     _ownedNovelDb = null;
     if (owned != null) {
@@ -987,6 +1016,15 @@ Future<void> _resetOwnedDb() async {
     }
   }
   devUnregisterDatabase('novel');
+  final novelDictLookup = _ownedNovelDictLookup;
+  _ownedNovelDictLookup = null;
+  if (novelDictLookup != null) {
+    try {
+      novelDictLookup.close();
+    } catch (_) {
+      // 查询服务只在真正查过词后才持有传输；关闭失败不影响下次装配。
+    }
+  }
   final novelDb = _ownedNovelDb;
   _ownedNovelDb = null;
   if (novelDb != null) {

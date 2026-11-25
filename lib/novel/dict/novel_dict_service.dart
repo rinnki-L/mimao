@@ -288,7 +288,9 @@ class NovelDictService implements NovelDictLookup {
       if (response.statusCode < 200 || response.statusCode >= 400) {
         return NovelDictResult(
           ruleName: rule.name,
-          error: '请求失败（HTTP ${response.statusCode}），站点可能改了地址',
+          error:
+              '请求失败（HTTP ${response.statusCode}）：${analyze.url}\n'
+              '站点可能改了地址，或者这条规则需要额外的请求参数。',
           url: analyze.url,
         );
       }

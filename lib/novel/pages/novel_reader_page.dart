@@ -28,11 +28,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mimao/core/theme.dart';
 import 'package:mimao/novel/bookmark/novel_bookmark_models.dart';
+import 'package:mimao/novel/dict/novel_dict_rule.dart'
+    show normalizeNovelDictWord;
+import 'package:mimao/novel/dict/novel_dict_service.dart'
+    show NovelDictLookup, NovelDictRuleStorage;
 import 'package:mimao/novel/engine/online_engine.dart';
 import 'package:mimao/novel/library_api.dart';
 import 'package:mimao/novel/models/novel_models.dart';
 import 'package:mimao/novel/pages/novel_bookmarks_page.dart';
 import 'package:mimao/novel/pages/novel_content_edit_page.dart';
+import 'package:mimao/novel/pages/novel_dict_page.dart' show showNovelDictSheet;
 import 'package:mimao/novel/pages/novel_highlight_rules_page.dart';
 import 'package:mimao/novel/pages/novel_replace_editor_page.dart';
 import 'package:mimao/novel/reader/novel_bookmark_service.dart';
@@ -41,6 +46,8 @@ import 'package:mimao/novel/reader/novel_content_override_service.dart';
 import 'package:mimao/novel/reader/novel_highlight_rule_service.dart';
 import 'package:mimao/novel/reader/novel_highlight_rules.dart';
 import 'package:mimao/novel/reader/novel_immersive.dart';
+import 'package:mimao/novel/reader/novel_keyboard_assist.dart';
+import 'package:mimao/novel/reader/novel_keyboard_hint_bar.dart';
 import 'package:mimao/novel/reader/novel_locator.dart';
 import 'package:mimao/novel/reader/novel_menu_actions.dart';
 import 'package:mimao/novel/reader/novel_reader_chrome.dart';
@@ -87,6 +94,9 @@ class NovelReaderPage extends StatefulWidget {
     this.contentOverrides,
     this.settingsStore,
     this.bookmarks,
+    this.dictRules,
+    this.dictLookup,
+    this.keyboardStore,
     this.initialLocator,
     this.ttsEngine,
     this.ttsCache,
@@ -108,6 +118,7 @@ class NovelReaderPage extends StatefulWidget {
 
   /// 本地书文件选择缝；null 时导入页用 file_picker 生产实现。
   final NovelLocalFileGate? localFileGate;
+
   final String? author;
   final String? sourceKey;
   final String? bookUrl;
@@ -139,6 +150,13 @@ class NovelReaderPage extends StatefulWidget {
 
   /// 书签/划线门面；null 时阅读器不给书签入口。
   final NovelBookmarkApi? bookmarks;
+
+  /// 词典规则仓库 + 查询服务；两者都注入时选区菜单才有「词典」。
+  final NovelDictRuleStorage? dictRules;
+  final NovelDictLookup? dictLookup;
+
+  /// 键盘键位存储；null 时由 [prefs] 现建（测试可注入内存实现）。
+  final NovelKeyboardAssistStore? keyboardStore;
 
   /// 从书签列表直接打开时带进来的落点；首章据此选章并跳过续读位置。
   final NovelLocator? initialLocator;
@@ -180,6 +198,10 @@ class _NovelReaderPageState extends State<NovelReaderPage>
   /// 自动亮度需要系统亮度接口（Android 侧后续接入 screen_brightness）；
   /// 桌面端没有可靠接口，隐藏该按钮，亮度用遮罩滑杆。
   static bool get _supportsAutoBrightness => !kIsWeb && Platform.isAndroid;
+
+  /// 桌面端才有实体键盘提示浮层的意义（手机一般不看）。
+  static bool get _keyboardHintsSupported =>
+      !kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
 
   final ScrollController _scroll = ScrollController();
   final FocusNode _focus = FocusNode(debugLabel: 'novel-reader');
@@ -228,9 +250,20 @@ class _NovelReaderPageState extends State<NovelReaderPage>
   /// 一次下拉只触发一次加/删书签，避免回弹期间连发。
   bool _swipeBookmarkFired = false;
 
+  /// 键盘辅助：优先用注入的存储，否则按模块 kv 现建（测试可注入内存实现）。
+  late final NovelKeyboardAssistStore _keyboardStore =
+      widget.keyboardStore ?? NovelKeyboardAssistStore(widget.prefs);
+  NovelKeyboardConfig _keyboardConfig = NovelKeyboardConfig.defaults;
+
   @override
   void initState() {
     super.initState();
+    unawaited(
+      _keyboardStore.load().then((config) {
+        if (!mounted) return;
+        setState(() => _keyboardConfig = config);
+      }),
+    );
     _controller = NovelReaderController(
       bookId: widget.bookId,
       title: widget.title,
@@ -813,6 +846,13 @@ class _NovelReaderPageState extends State<NovelReaderPage>
           dismiss();
           if (text.isNotEmpty) unawaited(_openSearch(initialQuery: text));
         },
+        onDict: widget.dictRules == null || widget.dictLookup == null
+            ? null
+            : () {
+                final text = selectedText().trim();
+                dismiss();
+                if (text.isNotEmpty) unawaited(_openDict(text));
+              },
       ),
     );
   }
@@ -1246,6 +1286,26 @@ class _NovelReaderPageState extends State<NovelReaderPage>
     }
   }
 
+  /// 实际生效的快捷键表：保留键（Home/End/Esc）固定，其余来自键盘辅助配置。
+  ///
+  /// 与改造前的差别只有「可配置」：默认配置就是原来那组方向键/翻页键/空格，
+  /// 所以不动设置时行为不变。
+  Map<ShortcutActivator, VoidCallback> _shortcutBindings() {
+    final bindings = <ShortcutActivator, VoidCallback>{
+      const SingleActivator(LogicalKeyboardKey.home): () => _scrollToEdge(0),
+      const SingleActivator(LogicalKeyboardKey.end): () => _scrollToEdge(1),
+      const SingleActivator(LogicalKeyboardKey.escape): _handleEscape,
+    };
+    for (final binding in normalizedNovelKeyboardBindings(
+      _keyboardConfig.bindings,
+    )) {
+      final activator = novelShortcutFor(binding.keys);
+      if (activator == null) continue;
+      bindings[activator] = () => dispatchClickAction(binding.action, this);
+    }
+    return bindings;
+  }
+
   void _refocusReader() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _focus.requestFocus();
@@ -1571,6 +1631,34 @@ class _NovelReaderPageState extends State<NovelReaderPage>
       final target = detail.chapters[picked];
       if (!target.isVolume) await _controller.openChapter(target);
     }
+  }
+
+  /// 选词 → 查词典：面板自己加载规则，改完词典页的规则下一次查词就生效。
+  Future<void> _openDict(String text) async {
+    final store = widget.dictRules;
+    final lookup = widget.dictLookup;
+    final word = normalizeNovelDictWord(text);
+    if (store == null || lookup == null) {
+      _showSnack('词典没有接入，暂时查不了');
+      return;
+    }
+    if (word.isEmpty) {
+      _showSnack('没选中可查的文字');
+      return;
+    }
+    _pauseAutoForSheet();
+    _chromeVisible.value = false;
+    await showNovelDictSheet(
+      context,
+      word: word,
+      store: store,
+      lookup: lookup,
+      theme: _sheetThemeData(),
+    );
+    if (!mounted) return;
+    _chromeVisible.value = true;
+    _resumeAutoFromSheet();
+    _refocusReader();
   }
 
   Future<void> _openSearch({String initialQuery = ''}) async {
@@ -2106,20 +2194,7 @@ class _NovelReaderPageState extends State<NovelReaderPage>
     final settings = _controller.settings;
     final background = novelReaderBackgroundColor(settings);
     return CallbackShortcuts(
-      bindings: <ShortcutActivator, VoidCallback>{
-        const SingleActivator(LogicalKeyboardKey.arrowLeft): () =>
-            _turnPage(-1),
-        const SingleActivator(LogicalKeyboardKey.arrowRight): () =>
-            _turnPage(1),
-        const SingleActivator(LogicalKeyboardKey.arrowUp): () => _turnPage(-1),
-        const SingleActivator(LogicalKeyboardKey.arrowDown): () => _turnPage(1),
-        const SingleActivator(LogicalKeyboardKey.pageUp): () => _turnPage(-1),
-        const SingleActivator(LogicalKeyboardKey.pageDown): () => _turnPage(1),
-        const SingleActivator(LogicalKeyboardKey.home): () => _scrollToEdge(0),
-        const SingleActivator(LogicalKeyboardKey.end): () => _scrollToEdge(1),
-        const SingleActivator(LogicalKeyboardKey.space): _toggleAutoReading,
-        const SingleActivator(LogicalKeyboardKey.escape): _handleEscape,
-      },
+      bindings: _shortcutBindings(),
       child: Focus(
         focusNode: _focus,
         autofocus: true,
@@ -2315,6 +2390,20 @@ class _NovelReaderPageState extends State<NovelReaderPage>
                           ),
                         _buildTopBar(),
                         _buildBottomPanel(displayPageCount),
+                        if (_keyboardConfig.showHints &&
+                            _keyboardHintsSupported)
+                          Positioned(
+                            right: 12,
+                            bottom: 12,
+                            child: IgnorePointer(
+                              child: NovelKeyboardHintBar(
+                                bindings: _keyboardConfig.bindings,
+                                foreground: novelReaderTextColor(settings),
+                                muted: novelReaderSecondaryColor(settings),
+                                background: background,
+                              ),
+                            ),
+                          ),
                       ],
                     );
                   },

@@ -22,6 +22,7 @@ class ShelfBook {
     this.collect,
     this.history,
     this.seriesName,
+    this.groupColorArgb,
   });
 
   final NovelSummary book;
@@ -30,6 +31,9 @@ class ShelfBook {
 
   /// 系列名（收藏行有 seriesId 且系列存在时才有）。
   final String? seriesName;
+
+  /// 分组/标签配色（来自标签规则表；null = 主题默认色）。
+  final int? groupColorArgb;
 
   String get id => book.id;
   String get title => book.title;
@@ -180,9 +184,16 @@ class ShelfGridCard extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
-                if (config.showTags && item.tags.isNotEmpty) ...<Widget>[
+                if (config.showTags &&
+                    (item.tags.isNotEmpty ||
+                        (item.groupName != null &&
+                            item.groupName!.isNotEmpty))) ...<Widget>[
                   const SizedBox(height: 6),
-                  ShelfTagRow(tags: item.tags),
+                  ShelfTagRow(
+                    tags: item.tags,
+                    groupName: item.groupName,
+                    groupColorArgb: item.groupColorArgb,
+                  ),
                 ],
                 if (config.showLatestChapter && item.latestChapter.isNotEmpty)
                   _ExtraLine(text: '最新：${item.latestChapter}'),
@@ -280,7 +291,11 @@ class ShelfWaterfallCard extends StatelessWidget {
                         if (config.showTags &&
                             item.tags.isNotEmpty) ...<Widget>[
                           const SizedBox(height: 6),
-                          ShelfTagRow(tags: item.tags),
+                          ShelfTagRow(
+                            tags: item.tags,
+                            groupName: item.groupName,
+                            groupColorArgb: item.groupColorArgb,
+                          ),
                         ],
                         if (config.showLatestChapter &&
                             item.latestChapter.isNotEmpty)
@@ -390,9 +405,16 @@ class ShelfListRow extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      if (config.showTags && item.tags.isNotEmpty) ...<Widget>[
+                      if (config.showTags &&
+                          (item.tags.isNotEmpty ||
+                              (item.groupName != null &&
+                                  item.groupName!.isNotEmpty))) ...<Widget>[
                         const SizedBox(height: 6),
-                        ShelfTagRow(tags: item.tags),
+                        ShelfTagRow(
+                          tags: item.tags,
+                          groupName: item.groupName,
+                          groupColorArgb: item.groupColorArgb,
+                        ),
                       ],
                       if (config.showLatestChapter &&
                           item.latestChapter.isNotEmpty)
@@ -532,32 +554,59 @@ class ShelfCoverStack extends StatelessWidget {
 }
 
 /// 标签行（分类 chip 的小号变体）。
+///
+/// 分组/标签（标签规则写在 groupName 上的那个）排在最前面，颜色来自规则表：
+/// 用户自选色是数据，不做语义色映射；色块上的文字按亮度取黑/白——与划线
+/// 颜色同款例外（用户数据没有语义角色可依）。
 class ShelfTagRow extends StatelessWidget {
-  const ShelfTagRow({super.key, required this.tags});
+  const ShelfTagRow({
+    super.key,
+    required this.tags,
+    this.groupName,
+    this.groupColorArgb,
+  });
 
   final List<String> tags;
+  final String? groupName;
+  final int? groupColorArgb;
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final group = groupName?.trim() ?? '';
+    final groupColor = groupColorArgb == null ? null : Color(groupColorArgb!);
+    Widget chip(String label, {Color? background, Color? foreground}) =>
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+          decoration: BoxDecoration(
+            color: background ?? cs.secondaryContainer,
+            borderRadius: BorderRadius.circular(MimaoRadii.sm),
+          ),
+          child: Text(
+            label,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: foreground ?? cs.onSecondaryContainer,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        );
     return Wrap(
       spacing: 4,
       runSpacing: 4,
       children: <Widget>[
-        for (final tag in tags)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-            decoration: BoxDecoration(
-              color: cs.secondaryContainer,
-              borderRadius: BorderRadius.circular(MimaoRadii.sm),
-            ),
-            child: Text(
-              tag,
-              style: Theme.of(
-                context,
-              ).textTheme.labelSmall?.copyWith(color: cs.onSecondaryContainer),
-            ),
+        if (group.isNotEmpty)
+          chip(
+            group,
+            background: groupColor,
+            foreground: groupColor == null
+                ? null
+                : (groupColor.computeLuminance() > .55
+                      ? const Color(0xFF1A1A1A)
+                      : const Color(0xFFFFFFFF)),
           ),
+        for (final tag in tags) chip(tag),
       ],
     );
   }
