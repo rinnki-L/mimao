@@ -1183,18 +1183,32 @@ class _NovelReaderPageState extends State<NovelReaderPage>
     }
   }
 
-  /// 「更多动作」面板：底栏放不下的动作收在这里，不静默丢掉。
+  /// 「更多动作」面板：底栏 / 浮动行按「每行几个 × 几行」放不下的动作收在这里。
+  ///
+  /// 只列真正被挤出去的那批，不是把三处菜单栏的全部动作再列一遍——
+  /// 否则这个入口就变成「第二份底栏」，跟「放不下才出现」的语义不符。
   Future<void> _openMoreActions() async {
     final contextSnapshot = _menuActionContext;
+    final settings = _controller.settings;
     final defs = <NovelMenuActionDef>[];
-    for (final bar in NovelMenuBar.values) {
-      for (final def in resolveNovelMenuActions(
-        items: _controller.settings.menuBarItems(bar),
+    void collectOverflow(List<NovelMenuButtonItem> items) {
+      final actions = resolveNovelMenuActions(
+        items: items,
         context: contextSnapshot,
-      )) {
+      );
+      final layout = layoutNovelMenuRows(
+        actions: actions,
+        itemsPerRow: settings.menuIconItemsPerRow,
+        rowCount: settings.menuIconRowCount,
+        showMore: true,
+      );
+      for (final def in layout.overflow) {
         if (!defs.any((existing) => existing.id == def.id)) defs.add(def);
       }
     }
+
+    collectOverflow(settings.bottomBarMenu);
+    collectOverflow(settings.floatingBarMenu);
     _pauseAutoForSheet();
     _chromeVisible.value = false;
     final picked = await showModalBottomSheet<NovelMenuActionDef>(
@@ -1210,8 +1224,10 @@ class _NovelReaderPageState extends State<NovelReaderPage>
                 ListTile(
                   key: const Key('novel-more-actions-empty'),
                   leading: const Icon(Icons.info_outline),
-                  title: const Text('没有可用的动作'),
-                  subtitle: const Text('当前这本书没有已启用的动作；去「阅读设置 → 菜单」里勾几个'),
+                  title: const Text('没有放不下的动作'),
+                  subtitle: const Text(
+                    '底栏与浮动行的动作都直接显示着；想收起来就去「阅读设置 → 菜单」把每行个数调小',
+                  ),
                 )
               else
                 for (final def in defs)

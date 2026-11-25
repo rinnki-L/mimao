@@ -238,7 +238,9 @@ class NovelReaderBottomPanel extends StatelessWidget {
       actions: actions,
       itemsPerRow: settings.menuIconItemsPerRow,
       rowCount: settings.menuIconRowCount,
-      showMore: false,
+      // 放不下时把最后一个格子让给「更多动作」入口：宁可多一次点击，
+      // 也不能让用户配好的动作在底栏上凭空消失。
+      showMore: true,
     );
 
     return Material(
@@ -1249,7 +1251,8 @@ class NovelReaderFloatingBar extends StatelessWidget {
       actions: actions,
       itemsPerRow: settings.menuIconItemsPerRow,
       rowCount: settings.menuIconRowCount,
-      showMore: false,
+      // 同底栏：放不下的收进「更多动作」，不静默丢。
+      showMore: true,
     );
     final text = novelReaderTextColor(settings);
     final secondary = novelReaderSecondaryColor(settings);

@@ -213,4 +213,32 @@ void main() {
     final shape = panel.shape! as RoundedRectangleBorder;
     expect(shape.borderRadius, BorderRadius.zero);
   });
+
+  testWidgets('底栏放不下的动作收进「更多动作」，不静默消失', (tester) async {
+    // 每行 2 个、1 行 = 容量 2；配 4 个动作 → 1 个 + 「更多动作」入口。
+    await _pump(
+      tester,
+      const NovelReaderSettings(
+        menuIconItemsPerRow: 2,
+        menuIconRowCount: 1,
+        bottomBarMenu: <NovelMenuButtonItem>[
+          NovelMenuButtonItem(novelMenuActionSearch),
+          NovelMenuButtonItem(novelMenuActionCatalog),
+          NovelMenuButtonItem(novelMenuActionTts),
+          NovelMenuButtonItem(novelMenuActionSettings),
+        ],
+      ),
+    );
+
+    // 第一个动作 + 「更多动作」入口可见；被挤出的不直接渲染。
+    expect(find.byKey(const Key('novel-reader-search')), findsOneWidget);
+    expect(find.byKey(const Key('novel-reader-moreActions')), findsOneWidget);
+    expect(find.byKey(const Key('novel-reader-settings')), findsNothing);
+
+    // 点开「更多动作」能看到被挤出的那批。
+    await tester.tap(find.byKey(const Key('novel-reader-moreActions')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('novel-more-action-catalog')), findsOneWidget);
+    expect(find.byKey(const Key('novel-more-action-menu')), findsOneWidget);
+  });
 }
