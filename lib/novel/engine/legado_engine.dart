@@ -260,6 +260,9 @@ class LegadoNovelEngine
       final latestChapter = cleanTitle(
         await analyzer.getString(rules.infoLastChapter),
       );
+      final updateTime = cleanTitle(
+        await analyzer.getString(rules.infoUpdateTime),
+      );
       final wordCount = cleanTitle(
         await analyzer.getString(rules.infoWordCount),
       );
@@ -279,6 +282,7 @@ class LegadoNovelEngine
         kind: kindList == null ? '' : kindList.join(','),
         latestChapter: latestChapter,
         wordCount: wordCount,
+        updateTime: updateTime,
         coverUrl: coverUrl,
       );
 
@@ -798,6 +802,11 @@ class LegadoNovelEngine
           : (rules.exploreLastChapter.isEmpty
                 ? rules.searchLastChapter
                 : rules.exploreLastChapter);
+      final updateTimeRule = isSearch
+          ? rules.searchUpdateTime
+          : (rules.exploreUpdateTime.isEmpty
+                ? rules.searchUpdateTime
+                : rules.exploreUpdateTime);
       final wordCountRule = isSearch
           ? rules.searchWordCount
           : (rules.exploreWordCount.isEmpty
@@ -838,6 +847,9 @@ class LegadoNovelEngine
             kind: kindList.join(','),
             latestChapter: cleanTitle(await analyzer.getString(latestRule)),
             wordCount: cleanTitle(await analyzer.getString(wordCountRule)),
+            updateTime: updateTimeRule.isEmpty
+                ? ''
+                : cleanTitle(await analyzer.getString(updateTimeRule)),
             type: source.type,
           ),
         );
@@ -1008,6 +1020,7 @@ class LegadoNovelEngine
     String kind = '',
     String latestChapter = '',
     String wordCount = '',
+    String updateTime = '',
     String coverUrl = '',
   }) => NovelDetail(
     ref: NovelRef(
@@ -1023,6 +1036,7 @@ class LegadoNovelEngine
     kind: kind,
     latestChapter: latestChapter,
     wordCount: wordCount,
+    updateTime: updateTime,
   );
 
   NovelSummary _summaryOf(NovelRef ref, NovelChapter chapter) => NovelSummary(

@@ -274,10 +274,7 @@ List<NovelShelfSection<T>> groupShelfByFolder<T>({
 
 /// 系列归组结果：系列节（按系列名排序）+ 不属于任何系列的散书。
 class NovelShelfSeriesGrouping<T> {
-  const NovelShelfSeriesGrouping({
-    required this.series,
-    required this.singles,
-  });
+  const NovelShelfSeriesGrouping({required this.series, required this.singles});
 
   final List<NovelShelfSection<T>> series;
   final List<T> singles;
@@ -321,6 +318,8 @@ NovelShelfSeriesGrouping<T> groupShelfBySeries<T>({
 
 /// 自动列数：窗口宽度 / 封面宽度，夹到 3..10（与改造前一致的下限）。
 int autoShelfColumns(double width, double coverWidth) {
-  final target = coverWidth <= 0 ? NovelShelfViewConfig.defaultCoverWidth : coverWidth;
+  final target = coverWidth <= 0
+      ? NovelShelfViewConfig.defaultCoverWidth
+      : coverWidth;
   return (width / target).floor().clamp(3, 10).toInt();
 }

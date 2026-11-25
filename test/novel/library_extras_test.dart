@@ -69,6 +69,78 @@ void main() {
     expect(await collect.list(), hasLength(3));
   });
 
+  test('备注 / 自定义封面：写入收藏行，空白归一成空串，未收藏行是空操作', () async {
+    await collect.collect(book('b1', '三体'));
+    await collect.setNote('b1', '  读到第二部再回来  ');
+    await collect.setCustomCover('b1', 'C:/covers/b1.png');
+
+    var item = (await collect.list()).single;
+    expect(item.note, '读到第二部再回来');
+    expect(item.customCoverPath, 'C:/covers/b1.png');
+    expect(item.effectiveCoverUrl, 'C:/covers/b1.png');
+
+    // 恢复书源封面 → 退回 book.coverUrl。
+    await collect.setCustomCover('b1', '   ');
+    item = (await collect.list()).single;
+    expect(item.customCoverPath, isNull);
+    expect(item.effectiveCoverUrl, item.book?.coverUrl ?? '');
+
+    await collect.setNote('b1', '');
+    expect((await collect.list()).single.note, '');
+
+    // 不存在的书不凭空造行。
+    await collect.setNote('ghost', '不该落库');
+    await collect.setCustomCover('ghost', 'x.png');
+    expect(await collect.list(), hasLength(1));
+  });
+
+  test('系列：新建去重复用、批量归属、删除只解绑、悬挂 id 不写入', () async {
+    await collect.collect(book('b1', '三体'));
+    await collect.collect(book('b2', '黑暗森林'));
+    await collect.collect(book('b3', '死神永生'));
+
+    final id = await collect.createSeries('地球往事');
+    // 同名（含首尾空白）复用同一个系列。
+    expect(await collect.createSeries('  地球往事 '), id);
+    expect(await collect.series(), hasLength(1));
+
+    await collect.setSeriesFor(<String>['b1', 'b2', 'b3'], id);
+    final items = await collect.list();
+    expect(items.every((item) => item.seriesId == id), isTrue);
+
+    await collect.renameSeries(id, '三体三部曲');
+    expect((await collect.series()).single.name, '三体三部曲');
+
+    // 移出一本。
+    await collect.setSeriesFor(<String>['b3'], null);
+    expect(
+      (await collect.list()).where((item) => item.seriesId == id),
+      hasLength(2),
+    );
+
+    // 悬挂 id 不写进收藏行（系列可能刚被删掉）。
+    await collect.setSeriesFor(<String>['b3'], 9999);
+    expect(
+      (await collect.list()).firstWhere((item) => item.ref.id == 'b3').seriesId,
+      isNull,
+    );
+
+    // 删除系列：成员解绑，书都还在。
+    await collect.deleteSeries(id);
+    expect(await collect.series(), isEmpty);
+    expect(await collect.list(), hasLength(3));
+    expect(
+      (await collect.list()).every((item) => item.seriesId == null),
+      isTrue,
+    );
+  });
+
+  test('系列名不能为空', () async {
+    expect(() => collect.createSeries('   '), throwsArgumentError);
+    final id = await collect.createSeries('系列');
+    expect(() => collect.renameSeries(id, ''), throwsArgumentError);
+  });
+
   test('统计：阅读时长按天累加、目标读写，书籍/收藏计数来自内部库', () async {
     var snapshot = await stats.snapshot();
     expect(snapshot.booksRead, 0);

@@ -182,7 +182,9 @@ String applyExplorePageParam(
 List<List<({int index, double? factor, double grow})>> layoutExploreKindRows(
   List<NovelExploreKind> kinds,
 ) {
-  if (kinds.isEmpty) return const <List<({int index, double? factor, double grow})>>[];
+  if (kinds.isEmpty) {
+    return const <List<({int index, double? factor, double grow})>>[];
+  }
   final slots = <({int index, double? factor, double grow})>[
     for (var i = 0; i < kinds.length; i++)
       (
@@ -222,4 +224,3 @@ List<List<({int index, double? factor, double grow})>> layoutExploreKindRows(
   if (row.isNotEmpty) rows.add(row);
   return rows;
 }
-

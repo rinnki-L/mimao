@@ -94,6 +94,7 @@ class NovelSummary {
     this.kind = '',
     this.latestChapter = '',
     this.wordCount = '',
+    this.updateTime = '',
     this.type = 0,
   });
 
@@ -112,6 +113,10 @@ class NovelSummary {
   final String kind;
   final String latestChapter;
   final String wordCount;
+
+  /// 书源给的更新时间原文（`ruleExplore/updateTime` 等规则的输出）。
+  /// 可能是 `2026-11-25` 也可能是 `3小时前`，原样保存，展示时再判定。
+  final String updateTime;
 
   /// legado `bookSourceType`：0 文本 / 1 音频 / 2 图片 / 3 文件 / 4 视频。
   final int type;
@@ -135,6 +140,7 @@ class NovelSummary {
     if (kind.isNotEmpty) 'kind': kind,
     if (latestChapter.isNotEmpty) 'latestChapter': latestChapter,
     if (wordCount.isNotEmpty) 'wordCount': wordCount,
+    if (updateTime.isNotEmpty) 'updateTime': updateTime,
     if (type != 0) 'type': type,
   };
 
@@ -150,6 +156,7 @@ class NovelSummary {
     kind: '${json['kind'] ?? ''}',
     latestChapter: '${json['latestChapter'] ?? ''}',
     wordCount: '${json['wordCount'] ?? ''}',
+    updateTime: '${json['updateTime'] ?? ''}',
     type: json['type'] is num ? (json['type']! as num).toInt() : 0,
   );
 }
@@ -165,6 +172,7 @@ class NovelDetail {
     this.kind = '',
     this.latestChapter = '',
     this.wordCount = '',
+    this.updateTime = '',
     this.chapters = const <NovelChapter>[],
   });
 
@@ -176,6 +184,9 @@ class NovelDetail {
   final String kind;
   final String latestChapter;
   final String wordCount;
+
+  /// 详情页给的更新时间原文（书源没配规则时为空串）。
+  final String updateTime;
   final List<NovelChapter> chapters;
 
   NovelSummary get summary => NovelSummary(
@@ -190,6 +201,7 @@ class NovelDetail {
     kind: kind,
     latestChapter: latestChapter,
     wordCount: wordCount,
+    updateTime: updateTime,
     type: 0,
   );
 
@@ -202,6 +214,7 @@ class NovelDetail {
     if (kind.isNotEmpty) 'kind': kind,
     if (latestChapter.isNotEmpty) 'latestChapter': latestChapter,
     if (wordCount.isNotEmpty) 'wordCount': wordCount,
+    if (updateTime.isNotEmpty) 'updateTime': updateTime,
     'chapters': <Object?>[for (final chapter in chapters) chapter.toJson()],
   };
 
@@ -218,6 +231,7 @@ class NovelDetail {
     kind: '${json['kind'] ?? ''}',
     latestChapter: '${json['latestChapter'] ?? ''}',
     wordCount: '${json['wordCount'] ?? ''}',
+    updateTime: '${json['updateTime'] ?? ''}',
     chapters: <NovelChapter>[
       for (final raw
           in (json['chapters'] as List<Object?>? ?? const <Object?>[]))

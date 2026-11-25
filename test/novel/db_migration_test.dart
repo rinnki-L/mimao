@@ -6,6 +6,7 @@
 import 'package:drift/drift.dart' hide isNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mimao/novel/models/novel_models.dart';
 import 'package:mimao/novel/novel_db.dart';
 
 /// 最小 QueryExecutorUser：让 executor 通过 ensureOpen 的开启检查。
@@ -55,17 +56,50 @@ void main() {
         .insert(NovelPrefsCompanion.insert(key: 'k', value: 'v'));
     expect((await db.select(db.novelPrefs).get()).single.value, 'v');
 
-    await db
-        .into(db.novelReadingDays)
+    // 阅读记录表在 v8 才建（v2 只建 kv）；这里不再断言旧 `novel_reading_day`。
+  });
+
+  test('v5→v6 迁移：备注/自定义封面/系列列与系列表建成，旧行保留', () async {
+    final executor = NativeDatabase.memory();
+    await executor.ensureOpen(_OpenUser());
+
+    // 手造 v5 形态的收藏表（有 group_name，没有 note/custom_cover_path/series_id）。
+    await executor.runCustom(
+      'CREATE TABLE novel_collect (id TEXT NOT NULL PRIMARY KEY, '
+      'title TEXT NOT NULL, cover_url TEXT NULL, payload TEXT NOT NULL '
+      "DEFAULT '{}', group_name TEXT NULL, collected_at INTEGER NOT NULL)",
+    );
+    await executor.runCustom(
+      'INSERT INTO novel_collect (id, title, payload, group_name, collected_at) '
+      "VALUES ('b1', '老书', '{}', '科幻', 0)",
+    );
+
+    final db = NovelDb.forTesting(executor);
+    addTearDown(() => db.close());
+
+    final migrator = Migrator(db);
+    await db.migration.onUpgrade(migrator, 5, 6);
+
+    final rows = await db.select(db.novelCollectEntries).get();
+    expect(rows, hasLength(1));
+    expect(rows.single.groupName, '科幻');
+    // 新列取默认值，无需回填。
+    expect(rows.single.note, '');
+    expect(rows.single.customCoverPath, isNull);
+    expect(rows.single.seriesId, isNull);
+
+    // 系列表建成且可写；外键列能指向它。
+    final seriesId = await db
+        .into(db.novelSeriesEntries)
         .insert(
-          NovelReadingDaysCompanion.insert(
-            day: '2026-11-23',
-            updatedAt: DateTime(2026, 11, 23),
+          NovelSeriesEntriesCompanion.insert(
+            name: '地球往事',
+            createdAt: DateTime(2026, 11, 25),
           ),
         );
-    expect(
-      (await db.select(db.novelReadingDays).get()).single.day,
-      '2026-11-23',
-    );
+    await (db.update(db.novelCollectEntries)..where((t) => t.id.equals('b1')))
+        .write(NovelCollectEntriesCompanion(seriesId: Value(seriesId)));
+    final updated = await db.collectRow(NovelRef(id: 'b1'));
+    expect(updated?.seriesId, seriesId);
   });
 }
