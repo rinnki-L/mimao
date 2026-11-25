@@ -1567,6 +1567,15 @@ class _NovelReaderPageState extends State<NovelReaderPage>
                 onTap: () => Navigator.of(sheetContext).pop('cache'),
               ),
               ListTile(
+                key: const Key('novel-more-add-bookmark'),
+                leading: const Icon(Icons.bookmark_add_outlined),
+                title: const Text('加书签 / 删书签'),
+                subtitle: const Text('存下当前段落；同一位置再点即删'),
+                onTap: _controller.bookmarksReady
+                    ? () => Navigator.of(sheetContext).pop('bookmark')
+                    : null,
+              ),
+              ListTile(
                 key: const Key('novel-more-bookmarks'),
                 leading: const Icon(Icons.bookmark_border),
                 title: const Text('全书书签'),
@@ -1629,6 +1638,8 @@ class _NovelReaderPageState extends State<NovelReaderPage>
     switch (picked) {
       case 'cache':
         await _cacheWholeBook();
+      case 'bookmark':
+        await _toggleBookmark();
       case 'bookmarks':
         await _openBookmarks();
       case 'contentEdit':
